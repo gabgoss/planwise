@@ -43,6 +43,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 import backlog_loop
+import parse_backlog
 import score_backlog
 
 CONFIG_YAML_FIXTURE = """project:
@@ -227,6 +228,92 @@ class TestInit(_LoopFixtureBase):
         # High items: 001 (A), 003 (C, excluded), 004 (held).
         self.assertEqual([q["id"] for q in narrowed["queue"]], ["001"])
         self.assertEqual(self.read_run(narrowed)["filters"]["priority"], "High")
+
+
+class TestRepeatedRowId(_LoopFixtureBase):
+    """A repeated row id in the hub index is refused before anything keys rows
+    by id, with the same message `parse_backlog.py` prints.
+
+    Without the guard the loop keyed rows last-wins: the repeated id queued
+    twice, and a copy with an empty Blocks cell dropped the edge the other
+    copy carried.
+    """
+
+    def repeat_row(self, item_id: str, blocks: str | None = None) -> None:
+        """Insert a second copy of an item's hub row directly after the first."""
+        hub = self.backlog_dir / "00-Index-Backlog.md"
+        out = []
+        for line in hub.read_text(encoding="utf-8").splitlines(keepends=True):
+            out.append(line)
+            if line.startswith(f"| {item_id} |"):
+                copy = line
+                if blocks is not None:
+                    cells = line.split("|")
+                    cells[7] = f" {blocks} " if blocks else " "
+                    copy = "|".join(cells)
+                out.append(copy)
+        hub.write_text("".join(out), encoding="utf-8")
+
+    def run_files(self) -> list[Path]:
+        return sorted(self.runs_dir.rglob("*")) if self.runs_dir.exists() else []
+
+    def test_baseline_without_a_repeat_still_queues(self):
+        payload = self.init("--mode", "all")
+
+        # 005 stays held: 006's Blocks cell names it.
+        self.assertEqual([q["id"] for q in payload["queue"]], ["001", "002", "006", "007"])
+
+    def test_init_refuses_a_repeated_id_and_writes_no_run_file(self):
+        self.repeat_row("001", blocks="")
+
+        code, _text, payload = self.loop("--init", "--mode", "all")
+
+        self.assertEqual(code, 1)
+        self.assertIn("duplicate row id(s) in the backlog index: 001, 001", payload["error"])
+        self.assertIn("each id must appear on exactly one row", payload["error"])
+        self.assertEqual(self.run_files(), [])
+
+    def test_init_refuses_a_repeat_that_would_drop_a_blocks_edge(self):
+        # 006's second copy has an empty Blocks cell. Last-wins keying released 005.
+        self.repeat_row("006", blocks="")
+
+        code, _text, payload = self.loop("--init", "--mode", "all")
+
+        self.assertEqual(code, 1)
+        self.assertIn("006", payload["error"])
+        self.assertNotIn("007", payload["error"])
+        self.assertEqual(self.run_files(), [])
+
+    def test_next_refuses_a_repeated_id_and_leaves_the_run_file_alone(self):
+        payload = self.init("--mode", "all")
+        before = self.run_path(payload).read_bytes()
+        self.repeat_row("001")
+
+        code, _text, refused = self.loop("--next", "--run", payload["run"])
+
+        self.assertEqual(code, 1)
+        self.assertIn("duplicate row id(s) in the backlog index: 001, 001", refused["error"])
+        self.assertEqual(self.run_path(payload).read_bytes(), before)
+
+    def test_skipped_mark_refuses_a_repeated_id_and_leaves_the_run_file_alone(self):
+        payload = self.init("--mode", "all")
+        self.loop("--next", "--run", payload["run"])
+        before = self.run_path(payload).read_bytes()
+        self.repeat_row("001")
+
+        code, _text, refused = self.loop(
+            "--mark", "--run", payload["run"], "--id", "001", "--outcome", "SKIPPED"
+        )
+
+        self.assertEqual(code, 1)
+        self.assertIn("001", refused["error"])
+        self.assertEqual(self.run_path(payload).read_bytes(), before)
+
+    def test_duplicate_row_ids_groups_spellings_of_one_id(self):
+        rows = [{"id": "001"}, {"id": "002"}, {"id": "1"}, {"id": "003"}, {"id": "002"}]
+
+        self.assertEqual(parse_backlog.duplicate_row_ids(rows), [["001", "1"], ["002", "002"]])
+        self.assertEqual(parse_backlog.duplicate_row_ids(rows[:2] + rows[3:4]), [])
 
 
 class TestInitArchivedBlockerInDependenciesTable(_LoopFixtureBase):

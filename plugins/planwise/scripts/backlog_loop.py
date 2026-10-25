@@ -57,6 +57,8 @@ from parse_backlog import (
     _read_backlog_items,
     build_blocked_by_map,
     collect_archived_closed_ids,
+    duplicate_row_ids,
+    duplicate_row_ids_message,
     filter_items,
     parse_dependencies_table,
 )
@@ -256,6 +258,17 @@ def hub_family_rows(config: dict) -> list[dict]:
     for path in _enumerate_generated_files(config["_backlog_dir"], naming):
         rows.extend(_read_backlog_items(path))
     return rows
+
+
+def refuse_repeated_row_ids(rows: list[dict]) -> None:
+    """Refuse an index that repeats a row id, the way `parse_backlog.py` does.
+
+    Call it before anything keys `rows` by id. A repeated id would otherwise
+    queue twice and let the last copy's Blocks cell replace the first's.
+    """
+    duplicates = duplicate_row_ids(rows)
+    if duplicates:
+        raise LoopExit(EXIT_USAGE, duplicate_row_ids_message(duplicates))
 
 
 def still_selectable(config: dict, rows_by_norm: dict, item_id: str) -> bool:
@@ -541,12 +554,18 @@ def cmd_init(args, config: dict) -> int:
     if args.refine_max < 0:
         raise LoopExit(EXIT_USAGE, "--refine-max takes a number of 0 or more")
 
+    # Refuse a repeated row id before the rows are scored or keyed by id, and
+    # before any run file is written.
+    hub_rows = hub_family_rows(config)
+    refuse_repeated_row_ids(hub_rows)
+
     items, frontmatters, scores, _open_ids = load_scored_items(config)
     if not items:
         raise LoopExit(EXIT_USAGE, "No items found in backlog index.")
+    refuse_repeated_row_ids(items)
 
     # The scored rows carry no `blocks`; join it from parse_backlog's own reader.
-    blocks_by_norm = {normalize_id(row["id"]): row.get("blocks", []) for row in hub_family_rows(config)}
+    blocks_by_norm = {normalize_id(row["id"]): row.get("blocks", []) for row in hub_rows}
     for item in items:
         item["blocks"] = list(blocks_by_norm.get(normalize_id(item["id"]), []))
     try:
@@ -795,6 +814,7 @@ def cmd_next(args, config: dict) -> int:
         changed = True
         if rows_by_norm is None:
             rows = _read_hub_family_items(config["_index_path"], config["_backlog_dir"])
+            refuse_repeated_row_ids(rows)
             rows_by_norm = {normalize_id(row["id"]): row for row in rows}
         info = run.get("queue_meta", {}).get(item_id, {})
         now = now_iso()
@@ -1012,10 +1032,9 @@ def cmd_mark(args, config: dict) -> int:
             # A skip hands the item back the way the loop found it. A documented
             # skip also writes the question into the item file, so the next
             # interactive run finds it.
-            rows_by_norm = {
-                normalize_id(row["id"]): row
-                for row in _read_hub_family_items(config["_index_path"], config["_backlog_dir"])
-            }
+            skip_rows = _read_hub_family_items(config["_index_path"], config["_backlog_dir"])
+            refuse_repeated_row_ids(skip_rows)
+            rows_by_norm = {normalize_id(row["id"]): row for row in skip_rows}
             item_path, status_now = item_status_of(config, rows_by_norm, key)
             if args.decision is not None and item_path is None:
                 raise LoopExit(EXIT_USAGE, f"--decision could not find the item file for {key}")

@@ -572,6 +572,28 @@ def write_json(items: list[dict]) -> str:
     return json_path
 
 
+def duplicate_row_ids(items: list[dict]) -> list[list[str]]:
+    """Group the rows of one id: one list of spellings per id that repeats.
+
+    Ids compare through `normalize_id`, so `001` and `1` count as one id. A
+    caller runs this before anything keys rows by id: a repeated id would
+    otherwise collapse to whichever copy a dict kept last.
+    """
+    spellings_by_id: dict[str, list[str]] = {}
+    for item in items:
+        spellings_by_id.setdefault(normalize_id(item["id"]), []).append(item["id"])
+    return [spellings for spellings in spellings_by_id.values() if len(spellings) > 1]
+
+
+def duplicate_row_ids_message(duplicates: list[list[str]]) -> str:
+    """The one error text every reader of the backlog index prints for a repeated id."""
+    named = "; ".join(", ".join(spellings) for spellings in duplicates)
+    return (
+        f"Error: duplicate row id(s) in the backlog index: {named} -- "
+        f"each id must appear on exactly one row."
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Parse the backlog index and output filtered items."
@@ -624,19 +646,10 @@ def main():
     for path in hub_family_files:
         all_items.extend(_read_backlog_items(path))
 
-    # Count ids before anything below keys rows by id: a repeated id would
-    # otherwise collapse to whichever copy a dict kept last.
-    spellings_by_id: dict[str, list[str]] = {}
-    for item in all_items:
-        spellings_by_id.setdefault(normalize_id(item["id"]), []).append(item["id"])
-    duplicates = [spellings for spellings in spellings_by_id.values() if len(spellings) > 1]
+    # Count ids before anything below keys rows by id.
+    duplicates = duplicate_row_ids(all_items)
     if duplicates:
-        named = "; ".join(", ".join(spellings) for spellings in duplicates)
-        print(
-            f"Error: duplicate row id(s) in the backlog index: {named} -- "
-            f"each id must appear on exactly one row.",
-            file=sys.stderr,
-        )
+        print(duplicate_row_ids_message(duplicates), file=sys.stderr)
         sys.exit(1)
 
     if args.id and normalize_id(args.id) not in {normalize_id(i["id"]) for i in all_items}:
