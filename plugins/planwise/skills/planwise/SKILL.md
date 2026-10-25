@@ -28,7 +28,7 @@ The injected line above also prints a `planwise: …` version notice when the co
 | Subcommand | Handler |
 |-----------|---------|
 | `init` | Read [handlers/init.md](../../handlers/init.md) |
-| `plan` | Read [handlers/plan.md](../../handlers/plan.md) |
+| `plan` | Read [handlers/plan.md](../../handlers/plan.md). Its Config Gate reads the injected `<!-- planwise:plan:begin -->` block first |
 | `review` | Read [handlers/review.md](../../handlers/review.md) |
 | `run` | Read [handlers/run.md](../../handlers/run.md) |
 | `upgrade` | Follow [Upgrade](#upgrade) below (the preflight card, the handler is its fallback) |
@@ -130,7 +130,7 @@ ARGUMENTS: $ARGUMENTS
 
 ## Base Context
 
-**Pre-injected with this skill** — apply to every subcommand (mirrored by each handler's **Base references** note):
+**Linked from this skill, not loaded by it** — these apply to every subcommand. Read one when a step cites it:
 
 - [Markdown conventions](../../references/markdown-conventions.md)
 - [Callout conventions](../../references/callout-conventions.md)

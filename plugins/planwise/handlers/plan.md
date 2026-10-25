@@ -29,6 +29,12 @@ Reading order by mode: Standard mode reads this file, then Part 2, then Part 3. 
 
 ## Config Gate (Auto-Init Fallback)
 
+0. Read the injected block first. `scripts/skill_preflight.py` renders this gate through the skill's shell line, between `<!-- planwise:plan:begin -->` and `<!-- planwise:plan:end -->`. Route by what the block holds:
+   - A `config:` line and the field lines, no fallback line: take the config path and the five fields from the block, and continue to Required References. Read no file. A ` (default)` suffix marks a value `config.yaml` does not set, and ` (missing on disk)` marks a configured `plugin_root` that does not exist.
+   - A `PLANWISE_PLAN_FALLBACK:` line reading `config.yaml not found`: go to step 3.
+   - A `PLANWISE_PLAN_FALLBACK:` line reading `parse error`: apply the Config Malformed gate below.
+   - Any other fallback line, no block, or `[shell command execution disabled by policy]`: follow steps 1-2 as written.
+
 1. Resolve config.yaml:
    a. Check `planwise/config.yaml` (default planwise root)
    b. If not found, search one level down from project root for `*/config.yaml`
@@ -255,7 +261,8 @@ Orchestration and Recovery files inside `Meta-{Abbrev}/` use the standard naming
 
 ## Additional Resources
 
-- [session-planning-protocol.md](../references/session-planning-protocol.md) -- Detailed protocol: plan hierarchy, naming conventions, agent delegation, recovery, checklists, git workflow, READ-CONFIRM-ACT
+- [session-planning-protocol.md](../references/session-planning-protocol.md) -- Detailed protocol: plan hierarchy, naming conventions, agent delegation, recovery, checklists, git workflow
+- [read-confirm-act-protocol.md](../references/read-confirm-act-protocol.md) -- READ-CONFIRM-ACT and the structural-findings gate
 - [templates/](../templates/) -- All plan templates (including scaffolding master plan)
 - [examples/sample-plan-output.md](../examples/sample-plan-output.md) -- Example standard plan
 - [examples/sample-scaffolding-output.md](../examples/sample-scaffolding-output.md) -- Example scaffolding from Discovery
