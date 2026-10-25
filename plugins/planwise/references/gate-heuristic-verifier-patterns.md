@@ -6,9 +6,7 @@ paths: {planwise_root}/{plans_dir}/**
 
 # Gate Heuristic Verifier Patterns (Match Sets, Formats, Denominators, Exclusions, Units)
 
-**Purpose:** Rules for the match pattern of a verification task whose body is a grep or awk pattern plus a count or coverage threshold. The pattern's match set must be the property's extension, and the four failure shapes in §1 are what happens when it is not. Split from `verification-task-authoring.md` on 2026-10-08. Section numbers are kept from that reference, so an existing `verification-task-authoring.md §N` citation translates by filename alone. The family index is `verification-task-authoring.md`.
-
-**Read this when** you author or review a verification task built on a count threshold, a coverage ratio, a keyword-proximity heuristic, or a bare "condition ⇒ defect" rule handed to a runner. Read §13 when a predicate asserts a count of sessions, boundaries, files, rows or events.
+**Purpose:** Rules for the match pattern of a verification task whose body is a grep or awk pattern plus a count or coverage threshold. The pattern's match set must be the property's extension, and the failure shapes in §1 are what happens when it is not. Split from `verification-task-authoring.md` on 2026-10-08. Section numbers are kept from that reference, so an existing `verification-task-authoring.md §N` citation translates by filename alone. The family index is `verification-task-authoring.md`.
 
 ## Table of Contents
 
@@ -30,7 +28,21 @@ Two recurring failure modes in verification-task specs share one root cause: a m
 | Anchored aggregate count threshold (`grep -cE '^…' … expect ≥N`) | Verifier reports Actual<Expected yet marks PASS with arithmetic fudging, OR marks FAIL when source format produced fewer matchable instances than the threshold requires | Orchestrator hand-reconciles every flagged row; downstream tasks blocked or, worse, allowed to proceed on a fudged PASS |
 | Keyword-proximity coverage gate (`grep -B1 keyword \| grep -c tag`) | Verifier reports `N/M` with `M` inflated by prose mentions, table headers, fenced pseudo-code; emits hard BLOCKER on zero genuine misses | Sibling tasks routed back for rework that is not needed; orchestrator must read source to adjudicate |
 
-Both anti-patterns also share a secondary defect: when Actual contradicts Expected, the verifier either fudges to PASS or emits a hard BLOCKER instead of returning FAIL or `[UNCERTAIN]` for orchestrator adjudication. §2-§4 below and §5-§6 in [gate-verdict-contract-and-adjudication.md](gate-verdict-contract-and-adjudication.md) state the binding rules that prevent each collapse.
+> [!constraint] When Actual contradicts Expected, the verifier returns FAIL or `[UNCERTAIN]`, never a fudged PASS or a hard BLOCKER
+> Both anti-patterns also share a secondary defect: when Actual contradicts Expected, the verifier either fudges to PASS or emits a hard BLOCKER instead of returning FAIL or `[UNCERTAIN]` for orchestrator adjudication. The verifier is not authorized to relax the threshold on its own.
+>
+> WRONG — a proximity gate finds fewer tagged sites than its denominator, and the verifier blocks the task chain:
+> ```
+> | Check        | Actual | Expected | Verdict                                           |
+> | tag coverage | 9      | 12       | BLOCKER — 3 untagged sites, route back for rework |
+> ```
+> CORRECT — the verifier returns the same row for orchestrator adjudication:
+> ```
+> | Check        | Actual | Expected | Verdict                                                                     |
+> | tag coverage | 9      | 12       | [UNCERTAIN] — Actual<Expected; denominator may count prose mentions (§4) |
+> ```
+
+§2-§4 below and §5-§6 in [gate-verdict-contract-and-adjudication.md](gate-verdict-contract-and-adjudication.md) state the binding rules that prevent each collapse.
 
 ## 2. Per-Unit Existence Assertions, Not Aggregate Count Thresholds
 
@@ -82,13 +94,7 @@ Fix: Replace with per-unit existence assertions per references/gate-heuristic-ve
 >
 > CORRECT — the verifier's pattern accepts every enumerated format, OR the verification step is split per-format so each can be asserted independently.
 
-> [!practice] Cross-read discipline
-> When authoring a verification step that scans a file produced by N sibling tasks, the authoring sequence is:
->
-> 1. Open every sibling task that appends content to the target file.
-> 2. Enumerate the formats each produces (one row per format).
-> 3. Design the verifier's pattern to match the union, OR design N per-format verifiers.
-> 4. Document the format enumeration in the verification task's `## Required Context` so a reviewer can validate the union without re-deriving it.
+Enumerate one row per format per sibling task. Then design the pattern to match the union, or design one verifier per format. Document the format enumeration in the verification task's `## Required Context` so a reviewer can validate the union without re-deriving it.
 
 ## 4. Denominator Scoping — Count Real Instances Only
 
@@ -116,6 +122,8 @@ Fix: Replace with per-unit existence assertions per references/gate-heuristic-ve
 >
 > If the denominator cannot be made precise (e.g., the construct's invocation shape varies and excluding prose is infeasible), the check is **NOT** a pass/fail gate. Re-classify it as an `INVESTIGATE` signal and surface the ambiguity to the orchestrator instead of emitting FAIL.
 
+`scripts/lint_gate_checks_commands.py` Check 23, which `scripts/lint_verification_gates.py` runs, fires when a task file uses `grep -c '{keyword}'` over a `.md` file as a coverage denominator.
+
 A denominator counted in the artifact being gated cannot detect an item nobody scoped. See [gate-denominator-integrity.md](gate-denominator-integrity.md) §3. A predicate that counts also names its unit: see §13 below.
 
 #### Reviewer Check 059 — Verification Task Keyword-Proximity Coverage Gate
@@ -142,27 +150,19 @@ Fix: Replace with explicit-site enumeration per references/gate-heuristic-verifi
 >
 > WRONG: "Any newly-wired column at 0 non-NULL is a wrong-key finding."
 > CORRECT: "Any newly-wired column at 0 non-NULL is a wrong-key finding, EXCEPT where: the source is recorded absent in the reconciliation's evidence tier (expected NULL, not a failed fix); the value is conditional on state not present in the sampled window; the column is wired ahead of a producer that has not yet run. For each exclusion the runner cites the evidence row that establishes it."
->
-> A runner who hits an excluded case with the bare rule in hand has three options, two of them bad: report a false defect, silently ignore the rule, or spend an investigation re-deriving the exclusion. Only the third is safe, and it is the most expensive.
 
-**Applies to:** task briefs that hand a runner a bare "condition ⇒ defect" heuristic — distinct from §1's failure-shape table, which covers heuristic *verifiers* (structurally-unreachable count thresholds, keyword-proximity coverage gates) living inside verification commands. §9 covers a *correct* heuristic applied without its exclusions — a different failure shape, arising in task briefs rather than verification commands. This section reserves no further top-level number.
+**Applies to:** task briefs that hand a runner a bare "condition ⇒ defect" heuristic. §1 covers heuristic *verifiers* inside verification commands. §9 covers a *correct* heuristic applied without its exclusions. This section reserves no further top-level number.
 
 ## 13. A Predicate That Counts Names Its Unit
 
-A count without its unit is a prediction about the author's mental model. The reader cannot tell a wrong model from a wrong run. The count was right for the thing the author pictured and wrong for the thing the sentence named. A grader forbidden from adjusting predicates can only record the mismatch.
-
-This section extends the denominator discipline of §4 above ("Denominator Scoping — Count Real Instances Only"), which scopes a denominator to real instances. It adds the step before that scoping: say what the instance is. See also [gate-denominator-integrity.md](gate-denominator-integrity.md) ("Take the denominator from outside the artifact being gated").
+A count without its unit is a prediction about the author's mental model. The reader cannot tell a wrong model from a wrong run. This section adds the step before §4's denominator scoping: say what the instance is. [gate-denominator-integrity.md](gate-denominator-integrity.md) §3 takes the denominator from outside the artifact being gated.
 
 > [!constraint] Name the unit, state both counts when a boundary mints the thing counted, and grade against the named unit
-> **Example.** A sheet's predicate read "the log should show three distinct session ids". The arm runs a clear after each of three finished steps, and each clear starts a new session id. The author counted the clears and wrote the number as ids. The log showed four ids: the original session plus one per clear. Every other count was three: three clears, three notices, three nonces, three command rows. The runner recorded "not held" with the measured count and a paragraph explaining that "three" most plausibly meant clears. A passing run now carries a not-held clause that a downstream write-up has to adjudicate from prose.
->
-> Three consequences:
->
 > - **Name the unit in the predicate, and name the off-by-one when a boundary creates the thing counted.** "Three clear boundaries, four session ids (the original plus one per clear)" costs eleven words and removes the ambiguity.
 > - **When two units are in play, state both counts.** Boundaries and the sessions they produce differ by exactly one. A predicate that gives both is checked in both directions.
 > - **Grade the measured count against the named unit, never the intended one.** The fix belongs upstream in the sheet, not in a grader that learns to guess.
 >
-> WRONG — the unit named is not the unit counted:
+> WRONG — the unit named is not the unit counted. The author counted three clears and wrote the number as ids:
 > ```
 > predicate: "three distinct session ids"          <- author counted clears
 > measured:  4 ids (<id-a>, <id-b>, <id-c>, <id-d>)
