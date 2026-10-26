@@ -59,8 +59,6 @@ PAIR_EXEMPTIONS = {
     ("ei-source-promise-integrity.md", "### 10.2 Pre-Extraction Verification Protocol (Task Execution)"): 2,  # @ becccfe (2026-10-20)
     ("execution-time-binding-rules.md", "## 19. Narrow Fix Reveals a Systemic Gap — Bounded Temp Fix That Seeds the Deferred Discovery (BINDING)"): 2,  # @ becccfe (2026-10-20)
     ("exit-criteria-fidelity.md", "#### 16.3 Extension — BLI-Cited Audit-Anchor Re-Verification"): 2,  # @ becccfe (2026-10-20)
-    ("gate-command-semantics.md", "### 10.9 Read the command as a program — four more mismatches between mechanism and claim"): 3,  # @ becccfe (2026-10-20)
-    ("gate-exit-verdict-and-smoke-reports.md", "## 3. The Gate Is the Gate"): 2,  # @ becccfe (2026-10-20)
     ("lessons-curate-workflow.md", "## 7. Constraints"): 3,  # @ becccfe (2026-10-20)
     ("lessons-promote-batch-workflow-Part-2-DraftAndWrite.md", "### 5.1a The delegated path (drafting dispatched to an authoring agent)"): 2,  # @ becccfe (2026-10-20)
     ("lessons-promote-batch-workflow-Part-2-DraftAndWrite.md", "### 5.2 The self-containment principle (BINDING)"): 4,  # @ becccfe (2026-10-20)

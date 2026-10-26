@@ -102,7 +102,7 @@ FORM_EXAMPLES = (
     ("file in code span then section", "handlers/backlog.md", 184),
     ("plain path-prefixed", "agents/plan-reviewer.md", 181),
     ("link text", "references/session-planning-protocol.md", 313),
-    ("link then section", "references/gate-old-home-citation-sweep.md", 79),
+    ("link then section", "references/gate-old-home-citation-sweep.md", 76),
     ("table cell", "references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md", 14),
     ("en-dash range", "handlers/harvest.md", 51),
     ("heading words", "handlers/doctor-Part-3-TokenSaverAndBookkeepingReadGates.md", 74),

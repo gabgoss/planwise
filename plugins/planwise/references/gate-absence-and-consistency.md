@@ -28,6 +28,8 @@ paths: {planwise_root}/{plans_dir}/**
 >
 > Observed false-FAIL: the criterion's own grep returned 8 against a file with zero unresolved data cells — every hit was the legend, the label, and the criterion's own description.
 
+An absence criterion also false-fails when it counts the artifact that enacts the absence, which must name its target: see [exit-criteria-fidelity.md](exit-criteria-fidelity.md) §16.9.1, "The Enactor Cause — Exclude the Artifact That Enacts the Absence".
+
 ### 8.2 Assert against the right population
 
 > [!constraint] A consistency check MUST assert against the right population, not a conditional/optional set against an observed/union artifact

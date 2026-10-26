@@ -26,7 +26,7 @@ paths: {planwise_root}/{plans_dir}/**
 >
 > The failure is silent. Git treats an unmatched pathspec on `status` and `diff` as "nothing to report", not as an error. A clean-tree precondition and a "no unexpected change" gate both pass exactly when nothing prints. A list whose every path fails to match therefore passes every one of them.
 >
-> One session built a 137-path list with a Python one-liner on Windows. Text mode wrote each line ending as `\r\n`. `xargs` splits on `\n` and keeps the `\r`, so git received `<path>\r`, which names no file. Every "MUST print nothing" gate that read the list passed over paths git never saw.
+> On Windows, text mode writes each line ending as `\r\n`. `xargs` splits on `\n` and keeps the `\r`, so git receives `<path>\r`, which names no file.
 > ```bash
 > # WRONG — text-mode list, and an empty-output gate trusted on its own:
 > python -c "print('\n'.join(paths))" > <list>.txt
@@ -40,6 +40,8 @@ paths: {planwise_root}/{plans_dir}/**
 > The positive count is the only gate in this block that can fail when the list is corrupt. Run it first. It needs a diff that changes every listed file, so run it on the edit set after the edits land. On a corrupt list it prints `0`, and on a sound list it prints the file count.
 >
 > A list built with `git ls-files -z` and read with `xargs -0` avoids the line-ending question entirely.
+
+`scripts/lint_verification_gates.py` registers Check 22 (`scripts/lint_gate_checks_commands.py`), which flags a gate that reads a list through `xargs -a` or `--pathspec-from-file` when no earlier gate counts that list.
 
 ## 17. A Row-Count Gate and Its Consumer Must Split Lines the Same Way
 
@@ -67,7 +69,7 @@ paths: {planwise_root}/{plans_dir}/**
 > [!constraint] The instrument that checks a byte claim must read bytes
 > A "byte-preserving" claim is a claim about bytes. `git diff` under `core.autocrlf` reads a normalized view, so it cannot see a changed line ending. A runner's self-report reads the runner's intent, not the disk. Neither can falsify the claim, so a pass from either is not evidence.
 >
-> One session ran a scripted edit over 59 CRLF files. The regex matched each whole line with `(.+?)\r?$` and replaced the match. The match included the `\r`, so the replacement wrote the new value and a bare `\n`. 46 files ended with one LF-only line inside a CRLF file. The runner reported "CRLF preserved". The acceptance gate was `git diff --stat`, which showed the expected file and line counts. Git printed `LF will be replaced by CRLF the next time Git touches it` on every affected file, and the session read it as noise.
+> A regex that matches a whole line with `(.+?)\r?$` consumes the `\r`, so the replacement writes a bare `\n` inside a CRLF file, and `git diff --stat` still shows the expected counts.
 >
 > ```
 > # WRONG — splice one line and check with git:
@@ -84,8 +86,8 @@ paths: {planwise_root}/{plans_dir}/**
 
 Four operative points:
 
-- **Make the acceptance check a byte-level tally.** Count `\r\n` and bare `\n` per file, before and after the edit. A file that counts both is mixed, and the edit broke it. The tally is about ten lines of Python and runs in under a second over a few hundred files.
-- **Match the value, not the line.** `[^\r\n]*` stops before either terminator. `.*` and `.+?` match `\r`. In MULTILINE mode `$` sits between `\r` and `\n`, so a `\r?$` suffix is consumed into the lazy group, and the replacement then drops the `\r`.
+- **Make the acceptance check a byte-level tally.** Count `\r\n` and bare `\n` per file, before and after the edit. A file that counts both is mixed, and the edit broke it. `scripts/byte_tally.py` is that tally: `python -B scripts/byte_tally.py --before <dir> --after <dir>` prints `files=<n> mixed=<n> changed=<n>` and exits 0 only when `mixed` and `changed` are both 0.
+- **Match the value, not the line.** `[^\r\n]*` stops before either terminator. `.*` and `.+?` match `\r`. In MULTILINE mode `$` sits between `\r` and `\n`, so a `\r?$` suffix is consumed into the lazy group, and the replacement then drops the `\r`. In plugin development, `tests/test_no_cr_consuming_regex.py` holds the plugin's own scripts to this rule.
 - **Treat git's `LF will be replaced by CRLF` warning as a gate failure on a file you just edited.** On a checkout that was clean before the edit, the warning names exactly the files whose working-copy endings no longer match what `autocrlf` would produce.
 - **Prefer a whole-block rewrite to a one-line splice when the block is small.** Read the frontmatter as bytes, detect the file's ending once, and re-emit the whole block with that ending.
 

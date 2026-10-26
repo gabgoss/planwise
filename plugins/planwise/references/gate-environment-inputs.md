@@ -19,9 +19,11 @@ paths: {planwise_root}/{plans_dir}/**
 
 ## 20. A Proof Run Names Its Scratch Root, Proves Its Removal, and the Sweep Names Scratch Directories
 
-`gate-positive-and-mutation-controls.md` §2 lists four constraints on a mutation run. Constraint 1 says the scratch copy lives outside the shipped tree. This section adds the fifth constraint. It covers every proof run that builds a fixture tree, not only a mutation control.
+`gate-positive-and-mutation-controls.md` §2 lists five constraints on a mutation run. Constraint 1 says the scratch copy lives outside the shipped tree. Constraint 5 points here. This section states that constraint for every proof run that builds a fixture tree, not only a mutation control.
 
-A sweep that names only test files and caches prints a clean result over a tree that holds stray fixtures. One session's proof runs showed three repair assertions failing on pre-fix code. The runs built their fixture trees in the plugin repo's working directory, as two `probe_*_tree` directories under the shipped subtree. The two directories held 4 files. The sweep then in use named `test_*.py`, `*_test.py`, `conftest.py` and the cache directories. A probe tree is none of those, so the sweep printed nothing. The session's bulk commit included the 4 files and the commit was pushed. A later commit removed them.
+A sweep that names only test files and caches prints a clean result over a tree that holds stray fixtures, because a `probe_*_tree` directory is none of those.
+
+In plugin development, `tests/test_shipped_tree_clean.py` walks the absolute path of the shipped subtree and fails on any test file, cache directory or `probe_*` directory. Naming the scratch root in the brief stays a brief-authoring rule.
 
 > [!constraint] Proof runs write to a scratch root outside the repo whose working tree ships
 > Two obligations:
@@ -51,9 +53,9 @@ A sweep that names only test files and caches prints a clean result over a tree 
 
 A green suite is no evidence about import order. Pytest imports modules in collection order inside one interpreter. The first module that loads a hub hides every cycle through it. Only a first import in a fresh process tests what `python script.py` does for a user.
 
-**Scenario.** A hub module re-exported names from four sibling modules at its bottom. Each sibling imported the hub at its top, before the sibling's own names existed. Importing any one of the four first raised `ImportError`. The full suite passed throughout, because some test always imported the hub first. The guarded-import wrapper made it worse. It caught the `ImportError` and raised a new one saying the package "appears to be partially installed". That message sent the reader to an install diagnosis, and the real cause was a cycle.
+A hub that re-exports names from siblings that import it back raises `ImportError` when a sibling is imported first. A guarded-import wrapper that replaces the cause then reports a partial install instead of the cycle.
 
-The first version of the proof test listed seven modules by hand. A code review asked for a glob. The globbed version covered 61 modules and failed four of them on the pre-fix tree. The repair moved each back-edge import below the module's own definitions.
+In plugin development, `tests/test_import_order.py` imports each globbed `scripts/*.py` module first in its own fresh `python -B` subprocess.
 
 Three operative points:
 
