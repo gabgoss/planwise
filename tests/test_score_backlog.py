@@ -22,9 +22,10 @@ from pathlib import Path
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
+import item_frontmatter
 import item_shape
 import score_backlog
-from scoped_rules import LOOP_WRITTEN_HEADINGS
+from scoped_rules import LOOP_WRITTEN_HEADINGS, SIGNAL_EXCLUDED_HEADINGS
 from score_backlog import parse_index_table
 
 
@@ -188,7 +189,7 @@ class TestReadItemFrontmatter(unittest.TestCase):
             "# Body\n"
         )
 
-        with unittest.mock.patch.object(score_backlog, "HAS_YAML", False):
+        with unittest.mock.patch.object(item_frontmatter, "HAS_YAML", False):
             fm = score_backlog.read_item_frontmatter(path)
 
         self.assertEqual(fm["created"], "2026-08-12")
@@ -207,7 +208,7 @@ class TestReadItemFrontmatter(unittest.TestCase):
             "# Body\n"
         )
 
-        with unittest.mock.patch.object(score_backlog, "HAS_YAML", False):
+        with unittest.mock.patch.object(item_frontmatter, "HAS_YAML", False):
             fm = score_backlog.read_item_frontmatter(path)
 
         self.assertEqual(fm["blocks"], ["143", "185"])
@@ -731,11 +732,12 @@ class TestRouteSignals(unittest.TestCase):
     )
 
     def test_template_section_headings_do_not_count_as_sub_items(self):
-        # A loop-written section is stripped before any signal is read, so the
-        # clear-fix sentence appended after the last section must not sit in one.
+        # A loop-written or `## Open Questions` section is stripped before any
+        # signal is read, so the clear-fix sentence appended after the last
+        # section must not sit in one.
         body = "".join(
             f"\n## {name}\n\nOne sentence.\n"
-            for name in [h for h in score_backlog.TEMPLATE_SECTION_HEADINGS if h not in LOOP_WRITTEN_HEADINGS]
+            for name in [h for h in score_backlog.TEMPLATE_SECTION_HEADINGS if h not in SIGNAL_EXCLUDED_HEADINGS]
         ) + self._CLEAR_FIX_SENTENCE
         signals = score_backlog.compute_route_signals(
             _route_item(abbrev="BUG"), _route_fm(body, line_count=60)
@@ -985,7 +987,8 @@ class TestRouteSignals(unittest.TestCase):
         self.assertEqual(base["loop_lines"], 0)
         # Control: read whole, the same section moves the signals, so the
         # assertions above are carried by the strip and not by the fixture.
-        with unittest.mock.patch.object(score_backlog, "strip_loop_sections", lambda body: (body, 0)):
+        with unittest.mock.patch.object(score_backlog, "strip_loop_sections", lambda body: (body, 0)), \
+                unittest.mock.patch.object(score_backlog, "strip_sections", lambda body, headings: (body, 0)):
             unstripped = score_backlog.compute_route_signals(
                 _route_item(), _route_fm(with_section_body, line_count=70 + section.count("\n"))
             )
@@ -1009,7 +1012,8 @@ class TestRouteSignals(unittest.TestCase):
         self.assertEqual(signals["loop_lines"], 10)
         self.assertEqual(signals["line_count_effective"], 49)
         self.assertTrue(signals["is_short"])
-        self.assertIn("10 loop-written lines excluded", score_backlog.format_route_detail(signals, 0))
+        self.assertEqual(signals["excluded_lines"], 10)
+        self.assertIn("10 loop-written and open-question lines excluded", score_backlog.format_route_detail(signals, 0))
 
     def test_scoped_rules_is_none_without_config(self):
         signals = score_backlog.compute_route_signals(_route_item(), _route_fm(CLEAR_FIX_BODY))
@@ -1037,6 +1041,85 @@ class TestRouteSignals(unittest.TestCase):
             (refined["route"], refined["branch"]), ("B", "REFINED: 1 <= STEP_COUNT <= 5 from ## Resolution")
         )
         self.assertEqual((plain["route"], plain["branch"]), ("B", "2 <= STEP_COUNT <= 5"))
+
+    @staticmethod
+    def _refined_with_notes_and_checklist(steps: int) -> str:
+        """A refined body whose large-scope text sits outside `## Resolution`:
+        "redesign" in `## Notes` and a 6-line numbered `## Verification` checklist."""
+        checklist = "".join(f"{n}. Check total {n}.\n" for n in range(1, 7))
+        return (
+            _refined_item_body(steps=steps, verification=False, questions=None)
+            + "\n## Verification\n\n" + checklist
+            + "\n```\npython -m pytest tests/test_total.py\n```\n"
+            + "\n## Notes\n\nA redesign of the report is out of scope.\n"
+            + "\n## Open Questions\n\nNone.\n"
+        )
+
+    def test_refined_large_scope_signals_read_resolution_only(self):
+        body = self._refined_with_notes_and_checklist(steps=5)
+        self.assertGreaterEqual(body.count("\n"), score_backlog.SHORT_ITEM_LINES)
+        signals = score_backlog.compute_route_signals(_route_item(), _route_fm(body, refined=True))
+        self.assertTrue(signals["shape"]["shape_ok"])
+        self.assertFalse(signals["is_architectural"])
+        self.assertEqual((signals["sub_items"], signals["step_count"]), (5, 5))
+        self.assertEqual((signals["route"], signals["branch"]), ("B", self.REFINED_ROUTE_B))
+
+    def test_refined_six_resolution_steps_route_c(self):
+        body = self._refined_with_notes_and_checklist(steps=6)
+        signals = score_backlog.compute_route_signals(_route_item(), _route_fm(body, refined=True))
+        self.assertTrue(signals["shape"]["shape_ok"])
+        self.assertEqual(signals["sub_items"], 6)
+        self.assertEqual((signals["route"], signals["large_scope"]), ("C", True))
+
+    def test_unrefined_twin_keeps_the_whole_body_reading(self):
+        body = self._refined_with_notes_and_checklist(steps=5)
+        plain = score_backlog.compute_route_signals(_route_item(), _route_fm(body))
+        self.assertTrue(plain["is_architectural"])
+        self.assertEqual([hit["term"] for hit in plain["architectural_hits"]], ["redesign"])
+        self.assertEqual(plain["sub_items"], 6)
+        self.assertEqual((plain["route"], plain["large_scope"]), ("C", True))
+
+    def test_open_questions_stem_feeds_no_architectural_hit(self):
+        steps = "\n## Steps\n\n1. one\n2. two\n3. three\n"
+        asked = steps + "\n## Open Questions\n\n### Q1. Should the architecture change?\n\nAnswer:\n"
+        signals = score_backlog.compute_route_signals(_route_item(), _route_fm(asked, line_count=70))
+        self.assertFalse(signals["is_architectural"])
+        self.assertEqual(signals["route"], "B")
+        self.assertEqual(signals["excluded_lines"], 5)
+        self.assertEqual(signals["line_count_effective"], 65)
+        # Control: the same question under `## Notes` is a hit.
+        noted = asked.replace("## Open Questions", "## Notes")
+        control = score_backlog.compute_route_signals(_route_item(), _route_fm(noted, line_count=70))
+        self.assertTrue(control["is_architectural"])
+        self.assertEqual(control["route"], "C")
+
+    def test_refined_item_failing_the_shape_gate_keeps_its_whole_body_signals(self):
+        # A short refined item with no `## Resolution` fails the shape gate.
+        # Its "redesign" sits outside Resolution, so the whole-body reading
+        # must still see it and block Route A.
+        body = "\n## Problem\n\nThe report needs a redesign of its layout.\n"
+        signals = score_backlog.compute_route_signals(_route_item(), _route_fm(body, refined=True))
+        self.assertTrue(signals["shape"]["refined"])
+        self.assertFalse(signals["shape"]["shape_ok"])
+        self.assertTrue(signals["is_short"])
+        self.assertTrue(signals["is_architectural"])
+        self.assertEqual((signals["route"], signals["large_scope"]), ("C", True))
+
+    def test_footer_after_open_questions_stays_in_the_signal_body(self):
+        # The `## Open Questions` strip ends at the thematic break, as the
+        # shape gate's reading of the section does, so the footer's path is
+        # still read.
+        body = (
+            "\n## Steps\n\n1. one\n2. two\n"
+            "\n## Open Questions\n\n### Q1. Is `scripts/asked_only.py` the right file?\n\nAnswer:\n"
+            "\n---\n\n*History: see `scripts/footer_tool.py`.*\n"
+        )
+        signals = score_backlog.compute_route_signals(_route_item(), _route_fm(body, line_count=70))
+        self.assertIn("scripts/footer_tool.py", signals["file_paths"])
+        self.assertNotIn("scripts/asked_only.py", signals["file_paths"])
+        self.assertEqual(signals["excluded_lines"], 6)
+
+    REFINED_ROUTE_B ="REFINED: 1 <= STEP_COUNT <= 5 from ## Resolution"
 
     def test_ill_formed_fence_blanks_the_lines_scoped_rules_calls_fenced(self):
         # A backtick fence with a tilde line inside: the tilde line does not
@@ -1082,7 +1165,7 @@ class TestItemShape(unittest.TestCase):
         path.write_text("---\nid: 004\nrefined: true\nneeds_plan: false\n---\n" + _refined_item_body(),
                         encoding="utf-8")
         for has_yaml in (True, False):
-            with unittest.mock.patch.object(score_backlog, "HAS_YAML", has_yaml and score_backlog.HAS_YAML):
+            with unittest.mock.patch.object(item_frontmatter, "HAS_YAML", has_yaml and item_frontmatter.HAS_YAML):
                 shape = score_backlog.compute_item_shape(score_backlog.read_item_frontmatter(path))
             self.assertTrue(shape["refined"], has_yaml)
             self.assertFalse(shape["needs_plan"], has_yaml)
@@ -1248,19 +1331,19 @@ class TestItemShape(unittest.TestCase):
         path.write_text("---\nid: 004\nrefined: on\nneeds_plan: yes\n---\n" + _refined_item_body(),
                         encoding="utf-8")
         for has_yaml in (True, False):
-            with unittest.mock.patch.object(score_backlog, "HAS_YAML", has_yaml and score_backlog.HAS_YAML):
+            with unittest.mock.patch.object(item_frontmatter, "HAS_YAML", has_yaml and item_frontmatter.HAS_YAML):
                 frontmatter = score_backlog.read_item_frontmatter(path)
             shape = score_backlog.compute_item_shape(frontmatter)
             self.assertTrue(shape["refined"], has_yaml)
             self.assertTrue(shape["needs_plan"], has_yaml)
-        if not score_backlog.HAS_YAML:
+        if not item_frontmatter.HAS_YAML:
             self.skipTest("PyYAML is not installed; the typed-value half cannot run")
         frontmatter = score_backlog.read_item_frontmatter(path)
         self.assertIs(frontmatter["needs_plan"], True)
         self.assertIs(frontmatter["refined"], True)
 
     def test_marked_needs_plan_reads_yaml_typed_yes(self):
-        if not score_backlog.HAS_YAML:
+        if not item_frontmatter.HAS_YAML:
             self.skipTest("PyYAML is not installed; `yes` is typed only by PyYAML")
         import backlog_loop
 

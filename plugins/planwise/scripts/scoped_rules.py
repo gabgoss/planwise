@@ -33,6 +33,14 @@ from markdown_parser import normalize_id, split_row_cells_code_aware
 
 CONTENT_TREES = (".claude/rules/", ".claude/agents/", ".claude/skills/", ".claude/commands/")
 LOOP_WRITTEN_HEADINGS: tuple[str, ...] = ("Loop Decision Needed",)
+# The sections no route signal and no destination scan reads: the loop's
+# own sections, and the questions an item still asks (a question names work
+# the item has not chosen to do).
+SIGNAL_EXCLUDED_HEADINGS: tuple[str, ...] = LOOP_WRITTEN_HEADINGS + ("Open Questions",)
+# The sections that also end at a thematic break or a level-1 or level-2
+# heading, as the shape gate's reading of them does, so a footer after the
+# section stays in the body.
+BREAK_ENDED_HEADINGS: tuple[str, ...] = ("Open Questions",)
 # The last line of every section the loop writes.
 LOOP_SECTION_END = "<!-- loop-decision-end -->"
 VERDICT_NONE = "none"
@@ -56,6 +64,8 @@ _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 # A heading of level 1 or 2, which bounds the search for a section's end
 # marker. The loop's decision guard refuses a line it matches.
 TOP_HEADING_RE = re.compile(r"^#{1,2}(?:[ \t]|\r?$)")
+# A thematic break: 0-3 spaces, then three or more `-`, `*` or `_`.
+THEMATIC_BREAK_RE = re.compile(r"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*\r?$")
 
 
 @dataclass(frozen=True)
@@ -342,7 +352,9 @@ def loop_sections(
       that first end-marker line, inclusive. A fenced `## ` line in between
       does not end it, and text after the marker is outside it.
     - Legacy: no such end-marker line. The section runs to the next `## `
-      line outside a fence, or to the end of the text.
+      line outside a fence, or to the end of the text. A heading in
+      `BREAK_ENDED_HEADINGS` also ends at an unfenced thematic break
+      (`THEMATIC_BREAK_RE`) or level-1 heading, and that line stays outside.
 
     Lines split on `\\n` only, so a CRLF line keeps its `\\r` and still
     matches. A span starts at the first character of its heading line and
@@ -386,8 +398,13 @@ def loop_sections(
             sections.append((offset(index), offset(marker + 1), True))
             index = marker + 1
             continue
+        break_ended = lines[index].strip()[3:] in BREAK_ENDED_HEADINGS
         probe = index + 1
         while probe < len(lines) and not unfenced_h2(probe):
+            if break_ended and not flags[probe] and (
+                THEMATIC_BREAK_RE.match(lines[probe]) or TOP_HEADING_RE.match(lines[probe])
+            ):
+                break
             probe += 1
         sections.append((offset(index), offset(probe), False))
         index = probe
@@ -415,8 +432,22 @@ def strip_loop_sections(body: str) -> tuple[str, int]:
     on `\\n`, so a section that runs to the end of the body also takes the
     newline before it.
     """
+    return strip_sections(body, LOOP_WRITTEN_HEADINGS)
+
+
+def strip_sections(body: str, headings: tuple[str, ...]) -> tuple[str, int]:
+    """Remove every `## {heading}` section for a heading in headings; return the body and the lines removed.
+
+    The sections are the spans `loop_sections` finds for those headings, so
+    a section ends at the loop's end marker, or else at the next unfenced
+    `## ` line or the end of the body. A `BREAK_ENDED_HEADINGS` section
+    also ends at a thematic break or level-1 heading, so a footer after it
+    stays. For any other heading a thematic break is not a heading: a
+    footer after the last section goes with it. Removal follows
+    `strip_loop_sections`, which is this function over `LOOP_WRITTEN_HEADINGS`.
+    """
     merged: list[tuple[int, int]] = []
-    for start, end in loop_section_spans(body):
+    for start, end in loop_section_spans(body, headings):
         if merged and merged[-1][1] == start:
             # Back-to-back sections are removed as one run of lines.
             merged[-1] = (merged[-1][0], end)
@@ -630,11 +661,15 @@ def scoped_rules_block(item_id: str, body: str, config: dict) -> dict[str, Any]:
     matched rule), `rules_bytes` (their total size on disk), `inject_form`
     (`content` at or under `INJECT_CONTENT_MAX_BYTES`, else `paths`, and
     `none` with no rule to inject) and `truncated`.
+
+    The `SIGNAL_EXCLUDED_HEADINGS` sections are removed before the scan, so
+    a path quoted only in an open question is not a destination.
     """
     project_root = Path(config["_project_root"])
     lessons_dir = config.get("_lessons_dir")
     scopes = load_rule_scopes(project_root)
-    destinations, source, truncated = extract_destinations(body, project_root)
+    scanned, _ = strip_sections(body, SIGNAL_EXCLUDED_HEADINGS)
+    destinations, source, truncated = extract_destinations(scanned, project_root)
     lessons = owning_lessons(item_id, Path(lessons_dir) if lessons_dir else None) or []
     verdict = classify(destinations, scopes, bool(lessons))
     by_rel = {s.rel: s for s in scopes}

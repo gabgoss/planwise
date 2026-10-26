@@ -345,6 +345,22 @@ class TestDestinations(_ScratchProject):
             dests, _, _ = extract_destinations(f"Edit `{swapped}`.", self.root)
             self.assertEqual([d.path for d in dests], ["src/abs.py"])
 
+    def test_path_only_under_open_questions_is_not_a_destination(self):
+        self.write_rule("behaviour-rule.md", 'paths: "src/**"')
+        self.touch("src/kept.py")
+        self.touch("src/asked.py")
+        body = (
+            "# Item\n\n## Resolution\n\n1. Edit `src/kept.py`.\n\n"
+            "## Open Questions\n\n### Q1. Should `src/asked.py` change too?\n\nAnswer:\n\n"
+            "---\n\n*Created: 2026-01-01*\n"
+        )
+        block = scoped_rules_block("001", body, self.config())
+        self.assertEqual([d["path"] for d in block["destinations"]], ["src/kept.py"])
+        # Control: the same path under another heading is a destination.
+        moved = body.replace("## Open Questions", "## Notes")
+        block = scoped_rules_block("001", moved, self.config())
+        self.assertEqual([d["path"] for d in block["destinations"]], ["src/kept.py", "src/asked.py"])
+
 
 # ---------------------------------------------------------------------------
 # classify and the block (one test per worked case)

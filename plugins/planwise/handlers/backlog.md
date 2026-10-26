@@ -641,7 +641,7 @@ Use this logic to determine the recommended route in Phase 3.
 |--------|---------------|--------|
 | Item predates active work in its own domain, or is cohort-shaped (siblings by period/abbrev/`blocks:`) | Pivot check per `references/backlog-triage-pivot-detection.md` | Gate → run before any routing weight is assigned |
 | `abbrev: BUG` in frontmatter | Read the item's `abbrev` field | Strong → Direct Fix |
-| Item file < 50 lines | Line count on read | Moderate → Direct Fix (a *proxy* for a small fix — a file that is long only because it is thoroughly documented is NOT large scope) |
+| Item file < 50 lines | Line count on read | Moderate → Direct Fix (a *proxy* for a small fix; length alone is never large scope) |
 | Exact fix evidence: named files + line anchors + before/after content + scope-confinement bound | BB body supplies concrete, bounded edit targets | Strong → Direct Fix — sets `HAS_CLEAR_FIX` regardless of file length |
 | Specific file paths mentioned | Regex for code file extensions | Moderate → Direct Fix |
 | "multi-sprint" / "phased" keywords | Case-insensitive content search | Strong → Session Planning |
@@ -649,7 +649,7 @@ Use this logic to determine the recommended route in Phase 3.
 | 6+ sub-items or ## headings | Take the larger of two counts: the longest consecutive numbered list (two lists of 2 and 4 are 4 parts, not 6) and the H2 headers, excluding the backlog item template's own section headings (Summary, Problem, Proposed Solution, Acceptance Criteria, Related, Files Touched, Notes, Resolution, Verification, Open Questions, Loop Decision Needed) | Moderate → Session Planning |
 | Multiple reference files (YY > 01) | Files column has 2+ links | Moderate → Session Planning |
 | 2-5 numbered steps (`ROUTE_B_MIN_STEPS`..`ROUTE_B_MAX_STEPS` in `score_backlog.py`) | Count discrete steps | Moderate → Task List |
-| `refined: true` and the shape gate passes (`## Resolution` with at least one numbered step, `## Verification`, no open question) | `score_backlog.py --route --id` shape block | Strong → Task List; the step count is read from `## Resolution` only |
+| `refined: true` and the shape gate passes (`## Resolution` with at least one numbered step, `## Verification`, no open question) | `score_backlog.py --route --id` shape block | Strong → Task List; its step count, keyword and sub-item signals are read from `## Resolution` only |
 | `needs_plan: true` in frontmatter | Read the item's `needs_plan` field | Gate → Session Planning, never A or B |
 
 ### Decision Logic
@@ -699,4 +699,4 @@ ELSE:
    conditions above independently hold.
 ```
 
-`score_backlog.py --route` implements step 2 and the `IF` / `ELIF` / `ELSE` chain above mechanically (`compute_item_shape`, `compute_route_signals` and `decide_route` in that script); Phase 3 step 6 runs it. The shape gate and the `refined` step count are read from `## Resolution`; the handler never re-derives them. This pseudocode is the source: a script that diverges from it is defective, and the fix is to the script. Steps 0 and 0.5, the sufficiency half of `HAS_CLEAR_FIX`, and steps 3-4 stay with the handler.
+`score_backlog.py --route` implements step 2 and the `IF` / `ELIF` / `ELSE` chain above mechanically (`compute_item_shape`, `compute_route_signals` and `decide_route` in that script); Phase 3 step 6 runs it. The shape gate and the `refined` step count are read from `## Resolution`; the handler never re-derives them. `## Open Questions` feeds only the shape gate, no route signal or line count. A script that diverges from this pseudocode is defective. Steps 0 and 0.5, the sufficiency half of `HAS_CLEAR_FIX`, and steps 3-4 stay with the handler.

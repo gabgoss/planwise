@@ -41,8 +41,8 @@ class TestRefine(_LoopFixtureBase):
         self.item_file(item_id).write_text(text, encoding="utf-8", newline="\n")
 
     def refined_route_c(self, item_id: str) -> str:
-        """A refined item whose body also carries a strong Route C signal."""
-        return item_text(item_id, "NOT_STARTED", "refined").replace("## Resolution", f"{MULTI}\n\n## Resolution")
+        """A refined item whose `## Resolution` also carries a strong Route C signal."""
+        return item_text(item_id, "NOT_STARTED", "refined").replace("## Resolution", f"## Resolution\n\n{MULTI}")
 
     def queued(self, payload: dict) -> dict:
         return {q["id"]: q["disposition"] for q in payload["queue"]}

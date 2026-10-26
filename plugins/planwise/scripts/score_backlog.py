@@ -42,7 +42,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 from config_loader import get_scoring_weights, load_config
 from constants import OPEN_STATUSES
-from frontmatter_parser import parse_frontmatter_map, split_frontmatter_block
+
+# The frontmatter readers live in `item_frontmatter` and are re-exported here for existing importers.
+from item_frontmatter import (
+    _strip_inline_comment,  # noqa: F401 -- re-exported for callers of score_backlog
+    _text_level_scoring_fields,  # noqa: F401 -- re-exported for callers of score_backlog
+    read_item_frontmatter,
+)
 
 # The item-shape reading lives in `item_shape`, and this module re-exports
 # its names, so `score_backlog.compute_item_shape` and the rest still
@@ -54,6 +60,7 @@ from item_shape import (
     REFINED_SECTION_HEADINGS,
     _blank_fenced_blocks,
     _longest_numbered_run,
+    _section_spans,
     compute_item_shape,
     read_item_sections,  # noqa: F401 -- re-exported for callers of score_backlog
 )
@@ -62,14 +69,12 @@ from markdown_parser import (
     parse_markdown_table,
     warn_on_unparsed_rows,
 )
-from scoped_rules import scoped_rules_block, strip_loop_sections
-
-# Try yaml import; fall back to regex extraction if unavailable
-try:
-    import yaml
-    HAS_YAML = True
-except ImportError:
-    HAS_YAML = False
+from scoped_rules import (
+    SIGNAL_EXCLUDED_HEADINGS,
+    scoped_rules_block,
+    strip_loop_sections,
+    strip_sections,
+)
 
 
 def _score_row_processor(cells: list[str], line_number: int, header_info: dict) -> dict | None:
@@ -183,175 +188,6 @@ def _read_hub_family_items(index_path: Path, backlog_dir: Path) -> list[dict]:
             continue
         items.extend(parse_index_table(file_content))
     return items
-
-
-def _strip_quotes(text: str) -> str:
-    """Strip one layer of matching quote characters, if present."""
-    if len(text) >= 2 and text[0] == text[-1] and text[0] in ("'", '"'):
-        return text[1:-1]
-    return text
-
-
-_LIST_ITEM_RE = re.compile(r"^-\s*(.+)$")
-
-# A trailing ` #...`/`\t#...` YAML inline comment, matched per line. Applied
-# only to `id`, `created`, and `blocks` (`_strip_inline_comment`'s callers) --
-# these three never legitimately contain a `#`, so stripping it unconditionally
-# before any further parsing is safe and needs no quoting-aware lookahead.
-_TRAILING_COMMENT_RE = re.compile(r"[ \t]+#.*$")
-
-
-def _strip_inline_comment(raw: str) -> str:
-    """Strip a trailing YAML inline comment from each line of `raw`.
-
-    `parse_frontmatter_map` hands back the key's raw value text verbatim,
-    comment included -- unlike `yaml.safe_load`, which strips a YAML comment
-    at the tokenizer level regardless of position. Without this, a value
-    like ``blocks: [007, 009]  # two`` overlays the octal-safe text-level
-    read with ``['007', '009]  # two']`` (the comment swallowed into the
-    last list entry), and ``created: 2026-01-15  # filed`` overlays a
-    correctly-YAML-parsed date with a string `date.fromisoformat` cannot
-    parse, silently zeroing the age factor. Applied line-by-line so a
-    block-form multi-line value (each ``- id`` on its own line) strips a
-    per-line comment without disturbing sibling lines.
-    """
-    return "\n".join(_TRAILING_COMMENT_RE.sub("", line) for line in raw.split("\n"))
-
-
-def _parse_blocks_field(raw: str) -> list:
-    """Parse a `blocks:`-shaped value into a list of id strings, as written.
-
-    Handles the flow form (`blocks: [007, 009]`) and the block form spread
-    over indented `- ` lines — `parse_frontmatter_map` hands back either
-    shape as the key's raw, un-typed value text. Entries are kept exactly as
-    authored (no re-padding); scoring and routing already normalize on
-    comparison.
-    """
-    text = raw.strip()
-    if not text or text == "[]":
-        return []
-    if text.startswith("["):
-        inner = text.strip("[]\n ")
-        if not inner:
-            return []
-        return [_strip_quotes(part.strip()) for part in inner.split(",") if part.strip()]
-    items = []
-    for line in text.split("\n"):
-        line = line.strip()
-        match = _LIST_ITEM_RE.match(line)
-        if match:
-            items.append(_strip_quotes(match.group(1).strip()))
-    return items
-
-
-# The route flags read at the text level for the no-YAML fallback only.
-_FLAG_KEYS: tuple[str, ...] = ("refined", "needs_plan")
-
-
-def _text_level_scoring_fields(raw: str) -> dict:
-    """Extract `id`, `created`, `blocks`, `refined` and `needs_plan` from
-    frontmatter text directly, bypassing YAML's implicit type resolvers.
-
-    `yaml.safe_load` turns an unquoted zero-padded, all-octal-digit `id:`
-    like "061" into the int 49 (YAML 1.1 reads a leading-zero digit string as
-    octal), and turns a numeric `blocks:` entry the same way. Reading these
-    fields at the text level via the shared `parse_frontmatter_map` —
-    the same primitive `generate_backlog_index.py` already uses for exactly
-    this reason — keeps them exactly as the author wrote them. `refined` and
-    `needs_plan` are read here so the no-YAML fallback still sees them; they
-    come back as the authored text (`true`, `yes`), which `compute_item_shape`
-    reads as true. When PyYAML is present, its typed value for these two
-    keys wins and this text is not overlaid. Returns {}
-    when `parse_frontmatter_map` cannot attribute the text to any key at all
-    (structurally unparseable); a key simply absent from the frontmatter is
-    just absent from the result, not an error.
-    """
-    fm_map = parse_frontmatter_map(raw)
-    if fm_map is None:
-        return {}
-    fields: dict = {}
-    if "id" in fm_map:
-        candidate = _strip_quotes(_strip_inline_comment(fm_map["id"]).strip())
-        if candidate:
-            fields["id"] = candidate
-    if "created" in fm_map:
-        candidate = _strip_quotes(_strip_inline_comment(fm_map["created"]).strip())
-        if candidate:
-            fields["created"] = candidate
-    if "blocks" in fm_map:
-        fields["blocks"] = _parse_blocks_field(_strip_inline_comment(fm_map["blocks"]))
-    for key in _FLAG_KEYS:
-        if key in fm_map:
-            candidate = _strip_quotes(_strip_inline_comment(fm_map[key]).strip())
-            if candidate:
-                fields[key] = candidate
-    return fields
-
-
-def read_item_frontmatter(filepath: Path) -> dict:
-    """Read YAML frontmatter from an item file. Returns dict or empty dict.
-
-    The split is the shared `frontmatter_parser` primitive; only the file I/O
-    and the typed-value parse are this function's own. Absence of any kind —
-    a missing file, no frontmatter block, an unterminated one, or a block YAML
-    cannot parse — is reported the same way, as an empty dict, because every
-    caller here reads scoring inputs off the result and must not have to
-    distinguish "no data" from "bad data" mid-scoring.
-
-    `id`, `created`, `blocks`, `refined` and `needs_plan` are overlaid from
-    `_text_level_scoring_fields` after the YAML load (or read directly from it
-    when no YAML is available). `yaml.safe_load` mistypes the first three, and
-    the last two must survive the no-YAML fallback — see
-    `_text_level_scoring_fields`'s docstring. The overlay costs no second file
-    read: `raw` is the same frontmatter text already split out below.
-
-    The item body is retained from this same read and returned under `_body`
-    — the whole file is already loaded here and the body was previously
-    thrown away. `_line_count` (the whole file's newline count, `wc -l`
-    semantics) rides along for the same reason. `--route` consumes both;
-    nothing else does.
-    """
-    if not filepath.exists():
-        return {}
-    content = filepath.read_text(encoding="utf-8")
-    parts = split_frontmatter_block(content)
-    if parts is None:
-        return {}
-    raw, body = parts
-
-    if HAS_YAML:
-        try:
-            fm = yaml.safe_load(raw) or {}
-        except yaml.YAMLError:
-            return {}
-        if not isinstance(fm, dict):
-            # A frontmatter block that is a bare scalar or a list (e.g. a
-            # stray "- one\n- two") parses without error but isn't a
-            # mapping -- `.update()` on it would raise AttributeError and
-            # abort the whole scoring run for one malformed file, against
-            # this function's own "reported the same way, as an empty
-            # dict" contract.
-            return {}
-        overlay = _text_level_scoring_fields(raw)
-        for key in _FLAG_KEYS:
-            if key in fm:
-                # PyYAML already typed it (`yes` and `on` are True); the raw
-                # text must not replace that typed value.
-                overlay.pop(key, None)
-        fm.update(overlay)
-    else:
-        # The fallback reads the scoring keys `created`/`blocks` and the route
-        # keys `refined`/`needs_plan` — never `id`, which nothing in this
-        # no-YAML path has ever read.
-        fm = {
-            key: value
-            for key, value in _text_level_scoring_fields(raw).items()
-            if key != "id"
-        }
-
-    fm["_body"] = body
-    fm["_line_count"] = content.count("\n")
-    return fm
 
 
 def count_archived_by_abbrev(archive_dir: Path) -> dict[str, int]:
@@ -1039,50 +875,74 @@ def compute_route_signals(item: dict, frontmatter: dict, config: dict | None = N
     *sufficient* is a judgment this function does not make and the report
     says so.
 
-    Loop-written sections (`## Loop Decision Needed`) are removed from the
-    body before any signal is read, so a skip the backlog loop records never
-    moves the item's route, headings, steps or effective line count.
-    `line_count` stays the whole file's count; `is_short` reads
-    `line_count_effective`, which excludes the `loop_lines` removed.
+    Loop-written sections (`## Loop Decision Needed`) and `## Open Questions`
+    (`SIGNAL_EXCLUDED_HEADINGS`) are removed from the body before any signal
+    is read, so a skip the backlog loop records or a question the item still
+    asks never moves the item's route, headings, steps or effective line
+    count. `line_count` stays the whole file's count; `is_short` reads
+    `line_count_effective`, which excludes the `excluded_lines` removed.
+    `loop_lines` counts the loop-written lines among them.
 
     Keyword and structure signals read the body with fenced blocks blanked
     (see `_blank_fenced_blocks`); the clear-fix patterns read it whole.
 
-    The result carries the `shape` block (`compute_item_shape`). A refined
-    item takes `step_count` from its `## Resolution` steps only, and
-    `step_count_source` names which text the count came from.
+    The result carries the `shape` block (`compute_item_shape`), read from
+    the body with only the loop sections removed. A refined item takes
+    `step_count` from its `## Resolution` steps only, and `step_count_source`
+    names which text the count came from. When its shape gate also passes
+    (`shape_ok`), its multi-sprint and architectural hits, H2 count and
+    sub-items read `## Resolution` only, too. A refined item whose shape
+    gate fails reads them from the whole body, as an unrefined item does,
+    so a large-scope signal anywhere in it still blocks Route A.
 
     With `config`, the result carries the `scoped_rules` block
-    (`scoped_rules_block` over the raw body, which strips the loop sections
-    itself); without it, `scoped_rules` is None and no file is read.
+    (`scoped_rules_block` over the raw body, which strips the
+    `SIGNAL_EXCLUDED_HEADINGS` sections itself, `## Open Questions`
+    included); without it, `scoped_rules` is None and no file is read.
     """
     raw_body = frontmatter.get("_body") or ""
-    body, loop_lines = strip_loop_sections(raw_body)
+    loop_body, loop_lines = strip_loop_sections(raw_body)
+    body, excluded_lines = strip_sections(raw_body, SIGNAL_EXCLUDED_HEADINGS)
     body_available = "_body" in frontmatter
     structural = _blank_fenced_blocks(body)
     line_count = frontmatter.get("_line_count")
-    line_count_effective = None if line_count is None else line_count - loop_lines
+    line_count_effective = None if line_count is None else line_count - excluded_lines
 
     abbrev = _resolve_abbrev(item, frontmatter)
     is_bug = abbrev == "BUG"
     is_short = line_count_effective is not None and line_count_effective < SHORT_ITEM_LINES
     file_paths = sorted(set(_FILE_PATH_RE.findall(body)))
 
-    multi_sprint_hits = _keyword_hits(structural, MULTI_SPRINT_TERMS)
-    architectural_hits, architectural_ignored = _architectural_hits(structural)
+    # The shape gate reads `## Open Questions`, so it gets the body with only
+    # the loop sections removed.
+    shape = compute_item_shape(frontmatter, body=loop_body, blanked=_blank_fenced_blocks(loop_body))
+    # A refined item whose shape gate passes reads its large-scope signals
+    # from its `## Resolution` section only. The other lines are blanked, so
+    # a hit's line number counts lines of the body with the
+    # `SIGNAL_EXCLUDED_HEADINGS` sections removed, as for any other item.
+    # A refined item whose gate fails reads the whole body.
+    signal_text = structural
+    if shape["refined"] and shape["shape_ok"]:
+        resolution = _section_spans(structural).get("Resolution", (0, 0))
+        signal_text = "\n".join(
+            line if resolution[0] <= index < resolution[1] else ""
+            for index, line in enumerate(structural.split("\n"))
+        )
+
+    multi_sprint_hits = _keyword_hits(signal_text, MULTI_SPRINT_TERMS)
+    architectural_hits, architectural_ignored = _architectural_hits(signal_text)
     has_multi_sprint = bool(multi_sprint_hits)
     is_architectural = bool(architectural_hits)
 
     h2_count = sum(
         1
-        for line in structural.split("\n")
+        for line in signal_text.split("\n")
         if _H2_RE.match(line) and line[3:].rstrip() not in TEMPLATE_SECTION_HEADINGS
     )
-    numbered_items, body_step_count = _longest_numbered_run(structural)
+    numbered_items, body_step_count = _longest_numbered_run(signal_text)
     sub_items = max(h2_count, body_step_count)
     # A refined item's steps are its `## Resolution` steps; any other item
     # reads the body's longest run, as before.
-    shape = compute_item_shape(frontmatter, body=body, blanked=structural)
     if shape["refined"]:
         step_count, step_count_source = shape["resolution_steps"], "## Resolution"
     else:
@@ -1133,6 +993,7 @@ def compute_route_signals(item: dict, frontmatter: dict, config: dict | None = N
         "is_bug": is_bug,
         "line_count": line_count,
         "loop_lines": loop_lines,
+        "excluded_lines": excluded_lines,
         "line_count_effective": line_count_effective,
         "is_short": is_short,
         "file_paths": file_paths,
@@ -1258,7 +1119,7 @@ def format_route_detail(signals: dict, score: int) -> str:
         f"  branch:            {signals['branch']}",
         f"  abbrev/is_bug:     {signals['abbrev']} / {yes_no(signals['is_bug'])}",
         (f"  line_count/short:  {signals['line_count']} / {yes_no(signals['is_short'])}"
-         f"  (< {SHORT_ITEM_LINES}; {signals['loop_lines']} loop-written lines excluded)"),
+         f"  (< {SHORT_ITEM_LINES}; {signals['excluded_lines']} loop-written and open-question lines excluded)"),
         f"  file_paths:        {len(signals['file_paths'])}",
         (f"  h2 / numbered:     {signals['h2_count']} / {signals['numbered_items']}"
          f"  -> SUB_ITEMS {signals['sub_items']} (>= {SUB_ITEMS_THRESHOLD}: "
