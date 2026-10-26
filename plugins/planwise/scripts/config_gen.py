@@ -104,8 +104,9 @@ MIGRATABLE_TOP_LEVEL_KEYS = [
 # reach an existing install without this nested merge. Each tuple is
 # (sub_key, default_value_literal) where the literal is rendered verbatim
 # into the YAML line. Existing sub-keys are NEVER overwritten — purely
-# additive. Most entries are Token Saver keys; run_layer_stop is not, but it
-# rides the same nested merge since it also lives under context:.
+# additive. Most entries are Token Saver keys; run_layer_stop and
+# plan_authoring are not, but they ride the same nested merge since they also
+# live under context:.
 MIGRATABLE_CONTEXT_SUBKEYS: list[tuple[str, str]] = [
     ("token_saver", "false"),
     ("token_saver_session_target", "150000"),
@@ -122,6 +123,7 @@ MIGRATABLE_CONTEXT_SUBKEYS: list[tuple[str, str]] = [
     ("token_saver_orchestrator_advisory", "measured"),
     ("token_saver_session_checkpoint", "{window: 400000, turns: 194}"),
     ("run_layer_stop", "off"),
+    ("plan_authoring", "inline"),
     # Last CLI build planwise confirmed this project's harness against. This
     # is consumer-side, mutable state -- NOT a version pin baked into shipped
     # plugin source (see references/verify-against-shipped-artifact.md for why

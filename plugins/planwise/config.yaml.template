@@ -70,6 +70,13 @@ context:
   # orchestrator writes the Session Boundary Note, prints one LAYER BOUNDARY
   # line, and ends its turn. Read by the run handler at Step 3.3.
   run_layer_stop: off
+  # Who writes the task bodies of a /planwise plan. inline = the plan handler
+  # writes every body in the calling session (the shipped behaviour);
+  # delegated = after the skeleton files exist, the handler writes a
+  # plan-notes file and dispatches the plan-author agent once per session to
+  # fill that session's task files. Read by the plan handler at Steps 4-7
+  # ("Plan Authoring Mode").
+  plan_authoring: inline
   # Last Claude Code CLI build planwise confirmed THIS project's harness
   # against. Consumer-side, mutable state — never a version pin baked into
   # shipped plugin source, which would need editing on every CLI point

@@ -896,6 +896,7 @@ def get_effective_token_saver_config(config: dict, plan_override=None) -> dict:
 
 _TOKEN_SAVER_ADVISORY_VALUES = ("measured", "off")
 _RUN_LAYER_STOP_VALUES = frozenset({"off", "on"})
+_PLAN_AUTHORING_VALUES = frozenset({"inline", "delegated"})
 
 
 def _as_int_default(value, default: int) -> int:
@@ -935,7 +936,8 @@ def _as_int_subkey_dict(value, default: dict, keys: tuple) -> dict:
 def get_token_saver_extension_config(config: dict) -> dict:
     """Extract the Token Saver extension keys, with defaults.
 
-    These six `context.token_saver_*` keys are additive to the six
+    These seven `context:` keys (five `token_saver_*` keys plus
+    `run_layer_stop` and `plan_authoring`) are additive to the six
     `get_token_saver_config` already reads. They live in their own accessor
     rather than being folded into that function, because that function's
     docstring and existing callers assume exactly the original six-key
@@ -966,6 +968,12 @@ def get_token_saver_extension_config(config: dict) -> dict:
         value falls back to "off". off = the shipped loop; on = the run
         handler stops at each dependency layer's Recovery reconcile instead
         of continuing to the next layer)
+      * plan_authoring                      -> "inline"
+        (enum "inline" | "delegated"; no boolean mapping, because neither
+        word is a YAML boolean; any other value -- another string, a bool,
+        an int, None -- falls back to "inline". inline = the plan handler
+        writes every task body itself; delegated = the plan handler
+        dispatches planwise:plan-author once per session to write them)
     """
     context = config.get("context", {})
     if not isinstance(context, dict):
@@ -988,6 +996,12 @@ def get_token_saver_extension_config(config: dict) -> dict:
     else:
         run_layer_stop = "off"
 
+    plan_authoring = context.get("plan_authoring", "inline")
+    if isinstance(plan_authoring, str) and plan_authoring.strip().lower() in _PLAN_AUTHORING_VALUES:
+        plan_authoring = plan_authoring.strip().lower()
+    else:
+        plan_authoring = "inline"
+
     return {
         "token_saver_injection_ceiling": _as_int_default(
             context.get("token_saver_injection_ceiling"), 40000
@@ -1007,4 +1021,5 @@ def get_token_saver_extension_config(config: dict) -> dict:
             ("window", "turns"),
         ),
         "run_layer_stop": run_layer_stop,
+        "plan_authoring": plan_authoring,
     }

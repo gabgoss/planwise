@@ -129,6 +129,21 @@ Worked example — 2 sprints, the second with 2 sessions (`{sprint_count}` = 2, 
 
 ### Steps 4-7: Generate Files
 
+#### Plan Authoring Mode — `context.plan_authoring` (`inline` by default)
+
+Read `context.plan_authoring` once, before any file is generated, through `scripts/config_loader.py::get_token_saver_extension_config()` — never hardcode it. The accessor returns `inline` or `delegated`, and any other value reads as `inline`.
+
+- **`inline`** (the default, and the value when the key is absent): the steps below run as written, and this session writes every body.
+- **`delegated`**: applies on the default path only, because the agent fills a rendered skeleton. On the fallback path, run inline. After item 5's render, item 6 covers only the files that are not task files: this session fills every FILL marker in the Master Plan, each Sprint Plan, and each Orchestration and Recovery file inline. The agent writes only a session's task files, so this loop fills the task files' FILL markers:
+  1. Write `{plans_dir}/{PlanName}/{Abbrev}-PlanNotes.md` from [`templates/plan-notes.md`](../templates/plan-notes.md). It holds the measured facts and decisions from Steps 1-2 and the lessons search, every question only the user can answer, one `## Authoring Progress` row per session reading `pending`, and a boundary note that names the first session.
+  2. For each session in order, dispatch `planwise:plan-author` once through the Agent tool, in the foreground. Never set `run_in_background`, which silently denies the agent's writes. The prompt passes `plugin_root`, `planwise_root`, the session id, the spec path, that session's task file paths, the notes path and the Master Plan path. It also passes the current timestamp for the notes file's `**Written At:**` line, because the agent has no clock. It states that the agent reads **and writes** the notes file: the agent updates it with `Edit` after each task file.
+  3. Act on the agent's status block, using the fields `agents/plan-author.md` defines (`TASK_STATUS`, `OUTPUT_FILES`, `ISSUES`, `NOTES_PATH`, `OPEN_QUESTIONS`). Never ask the agent for another block shape.
+     - `BLOCKED`: put each open question from `ISSUES` to the user. Write each answer under the notes file's `## Decisions` and reset `## Open Questions` to `none`. Only then dispatch again for the same session. When `ISSUES` names a missing input instead, restore the input, then dispatch again. When `ISSUES` names a cited heading or symbol that no longer resolves, correct the spec or the Execution Input, then dispatch again. Do not put either of these two causes to the user as an open question.
+     - `COMPLETE`: go to the next session.
+     - `PARTIAL`: dispatch again for the same session. The agent resumes from the notes file's `## Authoring Progress` row. If a re-dispatch returns `PARTIAL` and its `OUTPUT_FILES` lists no file the previous dispatch did not, finish that session's remaining bodies inline, set its progress row to `complete`, and go to the next session.
+
+  When the loop ends, with every session `COMPLETE` or finished inline, continue exactly as the inline path does: run `check-headings` below, then Step 8b, then Step 8c.
+
 **Default path: one spec Write, one script render.** The index-shape gate in the router's `## Workflow` has already run, so every write below sits behind it. One metadata-only spec and one `scaffold_plan.py` render produce every file of Steps 3-8. The model then writes only the prose bodies:
 
 1. Run Step 8's lessons search first, so its hits reach the spec's Required Context rows or the task bodies.
@@ -148,6 +163,7 @@ Use templates from `{plugin_root}/templates/`:
 | 5 | [sprint-plan.md](../templates/sprint-plan.md) | `{Abbrev}-S{XX}-Sprint-Plan.md` | **Once per sprint** (`{XX}` = `01` … `{sprint_count}`) — its Sessions table lists all `{session_count[XX]}` sessions |
 | 6 | [orchestration.md](../templates/orchestration.md) | `{Abbrev}-S{XX}-{YY}-Orchestration.md` | **Once per SESSION** (`{YY}` = `01` … `{session_count[XX]}`, for every sprint) |
 | 7 | [recovery.md](../templates/recovery.md) | `{Abbrev}-S{XX}-{YY}-Recovery.md` | **Once per SESSION** |
+| 4-7 (`delegated` only) | [plan-notes.md](../templates/plan-notes.md) | `{Abbrev}-PlanNotes.md` | **Once per plan**, only when `context.plan_authoring` is `delegated`, written after the render ([Plan Authoring Mode](#plan-authoring-mode--contextplan_authoring-inline-by-default)) |
 
 Step 5 repeats for every sprint; Steps 6-7 repeat for every session of every sprint. Their cardinality is **not** the sprint count — a 3-sprint plan whose second sprint has 3 sessions produces 3 Sprint Plans and **5** Orchestration/Recovery pairs. Do not stop after Sprint-01, and do not stop after each sprint's Session-01.
 

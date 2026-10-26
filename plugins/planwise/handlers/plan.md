@@ -74,7 +74,7 @@ All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Pla
 ---
 
 > [!practice] Session-Level Effort for Large Plans
-> This handler executes inline in the calling session — there is no dispatched planner agent to carry an `effort:` frontmatter field. For a large or multi-sprint scaffold, consider running `/effort high` (or your project's measured preference) before invoking this command, or set a standing default in *your own project's* `.claude/settings.json` (`effortLevel`, or a per-model entry under `modelSettings`). The plugin pins `effort:` only on the agents it dispatches and measured (`references/agent-authoring.md` § Shipped Effort Levels); nothing it ships changes the session level. This recommendation is advisory only.
+> This handler executes inline in the calling session. With `context.plan_authoring` at its default `inline`, no planner agent is dispatched, so no agent carries an `effort:` frontmatter field. With `delegated`, `planwise:plan-author` writes the task bodies (Part 2, Steps 4-7), and it pins no `effort:`, so the session level governs it too. For a large or multi-sprint scaffold, consider running `/effort high` (or your project's measured preference) before invoking this command, or set a standing default in *your own project's* `.claude/settings.json` (`effortLevel`, or a per-model entry under `modelSettings`). The plugin pins `effort:` only on the agents it dispatches and measured (`references/agent-authoring.md` § Shipped Effort Levels); nothing it ships changes the session level. This recommendation is advisory only.
 
 ---
 

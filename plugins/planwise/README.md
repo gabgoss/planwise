@@ -615,7 +615,7 @@ planwise uses ten specialized AI agents behind the scenes:
 | **backlog-author** | Files or rewrites backlog items from the planner's designs, writes the executable sections and the `refined` flag, and regenerates the index |
 | **plan-author** | Fills one plan session's rendered task files from the metadata spec and the plan-notes state file when plan authoring is delegated; stops with the open questions when any remain |
 
-You don't need to interact with these directly — they're called automatically when you use `/planwise review`, `/planwise run`, `/planwise backlog`, `/planwise lessons`, `/planwise upgrade`, and `/planwise harvest`. Agents run straight from the plugin (invoked as `planwise:<name>`); nothing is copied into your project.
+You don't need to interact with these directly — they're called automatically when you use `/planwise plan`, `/planwise review`, `/planwise run`, `/planwise backlog`, `/planwise lessons`, `/planwise upgrade`, and `/planwise harvest`. Agents run straight from the plugin (invoked as `planwise:<name>`); nothing is copied into your project.
 
 ### Configuration
 
@@ -628,6 +628,7 @@ After running `/planwise init`, your settings live in `planwise/config.yaml`. He
 | `scoring` | How backlog items are scored and ranked | Sensible defaults |
 | `build_commands.default` | Command to verify builds after changes | `echo '...'` |
 | `context.token_saver` | Token Saver mode default (see [§9](#9-planwise-token-saver)) | `false` |
+| `context.plan_authoring` | Who writes a plan's task bodies: `inline` (the plan handler itself) or `delegated` (the plan-author agent, one session per dispatch) | `inline` |
 | `upgrade.customization_handoff` | How upgrade hands off files you've customised (see [§10](#10-planwise-upgrade)) | `report+relocate` |
 
 ### Style Rules
@@ -671,7 +672,7 @@ planwise/                           # Plugin root
   templates/                        # Markdown templates
   manifests/                        # Artifact manifest and agent history
   seed/                             # Index file seeds for init
-  scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py, list_plans.py, skill_preflight.py (the zero-call list and the upgrade card) and scaffold_plan.py (the plan skeleton render))
+  scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py, list_plans.py, skill_preflight.py (the zero-call list, the upgrade card and the plan Config Gate) and scaffold_plan.py (the plan skeleton render))
   hooks/                            # hooks.json and register.ts — the backlog loop's compaction-and-re-entry module
   examples/                         # Sample outputs
   config.yaml.template              # Config template
