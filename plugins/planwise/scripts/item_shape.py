@@ -187,9 +187,10 @@ def _open_questions_state(section: str | None) -> str:
     section is ignored. `empty` is a section with no `### Q` block whose
     first non-blank line is `None` or `None.` (any case), or which has no
     non-blank line at all. A section with `### Q` blocks is `answered` when
-    every block carries an answer line, else `unanswered`. Any other text
-    opening the section is an open question with no block shape, so it
-    reads `unanswered`.
+    every block carries an answer line and every non-blank line above the
+    first block is `None` or `None.`, else `unanswered`: free text above the
+    blocks is an open question with no block shape. Any other text opening
+    a section with no block reads `unanswered` for the same reason.
     """
     if section is None:
         return "absent"
@@ -199,13 +200,16 @@ def _open_questions_state(section: str | None) -> str:
             break
         lines.append(line)
     blocks: list[bool] = []
+    preamble_open = False
     for line in lines:
         if _QUESTION_HEADING_RE.match(line):
             blocks.append(False)
         elif blocks and _ANSWER_LINE_RE.match(line):
             blocks[-1] = True
+        elif not blocks and line.strip() and line.strip().lower() not in _EMPTY_QUESTIONS:
+            preamble_open = True
     if blocks:
-        return "answered" if all(blocks) else "unanswered"
+        return "answered" if all(blocks) and not preamble_open else "unanswered"
     rest = [line.strip() for line in lines if line.strip()]
     if not rest or rest[0].lower() in _EMPTY_QUESTIONS:
         return "empty"
@@ -218,8 +222,10 @@ def compute_item_shape(frontmatter: dict, *, body: str | None = None, blanked: s
 
     Reads `frontmatter["_body"]` and the two flags; opens no file. The body
     is read with the loop-written sections removed
-    (`scoped_rules.strip_loop_sections`), as every other route signal reads
-    it. A caller that already holds that stripped body passes it as `body`,
+    (`scoped_rules.strip_loop_sections`). The route signals read a narrower
+    body: they also leave out `## Open Questions`, and a refined item's
+    large-scope signals read `## Resolution` only. The shape gate needs
+    `## Open Questions`, so it keeps that section. A caller that already holds that stripped body passes it as `body`,
     and its fence-blanked form as `blanked`, so neither is computed twice.
 
     The gate passes when the item is refined, `## Resolution` holds at

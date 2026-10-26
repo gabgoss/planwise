@@ -10,18 +10,18 @@ contract (questions, per-iteration steps, the marker line) lives in
 Subcommands, each printing short human lines and then ONE final line that is a
 single-line JSON object:
 
-  --init     build the queue from the open backlog and write a new run file
+  --init     build the queue from the open backlog and write a new run file;
+             with --dry-run, print the same report and write nothing
   --next     pop the next still-selectable item and make it `current`
   --mark     record a phase, or the closing outcome, for an item. A SKIPPED
              outcome restores the item's pre-loop status; with --decision it
-             also writes one `## Loop Decision Needed` section into the item
-             file, ending in an end-marker line. It replaces the section an
-             earlier run left there unless a person edited that section,
-             which is then kept unchanged with the new section beside it.
-             A section with no end marker is never changed either. With
+             also writes one `### Q{n}.` block under `## Open Questions` in
+             the item file (`backlog_questions.append_question`); a retry in
+             the same run writes nothing. With
              --needs-plan it marks the item `needs_plan: true`. A COMPLETE
              outcome with --resolution-file appends the close record to the
-             item file. --refined, alone, records the refine outcome
+             item file. --refined, alone, records the refine outcome;
+             --check with --exit, alone, records one verify command's result
   --boundary print the marker line the hooks module watches for
   --end      close the run and print the cross-run summary
   --status   print one run's record, or list every run
@@ -35,10 +35,8 @@ top level, so the folder is never read as an item.
 """
 
 import argparse
-import hashlib
 import json
 import os
-import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -46,6 +44,13 @@ from pathlib import Path
 # Import shared helpers from the sibling scripts
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
+from backlog_questions import (
+    QUESTION_APPENDED,
+    QuestionError,
+    append_question,
+    check_question_target,
+    validate_question_text,
+)
 from config_loader import load_config
 from constants import HOLD_STATUSES, OPEN_STATUSES
 from item_shape import _reads_true
@@ -62,15 +67,12 @@ from parse_backlog import (
     filter_items,
     parse_dependencies_table,
 )
-from reconcile_common import (
-    read_text_preserving_newlines,
-    write_text_preserving_newlines,
-)
+from reconcile_common import read_text_preserving_newlines
 from scoped_rules import (
-    LOOP_SECTION_END,
-    TOP_HEADING_RE,
-    fence_flags,
+    RULE_SCOPES_KEY,
+    VERDICT_PLACEMENT,
     fence_left_open,
+    load_rule_scopes,
     loop_sections,
 )
 from score_backlog import (
@@ -104,6 +106,7 @@ PHASES = ("selected", "acting", "verifying")
 OUTCOMES = ("COMPLETE", "NOT_STARTED", "SKIPPED")
 EXCLUDED_REASON = "plans deferred in loop mode"
 NO_LONGER_SELECTABLE = "no-longer-selectable"
+NO_ELIGIBLE = "No eligible items for the loop."
 DECISION_HEADING = "## Loop Decision Needed"
 REFINE_OUTCOMES = ("REFINED", "QUESTIONS", "ALREADY_MET", "DECOMPOSE", "NEEDS_PLAN")
 # An unrefined default-branch Route C item past the --refine-max cap.
@@ -112,12 +115,12 @@ NEEDS_PLAN_NOTE = "marked for a planning session"
 NEEDS_PLAN_REASON = NEEDS_PLAN_NOTE
 OPEN_QUESTIONS_REASON = "open questions unanswered"
 OPEN_QUESTIONS_NOTE = "open-questions-unanswered"
-DECISION_MAX_CHARS = 1200
-# The outcomes of write_decision_section.
-DECISION_WRITTEN = "written"
-DECISION_SAME_RUN = "same_run"
-DECISION_WRITTEN_BESIDE_EDITED = "written_beside_edited"
-USER_INPUT_NOTE = "USER INPUT NEEDED: see the Loop Decision Needed section in the item file"
+# The item still carries a legacy `## Loop Decision Needed` section.
+DECISION_PENDING_REASON = "decision pending"
+DECISION_PENDING_HINT = "decision pending: run scripts/backlog_questions.py --fold, then --answer each question"
+# The item's scoped-rule verdict is `placement`: a human decides where a file goes.
+PLACEMENT_REASON = "placement"
+USER_INPUT_NOTE = "USER INPUT NEEDED: see ## Open Questions in the item file"
 ACTIONS = ("init", "next", "mark", "boundary", "end")
 
 
@@ -300,138 +303,6 @@ def item_status_of(config: dict, rows_by_norm: dict, item_id: str) -> tuple[Path
     return path, str(frontmatter.get("status") or row["status"]).strip().upper()
 
 
-_DECISION_TAG_RE = re.compile(r"<!-- loop-decision run=([^\s>]+) -->")
-_DECISION_HASH_RE = re.compile(r"<!-- loop-decision-hash=([0-9a-f]{16}) -->")
-_EARLIER_RUNS_PREFIX = "> Earlier runs:"
-
-
-def _decision_hash(text: str) -> str:
-    """The first 16 hex digits of the SHA-256 of text, normalised.
-
-    The text is taken LF-normalised, with trailing whitespace stripped from
-    each line and trailing blank lines dropped, so a change of line endings
-    or of trailing blanks never reads as an edit.
-    """
-    lines = [line.rstrip() for line in text.replace("\r\n", "\n").split("\n")]
-    while lines and not lines[-1]:
-        lines.pop()
-    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()[:16]
-
-
-def _decision_section_facts(section: str, marker_bounded: bool) -> tuple[list[str], list[str], bool]:
-    """Read one `## Loop Decision Needed` section: `(earlier ids, own run ids, edited)`.
-
-    Only lines outside a fence count, so a tag quoted in a fenced example is
-    never read as a run. Edited applies to a marker-bounded section only: it
-    is edited unless its hash line holds the hash of every other line of the
-    section, heading to end marker. A marker-bounded section with no hash
-    line counts as edited. A section with no end marker is never changed, so
-    it is never reported as edited.
-    """
-    lines = section.split("\n")
-    earlier: list[str] = []
-    own: list[str] = []
-    hash_at: int | None = None
-    for idx, (line, fenced) in enumerate(zip(lines, fence_flags(section))):
-        if fenced:
-            continue
-        content = line.rstrip()
-        if content.startswith(_EARLIER_RUNS_PREFIX):
-            earlier.extend(
-                part.strip() for part in content[len(_EARLIER_RUNS_PREFIX):].split(",") if part.strip()
-            )
-            continue
-        tag = _DECISION_TAG_RE.fullmatch(content)
-        if tag:
-            own.append(tag.group(1))
-            continue
-        if hash_at is None and _DECISION_HASH_RE.fullmatch(content):
-            hash_at = idx
-    if not marker_bounded:
-        return earlier, own, False
-    if hash_at is None:
-        return earlier, own, True
-    recorded = _DECISION_HASH_RE.fullmatch(lines[hash_at].rstrip()).group(1)
-    rest = lines[:hash_at] + lines[hash_at + 1:]
-    return earlier, own, _decision_hash("\n".join(rest)) != recorded
-
-
-def write_decision_section(path: Path, run_id: str, text: str) -> tuple[str, str | None]:
-    """Write the one dated `## Loop Decision Needed` section; return `(outcome, edited run)`.
-
-    The edited run is the run id of the last edited section kept for
-    "written_beside_edited", and None otherwise. Outcomes:
-      - "written": the section was written.
-      - "written_beside_edited": a person edited a section the loop wrote.
-        That section is kept unchanged, and the new section was written
-        beside it.
-      - "same_run": this run's tag is already somewhere in the file; nothing
-        written, so a retry after a crash never stacks a second copy.
-    The section ends with an end-marker line, and a hash line after the run
-    tag records every other line from the heading to the end marker. A
-    section the loop wrote and nobody edited is replaced in place, so text
-    after its end marker stays where it is. A section a person edited is
-    always kept. A section with no end marker was written before the marker
-    existed and is never changed. When no unedited section is there to
-    replace, the new section goes after the end of the file. So an item
-    holds at most one unedited section, plus any edited ones kept. The new
-    section names every earlier run id, oldest first, on an `Earlier runs:`
-    line. A fenced heading is not a section. The file's own line endings
-    are kept.
-    """
-    raw = read_text_preserving_newlines(path)
-    tag = f"<!-- loop-decision run={run_id} -->"
-    if tag in raw:
-        return DECISION_SAME_RUN, None
-    sections = loop_sections(raw, (DECISION_HEADING.removeprefix("## "),))
-    facts = [_decision_section_facts(raw[start:end], bounded) for start, end, bounded in sections]
-    edited_runs = [own[-1] if own else None for _prior, own, edited in facts if edited]
-    outcome = DECISION_WRITTEN_BESIDE_EDITED if edited_runs else DECISION_WRITTEN
-    edited_run = edited_runs[-1] if edited_runs else None
-    earlier: list[str] = []
-    for prior, own, _edited in facts:
-        for found in (*prior, *own):
-            if found not in earlier:
-                earlier.append(found)
-    eol = "\r\n" if "\r\n" in raw else "\n"
-    body = text.strip().replace("\r\n", "\n")
-    callout = [
-        "> [!gate] User input needed",
-        (
-            f"> Loop run {run_id}, {datetime.now().astimezone().date().isoformat()}. "
-            "The loop skipped this item without working it. "
-            "Answer under ## Notes, outside this section, then triage it again. "
-            "A later run replaces this section."
-        ),
-    ]
-    if earlier:
-        callout.append(f"{_EARLIER_RUNS_PREFIX} {', '.join(earlier)}")
-    unstamped = [DECISION_HEADING, "", tag, *callout, "", *body.split("\n"), "", LOOP_SECTION_END]
-    digest = _decision_hash("\n".join(unstamped))
-    stamp = f"<!-- loop-decision-hash={digest} -->"
-    block = eol.join([*unstamped[:3], stamp, *unstamped[3:]]) + eol
-    live_spans = [
-        (start, end)
-        for (start, end, bounded), (_prior, _own, edited) in zip(sections, facts)
-        if bounded and not edited
-    ]
-    if live_spans:
-        # Replace the first unedited section in place; drop any other unedited copy.
-        pieces, cursor = [], 0
-        for number, (start, end) in enumerate(live_spans):
-            pieces.append(raw[cursor:start])
-            if number == 0:
-                pieces.append(block)
-            cursor = end
-        pieces.append(raw[cursor:])
-        write_text_preserving_newlines(path, "".join(pieces))
-        return outcome, edited_run
-    if raw and not raw.endswith(("\n", "\r")):
-        raw += eol
-    write_text_preserving_newlines(path, raw + eol + block)
-    return outcome, edited_run
-
-
 def marked_needs_plan(frontmatter: dict) -> bool:
     """True when the item's frontmatter carries `needs_plan` true.
 
@@ -488,6 +359,23 @@ def summary_lines(run: dict, config: dict) -> list[str]:
             route = rec.get("route") or fallback
             outcome = rec.get("outcome") or "OPEN"
         lines.append(f"| {item_id} | {feature} | {route} | {outcome} | {refine} |")
+    skipped: dict[str, list[str]] = {}
+    for item_id in order:
+        rec = run["items"].get(item_id) or {}
+        if rec.get("outcome") == "SKIPPED":
+            skipped.setdefault(rec.get("note") or "no note", []).append(item_id)
+    if skipped:
+        lines.append("Skipped (by reason):")
+        for note, ids in skipped.items():
+            lines.append(f"  {note}:")
+            lines.extend(f"    {item_id}" for item_id in ids)
+    checked = [(key, rec["checks"]) for key, rec in run["items"].items() if rec.get("checks")]
+    if checked:
+        lines.append("Checks:")
+        for key, checks in checked:
+            failed = [check for check in checks if check["exit"] != 0]
+            lines.append(f"  {key}: {len(checks) - len(failed)}/{len(checks)} passed")
+            lines.extend(f"    exit {check['exit']}: {check['command']}" for check in failed)
     # One header per exclusion reason, in first-seen order. A run file from
     # before reasons were split carries the strong-signal reason on every entry.
     groups: dict[str, list[dict]] = {}
@@ -519,7 +407,7 @@ def summary_lines(run: dict, config: dict) -> list[str]:
         lines.extend(f"  {key}" for key in refined["QUESTIONS"])
     needs_input = [key for key, rec in run["items"].items() if rec.get("user_input_needed")]
     if needs_input:
-        lines.append("User input needed (see the Loop Decision Needed section in each item file):")
+        lines.append("User input needed (see the ### Q block under ## Open Questions in each item file):")
         lines.extend(f"  {key}" for key in needs_input)
     lessons = [(key, rec["lessons"]) for key, rec in run["items"].items() if rec.get("lessons")]
     if lessons:
@@ -584,6 +472,9 @@ def cmd_init(args, config: dict) -> int:
     def by_score(pair: tuple) -> tuple:
         return (-score_of(scores, pair[0]["id"]), pair[0]["id"])
 
+    # Load the rule scopes once for the whole run; every item's route reads them.
+    config = {**config, RULE_SCOPES_KEY: load_rule_scopes(config["_project_root"])}
+
     # First pass, in index order: the reasons that hold whatever the cap.
     verdicts: list[tuple[dict, dict | None, str | None]] = []
     for item in selectable:
@@ -593,9 +484,16 @@ def cmd_init(args, config: dict) -> int:
             # loop does not pick it up again on every run. No route is computed.
             verdicts.append((item, None, NEEDS_PLAN_REASON))
             continue
-        signals = compute_route_signals(item, frontmatter)
+        # Read-only pre-flight, in this order: a legacy decision section still
+        # waiting for an answer, then a placement verdict. Neither is written.
+        if loop_sections(frontmatter.get("_body") or ""):
+            verdicts.append((item, None, DECISION_PENDING_REASON))
+            continue
+        signals = compute_route_signals(item, frontmatter, config)
         shape = signals["shape"]
-        if shape["open_questions"] == "unanswered":
+        if (signals["scoped_rules"] or {}).get("verdict") == VERDICT_PLACEMENT:
+            reason = PLACEMENT_REASON
+        elif shape["open_questions"] == "unanswered":
             reason = OPEN_QUESTIONS_REASON
         elif signals["route"] == "C" and shape["shape_ok"]:
             # A refined item that fails the shape gate is refined again below.
@@ -662,7 +560,9 @@ def cmd_init(args, config: dict) -> int:
             if key in excluded_reason:
                 # A named unrefined item is always refined, so only a reason
                 # that holds whatever the cap can drop it here.
-                if excluded_reason[key] in (NEEDS_PLAN_REASON, OPEN_QUESTIONS_REASON):
+                if excluded_reason[key] in (
+                    NEEDS_PLAN_REASON, DECISION_PENDING_REASON, PLACEMENT_REASON, OPEN_QUESTIONS_REASON
+                ):
                     why = excluded_reason[key]
                 else:
                     why = "route C is deferred in loop mode"
@@ -673,18 +573,16 @@ def cmd_init(args, config: dict) -> int:
             else:
                 why = "not in the backlog index"
             warnings.append(f"warning: item {raw} dropped: {why}")
+        if any(line.endswith(f": {DECISION_PENDING_REASON}") for line in warnings):
+            warnings.append(DECISION_PENDING_HINT)
     else:
         queue_pairs = list(eligible)
         if args.mode == "n":
             queue_pairs = queue_pairs[: args.n]
-
-    if not queue_pairs:
-        raise LoopExit(EXIT_USAGE, "No eligible items for the loop.", warnings=warnings)
-
-    created = now_iso()
-    runs_dir = runs_dir_of(config)
-    runs_dir.mkdir(parents=True, exist_ok=True)
-    run_id, path = allocate_run_path(runs_dir)
+    # In --mode specific the hint rides in the warnings; otherwise it follows the report.
+    pending_hint = (
+        args.mode != "specific" and any(entry["reason"] == DECISION_PENDING_REASON for entry in excluded)
+    )
 
     queue = [pair[0]["id"] for pair in queue_pairs]
     queue_meta = {
@@ -697,6 +595,53 @@ def cmd_init(args, config: dict) -> int:
         }
         for pair in queue_pairs
     }
+    report = ["Queue:"]
+    for position, item_id in enumerate(queue, start=1):
+        info = queue_meta[item_id]
+        report.append(
+            f"  {position}. {item_id}  score {info['score']}  route {info['route_at_init']}  "
+            f"{info['disposition_at_init']}  {info['feature']}"
+        )
+    if excluded:
+        report.append("Excluded:")
+        for entry in excluded:
+            scope = " (large scope)" if entry["large_scope"] else ""
+            report.append(f"  {entry['id']}  route {entry['route'] or '-'}  {entry['reason']}{scope}")
+    if pending_hint:
+        report.append(DECISION_PENDING_HINT)
+    report.extend(warnings)
+    result = {
+        "queue": [
+            {
+                "id": i,
+                "score": queue_meta[i]["score"],
+                "route_at_init": queue_meta[i]["route_at_init"],
+                "disposition": queue_meta[i]["disposition_at_init"],
+            }
+            for i in queue
+        ],
+        "excluded": excluded,
+        "warnings": warnings,
+    }
+    counts = f"mode={args.mode} queue={len(queue)} excluded={len(excluded)}"
+    if not queue:
+        if not args.dry_run:
+            raise LoopExit(EXIT_USAGE, NO_ELIGIBLE, warnings=warnings)
+        # A dry run still shows why nothing queued, then exits as the real run would.
+        emit(
+            [f"Loop dry run: {counts} (no run file written)", *report, NO_ELIGIBLE],
+            {"dry_run": True, "error": NO_ELIGIBLE, **result},
+        )
+        return EXIT_USAGE
+    if args.dry_run:
+        # The guard sits before the runs directory and the run file are made.
+        emit([f"Loop dry run: {counts} (no run file written)", *report], {"dry_run": True, **result})
+        return EXIT_OK
+
+    created = now_iso()
+    runs_dir = runs_dir_of(config)
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    run_id, path = allocate_run_path(runs_dir)
     run = {
         "schema_version": SCHEMA_VERSION,
         "run_id": run_id,
@@ -730,34 +675,7 @@ def cmd_init(args, config: dict) -> int:
         path.unlink(missing_ok=True)
         raise
 
-    lines = [f"Loop run {run_id}: mode={args.mode} queue={len(queue)} excluded={len(excluded)}", "Queue:"]
-    for position, item_id in enumerate(queue, start=1):
-        info = queue_meta[item_id]
-        lines.append(
-            f"  {position}. {item_id}  score {info['score']}  route {info['route_at_init']}  "
-            f"{info['disposition_at_init']}  {info['feature']}"
-        )
-    if excluded:
-        lines.append("Excluded:")
-        for entry in excluded:
-            scope = " (large scope)" if entry["large_scope"] else ""
-            lines.append(f"  {entry['id']}  route {entry['route'] or '-'}  {entry['reason']}{scope}")
-    lines.extend(warnings)
-    emit(lines, {
-        "run": run_id,
-        "state": state_text(path),
-        "queue": [
-            {
-                "id": i,
-                "score": queue_meta[i]["score"],
-                "route_at_init": queue_meta[i]["route_at_init"],
-                "disposition": queue_meta[i]["disposition_at_init"],
-            }
-            for i in queue
-        ],
-        "excluded": excluded,
-        "warnings": warnings,
-    })
+    emit([f"Loop run {run_id}: {counts}", *report], {"run": run_id, "state": state_text(path), **result})
     return EXIT_OK
 
 
@@ -906,6 +824,37 @@ def mark_lessons(args, config: dict) -> int:
     return EXIT_OK
 
 
+def mark_check(args, config: dict) -> int:
+    """Record one verify command's exit code for an item into its `checks` list.
+
+    Stands alone like `--lessons`, so no other mark flag is silently dropped.
+    Written under its own `check` history event, so it never changes which
+    event `--boundary` reads as the newest mark for the item.
+    """
+    others = (args.phase, args.outcome, args.lessons, args.refined, args.decision, args.note,
+              args.route, args.sub_items, args.resolution_file)
+    if any(value is not None for value in others) or args.needs_plan:
+        raise LoopExit(EXIT_USAGE, "--check stands alone: give no --phase, --outcome, --lessons, --refined, "
+                                   "--decision, --note, --route, --needs-plan, --sub-items or --resolution-file")
+    if args.exit is None:
+        raise LoopExit(EXIT_USAGE, "--check needs --exit with the command's exit code")
+    path = resolve_run_path(config, args.run)
+    run = load_run(path)
+    refuse_if_ended(run, {"run": path.stem, "state": state_text(path)})
+    key = resolve_item_key(run, args.id)
+    check = {"command": args.check, "exit": args.exit, "at": now_iso()}
+    run["items"][key].setdefault("checks", []).append(check)
+    add_history(run, "check", key, f"exit={args.exit}")
+    save_run(path, run)
+    emit([f"Recorded check for {key}: exit {args.exit}"], {
+        "run": path.stem,
+        "id": key,
+        "check": check,
+        "state": state_text(path),
+    })
+    return EXIT_OK
+
+
 def mark_refined(args, config: dict) -> int:
     """Record the refine step's outcome for an item, with its sub-items for DECOMPOSE.
 
@@ -940,6 +889,10 @@ def mark_refined(args, config: dict) -> int:
 def cmd_mark(args, config: dict) -> int:
     if not args.id:
         raise LoopExit(EXIT_USAGE, "--mark requires --id")
+    if args.check is not None:
+        return mark_check(args, config)
+    if args.exit is not None:
+        raise LoopExit(EXIT_USAGE, "--exit applies to --check only")
     # These guards run before the --refined and --lessons branches, so no
     # flag combined with either is ever silently dropped.
     if args.refined is not None and (
@@ -950,33 +903,11 @@ def cmd_mark(args, config: dict) -> int:
         raise LoopExit(EXIT_USAGE, "--sub-items applies to --refined DECOMPOSE only")
     if args.lessons is not None and (args.needs_plan or args.resolution_file is not None):
         raise LoopExit(EXIT_USAGE, "--lessons stands alone: give no --needs-plan or --resolution-file")
-    if args.decision is not None and len(args.decision) > DECISION_MAX_CHARS:
-        raise LoopExit(
-            EXIT_USAGE,
-            f"--decision is {len(args.decision)} characters; the cap is {DECISION_MAX_CHARS}. "
-            "Write it as: Question: ... Options: (A) ... (B) ... Evidence: at most 3 lines.",
-        )
-    if args.decision is not None and any(
-        TOP_HEADING_RE.match(line) for line in args.decision.strip().replace("\r\n", "\n").split("\n")
-    ):
-        raise LoopExit(
-            EXIT_USAGE,
-            "--decision has a heading line of level 1 or 2; a decision line may not start with `## `, "
-            "`# `, or be a bare `#` or `##`, "
-            f"because it would end the {DECISION_HEADING} section. Reword or indent that line.",
-        )
-    if args.decision is not None and fence_left_open(args.decision.strip().replace("\r\n", "\n")):
-        raise LoopExit(
-            EXIT_USAGE,
-            "--decision opens a fenced block that it never closes; an open fence would hide "
-            "the rest of the item file. Close the fence or remove it.",
-        )
-    if args.decision is not None and LOOP_SECTION_END in args.decision:
-        raise LoopExit(
-            EXIT_USAGE,
-            f"--decision contains {LOOP_SECTION_END}, the line that ends the {DECISION_HEADING} "
-            "section. Remove it.",
-        )
+    if args.decision is not None:
+        try:
+            validate_question_text(args.decision)
+        except QuestionError as exc:
+            raise LoopExit(EXIT_USAGE, str(exc))
     if args.needs_plan and args.outcome != "SKIPPED":
         raise LoopExit(EXIT_USAGE, "--needs-plan applies to --outcome SKIPPED only")
     if args.resolution_file is not None and args.outcome != "COMPLETE":
@@ -998,8 +929,6 @@ def cmd_mark(args, config: dict) -> int:
         raise LoopExit(EXIT_USAGE, "--route, --note and --decision apply to --outcome only")
     if args.decision is not None and args.outcome != "SKIPPED":
         raise LoopExit(EXIT_USAGE, "--decision applies to --outcome SKIPPED only")
-    if args.decision is not None and not args.decision.strip():
-        raise LoopExit(EXIT_USAGE, "--decision needs the question, the options and the evidence")
     path = resolve_run_path(config, args.run)
     run = load_run(path)
     refuse_if_ended(run, {"run": path.stem, "state": state_text(path)})
@@ -1020,7 +949,6 @@ def cmd_mark(args, config: dict) -> int:
         resolution_path = matches[0][0]
     restored: str | None = None
     decision_outcome: str | None = None
-    edited_run: str | None = None
     needs_plan_written = False
     resolution_written = False
     resolution_outcome: str | None = None
@@ -1043,13 +971,19 @@ def cmd_mark(args, config: dict) -> int:
             if args.decision is not None and fence_left_open(
                 read_text_preserving_newlines(item_path).replace("\r\n", "\n")
             ):
-                # A section written after an unclosed fence would sit inside
+                # A block written after an unclosed fence would sit inside
                 # it, where no reader sees it. Refuse before any write.
                 raise LoopExit(
                     EXIT_USAGE,
                     f"--decision refused: the item file for {key} opens a fenced block it never "
-                    "closes, so a new section would be hidden inside it. Close the fence first.",
+                    "closes, so a new block would be hidden inside it. Close the fence first.",
                 )
+            if args.decision is not None:
+                # Every file-level refusal of append_question, before any write.
+                try:
+                    check_question_target(item_path)
+                except QuestionError as exc:
+                    raise LoopExit(EXIT_USAGE, f"--decision refused: {exc}")
             if item_path is not None:
                 pre_status = record.get("pre_status")
                 loop_set_it = bool(pre_status) and pre_status != "IN_PROGRESS" and status_now == "IN_PROGRESS"
@@ -1064,9 +998,10 @@ def cmd_mark(args, config: dict) -> int:
                         )
                     needs_plan_written = outcome in ("changed", "unchanged")
                 if args.decision is not None:
-                    decision_outcome, edited_run = write_decision_section(
-                        item_path, path.stem, args.decision
-                    )
+                    try:
+                        decision_outcome = append_question(item_path, path.stem, args.decision)
+                    except QuestionError as exc:
+                        raise LoopExit(EXIT_USAGE, f"--decision refused: {exc}")
             if args.decision is not None:
                 record["user_input_needed"] = True
             if args.needs_plan:
@@ -1103,14 +1038,10 @@ def cmd_mark(args, config: dict) -> int:
     lines = [f"Marked {key}: {what}"]
     if restored:
         lines.append(f"Restored {key} status to {restored}. Regenerate the backlog index.")
-    decision_written = decision_outcome in (DECISION_WRITTEN, DECISION_WRITTEN_BESIDE_EDITED)
-    if decision_outcome == DECISION_WRITTEN_BESIDE_EDITED:
-        lines.append(
-            f"{DECISION_HEADING.removeprefix('## ')} section from run {edited_run or 'unknown'} "
-            "was edited and kept; wrote a new section into the item file."
-        )
-    elif decision_written:
-        lines.append(f"Wrote the {DECISION_HEADING} section into the item file.")
+    # A same-run retry wrote nothing, so it reports false.
+    decision_written = decision_outcome == QUESTION_APPENDED
+    if decision_written:
+        lines.append("Wrote a ### Q block under ## Open Questions in the item file.")
     if needs_plan_written:
         lines.append(f"Marked {key} needs_plan: true in the item file. Regenerate the backlog index.")
     if resolution_outcome is not None:
@@ -1282,7 +1213,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--decision", default=None,
         help="With --mark --outcome SKIPPED: the question, options and evidence to write "
-             "into the item file as a Loop Decision Needed section.",
+             "into the item file as a ### Q block under ## Open Questions.",
     )
     parser.add_argument(
         "--needs-plan", action="store_true", dest="needs_plan",
@@ -1308,6 +1239,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--sub-items", default=None, dest="sub_items",
         help="With --mark --refined DECOMPOSE: comma-separated ids of the sub-items filed.",
     )
+    parser.add_argument(
+        "--dry-run", action="store_true", dest="dry_run",
+        help="With --init: print the queue and the exclusions; write no run file.",
+    )
+    parser.add_argument("--check", default=None, help="With --mark, alone: a verify command that ran.")
+    parser.add_argument("--exit", type=int, default=None, help="With --mark --check: its exit code.")
     return parser
 
 
@@ -1331,6 +1268,8 @@ def main(argv: list[str] | None = None) -> int:
                 EXIT_USAGE,
                 "give exactly one of --init, --next, --mark, --boundary, --end, --status",
             )
+        if args.dry_run and actions[0] != "init":
+            raise LoopExit(EXIT_USAGE, "--dry-run applies to --init only")
         try:
             config = load_config(Path(__file__), config_path=args.config)
         except FileNotFoundError as exc:

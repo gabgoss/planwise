@@ -228,6 +228,16 @@ class TestGlob(unittest.TestCase):
 
 class TestDestinations(_ScratchProject):
 
+    def test_preloaded_scopes_in_config_are_used_instead_of_a_reload(self):
+        self.write_rule("behaviour-rule.md", 'paths: "src/**"')
+        self.touch("src/edit.py")
+        body = self.table(("src/edit.py", "EDIT"))
+        self.assertEqual(scoped_rules_block("001", body, self.config())["rules_scanned"], 1)
+        preloaded = {**self.config(), "_rule_scopes": []}
+        block = scoped_rules_block("001", body, preloaded)
+        self.assertEqual(block["rules_scanned"], 0)
+        self.assertEqual(block["rules_to_inject"], [])
+
     def test_table_rows_win_and_read_rows_are_listed_unclassified(self):
         self.write_rule("behaviour-rule.md", 'paths: "src/**"')
         self.touch("src/edit.py")

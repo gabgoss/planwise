@@ -4,8 +4,9 @@
 Two groups:
 
   * Script behaviour. `--mark --outcome SKIPPED` restores the item's pre-loop
-    status, `--decision` writes a `## Loop Decision Needed` section into the
-    item file, and `--mark --lessons` records lesson ids in the run file.
+    status, `--decision` writes a `### Q` block under `## Open Questions` in
+    the item file, never a `## Loop Decision Needed` section, and
+    `--mark --lessons` records lesson ids in the run file.
   * Text pins. After the setup questions, the loop-mode text of
     `handlers/backlog.md` and `handlers/backlog-Part-2-LoopMode.md` issues no
     question except the HALT question.
@@ -28,6 +29,7 @@ LOOP_PART2 = PLUGIN / "handlers" / "backlog-Part-2-LoopMode.md"
 AUTO_MODE_POLICY = PLUGIN / "references" / "auto-mode-policy.md"
 
 HEADING = "## Loop Decision Needed"
+QUESTIONS = "## Open Questions"
 DECISION = "Question: route A or B?\nOptions: A, B.\nEvidence: the premise probe found no target."
 
 
@@ -66,10 +68,14 @@ class TestDocumentedSkip(_LoopFixtureBase):
         body = self.item_file("001").read_text(encoding="utf-8")
         self.assertIn("status: NOT_STARTED", body)
         self.assertNotIn("status: IN_PROGRESS", body)
-        self.assertEqual(body.count(HEADING), 1)
-        self.assertIn("> [!gate] User input needed", body)
-        self.assertIn(f"Loop run {run_id}", body)
-        self.assertIn("Evidence: the premise probe found no target.", body)
+        self.assertNotIn(HEADING, body)
+        self.assertEqual(body.count(QUESTIONS), 1)
+        self.assertIn(
+            f"{QUESTIONS}\n\n### Q1. Loop decision (run {run_id})\n<!-- loop-decision run={run_id} -->\n"
+            f"{DECISION}\n\nAnswer:\n",
+            body,
+        )
+        self.assertIn("Wrote a ### Q block under ## Open Questions", text)
 
         record = self.read_run(payload)["items"]["001"]
         self.assertEqual((record["phase"], record["outcome"]), ("closed", "SKIPPED"))
@@ -86,7 +92,9 @@ class TestDocumentedSkip(_LoopFixtureBase):
         _code, _text, again = self.loop(*args)
 
         self.assertFalse(again["decision_written"])
-        self.assertEqual(self.item_file("001").read_text(encoding="utf-8").count(HEADING), 1)
+        body = self.item_file("001").read_text(encoding="utf-8")
+        self.assertEqual(body.count("### Q"), 1)
+        self.assertNotIn(HEADING, body)
 
     def test_skip_without_decision_restores_status_and_writes_no_section(self):
         payload = self.init("--mode", "all")
@@ -100,7 +108,9 @@ class TestDocumentedSkip(_LoopFixtureBase):
         self.assertEqual(code, 0)
         self.assertEqual(marked["restored_status"], "NOT_STARTED")
         self.assertFalse(marked["decision_written"])
-        self.assertNotIn(HEADING, self.item_file("001").read_text(encoding="utf-8"))
+        body = self.item_file("001").read_text(encoding="utf-8")
+        self.assertNotIn(HEADING, body)
+        self.assertNotIn(QUESTIONS, body)
         record = self.read_run(payload)["items"]["001"]
         self.assertEqual(record["note"], "halted-mid-item")
         self.assertNotIn("user_input_needed", record)

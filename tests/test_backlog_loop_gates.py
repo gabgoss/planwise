@@ -10,7 +10,7 @@
   * `--resolution-file` appends a `## Resolution` section to a closed item,
     from the loop and from `update_backlog.py --status COMPLETE`.
   * `--decision` is capped at 1200 characters, and a skip in a later run
-    replaces the section an earlier run wrote, so one section remains.
+    adds the next `### Q` block under `## Open Questions`.
   * `--mark --outcome` without `--route` records the item's `route_at_init`.
 
 The fixture subclass adds item 010, a conservative-default Route C item, in
@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import backlog_loop
+import backlog_questions
 import update_backlog
 from test_backlog_loop import _LoopFixtureBase, item_filename, item_text
 
@@ -398,28 +399,6 @@ class TestDecisionCap(_GatesFixtureBase):
         self.assertEqual(code, 0)
         self.assertTrue(marked["decision_written"])
 
-    def test_second_run_refreshes_one_section_with_earlier_runs_line(self):
-        _payload, run_id = self.selected_run()
-        path = self.item_file("001")
-        # Two earlier runs, each written by the loop's own writer.
-        for run in OLD_RUNS:
-            backlog_loop.write_decision_section(path, run, f"Question from run {run}?")
-        self.assertEqual(path.read_text(encoding="utf-8").count(HEADING), 1)
-
-        code, _text, marked = self.loop(
-            "--mark", "--run", run_id, "--id", "001", "--outcome", "SKIPPED", "--decision", DECISION,
-        )
-
-        self.assertEqual(code, 0)
-        self.assertTrue(marked["decision_written"])
-        body = path.read_text(encoding="utf-8")
-        self.assertEqual(body.count(HEADING), 1)
-        self.assertEqual(body.count(f"<!-- loop-decision run={run_id} -->"), 1)
-        self.assertEqual(body.count("<!-- loop-decision run="), 1)
-        self.assertIn(f"> Earlier runs: {OLD_RUNS[0]}, {OLD_RUNS[1]}", body)
-        self.assertNotIn("Question from run", body)
-        self.assertIn("Evidence: the probe found two callers.", body)
-
     def test_same_run_repeat_is_noop(self):
         _payload, run_id = self.selected_run()
         args = ("--mark", "--run", run_id, "--id", "001", "--outcome", "SKIPPED", "--decision", DECISION)
@@ -430,9 +409,9 @@ class TestDecisionCap(_GatesFixtureBase):
 
         self.assertFalse(again["decision_written"])
         self.assertEqual(self.item_file("001").read_bytes(), after_first)
-        self.assertNotIn(b"Earlier runs:", after_first)
+        self.assertEqual(after_first.count(b"### Q"), 1)
 
-    def test_refresh_keeps_crlf(self):
+    def test_later_run_adds_the_next_block_and_keeps_crlf(self):
         _payload, run_id = self.selected_run()
         path = self.item_file("001")
         crlf = item_text("001", "IN_PROGRESS", "short").replace("\n", "\r\n")
@@ -440,14 +419,16 @@ class TestDecisionCap(_GatesFixtureBase):
             handle.write(crlf)
         # Two earlier runs, each written by the loop's own writer.
         for run in OLD_RUNS:
-            backlog_loop.write_decision_section(path, run, f"Question from run {run}?")
+            backlog_questions.append_question(path, run, f"Question from run {run}?")
 
         self.loop("--mark", "--run", run_id, "--id", "001", "--outcome", "SKIPPED", "--decision", DECISION)
 
         raw = path.read_bytes()
         self.assertEqual(raw.count(b"\n"), raw.count(b"\r\n"), "a bare LF entered a CRLF file")
-        self.assertEqual(raw.count(HEADING.encode()), 1)
-        self.assertIn(f"> Earlier runs: {OLD_RUNS[0]}, {OLD_RUNS[1]}\r\n".encode(), raw)
+        self.assertNotIn(HEADING.encode(), raw)
+        self.assertEqual(raw.count(b"## Open Questions"), 1)
+        self.assertIn(f"### Q3. Loop decision (run {run_id})\r\n".encode(), raw)
+        self.assertIn(f"Question from run {OLD_RUNS[0]}?\r\n".encode(), raw)
 
     def test_refused_decision_falls_back_to_note_skip(self):
         payload, run_id = self.selected_run()

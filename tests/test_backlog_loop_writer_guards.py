@@ -1,20 +1,13 @@
 #!/usr/bin/env python3
 """Regression tests for the loop's item-file writers and its queue guards.
 
-  * A `## Loop Decision Needed` line inside a fenced block is not a section,
-    and a fenced `## ` line inside a real section does not end it.
-  * `Earlier runs:` keeps every earlier run id, oldest first.
-  * A section ends at its unfenced `<!-- loop-decision-end -->` line. A
-    section a person edited anywhere from heading to end marker is kept,
-    and the new section is written beside it; a later run replaces only the
-    new one. Text after the end marker is not an edit.
-  * A section with no end marker is never changed; the new section goes
-    after the end of the file.
-  * A retry in the same run writes nothing, wherever its tag sits.
   * One fence scanner: a fence closes only on the same character, at least
-    as long, so every writer agrees on what is fenced.
-  * `--decision` refuses a heading line of level 1 or 2, an unclosed fence
-    and the end-marker string.
+    as long, so every writer agrees on what is fenced. A fenced end marker
+    does not bound a legacy `## Loop Decision Needed` section.
+  * `--decision` refuses a heading line of level 1, 2 or 3, an unclosed
+    fence and the end-marker string, through the CLI, before any write.
+  * `--decision` refuses an item file that leaves a fence open.
+  * The question writer leaves a fenced example in the item unchanged.
   * A resolution file with a byte-order mark leaves no mark in the item.
   * `--needs-plan` clears the record's route, and the summary shows `-`.
   * `--init` never queues an item whose frontmatter says `needs_plan: true`.
@@ -33,25 +26,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import backlog_loop
+import backlog_questions
 import scoped_rules
 import update_backlog
 from test_backlog_loop import item_filename, item_text
 from test_backlog_loop_gates import (
     DECISION,
     HEADING,
-    OLD_RUNS,
     RECORD,
     _GatesFixtureBase,
     old_section,
 )
 
 BOM = b"\xef\xbb\xbf"
-RUN_1, RUN_2, RUN_3 = "20261001-090000", "20261002-090000", "20261003-090000"
+RUN_1 = "20261001-090000"
 END = "<!-- loop-decision-end -->"
-
-
-def tag_of(run_id: str) -> str:
-    return f"<!-- loop-decision run={run_id} -->"
 
 
 class TestReviewRegressions(_GatesFixtureBase):
@@ -62,148 +51,6 @@ class TestReviewRegressions(_GatesFixtureBase):
     def read_raw(self, path: Path) -> str:
         with open(path, encoding="utf-8", newline="") as handle:
             return handle.read()
-
-    def test_fenced_loop_heading_is_not_a_section(self):
-        path = self.item_file("001")
-        fenced = (
-            "The loop writes this shape:\n\n"
-            "```markdown\n"
-            f"{HEADING}\n\n"
-            "<!-- loop-decision run=YYYYMMDD-HHMMSS -->\n"
-            "Question: {one question}\n"
-            "```\n\n"
-            "## Notes\n\n"
-            "Keep this note.\n"
-        )
-        before = item_text("001", "NOT_STARTED", "short") + "\n" + fenced
-        self.write_raw(path, before)
-
-        backlog_loop.write_decision_section(path, RUN_3, DECISION)
-
-        after = self.read_raw(path)
-        self.assertTrue(after.startswith(before), "authored text before the new section changed")
-        self.assertEqual(after.count(HEADING), 2)
-        self.assertNotIn("Earlier runs:", after)
-        self.assertEqual(after.count(f"<!-- loop-decision run={RUN_3} -->"), 1)
-
-    def test_fenced_h2_inside_section_does_not_end_it(self):
-        path = self.item_file("001")
-        self.write_raw(path, item_text("001", "NOT_STARTED", "short"))
-        old = "Question with an example:\n```text\n## not a heading\n```\nTail of the old section."
-        backlog_loop.write_decision_section(path, RUN_1, old)
-        self.assertIn("## not a heading", self.read_raw(path))
-
-        backlog_loop.write_decision_section(path, RUN_2, DECISION)
-
-        after = self.read_raw(path)
-        self.assertNotIn("Tail of the old section.", after)
-        self.assertNotIn("## not a heading", after)
-        self.assertEqual(sum(1 for line in after.split("\n") if line.startswith("```")), 0)
-        self.assertEqual(after.count(HEADING), 1)
-        self.assertIn(f"> Earlier runs: {RUN_1}", after)
-
-    def test_earlier_runs_accumulates_across_three_runs(self):
-        # The CRLF case: three runs on a CRLF item file.
-        path = self.item_file("001")
-        self.write_raw(path, item_text("001", "NOT_STARTED", "short").replace("\n", "\r\n"))
-
-        for run_id in (RUN_1, RUN_2, RUN_3):
-            backlog_loop.write_decision_section(path, run_id, f"Question from run {run_id}?")
-
-        raw = path.read_bytes()
-        self.assertEqual(raw.count(b"\n"), raw.count(b"\r\n"), "a bare LF entered a CRLF file")
-        self.assertEqual(raw.count(HEADING.encode()), 1)
-        self.assertIn(f"> Earlier runs: {RUN_1}, {RUN_2}\r\n".encode(), raw)
-        self.assertIn(f"Question from run {RUN_3}?".encode(), raw)
-        self.assertNotIn(f"Question from run {RUN_2}?".encode(), raw)
-
-    def test_edited_section_is_kept_and_new_question_appended(self):
-        path = self.item_file("001")
-        self.write_raw(path, item_text("001", "NOT_STARTED", "short").replace("\n", "\r\n"))
-        backlog_loop.write_decision_section(path, RUN_1, "Question: keep or drop?")
-        # The answer is typed inside the section, above its end marker.
-        path.write_bytes(path.read_bytes().replace(END.encode(), b"My answer: keep it.\r\n" + END.encode()))
-        edited = path.read_bytes()
-        payload = self.init("--mode", "all")
-        run_id = payload["run"]
-        code, _text, popped = self.loop("--next", "--run", run_id)
-        self.assertEqual((code, popped["next"]), (0, "001"))
-
-        code, text, marked = self.loop(
-            "--mark", "--run", run_id, "--id", "001", "--outcome", "SKIPPED", "--decision", DECISION,
-        )
-
-        self.assertEqual(code, 0)
-        self.assertTrue(marked["decision_written"])
-        self.assertIn(f"Loop Decision Needed section from run {RUN_1} was edited and kept", text)
-        after = path.read_bytes()
-        self.assertTrue(after.startswith(edited), "the edited section changed")
-        self.assertEqual(after.count(HEADING.encode()), 2)
-        self.assertIn(f"> Earlier runs: {RUN_1}\r\n".encode(), after)
-        self.assertIn(b"Evidence: the probe found two callers.", after)
-        self.assertEqual(after.count(b"\n"), after.count(b"\r\n"), "a bare LF entered a CRLF file")
-        record = self.read_run(payload)["items"]["001"]
-        self.assertEqual(record["outcome"], "SKIPPED")
-        self.assertTrue(record["user_input_needed"])
-
-        # A third run replaces only the new section; the edited one stays.
-        outcome = backlog_loop.write_decision_section(path, RUN_3, "Question from run three?")
-        third = path.read_bytes()
-        self.assertEqual(outcome, (backlog_loop.DECISION_WRITTEN_BESIDE_EDITED, RUN_1))
-        self.assertTrue(third.startswith(edited))
-        self.assertEqual(third.count(HEADING.encode()), 2)
-        self.assertNotIn(b"Evidence: the probe found two callers.", third)
-        self.assertIn(b"Question from run three?", third)
-
-    def test_unmarked_legacy_section_is_never_deleted(self):
-        path = self.item_file("001")
-        legacy = "".join(old_section(run) for run in OLD_RUNS) + "My answer typed into the old section.\n"
-        before = item_text("001", "NOT_STARTED", "short") + legacy
-        self.write_raw(path, before)
-
-        outcome = backlog_loop.write_decision_section(path, RUN_3, DECISION)
-
-        after = self.read_raw(path)
-        self.assertEqual(outcome, (backlog_loop.DECISION_WRITTEN, None))
-        self.assertTrue(after.startswith(before), "a section with no end marker changed")
-        self.assertEqual(after.count(HEADING), 3)
-        self.assertIn(f"> Earlier runs: {OLD_RUNS[0]}, {OLD_RUNS[1]}", after)
-        lines = after.split("\n")
-        tag_at = lines.index(tag_of(RUN_3))
-        self.assertRegex(lines[tag_at + 1], r"^<!-- loop-decision-hash=[0-9a-f]{16} -->$")
-        self.assertEqual(after.rstrip("\n").split("\n")[-1], END)
-        self.assertIn("Answer under ## Notes, outside this section, then triage it again.", after)
-        self.assertIn("A later run replaces this section.", after)
-
-    def test_legacy_section_with_answer_is_kept_and_new_section_appended(self):
-        path = self.item_file("001")
-        legacy = old_section(OLD_RUNS[0]) + "My answer: option A.\n\n## Notes\n\nA note.\n"
-        before = item_text("001", "NOT_STARTED", "short") + legacy
-        self.write_raw(path, before)
-
-        backlog_loop.write_decision_section(path, RUN_2, "Question from run two?")
-        backlog_loop.write_decision_section(path, RUN_3, DECISION)
-
-        after = self.read_raw(path)
-        self.assertTrue(after.startswith(before), "the legacy section or the answer in it changed")
-        self.assertEqual(after.count(HEADING), 2)
-        self.assertNotIn("Question from run two?", after)
-        self.assertEqual(after.count(END), 1)
-        self.assertIn(f"> Earlier runs: {OLD_RUNS[0]}, {RUN_2}", after)
-        self.assertEqual(after.rstrip("\n").split("\n")[-1], END)
-
-    def test_same_run_retry_behind_unbalanced_fence_writes_once(self):
-        path = self.item_file("001")
-        unbalanced = "## Notes\n\n```text\nA fence nobody closed.\n"
-        self.write_raw(path, item_text("001", "NOT_STARTED", "short") + unbalanced)
-        backlog_loop.write_decision_section(path, RUN_1, DECISION)
-        first = self.read_raw(path)
-
-        outcome = backlog_loop.write_decision_section(path, RUN_1, DECISION)
-
-        self.assertEqual(outcome, (backlog_loop.DECISION_SAME_RUN, None))
-        self.assertEqual(self.read_raw(path), first)
-        self.assertEqual(first.count(tag_of(RUN_1)), 1)
 
     def test_tilde_line_inside_backtick_fence_does_not_close_it(self):
         bodies = (
@@ -242,38 +89,6 @@ class TestReviewRegressions(_GatesFixtureBase):
         self.assertEqual(code, 0)
         self.assertTrue(marked["decision_written"])
 
-    def test_edit_above_tag_or_deleted_hash_keeps_section(self):
-        path = self.item_file("001")
-        base = item_text("001", "NOT_STARTED", "short")
-        heading_line = f"{HEADING}\n"
-        for edit in ("above the tag", "deleted hash line"):
-            self.write_raw(path, base)
-            backlog_loop.write_decision_section(path, RUN_1, DECISION)
-            written = self.read_raw(path)
-            if edit == "above the tag":
-                edited = written.replace(heading_line, heading_line + "My answer: option A.\n", 1)
-            else:
-                lines = written.split("\n")
-                edited = "\n".join(line for line in lines if "loop-decision-hash=" not in line)
-            self.assertNotEqual(edited, written)
-            self.write_raw(path, edited)
-
-            outcome = backlog_loop.write_decision_section(path, RUN_2, "A second question?")
-
-            after = self.read_raw(path)
-            self.assertEqual(outcome, (backlog_loop.DECISION_WRITTEN_BESIDE_EDITED, RUN_1), edit)
-            self.assertTrue(after.startswith(edited), edit)
-            self.assertEqual(after.count(HEADING), 2, edit)
-            self.assertIn("A second question?", after, edit)
-
-            # A third run replaces only the new section.
-            backlog_loop.write_decision_section(path, RUN_3, "A third question?")
-            third = self.read_raw(path)
-            self.assertTrue(third.startswith(edited), edit)
-            self.assertEqual(third.count(HEADING), 2, edit)
-            self.assertNotIn("A second question?", third, edit)
-            self.assertIn(f"> Earlier runs: {RUN_1}, {RUN_2}", third, edit)
-
     def test_decision_with_h1_or_bare_h2_line_is_refused(self):
         payload = self.init("--mode", "all")
         run_id = payload["run"]
@@ -289,6 +104,21 @@ class TestReviewRegressions(_GatesFixtureBase):
         self.assertEqual(self.item_file("001").read_bytes(), item_before)
         self.assertEqual(self.run_path(payload).read_bytes(), run_before)
 
+    def test_decision_with_h3_line_is_refused(self):
+        payload = self.init("--mode", "all")
+        run_id = payload["run"]
+        self.pop_and_select(run_id, "001")
+        item_before = self.item_file("001").read_bytes()
+        run_before = self.run_path(payload).read_bytes()
+        mark = ("--mark", "--run", run_id, "--id", "001", "--outcome", "SKIPPED", "--decision")
+
+        for line in ("### Q2. A second question", "###", "###\tx"):
+            code, _text, error = self.loop(*mark, f"Question: x\n{line}\nOptions: (A)")
+            self.assertEqual(code, 1, line)
+            self.assertIn("heading line of level 3", error["error"])
+        self.assertEqual(self.item_file("001").read_bytes(), item_before)
+        self.assertEqual(self.run_path(payload).read_bytes(), run_before)
+
     def test_fenced_end_marker_does_not_bound_a_section(self):
         text = (
             "# T\n\n" + HEADING + "\n\n<!-- loop-decision run=old -->\nQ\n\n### Example\n\n"
@@ -301,53 +131,7 @@ class TestReviewRegressions(_GatesFixtureBase):
         self.assertNotIn("```", stripped)
         self.assertEqual(stripped, "# T\n\n## Notes\n")
 
-        path = self.item_file("001")
-        self.write_raw(path, text)
-        outcome = backlog_loop.write_decision_section(path, RUN_1, DECISION)
-        after = self.read_raw(path)
-        self.assertEqual(outcome, (backlog_loop.DECISION_WRITTEN, None))
-        self.assertTrue(after.startswith(text), "the legacy section changed")
-        self.assertEqual(after.count(HEADING), 2)
-        self.assertIn("> Earlier runs: old", after)
-
-    def test_edited_section_third_run_replaces_only_new_section(self):
-        path = self.item_file("001")
-        self.write_raw(path, item_text("001", "NOT_STARTED", "short"))
-        backlog_loop.write_decision_section(path, RUN_1, "Question from run one?")
-        edited = self.read_raw(path).replace(END, "My answer: option B.\n" + END)
-        self.write_raw(path, edited)
-
-        second = backlog_loop.write_decision_section(path, RUN_2, "Question from run two?")
-        third = backlog_loop.write_decision_section(path, RUN_3, "Question from run three?")
-
-        after = self.read_raw(path)
-        self.assertEqual(second, (backlog_loop.DECISION_WRITTEN_BESIDE_EDITED, RUN_1))
-        self.assertEqual(third, (backlog_loop.DECISION_WRITTEN_BESIDE_EDITED, RUN_1))
-        self.assertTrue(after.startswith(edited), "the edited section changed")
-        self.assertEqual(after.count(HEADING), 2)
-        self.assertEqual(after.count(END), 2)
-        self.assertNotIn("Question from run two?", after)
-        self.assertNotIn(tag_of(RUN_2), after)
-        self.assertIn("Question from run three?", after)
-        self.assertIn(f"> Earlier runs: {RUN_1}, {RUN_2}", after)
-
-    def test_text_after_end_marker_is_not_an_edit(self):
-        path = self.item_file("001")
-        self.write_raw(path, item_text("001", "NOT_STARTED", "short"))
-        backlog_loop.write_decision_section(path, RUN_1, "Question from run one?")
-        with open(path, "a", encoding="utf-8", newline="") as handle:
-            handle.write("\n---\n\nTrailer after the section.\n")
-
-        outcome = backlog_loop.write_decision_section(path, RUN_2, DECISION)
-
-        after = self.read_raw(path)
-        self.assertEqual(outcome, (backlog_loop.DECISION_WRITTEN, None))
-        self.assertEqual(after.count(HEADING), 1)
-        self.assertNotIn("Question from run one?", after)
-        self.assertIn(f"> Earlier runs: {RUN_1}", after)
-        self.assertTrue(after.endswith(f"{END}\n\n---\n\nTrailer after the section.\n"))
-
-    def test_update_backlog_and_loop_agree_on_fenced_resolution_heading(self):
+    def test_update_backlog_and_questions_agree_on_fenced_resolution_heading(self):
         fence = f"\n````markdown\n```\n## Resolution\n{HEADING}\n```\n````\n"
         before = item_text("001", "NOT_STARTED", "short") + fence
         self.assertIsNone(update_backlog._resolution_section_span(before))
@@ -360,10 +144,11 @@ class TestReviewRegressions(_GatesFixtureBase):
 
         looped = self.item_file("001")
         self.write_raw(looped, before)
-        self.assertEqual(backlog_loop.write_decision_section(looped, RUN_1, DECISION)[0], "written")
+        self.assertEqual(backlog_questions.append_question(looped, RUN_1, DECISION), "appended")
         after = self.read_raw(looped)
         self.assertTrue(after.startswith(before), "the fenced example changed")
-        self.assertEqual(after.count(HEADING), 2)
+        self.assertEqual(after.count(HEADING), 1)
+        self.assertEqual(after.count("## Open Questions"), 1)
 
     def test_bom_resolution_file_leaves_no_bom_in_item(self):
         resolution = self.tmp / "bom-resolution.md"

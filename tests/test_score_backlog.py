@@ -1274,6 +1274,15 @@ class TestItemShape(unittest.TestCase):
         self.assertEqual(self._shape(_refined_item_body(questions="None yet.\n"), refined=True)["open_questions"],
                          "unanswered")
 
+    def test_free_text_above_answered_blocks_reads_unanswered(self):
+        answered = "### Q1. Which column?\n\nAnswer: B, the second column.\n"
+        states = {
+            name: self._shape(_refined_item_body(questions=pre + answered), refined=True)["open_questions"]
+            for name, pre in (("free_text", "Which file owns the column?\n\n"), ("none", "None.\n\n"),
+                              ("blank", "\n"))
+        }
+        self.assertEqual(states, {"free_text": "unanswered", "none": "answered", "blank": "answered"})
+
     def test_list_nested_fence_counts_as_verification(self):
         nested = (_refined_item_body(verification=False)
                   + "\n## Verification\n\n- Run the tests:\n\n    ```\n    python -m pytest -q\n    ```\n")

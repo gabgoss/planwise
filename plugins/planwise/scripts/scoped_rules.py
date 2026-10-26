@@ -246,6 +246,11 @@ def glob_to_regex(pattern: str) -> re.Pattern:
     return re.compile("^(?:" + "|".join(alts) + ")$")
 
 
+# The private config key a caller that scores many items sets to the result
+# of one `load_rule_scopes` call; `scoped_rules_block` then reads no rule file.
+RULE_SCOPES_KEY = "_rule_scopes"
+
+
 def load_rule_scopes(project_root: Path) -> list[RuleScope]:
     """Load every path-scoped rule under `project_root/.claude/rules/`, sorted by path.
 
@@ -654,7 +659,8 @@ def scoped_rules_block(item_id: str, body: str, config: dict) -> dict[str, Any]:
     """Compute the scoped-rule block for one item: the single entry point.
 
     Reads `config["_project_root"]` and `config.get("_lessons_dir")`, loads
-    the rules once, extracts and classifies the destinations, and returns a
+    the rules once (or takes them from `config[RULE_SCOPES_KEY]` when a
+    caller loaded them already), extracts and classifies the destinations, and returns a
     dict with `verdict`, `source`, `rules_scanned` (the number of path-scoped
     rules; global rules are not counted), `owning_lessons`, `destinations`
     (one dict per destination), `rules_to_inject` (sorted rel paths of every
@@ -667,7 +673,9 @@ def scoped_rules_block(item_id: str, body: str, config: dict) -> dict[str, Any]:
     """
     project_root = Path(config["_project_root"])
     lessons_dir = config.get("_lessons_dir")
-    scopes = load_rule_scopes(project_root)
+    scopes = config.get(RULE_SCOPES_KEY)
+    if scopes is None:
+        scopes = load_rule_scopes(project_root)
     scanned, _ = strip_sections(body, SIGNAL_EXCLUDED_HEADINGS)
     destinations, source, truncated = extract_destinations(scanned, project_root)
     lessons = owning_lessons(item_id, Path(lessons_dir) if lessons_dir else None) or []
