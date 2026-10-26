@@ -123,7 +123,7 @@ The plugin pins `effort:` on the agents it measured and on agents assigned by ro
 
 **`maxTurns`** — Maximum API round-trips. No value = unlimited.
 
-**`background`** — `true` = always run as background task. MCP unavailable; `AskUserQuestion` unavailable; permissions must be pre-approved.
+**`background`** — `true` = always run as background task. `AskUserQuestion` unavailable; permissions must be pre-approved. An `Agent` call that omits `run_in_background` also runs in the background, so an agent that must run in the foreground needs `run_in_background: false` on the call (see [agent-orchestration.md](agent-orchestration.md) §9).
 
 **`isolation`** — `worktree` = isolated git worktree copy. Auto-cleaned if agent makes no changes.
 
@@ -136,7 +136,7 @@ skills:
   - planwise
 ```
 
-**`mcpServers`** — Reference existing configured servers by name or define inline. Not available in `background: true` mode.
+**`mcpServers`** — Reference existing configured servers by name or define inline. Background mode did not withhold MCP in the 2.1.310 measurement: a background `general-purpose` subagent listed a configured server's tool. An agent's own `mcpServers:` entry in background mode was not tested.
 
 **`memory`** — Enables persistent memory across conversations. Auto-adds Read/Write/Edit tools regardless of `tools` field.
 
@@ -322,7 +322,7 @@ visual-fix-agent    # Workflow-based
 An agent definition file maps to runtime behavior in two modes:
 
 1. **`claude --agent <name>`** — Agent definition configures a **Main Session**: full context, all tools, can spawn subagents.
-2. **`subagent_type: "<name>"` in Agent tool** — Agent definition configures a **Subagent**: fresh context, 18 tools, Agent tool absent (no further spawning).
+2. **`subagent_type: "<name>"` in Agent tool** — Agent definition configures a **Subagent**: no parent conversation, and the tools its `tools:` list names. It still loads CLAUDE.md and global rules. Measured 2026-10-25 on Claude Code 2.1.310: every planwise agent, whose `tools:` lists omit `Agent`, had no Agent tool. `general-purpose`, which has no `tools:` list, had it. See [agent-orchestration.md](agent-orchestration.md) §2 and §3.
 
 > [!practice] Empirically Verified
 > **Custom agents created mid-session are NOT dynamically registered.** If you write a new agent definition to `.claude/agents/` during an active session, it will NOT be discoverable as a `subagent_type` value in that session. Agent discovery happens at session startup only.
@@ -331,12 +331,14 @@ An agent definition file maps to runtime behavior in two modes:
 
 | Type | Model | Tools | Purpose |
 |------|-------|-------|---------|
-| `Explore` | Haiku | Read, Glob, Grep (no Write/Edit) | Fast codebase exploration |
-| `Plan` | Inherit | Read, Glob, Grep (no Write/Edit) | Architecture planning |
-| `general-purpose` | Inherit | All tools | Complex autonomous tasks |
+| `Explore` | Sonnet in the measured run, under a Sonnet parent | No Edit, Write or NotebookEdit. Has Read, Glob, Grep, Bash, PowerShell, WebFetch and WebSearch | Fast codebase exploration |
+| `Plan` | Inherit | Same set as `Explore` | Architecture planning |
+| `general-purpose` | Inherit | 20 tools in the background, 31 in the foreground | Complex autonomous tasks |
 | `Bash` | Inherit | Bash only | Terminal commands |
 | `statusline-setup` | Sonnet | Read, Edit | Status line configuration |
 | `claude-code-guide` | Haiku | Limited | Claude Code feature questions |
+
+The `Explore`, `Plan` and `general-purpose` rows were measured 2026-10-25 on Claude Code 2.1.310, with tool lists self-reported. `Explore` and `Plan` load no CLAUDE.md and no rule files, so their prompt must carry everything they need. See [agent-orchestration.md](agent-orchestration.md) §2 and §3.
 
 > [!practice] Claude Code Guide subagent_type
 > The built-in guide agent's `subagent_type` string is `claude-code-guide` (lowercase, hyphenated) — confirmed against the live Claude Code agent registry (the Agent tool's available subagent types).

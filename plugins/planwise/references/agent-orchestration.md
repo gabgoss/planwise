@@ -33,9 +33,9 @@ This reference distinguishes four runtime contexts. Background mode, worktree is
 | Context | Created Via | Tool Set |
 |---------|-------------|----------|
 | **Main Session** | `claude` CLI / VS Code extension | 56 tools, loaded plus deferred (§2) |
-| **Subagent** | `Agent` tool, no `name` | `general-purpose`: 38 tools. A custom agent: its `tools:` list (§2) |
+| **Subagent** | `Agent` tool, no `name` | `general-purpose`: 20 tools in the background, 31 in the foreground. A custom agent: its `tools:` list (§2) |
 | **Named agent** | `Agent` tool with `name` | Not measured |
-| **Skill-Forked** | `Skill` tool with `context: fork` | Not re-measured on this build |
+| **Skill-Forked** | `Skill` tool with `context: fork` | 31 tools, including `Agent` (§2) |
 
 Measured 2026-10-12 on Claude Code 2.1.296: a named spawn returned "Spawned successfully" and said it receives instructions through a mailbox. `ListAgents` lists named agents apart from unnamed subagents. An unnamed spawn returned "Async agent launched successfully".
 
@@ -43,13 +43,15 @@ Measured 2026-10-12 on Claude Code 2.1.296: a named spawn returned "Spawned succ
 
 | Type | Model | Tools | Best For |
 |------|-------|-------|---------|
-| `Explore` | Haiku | Read, Glob, Grep only | Fast codebase search, exploration, no writes |
-| `Plan` | Inherit | Read, Glob, Grep only | Architecture research in plan mode |
-| `general-purpose` | Inherit | 38 tools (§2) | Code changes, file writes, bash commands |
+| `Explore` | Sonnet in the measured run, under a Sonnet parent | No Edit, Write or NotebookEdit. Has Read, Glob, Grep, Bash, PowerShell, WebFetch and WebSearch | Fast codebase search, exploration, no writes |
+| `Plan` | Inherit | Same set as `Explore` | Architecture research in plan mode |
+| `general-purpose` | Inherit | 20 tools in the background, 31 in the foreground (§2) | Code changes, file writes, bash commands |
 | `Bash` | Inherit | Bash only | Terminal commands in a clean context |
 | `statusline-setup` | Sonnet | Read, Edit | Status line configuration via `/statusline` |
 | `claude-code-guide` | Haiku | Limited | Questions about Claude Code features |
 | Custom agent name | Per definition | Per definition | Project-specific behavior from `.claude/agents/` |
+
+The `Explore` and `Plan` rows were measured 2026-10-25 on Claude Code 2.1.310, one run each, with tool lists self-reported. Neither agent loads CLAUDE.md or any rule file (§3). Put everything an `Explore` or `Plan` spawn needs in its prompt.
 
 ### Modes and Configurations (NOT Separate Contexts)
 
@@ -65,46 +67,56 @@ Measured 2026-10-12 on Claude Code 2.1.296: a named spawn returned "Spawned succ
 
 ## 2. Cross-Context Tool Comparison
 
-*Measured 2026-10-12 on Claude Code 2.1.296, one sample per column. Main session: loaded plus deferred tools. Subagent columns: self-reported by an unnamed spawn. A custom agent's set follows its `tools:` frontmatter, so the task-runner column shows one definition, not a context property.*
+*Main session column: measured 2026-10-12 on Claude Code 2.1.296, loaded plus deferred tools. Subagent columns: measured 2026-10-25 on Claude Code 2.1.310, one run per column, self-reported by an unnamed spawn, with the test's own MCP tool left out of the totals. A custom agent's set follows its `tools:` frontmatter, so the task-runner column shows one definition, not a context property.*
 
-| Tool | Main session | `general-purpose` subagent | `planwise:task-runner` subagent |
-|------|-------------|----------------------------|---------------------------------|
-| Agent (spawner) | YES | YES | NO |
-| TeamCreate, TeamDelete | NO | NO | NO |
-| SendMessage | YES | YES | YES |
-| SubagentHandback | NO | YES | YES |
-| ListAgents | YES | NO | NO |
-| AskUserQuestion | YES | NO | NO |
-| EnterPlanMode, ExitPlanMode | YES | NO | NO |
-| Skill | YES | YES | NO |
-| TaskCreate, TaskGet, TaskList, TaskUpdate | YES | NO | NO |
-| TaskStop | YES | YES | NO |
-| Workflow | YES | NO | NO |
-| Read, Write, Edit, Glob, Grep, Bash | YES | YES | YES |
-| NotebookEdit, WebFetch, WebSearch, ToolSearch | YES | YES | YES |
-| EnterWorktree, ExitWorktree, Monitor | YES | YES | NO |
-| Total tools | 56 | 38 | 12 |
+| Tool | Main session | `general-purpose`, background | `general-purpose`, foreground | `planwise:task-runner` |
+|------|-------------|-------------------------------|-------------------------------|------------------------|
+| Agent (spawner) | YES | YES | YES | NO |
+| TeamCreate, TeamDelete | NO | NO | NO | NO |
+| SendMessage | YES | YES | YES | YES |
+| SubagentHandback | NO | YES | YES | YES |
+| ListAgents | YES | NO | YES | NO |
+| AskUserQuestion | YES | NO | NO | NO |
+| EnterPlanMode, ExitPlanMode | YES | NO | NO | NO |
+| Skill | YES | YES | YES | NO |
+| TaskCreate, TaskGet, TaskList | YES | NO | YES | NO |
+| TaskUpdate | YES | NO | NO | NO |
+| TaskStop | YES | YES | YES | NO |
+| Workflow | YES | NO | NO | NO |
+| CronCreate, CronDelete, CronList, PushNotification, RemoteTrigger | not measured | NO | YES | NO |
+| DesignSync, ReportFindings | not measured | NO | YES | NO |
+| LSP, PowerShell | not measured | YES | YES | NO |
+| Read, Write, Edit, Glob, Grep, Bash | YES | YES | YES | YES |
+| NotebookEdit, WebFetch, WebSearch, ToolSearch | YES | YES | YES | YES |
+| EnterWorktree, ExitWorktree, Monitor | YES | YES | YES | NO |
+| Total tools | 56 | 20 | 31 | 12 |
 
 Two tool families share a word. The **Agent tool** spawns a subagent; Claude Code renamed it from `Task` in version 2.1.63, and the old name still works as an alias. The **Task tools** (`TaskCreate`, `TaskUpdate`, `TaskGet`, `TaskList`) are the session checklist and replaced the legacy `TodoWrite`. This plugin uses the Task tools for progress tracking and never `TodoWrite`.
-In the measured lists, only the main session holds the checklist tools.
+In the measured lists, a background subagent holds none of the checklist tools. A foreground `general-purpose` subagent listed `TaskCreate`, `TaskGet` and `TaskList`, but not `TaskUpdate`.
 
 ---
 
 ## 3. Context Loading Matrix
 
-*Measured on an earlier build. Not re-measured on Claude Code 2.1.296 (2026-10-12).*
+*Measured 2026-10-25 on Claude Code 2.1.310, one run per cell. Each source carried a unique random string, and a spawn with no tool calls was asked to list every such string in its context. The Subagent column covers `general-purpose`, all eight planwise agents and two custom agents.*
 
-| # | What Loads | Subagent | Skill-Forked |
-|---|-----------|---------|-------------|
-| 1 | CLAUDE.md | YES | YES |
-| 2 | All project skill descriptions | YES (via FS discovery) | YES (via FS discovery) |
-| 3 | MCP servers | YES (FG); NO (BG) | YES (FG) |
-| 4 | Conversation history | NO | NO |
-| 5 | Path-specific rules | NO (global only) | NO (global only) |
+| # | What Loads | Subagent | `Explore`, `Plan` | Skill-Forked |
+|---|-----------|---------|-------------------|-------------|
+| 1 | CLAUDE.md | YES | NO | YES |
+| 2 | Global rules (no `paths:`) | YES | NO | YES |
+| 3 | Project skill descriptions | YES with the `Skill` tool; NO without it | YES | YES |
+| 4 | MCP servers | YES, foreground and background, unless a `tools:` list leaves them out | YES | YES |
+| 5 | Conversation history | NO | NO | NO |
+| 6 | Path-specific rules at spawn | NO | NO | NO |
+| 7 | Path-specific rules after the context's own matching read | YES | Not measured | Not measured |
+| 8 | Path-specific rules the parent already triggered | NO | Not measured | Not measured |
+| 9 | A plugin reference that is not installed as a rule | NO | NO | NO |
 
-> **Path rules are main-session-only:** All spawned contexts see only the global rule files. Path-specific rules load based on the context's OWN file activity — spawned contexts start with zero file activity so no path rules trigger at startup. Spawned contexts CAN trigger path rules after they begin working on matching files, but they do NOT inherit the parent session's active path triggers.
+> **Path rules follow the context's own file activity:** A spawned context starts with the global rules and no path rules. A path rule loads once the context itself reads a matching file. Measured for `general-purpose` and `planwise:task-runner`: one Read of a matching file loaded the rule. The parent's active path triggers do not carry over. A parent that read a matching file before spawning did not pass that rule to the child.
 
-> **Surprise 5 — Skill discoverability:** All contexts discover all project skills via file system access (Glob on `.claude/skills/`). This is file system discoverability, not system-reminder injection. Mid-session created agents are NOT dynamically registered as available `subagent_type` values.
+> **Skill listing follows the `Skill` tool:** Every measured context with the `Skill` tool received the project skill descriptions. Every context without it, such as a custom agent whose `tools:` list omits `Skill`, received none. A context without the listing can still find skill files with `Glob` on `.claude/skills/`. A skill the parent invoked before spawning did not reach the child. Mid-session created agents are NOT dynamically registered as available `subagent_type` values.
+
+> **A reference is not context:** A plugin reference file reaches a spawned context only when the context reads it, or when it is installed as a global rule. Naming a reference in an agent definition loads nothing.
 
 > **Skill-Forked MCP:** MCP is reachable from foreground skill-forked contexts. Confirmed by a live test — a `context: fork` skill loaded a configured MCP server's tool via `ToolSearch` and the subsequent call round-tripped to the MCP layer and returned a real result. Background skill-forked MCP behavior was not exercised.
 
@@ -117,7 +129,7 @@ In the measured lists, only the main session holds the checklist tools.
 | 1 | Main → Subagent | **YES** | Measured 2026-10-12 |
 | 2 | Main → Named agent | **YES** | Measured 2026-10-12 |
 | 3 | Subagent → anything | **Not used by planwise** | `general-purpose` lists `Agent` (measured 2026-10-12). A nested spawn was not tested. `planwise:task-runner` has no `Agent` |
-| 4 | Skill-Forked → anything | **NO** (earlier build) | Carried: `Agent` was absent. Not re-measured |
+| 4 | Skill-Forked → anything | **Not used by planwise** | A forked skill lists `Agent` (measured 2026-10-25 on Claude Code 2.1.310). A nested spawn was not tested |
 
 > [!constraint] Spawn Only From the Main Conversation
 > Planwise spawns every agent from the main conversation. The planwise reviewer and task-runner agents omit `Agent` from `tools:`, and no planwise prompt asks a spawned agent to spawn another.
@@ -378,15 +390,26 @@ A team here means a group of named reviewers that the main conversation spawns. 
 > | Blocking | Yes — blocks main conversation until complete | No — runs concurrently |
 > | Permissions | Pass-through to user on each prompt | Pre-approved before launch; auto-denied if not pre-approved |
 > | `AskUserQuestion` | Works | Auto-denied — do NOT use |
-> | MCP tools | Available | NOT available |
-> | How to trigger | Default mode for subagents | `background: true` in frontmatter, or ask Claude, or press Ctrl+B |
+> | MCP tools | Available | Available |
+> | How to trigger | `run_in_background: false` on the `Agent` call | Omit `run_in_background` (the default for an unnamed spawn), set it to `true`, set `background: true` in frontmatter, or press Ctrl+B |
+
+> [!constraint] Ask for foreground explicitly
+> Measured 2026-10-25 on Claude Code 2.1.310: an unnamed `Agent` call that omitted `run_in_background` ran in the background in 15 of 15 spawns. That covered `general-purpose`, `Explore`, `Plan`, six planwise agents and two custom agents. The harness reported each with `is_backgrounded: true`. A background `general-purpose` subagent also listed a configured MCP server's tool, so background mode no longer withholds MCP.
+>
+> WRONG — rely on the default and expect a foreground run:
+> ```
+> Agent(subagent_type: "planwise:task-runner", prompt: ...)
+> ```
+> CORRECT — name the mode on every call that needs the foreground:
+> ```
+> Agent(subagent_type: "planwise:task-runner", run_in_background: false, prompt: ...)
+> ```
 
 ### Background Pre-Approval
 
 Before launching a background agent, Claude prompts for all permissions the agent will need. Anything not pre-approved is automatically denied at runtime. Design background agents to:
 - Declare all needed permissions upfront
 - Never use `AskUserQuestion`
-- Not require MCP tools
 
 **Background failure:** If a background agent fails due to missing permissions, resume it in foreground to retry with interactive permission approval.
 
@@ -394,18 +417,18 @@ Before launching a background agent, Claude prompts for all permissions the agen
 
 ## 10. Constraints
 
-Rows 1, 2, 4 and 5 were re-measured on Claude Code 2.1.296 on 2026-10-12, for the `general-purpose` and `planwise:task-runner` subagents. The other rows are carried from earlier builds and were not re-measured. The enforcement mechanism column explains why each cannot be bypassed by prompting.
+Rows 1, 2, 4 and 5 were re-measured on Claude Code 2.1.296 on 2026-10-12, for the `general-purpose` and `planwise:task-runner` subagents. Rows 3, 6, 7 and 8 were re-measured on Claude Code 2.1.310 on 2026-10-25, by the §3 method. The other rows are carried from earlier builds and were not re-measured. The enforcement mechanism column explains why each cannot be bypassed by prompting.
 
 | # | Constraint | Enforcement Mechanism | Impact | Workaround |
 |---|-----------|----------------------|--------|------------|
 | 1 | No sub-subagent spawning | Planwise spawns only from the main conversation. Measured 2026-10-12 on Claude Code 2.1.296: the planwise task-runner's tool list has no Agent tool. A general-purpose subagent's list includes Agent, and a nested spawn from it was not tested | Single-level delegation only | Orchestrate all agents from main conversation; chain sequentially |
 | 2 | Only the `main` address reaches the orchestrator inside its turn | Message routing. Measured 2026-10-12 on Claude Code 2.1.296: 3 of 3 sends to `main` arrived while the orchestrator was working, and 3 of 3 sends to `team-lead` arrived only after its turn ended | A report addressed to `team-lead` misses an orchestrator that waits inside one turn | Address the orchestrator as `main` in every spawn prompt |
-| 3 | Context NOT inherited by spawned agents | Fresh context per spawn | Spawned agents start with empty context (see row 11 for shell state) | Self-contained prompts; share via explicit messages or file references |
+| 3 | Conversation NOT inherited by spawned agents | Fresh conversation per spawn | Spawned agents start without the parent's conversation, path triggers and loaded skills. They still load CLAUDE.md and global rules, except `Explore` and `Plan`, which load neither (§3; see row 11 for shell state) | Self-contained prompts; share via explicit messages or file references |
 | 4 | No AskUserQuestion in spawned contexts | Tool restriction | Cannot interactively prompt user | Pre-gather requirements before spawning |
 | 5 | No EnterPlanMode/ExitPlanMode in spawned contexts | Tool restriction | Cannot enter plan mode | Plan in main session before delegating |
-| 6 | Path-specific rules are main-session-only | Path rule loading requires OWN file activity | Spawned contexts see only global rules | Include rule content explicitly in task prompt |
-| 7 | MCP unavailable in background subagents | Background execution mode restriction | Cannot use external systems | Run in foreground if MCP tools are required |
-| 8 | Skill discovery ≠ system-prompt injection | File system access (Glob on `.claude/skills/`) | Mid-session agents not discoverable as subagent_type | Use `skills:` frontmatter to inject domain knowledge; all contexts discover existing skills via FS |
+| 6 | Path-specific rules are not inherited at spawn | Path rule loading requires OWN file activity | A spawned context starts with global rules only. A path rule loads after the context itself reads a matching file | Include rule content explicitly in the task prompt when the context needs it before its first matching read |
+| 7 | A `tools:` list decides MCP access | The definition's `tools:` allowlist. Background mode does not withhold MCP (§9) | Every measured planwise agent, each with a `tools:` list, had no MCP tool. `general-purpose`, `Explore` and `Plan` had the configured server's tool | Omit `tools:`, or add the server's tools to it (not measured) |
+| 8 | The skill listing reaches only contexts with the `Skill` tool | The project skill descriptions arrive with the `Skill` tool | A custom agent whose `tools:` list omits `Skill` sees no project skills unless it searches `.claude/skills/`. Mid-session agents not discoverable as subagent_type | Use `skills:` frontmatter to inject a skill's full body at startup |
 | 9 | Do not branch on a spawned agent's self-reported identity | The harness sets the identity line at spawn time. Not re-measured across contexts on this build | A check written against one identity string fails silently when a build changes it | Branch on the tools in the agent's own tool list, never on its identity line |
 | 10 | Background pre-approval gate overrides `bypassPermissions` | Background agents auto-deny any permission not explicitly pre-approved at launch; `bypassPermissions` does NOT bypass this gate | Write/Edit/Bash calls silently fail if not pre-approved; agent continues without output | Launch write-producing agents in foreground; reserve background for read-only tasks |
 | 11 | Spawned contexts inherit no shell state — the interpreter on `PATH` is the platform default, never the project's | Spawned shells start fresh: no inherited working directory, `PATH`, or activated environment. Extends row 3 (context non-inheritance) from conversational to shell state | Project-package imports fail and project-only dependencies appear absent. The agent typically reports the check as **environmentally impossible rather than failed** — a false PASS on everything it did reach | Name the project's interpreter path explicitly in every spawn prompt that runs project code. Have the first dispatch echo its resolved interpreter and HALT if it is not the project's. Emit the path form matching the project's OS |
@@ -416,7 +439,7 @@ Rows 1, 2, 4 and 5 were re-measured on Claude Code 2.1.296 on 2026-10-12, for th
 
 > **Constraint 6 — path rules detail:** Spawned contexts begin with zero file activity. Path rules check the context's OWN active files. If a spawned context later works on files matching a path rule's pattern, those rules CAN trigger dynamically for that context. What they do NOT do is inherit the parent session's already-active path triggers.
 
-> **Constraint 8 — skills note:** The `skills:` frontmatter field injects SKILL.md content into the agent's context at startup — use it for domain knowledge needed immediately. It does not restrict which skills the agent can discover; all contexts with file system access can discover all project skills regardless of the `skills:` field.
+> **Constraint 8 — skills note:** The `skills:` frontmatter field injects the full SKILL.md into the agent's context at startup — use it for domain knowledge needed immediately. Measured 2026-10-25 on Claude Code 2.1.310: the skill body reached the agent, and a supporting file linked from that body did not. The field does not restrict which skills the agent can find. Any context with `Glob` can still find skill files under `.claude/skills/`.
 
 > **Constraint 10 — background pre-approval detail:** Background subagents use an upfront pre-approval gate: before launch, Claude Code prompts for all permissions the agent will need. At runtime, anything not pre-approved is auto-denied — the tool call fails silently but the agent continues executing. `bypassPermissions` mode does NOT override this gate. Practical consequence: task-runner agents that write output files MUST run in foreground. Background mode is only safe for read-only operations (Explore, research).
 
