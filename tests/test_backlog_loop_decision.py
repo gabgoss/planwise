@@ -242,7 +242,7 @@ class TestNoQuestionsAfterSetup(unittest.TestCase):
             "### Phase 8 in loop mode",
             "--decision",
             "--lessons",
-            "Loop Decision Needed",
+            "### Q{n}. Loop decision (run {run-id})",
             "user_input_needed",
         ):
             with self.subTest(needle=needle):
@@ -255,10 +255,12 @@ class TestNoQuestionsAfterSetup(unittest.TestCase):
             "### Verification is in scope",
             "--resolution-file",
             "--needs-plan",
-            "Earlier runs:",
+            "/planwise backlog --answer {item-id}",
             "1,200",
             "## Resolution",
-            "<!-- loop-decision-end -->",
+            "<!-- loop-decision run={run-id} -->",
+            "build_commands.verify",
+            "--check",
         ):
             with self.subTest(needle=needle):
                 self.assertIn(needle, text)

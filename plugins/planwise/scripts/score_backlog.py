@@ -70,8 +70,10 @@ from markdown_parser import (
     warn_on_unparsed_rows,
 )
 from scoped_rules import (
+    LOOP_WRITTEN_HEADINGS,
     SIGNAL_EXCLUDED_HEADINGS,
     scoped_rules_block,
+    section_line_count,
     strip_loop_sections,
     strip_sections,
 )
@@ -881,7 +883,10 @@ def compute_route_signals(item: dict, frontmatter: dict, config: dict | None = N
     asks never moves the item's route, headings, steps or effective line
     count. `line_count` stays the whole file's count; `is_short` reads
     `line_count_effective`, which excludes the `excluded_lines` removed.
-    `loop_lines` counts the loop-written lines among them.
+    Those include the blank-line separators a removed run takes with it.
+    `loop_lines` counts only the lines inside the loop-written sections,
+    heading to end (`scoped_rules.section_line_count`). A blank line outside
+    them is never a loop line, even when the strip removes it.
 
     Keyword and structure signals read the body with fenced blocks blanked
     (see `_blank_fenced_blocks`); the clear-fix patterns read it whole.
@@ -901,7 +906,8 @@ def compute_route_signals(item: dict, frontmatter: dict, config: dict | None = N
     included); without it, `scoped_rules` is None and no file is read.
     """
     raw_body = frontmatter.get("_body") or ""
-    loop_body, loop_lines = strip_loop_sections(raw_body)
+    loop_body, _ = strip_loop_sections(raw_body)
+    loop_lines = section_line_count(raw_body, LOOP_WRITTEN_HEADINGS)
     body, excluded_lines = strip_sections(raw_body, SIGNAL_EXCLUDED_HEADINGS)
     body_available = "_body" in frontmatter
     structural = _blank_fenced_blocks(body)

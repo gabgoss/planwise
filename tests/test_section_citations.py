@@ -99,7 +99,7 @@ LEDGERED_OUTER = (
 # One live (file, line) example per citation form the checker parses. A
 # regression that stops parsing a form leaves its example without a finding.
 FORM_EXAMPLES = (
-    ("file in code span then section", "handlers/backlog.md", 184),
+    ("file in code span then section", "handlers/backlog.md", 186),
     ("plain path-prefixed", "agents/plan-reviewer.md", 181),
     ("link text", "references/session-planning-protocol.md", 313),
     ("link then section", "references/gate-old-home-citation-sweep.md", 76),

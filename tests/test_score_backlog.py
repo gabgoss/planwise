@@ -980,10 +980,11 @@ class TestRouteSignals(unittest.TestCase):
         for key in ("route", "step_count", "h2_count", "has_clear_fix", "large_scope"):
             self.assertEqual(with_section[key], base[key], key)
         self.assertGreater(with_section["loop_lines"], 0)
-        # The section's leading newline closes the line before its heading,
-        # which stays: every other line of the section is removed.
+        # `loop_lines` counts the section's own lines: its leading newline closes
+        # the line before its heading. The blank separator line is not one of
+        # them, but the strip removes it, so the effective count is back to 70.
         self.assertEqual(with_section["loop_lines"], section.count("\n") - 1)
-        self.assertEqual(with_section["line_count_effective"], 71)
+        self.assertEqual(with_section["line_count_effective"], 70)
         self.assertEqual(base["loop_lines"], 0)
         # Control: read whole, the same section moves the signals, so the
         # assertions above are carried by the strip and not by the fixture.
@@ -1014,6 +1015,15 @@ class TestRouteSignals(unittest.TestCase):
         self.assertTrue(signals["is_short"])
         self.assertEqual(signals["excluded_lines"], 10)
         self.assertIn("10 loop-written and open-question lines excluded", score_backlog.format_route_detail(signals, 0))
+
+    def test_loop_lines_count_no_line_of_a_preceding_open_questions_section(self):
+        # The blank line before the loop heading closes `## Open Questions`.
+        # It is an excluded line, but not a loop-written one.
+        body = "Intro.\n\n## Open Questions\nq\n\n## Loop Decision Needed\nlegacy\n"
+        signals = score_backlog.compute_route_signals(_route_item(), _route_fm(body, line_count=7))
+        self.assertEqual(signals["loop_lines"], 2)
+        self.assertEqual(signals["excluded_lines"], 6)
+        self.assertEqual(signals["line_count_effective"], 1)
 
     def test_scoped_rules_is_none_without_config(self):
         signals = score_backlog.compute_route_signals(_route_item(), _route_fm(CLEAR_FIX_BODY))
@@ -1085,8 +1095,9 @@ class TestRouteSignals(unittest.TestCase):
         signals = score_backlog.compute_route_signals(_route_item(), _route_fm(asked, line_count=70))
         self.assertFalse(signals["is_architectural"])
         self.assertEqual(signals["route"], "B")
-        self.assertEqual(signals["excluded_lines"], 5)
-        self.assertEqual(signals["line_count_effective"], 65)
+        # A final excluded run also takes the blank lines before it.
+        self.assertEqual(signals["excluded_lines"], 6)
+        self.assertEqual(signals["line_count_effective"], 64)
         # Control: the same question under `## Notes` is a hit.
         noted = asked.replace("## Open Questions", "## Notes")
         control = score_backlog.compute_route_signals(_route_item(), _route_fm(noted, line_count=70))

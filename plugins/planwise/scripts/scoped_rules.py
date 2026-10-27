@@ -433,11 +433,37 @@ def strip_loop_sections(body: str) -> tuple[str, int]:
     ends with the loop's end marker is removed through that marker, and the
     text after it stays. Fenced text inside a section goes with it. A loop heading quoted inside a fenced example
     never opens a section, so the text the loop wrote cannot feed any signal.
-    The result is the body's lines with the section lines left out, joined
-    on `\\n`, so a section that runs to the end of the body also takes the
-    newline before it.
+    Removal and the line count follow `strip_sections`.
     """
     return strip_sections(body, LOOP_WRITTEN_HEADINGS)
+
+
+def _section_line_indexes(body: str, headings: tuple[str, ...]) -> tuple[list[str], set[int]]:
+    """Split body on `\\n`; return its lines and the indexes of the lines inside a section.
+
+    The sections are the spans `loop_sections` finds for headings. The empty
+    segment after a final newline is not a line, so it is never an index.
+    """
+    lines = body.split("\n")
+    index_at: dict[int, int] = {}
+    pos = 0
+    for index, line in enumerate(lines):
+        index_at[pos] = index
+        pos += len(line) + 1
+    inside: set[int] = set()
+    for start, end in loop_section_spans(body, headings):
+        inside.update(range(index_at[start], index_at.get(end, len(lines))))
+    return lines, inside
+
+
+def section_line_count(body: str, headings: tuple[str, ...]) -> int:
+    """Count the lines inside every `## {heading}` section for a heading in headings.
+
+    A section's lines run from its heading to its end, as `loop_sections`
+    finds them. A blank line outside the section is not counted, even when
+    `strip_sections` removes it as a separator.
+    """
+    return len(_section_line_indexes(body, headings)[1])
 
 
 def strip_sections(body: str, headings: tuple[str, ...]) -> tuple[str, int]:
@@ -450,29 +476,50 @@ def strip_sections(body: str, headings: tuple[str, ...]) -> tuple[str, int]:
     stays. For any other heading a thematic break is not a heading: a
     footer after the last section goes with it. Removal follows
     `strip_loop_sections`, which is this function over `LOOP_WRITTEN_HEADINGS`.
+
+    The body is read as lines split on `\\n`; the empty segment after a final
+    newline is not a line. Every section line is removed. A section with no
+    end marker that ends at a later heading holds its trailing blank lines,
+    so they go with it. A run of section lines also takes the blank-line
+    separator it owns: when a blank line or the start of the body comes
+    before the run, the blank lines after it go too. When only blank lines
+    and section lines follow the last kept non-blank line, that whole tail
+    goes, and the kept lines end at that line, with no newline. The kept
+    lines are joined on `\\n`, so they keep one separator where the item
+    with the sections never written has one. The body's line count less the
+    lines removed is that item's count, whatever the position and number of
+    the sections and the blank lines around them.
     """
-    merged: list[tuple[int, int]] = []
-    for start, end in loop_section_spans(body, headings):
-        if merged and merged[-1][1] == start:
-            # Back-to-back sections are removed as one run of lines.
-            merged[-1] = (merged[-1][0], end)
-        else:
-            merged.append((start, end))
-    kept: list[str] = []
-    removed = 0
-    cursor = 0
-    for start, end in merged:
-        prefix = body[cursor:start]
-        if end == len(body) and start > 0:
-            # The kept lines end at the line before the section, with no newline.
-            prefix = prefix[:-1]
-        kept.append(prefix)
-        section = body[start:end]
-        # The empty segment after a final newline is not a line of the section.
-        removed += section.count("\n") + (0 if section.endswith("\n") else 1)
-        cursor = end
-    kept.append(body[cursor:])
-    return "".join(kept), removed
+    lines, removed = _section_line_indexes(body, headings)
+    if not removed:
+        return body, 0
+    real = len(lines) - 1 if body.endswith("\n") else len(lines)
+    # The start of the body counts as a separator before the first run.
+    separated = True
+    index = 0
+    while index < real:
+        if index not in removed:
+            separated = not lines[index].strip()
+            index += 1
+            continue
+        while index < real and index in removed:
+            index += 1
+        if separated:
+            # A separator already precedes the run, so the blank lines after it are its own.
+            while index < real and not lines[index].strip():
+                removed.add(index)
+                index += 1
+    index = real - 1
+    while index >= 0 and (index in removed or not lines[index].strip()):
+        index -= 1
+    tail = range(index + 1, real)
+    if any(line in removed for line in tail):
+        # A run in the blank tail of the body takes the whole tail and the
+        # blank lines before it, back to the last kept text.
+        removed.update(tail)
+        lines = lines[:real]
+    kept = [line for index, line in enumerate(lines) if index not in removed]
+    return "\n".join(kept), len(removed)
 
 
 def _normalize_path(raw: str, project_root: Path) -> str | None:

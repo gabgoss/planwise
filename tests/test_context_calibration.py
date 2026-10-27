@@ -1132,7 +1132,9 @@ class TestStructuralFloor(unittest.TestCase):
         self.assertTrue(subs, "the real tree must yield subcommands")
         self.assertEqual([k for k in subs if "-Part-" in k], [])
         self.assertEqual(len(subs), len(files) - part_count)
-        self.assertEqual(subs["backlog"]["includes_parts"], ["backlog-Part-2-LoopMode"])
+        self.assertEqual(subs["backlog"]["includes_parts"],
+            ["backlog-Part-2-LoopMode", "backlog-Part-3-Answers"],
+        )
         for parent in ("backlog", "doctor", "upgrade", "plan", "run"):
             self.assertEqual(
                 subs[parent]["includes_parts"], expected.get(parent, []), parent

@@ -251,3 +251,6 @@ plan_statuses:
 
 build_commands:
   default: "echo 'Configure build_commands in config.yaml'"
+  # Optional checks the backlog loop runs after a fix, from the project root.
+  # Any non-zero exit skips the item; an empty list means none.
+  verify: []

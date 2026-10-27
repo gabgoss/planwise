@@ -10,8 +10,9 @@
 - `--status IN_PROGRESS` — filter by status
 - `--no-check` — skip both Phase 1 item-file audits, archival drift and body status lines (fast triage)
 - `--loop-resume <run-id>` — re-enter a loop run after the hooks module compacts the session; skips the loop questions and processes exactly one item
+- `--answer [item-id]` — answer open questions; see `handlers/backlog-Part-3-Answers.md`
 
-Loop mode is offered by Q1 on every interactive no-args run. The full contract is in `handlers/backlog-Part-2-LoopMode.md`.
+Loop mode is offered by Q1 on every interactive no-args run.
 
 ---
 
@@ -74,6 +75,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - For the backlog index format, item file schema, scoring formula, script interfaces, status flow, or error handling: Read `references/backlog-schema.md`
 - For Auto Mode behavior (how a step behaves when `AskUserQuestion` cannot be answered non-interactively): Read `references/auto-mode-policy.md`
 - In loop mode, or on `--loop-resume`: Read `handlers/backlog-Part-2-LoopMode.md`
+- With `--answer`: Read `handlers/backlog-Part-3-Answers.md`
 - When filing or refining items: Read `references/backlog-creation-process.md`
 
 ---
@@ -230,7 +232,7 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
 
    **Auto Mode.** This is a human-judgment gate, so it is classified `critical`. It issues no `AskUserQuestion`: under automation an item with a `placement` verdict **auto-escalates to Route C**, which under automation writes the `needs_plan: true` marker and skips (see Route C below). An `inject` or `none` verdict proceeds with no prompt.
 
-   In loop mode a `placement` verdict is a documented skip (Part 2 § Documented skip), never an escalation to Route C.
+   In loop mode a `placement` verdict is a documented skip, never an escalation to Route C.
 
 8. Present the scope assessment to the user:
 
@@ -398,7 +400,7 @@ authors the plan.
 
    If a hit needs repointing, return it to the fix-agent (Route A) or open a follow-up task (Route B) requesting the shell command be repointed. Do NOT proceed to step 4 with unrepointed hits outstanding.
 
-In loop mode, before step 4 run `backlog_loop.py --mark --phase verifying --run {run-id} --id {item_id}`. Then skip step 4 and step 5: all gates passing means COMPLETE, and a failing gate is a documented skip that reverts nothing (Part 2 § No questions after setup). Running the build command, the project's tests and lint, and any command an item's criteria name is in scope here (Part 2 § Verification is in scope); none of them is a reason to skip.
+In loop mode, before step 4 run `backlog_loop.py --mark --phase verifying --run {run-id} --id {item_id}`. Then skip step 4 and step 5: all gates passing means COMPLETE, and a failing gate is a documented skip that reverts nothing (Part 2 § No questions after setup). Verification commands are in scope, never a reason to skip (Part 2 § Verification is in scope).
 
 <!-- AUTO-MODE: critical -->
 4. Use `AskUserQuestion`:

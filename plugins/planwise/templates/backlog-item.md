@@ -158,24 +158,25 @@ A question counts as answered when its `Answer:` line carries text. `backlog-aut
 
 ### Loop-written sections
 
-The backlog loop writes one section into an item it skips, and never more than one:
+The backlog loop writes one block under `## Open Questions` into an item it skips, and never more than one per run:
 
 ```markdown
-## Loop Decision Needed
-
+### Q{n}. Loop decision (run YYYYMMDD-HHMMSS)
 <!-- loop-decision run=YYYYMMDD-HHMMSS -->
-<!-- loop-decision-hash=0123456789abcdef -->
-> [!gate] User input needed
-> Loop run YYYYMMDD-HHMMSS, YYYY-MM-DD. The loop skipped this item without working it. Answer under ## Notes, outside this section, then triage it again. A later run replaces this section.
-
 Question: {one question}
 Options: (A) {first} (B) {second}
 Evidence: {at most 3 lines}
 
-<!-- loop-decision-end -->
+Answer:
 ```
 
-`backlog_loop.py --mark --decision` is the only writer; the text is capped at 1,200 characters, and a later run replaces the section rather than adding a second, except that a section a person edited is kept, not replaced. The router ignores this section when it counts headings, steps and lines, so a skip never changes the item's route.
+`backlog_loop.py --mark --decision` is the only writer; the text is capped at 1,200 characters, and `{n}` is one more than the highest `### Q` number in the section. The router reads no `## Open Questions` text when it counts headings, steps and lines, so a skip never changes the item's route. Answer with `/planwise backlog --answer {item-id}`, or write text after the `Answer:` line.
+
+A legacy `## Loop Decision Needed` section is folded by `backlog_questions.py --fold`. Its heading is:
+
+```markdown
+## Loop Decision Needed
+```
 
 ---
 
