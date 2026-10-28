@@ -161,6 +161,11 @@ def detect_index_shape(content: str) -> str:
 
 
 def _walk_rows(section: str, base_line: int, source) -> list:
+    """The rows of `_walk_table`, without its stop index."""
+    return _walk_table(section, base_line, source)[0]
+
+
+def _walk_table(section: str, base_line: int, source) -> tuple:
     """Walk a table region line by line, splitting on "\\n" only -- never
     `str.splitlines()`, which treats a lone bare CR as a line break and
     would cut a row carrying one (mid-cell content, not a line terminator)
@@ -172,15 +177,21 @@ def _walk_rows(section: str, base_line: int, source) -> list:
     dropped, so a caller can report it instead of silently losing it.
     `Row.line` is 1-based (the file's own first line is line 1), matching
     every editor and every other line number this project reports.
+
+    Returns `(rows, stop_idx)`. `stop_idx` is the 0-based index within
+    `section` of the boundary line that ended the walk, or `None` when the
+    walk reached the end of `section`.
     """
     lines = section.split("\n")
     rows = []
     header_seen = False
     separator_seen = False
     header_cell_count = 0
+    stop_idx = None
     for idx, raw_line in enumerate(lines):
         probe = raw_line.strip()
         if is_section_boundary(probe, separator_seen=separator_seen):
+            stop_idx = idx
             break
         if not header_seen and _HEADER_ID_CELL_RE.match(probe):
             header_seen = True
@@ -225,7 +236,7 @@ def _walk_rows(section: str, base_line: int, source) -> list:
                 )
                 continue
             rows.append(Row(id=row_id, cells=cells, source=source, line=line_no))
-    return rows
+    return rows, stop_idx
 
 
 def parse_legacy_master_table(content: str, source=None) -> list:
@@ -264,6 +275,30 @@ def parse_generated_table(content: str, source=None) -> list:
     base_line = content[:line_start].count("\n")
     rest = content[line_start:]
     return _walk_rows(rest, base_line, source)
+
+
+def generated_table_tail(content: str) -> list:
+    """Every pipe-led line after the line that ends the top-of-file table
+    of a generated lessons-index file, as `(line_no, stripped_line)` with a
+    1-based `line_no`. The walk is `parse_generated_table`'s own, so the
+    tail starts exactly where its rows stop. Empty when the file has no
+    header row or the walk reaches the end of the file.
+    """
+    header_match = _HEADER_ID_CELL_RE.search(content)
+    if not header_match:
+        return []
+    line_start = content.rfind("\n", 0, header_match.start()) + 1
+    base_line = content[:line_start].count("\n")
+    section_lines = content[line_start:].split("\n")
+    _rows, stop_idx = _walk_table(content[line_start:], base_line, None)
+    if stop_idx is None:
+        return []
+    tail = []
+    for idx in range(stop_idx + 1, len(section_lines)):
+        stripped = section_lines[idx].strip()
+        if stripped.startswith("|"):
+            tail.append((base_line + idx + 1, stripped))
+    return tail
 
 
 def generated_index_files(lessons_dir, archive_dir, index_path) -> list:

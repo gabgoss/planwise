@@ -1,6 +1,6 @@
 ---
-description: Mandatory execution protocol - READ-CONFIRM-ACT, recovery, git workflow, and recording a runner's planned stop and the session commit in Recovery before a user gate
-consult-when: Running a planwise session — the mandatory execution protocol (READ-CONFIRM-ACT, recovery, git workflow), and recording a runner's planned stop (`GATE_PENDING`) and the session commit and push in Recovery before any user gate
+description: Mandatory execution protocol - READ-CONFIRM-ACT, recovery, git workflow, recording a runner's planned stop and the session commit in Recovery before a user gate, and committing before setting Session Status COMPLETE
+consult-when: Running a planwise session — the mandatory execution protocol (READ-CONFIRM-ACT, recovery, git workflow), and recording a runner's planned stop (`GATE_PENDING`) and the session commit and push in Recovery before any user gate, and committing before setting Session Status COMPLETE
 ---
 
 # Session Execution Protocol
@@ -417,7 +417,7 @@ Fix: Add the blast-radius gate matching the edit type per references/session-exe
 ## 7. Git Workflow
 
 > [!binding] Git Discipline
-> - **Commit** at the end of each session
+> - **Commit every repo the session wrote before setting `Session Status: COMPLETE`.** The status is a claim about state on disk, and a successor's base is defined relative to that commit. In a multi-repo project, one repo's clean status is no evidence about another. See [dispatch-preflight-claim-expiry.md](dispatch-preflight-claim-expiry.md) §12.2.
 > - If session produced code changes and `/code-review` has not already been run on all changed files, run `/code-review` before committing
 > - **Push** automatically (no confirmation needed)
 > - **git add** specific files (never `git add .` or `git add -A`)

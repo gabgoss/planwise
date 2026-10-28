@@ -80,11 +80,6 @@ class TestBacklogDriftOutsideRegion(tgb._GeneratorFixtureBase):
         self.assertIn(f"table truncated at line {stop_line} ", out)
         self.assertIn("row for id 002 may exist after the split", out)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="code-gate-15 PRODUCTION_RED: backlog --check exits 0 'No drift' for a "
-        "short (six-cell) row below a heading; only a full-width row is reported",
-    )
     def test_six_cell_row_below_notes_exits_nonzero_and_names_the_line(self):
         lines = self.hub_path.read_text(encoding="utf-8").split("\n")
         lines.extend(["", "## Notes", "", SIX_CELL_ROW.format(id="003")])
@@ -131,11 +126,6 @@ class TestLessonsDriftOutsideRegion(tgl._GenerateLessonsIndexFixtureBase):
         self.assertEqual(code, 1, out)
         self.assertIn("[missing-row] LL-002", out)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="code-gate-15 PRODUCTION_RED: lessons --check names the id of a full-width "
-        "row below a heading but never names its line or the line the walk stopped on",
-    )
     def test_full_width_row_below_notes_names_the_line(self):
         row_line = self._move_row_below_notes()
 
@@ -151,11 +141,6 @@ class TestLessonsDriftOutsideRegion(tgl._GenerateLessonsIndexFixtureBase):
         self.assertEqual(code, 1, out)
         self.assertIn("[stale-wrapper]", out)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="code-gate-15 PRODUCTION_RED: lessons --check reports a six-cell row below "
-        "a heading only as a file-level stale-wrapper, with no line number",
-    )
     def test_six_cell_row_below_notes_names_the_line(self):
         row_line = self._append_six_cell_row_below_notes()
 

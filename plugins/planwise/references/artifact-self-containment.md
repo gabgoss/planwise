@@ -196,7 +196,7 @@ A promotion BB's self-containment grep verifies that **the content the BB promot
 > 3. **Decide pre-existing cleanup EXPLICITLY — don't silently gut it.** Removing a pre-existing References section or a routing table destroys intentional traceability and is usually outside the BB's scope. Surface the discrepancy at the VERIFY gate and let the human choose between "promoted content is self-contained, leave pre-existing as-is" vs. "also clean the pre-existing cites in this file."
 
 > [!practice] Write the Promotion BB's Grep Criterion to Match Reality
-> When authoring a promotion BB's grep Acceptance Criterion, write it so it can actually pass: scope its file list/paths to exclude zones that legitimately carry cross-refs, OR annotate the criterion with the expected exempt/pre-existing hits. Otherwise the executor is forced to choose between an impossible literal pass and an unscoped destructive cleanup.
+> When authoring a promotion BB's grep Acceptance Criterion, write it so it can actually pass: scope its file list/paths to exclude zones that legitimately carry cross-refs, and state the expected count of each exempt or pre-existing set as a second clause, per the two-clause exemption in §7. Otherwise the executor is forced to choose between an impossible literal pass and an unscoped destructive cleanup.
 
 ### 4.3 Widen the Gate to Plan-Structure Names — Semantic vs Syntactic Leaks
 
@@ -327,6 +327,29 @@ A small set of cases need exemption from the §4 grep. When a BB needs one of th
 | Bookkeeping frontmatter cross-refs | `applied-as:`, `promoted-to:`, `promotion-target:`, and the deprecated `rule-as:` — lesson frontmatter fields pointing at the owning backlog item or promotion target, not content citations. Exempt regardless of which scheme a lesson was written under; see [`references/lessons-schema.md`](lessons-schema.md) § Pointer Fields — Authoritative Definition for what each field means | Lesson frontmatter across `{lessons_dir}/**`, including archived lessons |
 
 Each exemption MUST be a sample/placeholder pattern, NOT a load-bearing cross-reference to recover content from a specific lesson or backlog item. If you find yourself adding an exemption to silence a grep hit that IS actually a citation, the fix is to inline the content — not to widen the exemption list.
+
+> [!constraint] A declared exemption takes two clauses: the residue is empty AND the exempt set is intact
+> An exclusion filter on its own is the half-measure. It makes the check pass, and two cheaper states pass it too: someone deletes the exempt literal, or the excluded path is mistyped. Both return the same empty residue as a correct tree. The filter also hides a genuinely new citation inside the excluded file. Write every declared exemption into the Acceptance Criterion as two clauses:
+>
+> - **(a)** Hits outside the declared exemption MUST be empty.
+> - **(b)** The declared exemption MUST still count the N that the criterion states.
+>
+> Exemplar, the seed-template row above. N is 1, measured 2026-10-28 on `seed/00-Index-LessonsLearned.md`:
+> ```
+> # (a) residue outside the exemption MUST be empty:
+> Grep  pattern='(LL|BB)-[0-9]{3}'  path='{plugin_root}/{paths-touched}'
+>       glob='!**/seed/00-Index-LessonsLearned.md'  output_mode='content'  -n=true
+> # (b) exempt set MUST be intact. MUST print 1:
+> Grep  pattern='(LL|BB)-[0-9]{3}'  path='{plugin_root}/seed/00-Index-LessonsLearned.md'  output_mode='count'
+> ```
+>
+> Clause (b) does three jobs:
+>
+> 1. **It removes the destructive shortcut.** Deleting the exempt literal now fails the check instead of passing it.
+> 2. **It is a positive control inside the tree.** A mistyped path makes (b) print 0 or a path error, so the check fails loudly instead of passing on a file it never read.
+> 3. **It bounds the assertion.** "Nothing except this exemption, and exactly N of it" is a set a reviewer can audit. "Nothing anywhere" is not.
+>
+> Re-measure N whenever the exempt file changes, and write the file and the date beside the number.
 
 ---
 

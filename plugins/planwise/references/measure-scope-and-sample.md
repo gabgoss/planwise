@@ -13,6 +13,8 @@ What makes the class dangerous is that the underlying work was good in all three
 
 One neighbouring rule owns a corollary this file generalises. [`dispatch-boundary-evidence.md`](dispatch-boundary-evidence.md) §1 requires three or more observations on any surface a plan intends to call deterministic. §1 below is the general form: why one observation is never a baseline, and how to sample without cherry-picking.
 
+A task that builds or operates the measurement harness itself reads [`harness-instrument-integrity.md`](harness-instrument-integrity.md): validate the instrument against live artifacts, couple every duplicated fact, and route every terminal state.
+
 ## Table of Contents
 
 - [1. A Single Observation of Model or Harness Behaviour Is an Anecdote, Never a Baseline](#1-a-single-observation-of-model-or-harness-behaviour-is-an-anecdote-never-a-baseline)

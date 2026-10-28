@@ -1,6 +1,6 @@
 ---
-description: What expires between authoring a plan and dispatching it — the six surfaces a stale premise hides on, quantifier-to-enumeration drift in prerequisites, why a prerequisite-COMPLETE gate re-validates nothing, the Depends On / Required Context split, the sibling-sprint sweep, why a re-measure instruction needs a threshold and an action, and how a router classifies every literal in a routed flag as a decision or a measurement (re-measure the cheap, de-anchor the expensive), why a requirement derived from an unbuilt upstream artifact is tagged and grepped against the shipped artifact at dispatch, why a brief's class-defect count is re-measured over the adjacent directories the class can move to, and why a user-run probe sheet pins the expected build at its head, stops when a launch's banner differs, and treats the first run on a new build as a re-verification of the design, and why a doc section that narrates a pending decision is re-synced by the task that wrote it once the decision lands (swept with `Grep` for the escalation phrase over that task's own prior write-set). Consult at Phase 1, before dispatching any session authored earlier or held behind a gate.
-consult-when: Dispatching a plan authored earlier or held behind a gate — the six surfaces a stale premise hides on, and the reconciliations a resolving dependency graph cannot perform, and classify every literal in a routed flag as a decision or a measurement (re-measure the cheap, de-anchor the expensive), tag a requirement derived from an unbuilt upstream artifact and grep it against the shipped one, and re-measure adjacent directories at CONFIRM, and pin the expected build at the head of a user-run probe sheet of an auto-updating tool (stop on a changed banner, re-verify the design on the first run of a new build), and re-sync a doc section that narrates a pending decision in the task that wrote it once the decision lands
+description: What expires between authoring a plan and dispatching it — the six surfaces a stale premise hides on, quantifier-to-enumeration drift in prerequisites, why a prerequisite-COMPLETE gate re-validates nothing, the Depends On / Required Context split, the sibling-sprint sweep, why a re-measure instruction needs a threshold and an action, and how a router classifies every literal in a routed flag as a decision or a measurement (re-measure the cheap, de-anchor the expensive), why a requirement derived from an unbuilt upstream artifact is tagged and grepped against the shipped artifact at dispatch, why a brief's class-defect count is re-measured over the adjacent directories the class can move to, and why a user-run probe sheet pins the expected build at its head, stops when a launch's banner differs, and treats the first run on a new build as a re-verification of the design, and why a doc section that narrates a pending decision is re-synced by the task that wrote it once the decision lands (swept with `Grep` for the escalation phrase over that task's own prior write-set), and why a claim true when recorded and false when consumed is re-measured by its recorder at the end of the recorder's own work (a section append updates every self-count in the file, swept by the spelled cardinality word, a session commits before setting Session Status COMPLETE, and an absence gate re-measures its own denominator at execution time). Consult at Phase 1, before dispatching any session authored earlier or held behind a gate.
+consult-when: Dispatching a plan authored earlier or held behind a gate — the six surfaces a stale premise hides on, and the reconciliations a resolving dependency graph cannot perform, and classify every literal in a routed flag as a decision or a measurement (re-measure the cheap, de-anchor the expensive), tag a requirement derived from an unbuilt upstream artifact and search the shipped one for it with `Grep`, and re-measure adjacent directories at CONFIRM, and pin the expected build at the head of a user-run probe sheet of an auto-updating tool (stop on a changed banner, re-verify the design on the first run of a new build), and re-sync a doc section that narrates a pending decision in the task that wrote it once the decision lands, and sweep a file's self-counts after a section append, commit before setting Session Status COMPLETE, and re-measure an absence gate's denominator at execution time
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Dispatch Preflight — Claim Expiry (What Aged Between Authoring and Dispatch)
@@ -9,7 +9,7 @@ paths: {planwise_root}/{plans_dir}/**
 
 **Read this when** a plan was authored before today's dispatch — held BLOCKED behind an external event, scaffolded many sprints in one pass, or waiting on an upstream that has since closed.
 
-Two neighbouring rules own machinery this file builds on and does not restate. [`scaffolding-hygiene.md`](scaffolding-hygiene.md) §12.5 governs re-measuring **gate-bound figures** at preflight — the figures a gate's predicate compares against. §12.3 governs re-deriving a **state-asserting row** at scaffold close. This file covers what neither reaches: the premises that live on surfaces no gate reads, and the reconciliations a resolving dependency graph cannot perform. [`read-confirm-act-protocol.md`](read-confirm-act-protocol.md) §1.4 governs the inherited *flag* specifically.
+Two neighbouring rules own machinery this file builds on and does not restate. [`scaffolding-hygiene.md`](scaffolding-hygiene.md) §12.5 governs re-measuring **gate-bound figures** at preflight — the figures a gate's predicate compares against. §12.3 governs re-deriving a **state-asserting row** at scaffold close. This file covers what neither reaches: the premises that live on surfaces no gate reads, the reconciliations a resolving dependency graph cannot perform, and (§12) the claims that expire inside one run between their recording and their consumption. [`read-confirm-act-protocol.md`](read-confirm-act-protocol.md) §1.4 governs the inherited *flag* specifically.
 
 ## Table of Contents
 
@@ -24,6 +24,7 @@ Two neighbouring rules own machinery this file builds on and does not restate. [
 - [9. A Class Defect Migrates Across a Brief's Scope Boundary: Re-Measure the Adjacent Directories at CONFIRM](#9-a-class-defect-migrates-across-a-briefs-scope-boundary-re-measure-the-adjacent-directories-at-confirm)
 - [10. A User-Run Probe Sheet Pins the Build at Its Head, and the First Run on a New Build Re-Verifies the Design](#10-a-user-run-probe-sheet-pins-the-build-at-its-head-and-the-first-run-on-a-new-build-re-verifies-the-design)
 - [11. A Doc Section That Narrates a Pending Decision Is Re-Synced by the Task That Wrote It](#11-a-doc-section-that-narrates-a-pending-decision-is-re-synced-by-the-task-that-wrote-it)
+- [12. A Claim True When Recorded and False When Consumed: Self-Counts, Uncommitted Exits and Absence-Gate Denominators](#12-a-claim-true-when-recorded-and-false-when-consumed-self-counts-uncommitted-exits-and-absence-gate-denominators)
 
 ---
 
@@ -372,4 +373,108 @@ Two operative points follow.
 
 ---
 
-*Cross-references: [scaffolding-hygiene.md](scaffolding-hygiene.md) §12.3 (re-derive a state-asserting row at scaffold close) and §12.5 (re-measure every gate-bound figure at preflight) — this file covers the surfaces neither reaches; [read-confirm-act-protocol.md](read-confirm-act-protocol.md) §1.4 (reconciling an inherited flag, receiver side); [scaffolding-hygiene-Part-2-DerivationAndParallelism.md](scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §16 (the computed write-set intersection §5's sweep extends to read-or-sweep surfaces).*
+## 12. A Claim True When Recorded and False When Consumed: Self-Counts, Uncommitted Exits and Absence-Gate Denominators
+
+> [!constraint] The party who can cheaply fix a claim is never the party who observes it breaking
+> A claim can be true when its author records it and false when something consumes it. The author's own gates still pass, because the expiry lives in a relationship no per-task gate is scoped to observe. Three classes follow, one per scale: a file's claim about itself (§12.1), a session's claim about the repository (§12.2), and a gate's claim about a tree (§12.3). §12.4 states the obligation they share.
+>
+> The earlier sections cover expiry across a held gate. These classes expire inside one run, with no gap to re-measure across.
+
+### 12.1 A Section Append Is an Edit to Every Self-Referential Claim in the File, Not Only the ToC
+
+A task appended a new `##` section to a reference that held eleven binding rules. It named two obligations: write the section, and add the ToC entry. Both were satisfiable without touching anything else, so every After-gate would have passed.
+
+The file also described itself in three places that are not the ToC. The frontmatter `description:` opened "Eleven binding hygiene rules plus…". A Purpose line and the closing footer made the same claim. All three now said "Eleven" about a file holding twelve. The frontmatter `description:` is what a rule-loading harness surfaces when it decides whether to inject the file.
+
+The ToC is the zone everybody remembers, because it sits next to the change. The self-counts rot because they are prose, they sit far from the insertion point, and no heading-shaped gate can see them. Three zones need the sweep:
+
+| Zone | Why it rots |
+|---|---|
+| YAML frontmatter `description:` | Tooling reads it and the author never does mid-edit. It often lists topics too, and the new topic needs appending. |
+| Purpose / intro paragraph | The author wrote it once at file creation and rarely revisits it. |
+| Closing footer / cross-reference line | It sits furthest from an append point, which lands just above it. |
+
+**Sweep for the cardinality word, not for the number.** The count is usually spelled out, so a numeric search misses it entirely. [dispatch-edit-surface-sweep.md](dispatch-edit-surface-sweep.md) § "The Locator Must Cover Both Registers, and Spelled-Out Counts May Need a Taxonomy" covers the same two-register locator for edit surfaces.
+
+> [!constraint] A numeric search for a spelled-out count finds nothing
+> WRONG — the count is spelled, not numeric, so this search finds nothing:
+> ```
+> Grep  pattern='\b11\b'  path='<file>'  output_mode='content'  -n=true
+> ```
+> CORRECT — search the spelled forms and the counted noun together:
+> ```
+> Grep  pattern='\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen)\b'  path='<file>'  output_mode='content'  -n=true  -i=true
+> Grep  pattern='[0-9]+ (rules|cases|sub-rules|checks|sections|steps|practices)'  path='<file>'  output_mode='content'  -n=true  -i=true
+> ```
+
+**Verify the repair is total, not partial.** A half-applied count fix is worse than none. It makes the file look maintained while it still lies. Search for the old count word and confirm zero hits:
+
+```
+Grep  pattern='[Ee]leven'  path='<file>'  output_mode='count'
+# MUST return 0 (substitute the old count word for this file)
+```
+
+Two closing rules follow.
+
+- **The sweep is in scope for the appending task.** It is coherence forced by the task's own deliverable, inside the task's own declared output file. It needs no user gate. Log it as a scope note so a reviewer sees why unnamed lines moved.
+- **The mirror case is worse.** Deleting a section decrements the same three zones. No new content draws the author's eye to the tail of the file.
+
+**Reviewer rule:** an append-a-section task whose Expected Output lists only the section and its ToC entry is under-specified. Ask what else in the file counts itself.
+
+### 12.2 A Session's Exit State Includes Its Commit, Because the Successor's Baseline Is Defined Relative to It
+
+A session finished every task, passed an independent verification sweep, filled its signoff PASS, and set `Session Status: COMPLETE`. It committed neither repo. Its own Recovery routed a flag forward in the confident future tense, about a commit that never happened. The successor's preflight found `HEAD` still at the pre-session commit with six files modified.
+
+An uncommitted predecessor has two consequences. Only the first is obvious.
+
+1. **The clean-scope gate HALTs.** The successor's first task pins its base behind `git status --porcelain -- <write paths>` being empty. It is not empty, because the predecessor's own delta fills it. Run literally, the session delivers nothing.
+2. **Waiving the gate is worse than the HALT.** With `HEAD` un-advanced, the successor's `{ABBREV}_SPRINT_BASE = rev-parse HEAD` returns the same commit as the inherited `{ABBREV}_SERIES_BASE`. The two-base design collapses into one base. This is the base collapse. The positive scope test is the casualty. It filters the sprint-scoped diff against that sprint's declared write-set, so the predecessor's non-shared files surface as out-of-scope edits. The successor FAILS for work it never did.
+
+Four rules follow.
+
+1. **Commit before setting `Session Status: COMPLETE`.** Do not commit after, and do not commit "at the end of the day". The status field is a claim about a state on disk. In a multi-repo project, the outer repo's cleanliness is no evidence about a nested one. [session-execution-protocol.md](session-execution-protocol.md) §7 carries this as a precondition.
+2. **At a successor's preflight, check the predecessor's `HEAD`, not only its status field.** `Session Status: COMPLETE` is a self-report. `git log --oneline <series-base>..HEAD` is the measurement. If the predecessor's delta is not in a commit, its COMPLETE is premature whatever its signoff says.
+3. **Surface the finding as structural, with both consequences named.** Name the HALT and the base collapse. Do not silently waive the clean-scope gate to get moving. The waiver fails later, in another task, in the passing-looking direction.
+4. **After the corrective commit, re-verify that the two bases are distinct SHAs.** Equality is the signature of the collapse. Distinctness is cheap to assert and is the property the two-base design rests on.
+
+**The flag-tense rule generalises past commits.** A flag written at closeout narrates the state the author intends to leave, not necessarily the state on disk. Verify the state a flag presupposes before relying on it.
+
+### 12.3 An Absence Gate Re-Measures Its Own Denominator at Execution Time
+
+A plan stated that a search for a legacy directory name MUST return empty, in nine places. The upstream sprint's own approved write-set expansion added a migration that necessarily names the legacy directory. The tree-wide count went from 6 to 10. The downstream sprint's edit list of 6 stayed exactly correct. The gate became unsatisfiable by construction before anyone could run it.
+
+The pre-edit measurement is the trap. A flag reading "re-measured clean, count unchanged" looks freshly validated, and downstream sessions are told not to re-derive orchestrator-validated context. But an absence gate's input set is the whole tree. Any session that writes anywhere in that tree can move the count, including the session that recorded the flag, after it recorded it.
+
+> [!constraint] Measuring the denominator before your own edits land propagates a number your own edits then break
+> WRONG — the upstream sprint measures its own denominator before doing its work, and propagates it as settled:
+> ```
+> Upstream task 1 (first action): count = 6 across 4 files -> record flag "count unchanged, edit list stands"
+> Upstream tasks 2-4: land the migration, adding 4 new hits of the same string
+> Upstream signoff: PASS (its own criteria never included the tree-wide count)
+> Downstream sprint: inherits "still six", runs the gate -> 10 hits -> FAIL on correct work
+> ```
+> CORRECT — the gate re-measures at execution time, and the flag carries a scope caveat:
+> ```
+> Downstream preflight: re-measure the tree NOW -> 10 hits across 6 files, not 6 across 4
+>                       -> classify each hit: 6 are targets, 4 are load-bearing and outside every write-set
+>                       -> the gate as written is unsatisfiable; surface it before dispatch
+> ```
+
+Three rules follow.
+
+1. **An absence gate re-measures its own denominator at execution time.** Inheriting a count for an absence assertion inherits the one number the assertion is made of.
+2. **A session whose diff adds occurrences of a string a later session asserts absent owes that session a flag.** [read-confirm-act-protocol.md](read-confirm-act-protocol.md) § "Shared-File Flags Must Be Reciprocal" already covers shared files. This is the same hazard one level up, at a shared predicate. The upstream sprint never saw itself as a writer of the downstream sprint's gate, but it was.
+3. **A signoff that passes on its own criteria is not evidence about a downstream session's criteria.** The upstream signoff was correct. It told nobody anything about the gate it had just broken.
+
+**Detection rule:** at preflight, before dispatching anything, run the downstream gate's own command against the live tree. It costs one call. It is the only step that would have caught this. Run literally, the plan would have landed three tasks of correct work and then failed at the verification task. A runner would then have had a standing incentive to "fix" the gate by deleting the migration's detection literals.
+
+**Design-tension rule:** a migration that must detect an old name will always reintroduce the old name. A "the old name is gone" gate and a "leave and re-point" migration decision are in direct tension by construction. Decide which one wins before writing the gate.
+
+### 12.4 The Recording Party's Obligation
+
+> [!practice] Ask who consumes the claim and what would make it false
+> Each of the three classes is invisible from the consuming side and cheap to fix from the recording side. Before recording a count, a cleanliness claim, or a self-description, ask: *who consumes this, and what would have to change between now and then to make it false?* Where the answer is "my own later edits", re-measure at the end of your own work, not at the start of it.
+
+---
+
+*Cross-references: [scaffolding-hygiene.md](scaffolding-hygiene.md) §12.3 (re-derive a state-asserting row at scaffold close) and §12.5 (re-measure every gate-bound figure at preflight) — this file covers the surfaces neither reaches; [read-confirm-act-protocol.md](read-confirm-act-protocol.md) §1.4 (reconciling an inherited flag, receiver side); [scaffolding-hygiene-Part-2-DerivationAndParallelism.md](scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §16 (the computed write-set intersection §5's sweep extends to read-or-sweep surfaces); [session-execution-protocol.md](session-execution-protocol.md) §7 (the commit precondition on `Session Status: COMPLETE` that §12.2 motivates).*
