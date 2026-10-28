@@ -139,6 +139,7 @@ Runs on **both** paths, after Scale Detection and **before any reviewer is spawn
 ```
 Agent(
   subagent_type: "planwise:review-discovery",
+  run_in_background: false,
   description: "Review discovery for {Abbrev}",
   prompt: |
     You are the measurement pass for the review of plan {Abbrev}.

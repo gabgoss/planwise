@@ -46,7 +46,7 @@ INSTRUMENT_MIN = 100
 # EXAMPLE = quoted or worked example citation; LABEL = a check title or label,
 # not a pointer; CONSUMER = a section of a document the consumer generates.
 LEDGERED_PLUGIN = (
-    ("references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md", 506),  # HISTORY: extraction note
+    ("references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md", 509),  # HISTORY: extraction note
     ("references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md", 537),  # HISTORY: extraction note
     ("references/agent-orchestration-delegated.md", 2),  # HISTORY: frontmatter provenance
     ("references/agent-orchestration-delegated.md", 8),  # HISTORY: provenance of the extraction

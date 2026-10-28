@@ -296,6 +296,7 @@ Delegate to the `fix-agent` via the Agent tool:
 ```
 Task {
   subagent_type: "planwise:fix-agent"
+  run_in_background: false
   description: "Fix backlog item {item-id}: {item-summary}"
   prompt: |
     Fix the following backlog item:

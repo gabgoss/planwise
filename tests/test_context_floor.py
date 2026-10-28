@@ -27,8 +27,8 @@ PLUGIN_ROOT = Path(__file__).resolve().parent.parent / "plugins" / "planwise"
 # checkout bytes under core.autocrlf=true), so an LF checkout passes with slack
 # and cannot false-fail.
 PLAN_FLOOR_PIN = 103640  # dev tree 4f84134+wt (plan.md router + 2 parts, Steps 4-8c render path, router reading order), 2026-10-22, folded; checkout bytes (CRLF under core.autocrlf), lower on an LF checkout
-RUN_FLOOR_PIN = 63791  # dev tree 8460a2a+wt, 2026-10-28, folded (the plan Config Gate routing note and the base-references repair in SKILL.md raised it; the --answer help lines in SKILL.md raised it by 46; the session-execution-protocol.md §7 commit-before-COMPLETE precondition and its frontmatter clauses raised it by 161); checkout bytes (CRLF under core.autocrlf), lower on an LF checkout
-BACKLOG_FLOOR_PIN = 36438  # dev tree 0cd43b8+wt, 2026-10-27, folded (the Part 2 dry-run, Q-block, verify-list and summary text raised it; backlog.md net of its cuts; Part 3 and the --answer help lines raised it; the Part 2 refine-step legacy-section sentence raised it by 48); checkout bytes (CRLF under core.autocrlf), lower on an LF checkout
+RUN_FLOOR_PIN = 63802  # dev tree 1cda2c2+wt, 2026-10-28, folded (the plan Config Gate routing note and the base-references repair in SKILL.md raised it; the --answer help lines in SKILL.md raised it by 46; the session-execution-protocol.md §7 commit-before-COMPLETE precondition and its frontmatter clauses raised it by 161; the run_in_background: false line on the run.md task-runner spawn raised it by 11); checkout bytes (CRLF under core.autocrlf), lower on an LF checkout
+BACKLOG_FLOOR_PIN = 36448  # dev tree 1cda2c2+wt, 2026-10-28, folded (the Part 2 dry-run, Q-block, verify-list and summary text raised it; backlog.md net of its cuts; Part 3 and the --answer help lines raised it; the Part 2 refine-step legacy-section sentence raised it by 48; the run_in_background: false line on the backlog.md fix-agent spawn raised it by 10); checkout bytes (CRLF under core.autocrlf), lower on an LF checkout
 
 PINS = {"plan": PLAN_FLOOR_PIN, "run": RUN_FLOOR_PIN, "backlog": BACKLOG_FLOOR_PIN}
 

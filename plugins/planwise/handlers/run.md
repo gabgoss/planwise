@@ -315,6 +315,7 @@ The spawn prompt states the single-task scope in three positions — the opener,
 ```
 Agent(
   subagent_type: "planwise:task-runner",
+  run_in_background: false,
   description: "Execute task {task-num}: {task-name}",
   model: "{model-override-from-task-file-Agent-field}",
   prompt: |

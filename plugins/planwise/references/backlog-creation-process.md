@@ -109,6 +109,7 @@ A design file's `DESIGN` value maps to the item as the author's mapping table st
 ```
 Task {
   subagent_type: "planwise:backlog-preflight",
+  run_in_background: false,
   description: "Prove backlog candidates",
   prompt: "mode: {file|refine}
 handover_dir: {absolute path}
@@ -124,6 +125,7 @@ backlog_dir: {absolute path}
 ```
 Task {
   subagent_type: "planwise:backlog-planner",
+  run_in_background: false,
   name: "planner-{id-or-label}",
   description: "Design one backlog item",
   prompt: "item: {id or candidate label}
@@ -141,6 +143,7 @@ fact_sheet: {handover_dir}/preflight.md
 ```
 Task {
   subagent_type: "planwise:backlog-author",
+  run_in_background: false,
   description: "File or refine backlog items",
   prompt: "mode: {file|refine}
 handover_dir: {absolute path}
