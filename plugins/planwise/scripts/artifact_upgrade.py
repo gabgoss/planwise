@@ -22,6 +22,7 @@ try:
         InitConfig,
         _apply_feedback_keys,
         _flip_token_saver_on,
+        backfill_project_dirs,
         drafts_key_state,
         get_upgrade_config,
         migrate_config,
@@ -741,6 +742,22 @@ def _split_formerly_managed(
     return still_untracked, formerly_managed
 
 
+def _apply_project_dirs(cfg: "InitConfig", config_path: Path) -> None:
+    """Backfill missing `project.planwise_root`, `plans_dir` and `backlog_dir`.
+
+    `project` is not one of MIGRATABLE_TOP_LEVEL_KEYS, so migrate_config()
+    never adds a key inside it. Without this step a config that predates one of
+    these keys keeps resolving the folder through the loader's silent default.
+    The values written are those same defaults, so nothing changes at run time.
+    Runs at both exits of `_run_upgrade`, beside `_apply_feedback_dir`, so a
+    re-run at a current version pin still closes the gap. Silent, and the file
+    stays byte-identical, when every key is already present.
+    """
+    notice = backfill_project_dirs(cfg, config_path)
+    if notice:
+        print(notice)
+
+
 def _apply_feedback_dir(cfg: "InitConfig", config_path: Path) -> None:
     """Backfill `project.feedback_dir` and create the resolved directory.
 
@@ -963,6 +980,7 @@ def _run_upgrade(
         # every invocation just because the live CLI build ticked forward.
         # The refresh happens on an ACTUAL upgrade below (2d) and once at
         # /planwise init — both real recalibration points.
+        _apply_project_dirs(cfg, config_path)
         _apply_feedback_dir(cfg, config_path)
         # Honor --feedback-drafts / --feedback-enabled here too, and backfill a missing
         # feedback.drafts key. real_upgrade=False keeps a config with no feedback block
@@ -1068,7 +1086,9 @@ def _run_upgrade(
         # and create the resolved directory if absent. `project` is not one
         # of MIGRATABLE_TOP_LEVEL_KEYS, so the migrate_config() call above
         # never touches it and never creates the directory either — this is
-        # the only place in the --upgrade path that closes both gaps.
+        # the only place in the --upgrade path that closes both gaps. The
+        # path keys (planwise_root, plans_dir, backlog_dir) ride the same call.
+        _apply_project_dirs(cfg, config_path)
         _apply_feedback_dir(cfg, config_path)
         # Runs after migrate_config, so a config with no feedback block already carries the
         # template's block and the banner reports the value the template wrote.

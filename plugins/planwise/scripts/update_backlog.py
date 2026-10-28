@@ -22,6 +22,7 @@ under a `## Resolution` section of the closed item once it has moved.
 """
 
 import argparse
+import os
 import re
 import shutil
 import sys
@@ -561,6 +562,38 @@ def _render_bli_file(
     )
 
 
+def _resolve_bli_path(raw: str, backlog_dir: Path, project_root: Path) -> Path | None:
+    """Resolve the first `--files` entry to the new item's file, or None.
+
+    A bare file name resolves inside `backlog_dir`. A value with a directory
+    part is read as a path from `project_root` (or as an absolute path) and is
+    accepted only when it names a file directly inside `backlog_dir`, the one
+    folder an item file may be created in. Both `/` and `\\` separate
+    directories on every platform, and `..` is collapsed before the check, so
+    a path into `Archive/`, outside the backlog folder, or climbing out of it
+    returns None. The result is always `backlog_dir / <file name>`, so every
+    later comparison sees one spelling of the path.
+    """
+    value = raw.replace("\\", "/")
+    root = os.path.abspath(project_root)
+    folder = os.path.abspath(backlog_dir)
+    if "/" in value:
+        candidate = os.path.abspath(value if os.path.isabs(value) else os.path.join(root, value))
+    else:
+        candidate = os.path.abspath(os.path.join(folder, value))
+    if os.path.normcase(os.path.dirname(candidate)) != os.path.normcase(folder):
+        return None
+    return backlog_dir / os.path.basename(candidate)
+
+
+def _folder_from_project_root(folder: Path, project_root: Path) -> str:
+    """Return `folder` as a `/`-separated path from `project_root`, for messages."""
+    try:
+        return os.path.relpath(os.path.abspath(folder), os.path.abspath(project_root)).replace("\\", "/")
+    except ValueError:  # different drives: no relative form exists
+        return Path(folder).as_posix()
+
+
 def create_backlog_item(args) -> None:
     """Create a new backlog item: write its BLI file (if absent) and nothing else.
 
@@ -691,7 +724,22 @@ def create_backlog_item(args) -> None:
     # be "known" via a generated index file (hub, overflow leaf, Archive
     # shard) or via an on-disk item file's own frontmatter that hasn't been
     # folded into any of those yet.
-    bli_path = backlog_dir / files_list[0]
+    # The first --files entry is the new item file. It resolves against the
+    # config-derived backlog folder and must land directly inside it; the
+    # heading stem and the first Related link then carry the bare file name,
+    # never the path the caller typed.
+    bli_path = _resolve_bli_path(files_list[0], backlog_dir, config["_project_root"])
+    if bli_path is None:
+        expected = _folder_from_project_root(backlog_dir, config["_project_root"])
+        print(
+            f"Error: --files entry '{files_list[0]}' is not a file directly inside "
+            f"the backlog folder '{expected}'. Give a bare file name "
+            f"(BB-NNN-01-Domain-Topic.md) or a path from the project root such as "
+            f"'{expected}/BB-NNN-01-Domain-Topic.md'. Nothing was written.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    files_list = [bli_path.name, *files_list[1:]]
     key = normalize_id(item_id)
     existing_location = _known_ids_from_disk(backlog_dir, archive_dir, index_path).get(key)
     if existing_location is not None and Path(existing_location) == bli_path:
@@ -868,7 +916,13 @@ def main():
     parser.add_argument("--abbrev", help="Domain abbreviation (required when --create).")
     parser.add_argument(
         "--files",
-        help="Affected files, semicolon-separated; the first is the new BLI file written from the template (required when --create).",
+        help=(
+            "Files, semicolon-separated (required when --create). The first is the new BLI file "
+            "written from the template. It must sit directly inside the backlog folder: give a "
+            "bare file name, or a path from the project root, or an absolute path. A path "
+            "elsewhere is refused and nothing is written. Later entries are affected-file "
+            "references and are listed under Related as given."
+        ),
     )
     parser.add_argument(
         "--mark-needs-plan",

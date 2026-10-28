@@ -110,6 +110,7 @@ try:
         _context_subkeys_delta,  # noqa: F401 -- re-exported for callers of init_project
         _existing_context_subkeys,  # noqa: F401 -- re-exported for callers of init_project
         _flip_token_saver_on,  # noqa: F401 -- re-exported for callers of init_project
+        backfill_project_dirs,
         extract_top_level_block,  # noqa: F401 -- re-exported for callers of init_project
         find_context_block,  # noqa: F401 -- re-exported for callers of init_project
         generate_config,
@@ -710,6 +711,7 @@ def _run_migrate(cfg: InitConfig) -> int:
         print(f"Migration failed: {exc}", file=sys.stderr)
         return 2
 
+    project_notice = backfill_project_dirs(cfg, Path(path))
     feedback_notice = _backfill_feedback_dir(cfg, Path(path))
 
     _ensure_draft_gitignore(cfg, _configured_feedback_rel(cfg, Path(path)))
@@ -725,6 +727,8 @@ def _run_migrate(cfg: InitConfig) -> int:
         print("Top-level keys already present (preserved):")
         for key in present:
             print(f"  = {key}")
+    if project_notice:
+        print(project_notice)
     if feedback_notice:
         print(feedback_notice)
     print()

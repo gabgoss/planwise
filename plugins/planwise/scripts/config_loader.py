@@ -39,6 +39,19 @@ DEFAULT_PLAN_STATUSES = (
     "CLOSED",
 )
 
+# The folder `load_config` uses for each `project.<key>` directory when the
+# key is absent, null or empty. This table is the one place those fallbacks
+# live: the loader reads it, and the upgrade backfill writes the same values
+# into a config that lacks the key, so the backfill changes no behavior.
+# `lessons_dir` and `archive_dir` are deliberately absent: an absent
+# `lessons_dir` means the lessons stages are skipped, and an absent
+# `archive_dir` derives from `backlog_dir`.
+PROJECT_DIR_DEFAULTS = {
+    "plans_dir": "Plans",
+    "backlog_dir": "Backlog",
+    "feedback_dir": "Feedback",
+}
+
 
 # Every planwise config.yaml opens with a top-level `project:` mapping (the
 # first block config.yaml.template renders). It is the discriminator the
@@ -154,29 +167,22 @@ def write_config_checked(config_path, text: str) -> None:
         ) from exc
 
 
-def find_context_block(lines: list[str]) -> tuple[int, int, str] | None:
-    """Locate the top-level `context:` block in a list of YAML lines.
+def find_top_level_block(lines: list[str], key: str) -> tuple[int, int, str] | None:
+    """Locate the top-level `key:` block (a header line with no inline value) in YAML lines.
 
     Returns (header_index, block_end_exclusive, subkey_indent) where:
-      * header_index is the index of the `context:` line,
+      * header_index is the index of the `key:` line,
       * block_end_exclusive is the index of the first line AFTER the block
         (the next top-level key, or len(lines) at EOF),
       * subkey_indent is the leading whitespace string used for the block's
         sub-keys (taken from the first indented member, or "  " if none).
 
-    Returns None when no top-level `context:` block exists.
-
-    This is the shared LOCATE half of the config.yaml `context:`-block text
-    surgery: every writer that targets the block — the additive,
-    skip-if-present sub-key merge and the replace-or-append splice below —
-    locates it this same way, so this is their one shared home. Callers that
-    need the SPLICE half (replace-or-append) use splice_context_block(); a
-    caller that instead must never overwrite an existing sub-key locates the
-    block here and keeps its own skip-if-present loop local.
+    Returns None when no such block exists, which includes a block written as
+    an inline flow mapping (`key: {a: 1}`).
     """
     header_idx = None
     for i, line in enumerate(lines):
-        if re.match(r"^context:\s*$", line):
+        if re.match(rf"^{re.escape(key)}:\s*$", line):
             header_idx = i
             break
     if header_idx is None:
@@ -211,6 +217,20 @@ def find_context_block(lines: list[str]) -> tuple[int, int, str] | None:
             break
 
     return header_idx, end, subkey_indent
+
+
+def find_context_block(lines: list[str]) -> tuple[int, int, str] | None:
+    """Locate the top-level `context:` block; see find_top_level_block().
+
+    This is the shared LOCATE half of the config.yaml `context:`-block text
+    surgery: every writer that targets the block — the additive,
+    skip-if-present sub-key merge and the replace-or-append splice below —
+    locates it this same way, so this is their one shared home. Callers that
+    need the SPLICE half (replace-or-append) use splice_context_block(); a
+    caller that instead must never overwrite an existing sub-key locates the
+    block here and keeps its own skip-if-present loop local.
+    """
+    return find_top_level_block(lines, "context")
 
 
 def _block_value_end(text: str, line_end: int, key_indent: int) -> int:
@@ -614,7 +634,7 @@ def load_config(script_path: Path | None = None, *, config_path: Path | None = N
 
     # A directory key that is null, empty or not a string falls back to its
     # default, the way `resolve_index_dir` reads the same keys.
-    backlog_rel = _nonempty_str(project.get("backlog_dir")) or "Backlog"
+    backlog_rel = _nonempty_str(project.get("backlog_dir")) or PROJECT_DIR_DEFAULTS["backlog_dir"]
     config["_backlog_dir"] = planwise_root / backlog_rel
     config["_archive_dir"] = planwise_root / (_nonempty_str(project.get("archive_dir")) or f"{backlog_rel}/Archive")
     config["_index_path"] = config["_backlog_dir"] / resolve_index_name(config, "backlog")
@@ -628,7 +648,7 @@ def load_config(script_path: Path | None = None, *, config_path: Path | None = N
         config["_plugin_root"] = fallback
 
     # Resolve plans path
-    plans_rel = _nonempty_str(project.get("plans_dir")) or "Plans"
+    plans_rel = _nonempty_str(project.get("plans_dir")) or PROJECT_DIR_DEFAULTS["plans_dir"]
     config["_plans_dir"] = planwise_root / plans_rel
     config["_plans_index"] = config["_plans_dir"] / resolve_index_name(config, "plans")
 
@@ -659,7 +679,7 @@ def load_config(script_path: Path | None = None, *, config_path: Path | None = N
         config["_lessons_index"] = None
 
     # Resolve feedback path
-    feedback_rel = _nonempty_str(project.get("feedback_dir")) or "Feedback"
+    feedback_rel = _nonempty_str(project.get("feedback_dir")) or PROJECT_DIR_DEFAULTS["feedback_dir"]
     config["_feedback_dir"] = planwise_root / feedback_rel
 
     return config

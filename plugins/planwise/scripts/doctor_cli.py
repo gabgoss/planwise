@@ -638,6 +638,31 @@ def _detect_orphaned_block_signature(text: str) -> str | None:
     return None
 
 
+# The `project` path keys a healthy config carries. `feedback_dir` is listed
+# although its backfill lives in a separate helper: the loader falls back for
+# it exactly as it does for the others. `lessons_dir` and `archive_dir` are
+# not listed. An absent `lessons_dir` is a valid opt-out (the lessons stages are
+# skipped), and `archive_dir` is optional and derives from `backlog_dir`.
+_PROJECT_PATH_KEYS = ("planwise_root", "plans_dir", "backlog_dir", "feedback_dir")
+
+
+def _missing_project_path_keys(parsed) -> list[str]:
+    """Return the `project` path keys the config loader would replace with a default.
+
+    A key counts as missing when it is absent, null, empty or not a string,
+    which is the loader's own test for falling back. A config whose `project`
+    value is not a mapping reports every key.
+    """
+    project = parsed.get("project") if isinstance(parsed, dict) else None
+    if not isinstance(project, dict):
+        return list(_PROJECT_PATH_KEYS)
+    return [
+        key
+        for key in _PROJECT_PATH_KEYS
+        if not (isinstance(project.get(key), str) and project[key].strip())
+    ]
+
+
 def _doctor_config_parse_check(cfg: "InitConfig") -> dict | None:
     """Read-only YAML parse check of the resolved project config.
 
@@ -647,8 +672,13 @@ def _doctor_config_parse_check(cfg: "InitConfig") -> dict | None:
     the real parser and reports the failure loudly, adding a specific hint when
     the orphaned-block signature is present.
 
+    A config that parses is also checked for the `project` path keys. A missing
+    key is an advisory in the report, never a failure: the state stays "ok"
+    and the keys are listed under "missing_project_keys".
+
     Returns None when there is nothing to check (no config on disk, or no YAML
-    parser available), otherwise {"state": "ok"|"unparseable", "report": str}.
+    parser available), otherwise {"state": "ok"|"unparseable", "report": str},
+    plus "missing_project_keys" (a list) when the state is "ok".
     Never mutates anything — doctor only reports and recommends.
     """
     if not HAS_YAML:
@@ -666,7 +696,7 @@ def _doctor_config_parse_check(cfg: "InitConfig") -> dict | None:
         return {"state": "unparseable", "report": "\n".join(lines)}
 
     try:
-        yaml.safe_load(text)
+        parsed = yaml.safe_load(text)
     except yaml.YAMLError as exc:
         detail = str(exc).strip().splitlines()
         lines.append(f"  ! {config_path} does not parse as YAML.")
@@ -690,7 +720,18 @@ def _doctor_config_parse_check(cfg: "InitConfig") -> dict | None:
         return {"state": "unparseable", "report": "\n".join(lines)}
 
     lines.append(f"  {config_path.name} parses cleanly")
-    return {"state": "ok", "report": "\n".join(lines)}
+    missing = _missing_project_path_keys(parsed)
+    if missing:
+        lines.append(
+            "  ! These project path keys are not set, so the config loader silently "
+            "falls back to a default folder:"
+        )
+        lines.extend(f"      project.{key}" for key in missing)
+        lines.append(
+            "      action:  run /planwise upgrade. It writes the missing keys with the "
+            "folders already in use, so no folder changes."
+        )
+    return {"state": "ok", "report": "\n".join(lines), "missing_project_keys": missing}
 
 
 def _norm_path(p: "str | Path") -> str:

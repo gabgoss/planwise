@@ -268,7 +268,7 @@ python {plugin_root}/scripts/update_backlog.py --create --id ID --feature FEATUR
 | `--feature FEATURE` | Create only | Feature / recommendation summary, 120 characters or fewer once escaped for frontmatter storage — `--create` rejects a value that overflows the cap after escaping and writes nothing (required with `--create`) |
 | `--priority PRIORITY` | Create only | Priority — High, Medium, or Low (required with `--create`) |
 | `--abbrev ABBREV` | Create only | Domain abbreviation (required with `--create`) |
-| `--files FILES` | Create only | Affected files, semicolon-separated; the first is written as the new BLI file from `templates/backlog-item.md` (required with `--create`) |
+| `--files FILES` | Create only | Semicolon-separated (required with `--create`). The first entry is the new item file, written from `templates/backlog-item.md`. It must sit directly inside the backlog folder: give a bare file name, a path from the project root, or an absolute path. A path to any other folder is refused and nothing is written. The heading and the first Related link use the bare file name. Later entries are affected-file references and are listed under Related as given |
 | `--mark-needs-plan` | No | Write `needs_plan: true` into the item's frontmatter without changing its status (the Route C marker-and-skip; regenerate the index afterwards) |
 | `--resolution-file PATH` | No (with `--status COMPLETE` only) | After the status flip and the archive move, append the file's text under `## Resolution`; when `## Resolution` already exists, the file's text is appended below it as a dated `### Closed {date}` block; on an item already COMPLETE the append still runs |
 
