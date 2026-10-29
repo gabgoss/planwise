@@ -52,6 +52,14 @@ def test_usage_exit_two(capsys):
     assert srd.main(["/nonexistent/none.txt"]) == 2
 
 
+@pytest.mark.parametrize("flag", ["--help", "-h"])
+def test_help_flag_prints_usage_and_exits_zero(capsys, flag):
+    assert srd.main([flag]) == 0
+    captured = capsys.readouterr()
+    assert "<file|->" in captured.out
+    assert captured.err == ""
+
+
 def test_reference_phrases_compile_to_wildcards():
     assert len(srd.PATTERNS) == 3
     assert srd.WILDCARD in srd.PATTERNS[0].pattern

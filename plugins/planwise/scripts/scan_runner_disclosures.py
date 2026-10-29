@@ -4,6 +4,7 @@
 Usage:
     python -B scan_runner_disclosures.py <file|->
 
+`-h` or `--help` prints this text to standard output and exits 0.
 `-` reads standard input. The batch gate of a delegated session pipes each
 runner's status block in. Each phrase below holds placeholders (`X`, `…`)
 that stand for any text, so a literal substring match would never fire on a
@@ -86,6 +87,9 @@ def scan(text):
 
 
 def main(argv):
+    if argv in (["-h"], ["--help"]):
+        print(__doc__)
+        return 0
     if len(argv) != 1:
         print(__doc__, file=sys.stderr)
         return 2
