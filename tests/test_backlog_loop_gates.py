@@ -251,6 +251,46 @@ class TestResolutionFile(_GatesFixtureBase):
         self.assertTrue(record["unattended_close"])
         self.assertTrue(record["resolution_written"])
 
+    def test_resolution_file_on_a_worked_item_is_not_an_unattended_close(self):
+        # The run's history decides the label, not the flag: an item marked
+        # acting and verifying was fixed, so its record is appended and it
+        # stays out of the unattended list.
+        payload = self.init("--mode", "all")
+        run_id = payload["run"]
+        self.pop_and_select(run_id, "001")
+        for phase in ("selected", "acting", "verifying"):
+            code, _text, _marked = self.loop("--mark", "--run", run_id, "--id", "001", "--phase", phase)
+            self.assertEqual(code, 0)
+
+        code, _text, marked = self.loop(
+            "--mark", "--run", run_id, "--id", "001", "--outcome", "COMPLETE",
+            "--resolution-file", str(self.write_resolution()),
+        )
+
+        self.assertEqual(code, 0, marked)
+        self.assertTrue(marked["resolution_written"])
+        self.assertEqual(self.item_file("001").read_text(encoding="utf-8").count(RESOLUTION), 1)
+        record = self.read_run(payload)["items"]["001"]
+        self.assertNotIn("unattended_close", record)
+        self.assertEqual(record["outcome"], "COMPLETE")
+        code, text, _payload = self.loop("--end", "--run", run_id)
+        self.assertEqual(code, 0)
+        self.assertNotIn("Closed unattended", text)
+
+    def test_resolution_file_after_selected_only_is_an_unattended_close(self):
+        payload = self.init("--mode", "all")
+        run_id = payload["run"]
+        self.pop_and_select(run_id, "001")
+        self.loop("--mark", "--run", run_id, "--id", "001", "--phase", "selected")
+
+        code, _text, marked = self.loop(
+            "--mark", "--run", run_id, "--id", "001", "--outcome", "COMPLETE",
+            "--resolution-file", str(self.write_resolution()),
+        )
+
+        self.assertEqual(code, 0, marked)
+        self.assertTrue(self.read_run(payload)["items"]["001"]["unattended_close"])
+
     def test_resolution_file_appends_dated_block_when_section_exists(self):
         payload = self.init("--mode", "all")
         run_id = payload["run"]

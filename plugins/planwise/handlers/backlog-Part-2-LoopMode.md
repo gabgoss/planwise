@@ -81,7 +81,7 @@ Each session handles exactly one item. The numbered steps run in order.
 
    | Phase 5 or Phase 4 result | Outcome |
    |---|---|
-   | Every gate passed, or task list done | `COMPLETE` |
+   | Every gate passed, or task list done | `COMPLETE`, with no `--resolution-file`; a worked item is never an unattended close |
    | Every acceptance criterion already met (Phase 3 step 5) | `COMPLETE`, with `--resolution-file` (§ Unattended close); Phases 4 and 5 are skipped for the item |
    | A decision is needed, or a gate failed | `SKIPPED`, with `--decision` |
    | Route C re-assessed in Phase 4 | `SKIPPED`, with `--needs-plan` and `--decision` |
@@ -230,7 +230,7 @@ python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/
 python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yaml --mark --outcome COMPLETE --run {run-id} --id {item-id} --resolution-file {scratch}/{item-id}-resolution.md
 ```
 
-The first call flips the status, moves the file to the archive and appends the record under `## Resolution`. The third records the unattended close in the run file; its own append is a no-op because the section now holds the record, and the script says so. When the item already carries a `## Resolution` section, the first call appends a dated `### Closed {date}` block holding the record below the section's text, and the third call finds that same record and writes nothing. The end summary lists unattended closes under `Closed unattended`. The item is now closed, so skip Phases 4 and 5 for it: regenerate the backlog index, then continue to Phase 7, exactly as after a documented skip. Nothing is committed; the user reviews the archive move and the record in the working tree.
+The first call flips the status, moves the file to the archive and appends the record under `## Resolution`. The third records the unattended close in the run file; its own append is a no-op because the section now holds the record, and the script says so. When the item already carries a `## Resolution` section, the first call appends a dated `### Closed {date}` block holding the record below the section's text, and the third call finds that same record and writes nothing. The end summary lists unattended closes under `Closed unattended`. The script takes that label from the run file, not from the flag: an item this run marked `acting` or `verifying` was fixed, so `--resolution-file` on it appends the record but never counts it as an unattended close. The item is now closed, so skip Phases 4 and 5 for it: regenerate the backlog index, then continue to Phase 7, exactly as after a documented skip. Nothing is committed; the user reviews the archive move and the record in the working tree.
 
 ### Verification is in scope
 

@@ -20,7 +20,8 @@ single-line JSON object:
              the same run writes nothing. With
              --needs-plan it marks the item `needs_plan: true`. A COMPLETE
              outcome with --resolution-file appends the close record to the
-             item file. --refined, alone, records the refine outcome;
+             item file, and records an unattended close only when the run
+             never marked the item acting or verifying. --refined, alone, records the refine outcome;
              --check with --exit, alone, records one verify command's result
   --boundary print the marker line the hooks module watches for
   --end      close the run and print the cross-run summary
@@ -1010,7 +1011,10 @@ def cmd_mark(args, config: dict) -> int:
             resolution_outcome = append_resolution_section(resolution_path, resolution_text).outcome
             if resolution_outcome == "absent_file":
                 raise LoopExit(EXIT_USAGE, f"--resolution-file could not find the item file for {key}")
-            record["unattended_close"] = True
+            # The run's history decides the label, not the flag: an item this
+            # run marked acting or verifying was worked, so it is a fix.
+            if not item_was_worked(run, key):
+                record["unattended_close"] = True
             resolution_written = resolution_outcome in ("appended", "closed_block")
             record["resolution_written"] = resolution_written
         now = now_iso()
@@ -1061,6 +1065,15 @@ def cmd_mark(args, config: dict) -> int:
         "state": state_text(path),
     })
     return EXIT_OK
+
+
+def item_was_worked(run: dict, item_id: str) -> bool:
+    """True when this run marked the item acting or verifying."""
+    worked = {f"phase={phase}" for phase in ("acting", "verifying")}
+    return any(
+        event.get("id") == item_id and event.get("event") == "mark" and event.get("detail") in worked
+        for event in run["history"]
+    )
 
 
 def boundary_recorded(run: dict, item_id: str) -> bool:
@@ -1224,7 +1237,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--resolution-file", type=Path, default=None, dest="resolution_file",
         help=f"With --mark --outcome COMPLETE: a file whose text is appended under {RESOLUTION_HEADING} "
              "in the item file; when the section exists, a dated '### Closed {date}' block is "
-             "appended below it",
+             "appended below it. The close counts as unattended only when the run never marked "
+             "the item acting or verifying",
     )
     parser.add_argument(
         "--refine-max", type=int, default=0, dest="refine_max",
