@@ -15,7 +15,9 @@ Every check here is static except Check 18, which in execute mode asks git
 whether a gated path is tracked. That query has a fixed argument vector:
 ``git -c core.fsmonitor=false ls-files --error-unmatch -- <path>``. It reads
 the index and writes nothing. Plan text supplies only the path and the
-repository directory, never the executable or the subcommand.
+repository directory, never the executable or the subcommand. A ``-C``
+directory outside every repository that holds the plan root is reported, not
+queried.
 """
 
 import re
@@ -33,6 +35,17 @@ _GIT_TIMEOUT_SECONDS = 30
 
 # Separators that end one pipeline and start the next on the same line.
 _CHAIN_TOKENS = frozenset({"&&", "||", ";"})
+
+# Separators that end one stage of a pipeline and start the next.
+_PIPE_TOKENS = frozenset({"|", "|&"})
+
+# Control operators split out of a word even when no space surrounds them,
+# longest first so ``&&`` is not read as two ``&``. A lone ``&`` is not here,
+# so ``2>&1`` and ``&>file`` keep their tokens.
+_OPERATORS = ("&&", "||", "|&", ";", "|")
+
+# A private-use character that wraps a marked operator until shlex splits it.
+_OPERATOR_MARK = ""
 
 # git global options that take the next token as their value.
 _GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace"})
@@ -68,6 +81,7 @@ _QUOTE_CHARS = "\"'`“”‘’"
 _SUCCESS_CRITERIA_HEADING_RE = re.compile(r"^#{1,6}\s+Success Criteria\b", re.IGNORECASE)
 _HEADING_RE = re.compile(r"^#{1,6}\s")
 _INLINE_CODE_RE = re.compile(r"`([^`]+)`")
+_FENCE_MARKER_RE = re.compile(r"^(`{3,}|~{3,})")
 
 
 def _finding(*, check, severity, file, line, command, message) -> dict:
@@ -82,25 +96,80 @@ def _finding(*, check, severity, file, line, command, message) -> dict:
     }
 
 
+class _Operator(str):
+    """A control operator found outside quotes. A quoted ``&&`` or ``;`` stays
+    a plain ``str``, so a splitter tests the type, never equality alone."""
+
+    __slots__ = ()
+
+
+def _is_operator(token, operator: str) -> bool:
+    return isinstance(token, _Operator) and token == operator
+
+
+def _mark_operators(text: str) -> str:
+    """Pad every control operator that sits outside quotes with spaces and wrap
+    it in ``_OPERATOR_MARK``, so shlex returns it as a token of its own. A
+    backslash outside single quotes escapes the next character, and a ``|``
+    right after ``>`` is the ``>|`` redirection, not a pipe."""
+    out = []
+    quote = None
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if quote == "'":
+            quote = None if char == "'" else quote
+            out.append(char)
+            index += 1
+            continue
+        if char == "\\":
+            out.append(text[index:index + 2])
+            index += 2
+            continue
+        if quote == '"' or char in "'\"":
+            if quote is None:
+                quote = char
+            elif char == '"':
+                quote = None
+            out.append(char)
+            index += 1
+            continue
+        operator = next((op for op in _OPERATORS if text.startswith(op, index)), None)
+        if operator is None or (operator[0] == "|" and index and text[index - 1] == ">"):
+            out.append(char)
+            index += 1
+            continue
+        out.append(f" {_OPERATOR_MARK}{operator}{_OPERATOR_MARK} ")
+        index += len(operator)
+    return "".join(out)
+
+
 def _tokens(text: str):
     """Tokenise command text for inspection, never for execution. A trailing
-    line-continuation backslash is dropped first. Returns None when the text
-    does not tokenise."""
+    line-continuation backslash is dropped first. A control operator outside
+    quotes comes back as an ``_Operator`` even when glued to a word, and a
+    quoted one stays a plain word. Returns None when the text does not
+    tokenise."""
     text = text.rstrip().removesuffix("\\")
     try:
-        return shlex.split(text, posix=True)
+        words = shlex.split(_mark_operators(text), posix=True)
     except ValueError:
         return None
+    return [
+        _Operator(word[1:-1]) if len(word) > 2 and word[0] == word[-1] == _OPERATOR_MARK else word
+        for word in words
+    ]
 
 
 def _pipelines(tokens) -> list:
     """Split tokens on ``&&``, ``||`` and ``;`` into pipelines, and each
-    pipeline on bare ``|`` into stages. Empty stages are dropped."""
+    pipeline on ``|`` or ``|&`` into stages. Only an ``_Operator`` splits, so
+    a quoted operator stays in its stage. Empty stages are dropped."""
     pipelines: list = []
     stages: list = []
     current: list = []
     for token in tokens:
-        if token in _CHAIN_TOKENS or token == "|":
+        if isinstance(token, _Operator):
             if current:
                 stages.append(current)
             current = []
@@ -294,6 +363,21 @@ def _resolve_repo(repo_dir, plan_root: Path):
     return None
 
 
+def _inside_plan_repositories(repo: Path, plan_root: Path) -> bool:
+    """True when ``repo`` lies inside the work tree of a repository that holds
+    the plan root. Every such work tree is the plan root or a parent with a
+    ``.git`` entry, so a repository nested under the plan's project qualifies
+    and a directory anywhere else does not. Read from the file system, so no
+    git process runs to decide it."""
+    plan_root = plan_root.resolve()
+    repo = repo.resolve()
+    return any(
+        repo.is_relative_to(root)
+        for root in (plan_root, *plan_root.parents)
+        if (root / ".git").exists()
+    )
+
+
 def _git_tracks(repo: Path, path: str):
     """True when git's index holds ``path`` (exit 0), False when git reports
     it untracked (exit 1), and None when git could not be asked: any other
@@ -318,7 +402,9 @@ def _check18_diff_property_gate_over_untracked_path(context) -> list:
     gate prints zero whether or not the edit happened. In execute mode each
     path is checked with ``git ls-files --error-unmatch``: ERROR when git
     reports it untracked, UNCERTAIN when git could not be asked or the path
-    does not resolve. With execution off the tracking state is unknown, so the
+    does not resolve. A ``-C`` directory outside the work trees of the
+    repositories that hold the plan root is UNCERTAIN, and git is not run
+    there. With execution off the tracking state is unknown, so the
     gate is UNCERTAIN. A path that an earlier ``git add`` in the same file
     registers is exempt. A token that is not one literal path -- an expansion,
     a template slot, a glob, ``.`` or pathspec magic -- is not checked.
@@ -367,6 +453,12 @@ def _tracking_findings(context, command, repo_dir, paths) -> list:
             return [make(SEVERITY_UNCERTAIN, (
                 f"The gate's repository directory {repo_dir!r} does not resolve from the "
                 "plan root or any parent, so the tracking state of its paths was not checked"
+            ))]
+        if not _inside_plan_repositories(repo, plan_root):
+            return [make(SEVERITY_UNCERTAIN, (
+                f"The gate's repository directory {repo_dir!r} does not resolve inside the "
+                "plan's repositories, so git was not run there and the tracking state of "
+                "its paths was not checked"
             ))]
     findings = []
     for path in paths:
@@ -454,11 +546,11 @@ def _check20_count_grep_chained_with_and(context) -> list:
         if command.is_placeholder:
             continue
         tokens = _tokens(command.command)
-        if not tokens or "&&" not in tokens:
+        if not tokens or not any(_is_operator(token, "&&") for token in tokens):
             continue
         segment: list = []
         for token in tokens:
-            if token == "&&":
+            if _is_operator(token, "&&"):
                 stages = _pipelines(segment)
                 last = stages[-1][-1] if stages and stages[-1] else None
                 if last and last[0] == "grep" and _grep_has(last, "c", "--count"):
@@ -746,10 +838,30 @@ def _check24_basic_grep_escaped_plus_header_filter(context) -> list:
 
 
 def _is_task_file(path: Path) -> bool:
+    """True when the file's first heading starts ``# Task:``. A leading ``---``
+    frontmatter block and every fenced block are skipped, so a ``# note``
+    comment inside either is not read as the heading. A fence closes only on a
+    bare marker of its own character, at least as long as the opener."""
+    in_frontmatter = False
+    fence = None
     try:
         with path.open(encoding="utf-8") as handle:
-            for raw in handle:
+            for number, raw in enumerate(handle):
                 line = raw.strip()
+                if number == 0 and line == "---":
+                    in_frontmatter = True
+                    continue
+                if in_frontmatter:
+                    in_frontmatter = line != "---"
+                    continue
+                marker = _FENCE_MARKER_RE.match(line)
+                if fence is not None:
+                    if marker and line == marker.group(1) and line[0] == fence[0] and len(line) >= len(fence):
+                        fence = None
+                    continue
+                if marker:
+                    fence = marker.group(1)
+                    continue
                 if line.startswith("# "):
                     return line.startswith("# Task:")
     except (OSError, UnicodeDecodeError):

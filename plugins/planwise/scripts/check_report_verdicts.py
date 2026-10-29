@@ -101,6 +101,11 @@ _VALUE_RE = re.compile(
 )
 
 _FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+# A closer is a bare marker: a line with an info string opens, never closes.
+_FENCE_CLOSER_RE = re.compile(r"^\s*(`{3,}|~{3,})\s*$")
+# Physical line ends only. str.splitlines() also splits on \x0b, \x0c,
+# \x1c-\x1e, \x85, U+2028 and U+2029, which can sit inside one table row.
+_LINE_END_RE = re.compile(r"\r\n|\r|\n")
 _QUOTE_PREFIX_RE = re.compile(r"^\s*(?:>\s?)+")
 _SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 _CELL_SPLIT_RE = re.compile(r"(?<!\\)\|")
@@ -190,22 +195,27 @@ def compare(actual_cell: str, expected_cell: str) -> bool | None:
 
 def read_lines(path: Path) -> list[Line]:
     """Read a file into lines with callout prefixes removed and fences marked."""
-    raw = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    raw = _LINE_END_RE.split(path.read_text(encoding="utf-8", errors="replace"))
+    if raw[-1] == "":
+        raw.pop()
     lines: list[Line] = []
     fence: str | None = None
     for number, original in enumerate(raw, start=1):
         text = _QUOTE_PREFIX_RE.sub("", original)
-        opener = _FENCE_RE.match(text)
-        if opener:
-            marker = opener.group(1)
-            if fence is None:
-                fence = marker
+        if fence is None:
+            opener = _FENCE_RE.match(text)
+            if opener:
+                fence = opener.group(1)
                 lines.append(Line(number, text, True))
                 continue
-            if marker[0] == fence[0] and len(marker) >= len(fence):
-                fence = None
-                lines.append(Line(number, text, True))
-                continue
+        else:
+            closer = _FENCE_CLOSER_RE.match(text)
+            if closer:
+                marker = closer.group(1)
+                if marker[0] == fence[0] and len(marker) >= len(fence):
+                    fence = None
+                    lines.append(Line(number, text, True))
+                    continue
         lines.append(Line(number, text, fence is not None))
     return lines
 

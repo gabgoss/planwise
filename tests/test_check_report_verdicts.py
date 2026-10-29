@@ -214,3 +214,41 @@ def test_actual_with_its_own_comparator_is_not_checked() -> None:
     assert crv.compare("> 3", "5") is None
     assert crv.compare("3", "5") is False
     assert crv.compare("5", "≥ 5") is True
+
+
+# --- read_lines: physical lines and fences -------------------------------------
+
+
+def write_bytes(tmp_path: Path, name: str, data: bytes) -> Path:
+    path = tmp_path / name
+    path.write_bytes(data)
+    return path
+
+
+@pytest.mark.parametrize(
+    ("data", "count"),
+    [
+        (b"| a | b |\n|---|---|\n| 1 \x0c| 2 |\n", 3),
+        ("line1\x85line2\n".encode(), 1),
+        ("x y\n".encode(), 1),
+        (b"a\x0bb\x1cc\x1dd\x1ee\n", 1),
+        (b"one\r\ntwo\rthree\nfour", 4),
+        (b"a\n\n", 2),
+        (b"", 0),
+    ],
+)
+def test_read_lines_splits_on_line_ends_only(tmp_path: Path, data: bytes, count: int) -> None:
+    lines = crv.read_lines(write_bytes(tmp_path, "r.md", data))
+    assert len(lines) == count
+    assert [line.number for line in lines] == list(range(1, count + 1))
+
+
+def test_form_feed_keeps_the_table_row_whole(tmp_path: Path) -> None:
+    lines = crv.read_lines(write_bytes(tmp_path, "r.md", b"| a | b |\n|---|---|\n| 1 \x0c| 2 |\n"))
+    assert lines[2].text == "| 1 \x0c| 2 |"
+
+
+def test_info_string_line_inside_a_fence_does_not_close_it(tmp_path: Path) -> None:
+    path = write_bytes(tmp_path, "r.md", b"```\n| Verdict |\n```python\n| PASS |\n```\nafter\n")
+    fenced = [line.fenced for line in crv.read_lines(path)]
+    assert fenced == [True, True, True, True, True, False]

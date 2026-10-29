@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
@@ -114,6 +115,68 @@ class TestCheck18DiffPropertyOverUntrackedPath(unittest.TestCase):
         self.assertEqual([(f["check"], f["severity"]) for f in findings], [(18, "UNCERTAIN")])
 
 
+class TestCheck18RepositoryDirectoryScope(unittest.TestCase):
+    """A ``-C`` directory is asked about only when it lies inside the work tree
+    of a repository that holds the plan root."""
+
+    GATE = "git -C {repo} diff --numstat -- f.txt   # expect 1"
+
+    @staticmethod
+    def _ls_files_calls(run, repo):
+        # Filter on the ls-files query that only Check 18 makes, so a
+        # subprocess call from any other part of the linter cannot decide this.
+        calls = []
+        for call in run.call_args_list:
+            argv = list(call.args[0]) if call.args else []
+            if (
+                "ls-files" in argv and "-C" in argv
+                and Path(argv[argv.index("-C") + 1]).resolve() == repo.resolve()
+            ):
+                calls.append(argv)
+        return calls
+
+    def test_directory_outside_the_plan_repositories_is_uncertain_without_git(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            outer, elsewhere = Path(tmp) / "outer", Path(tmp) / "elsewhere"
+            plan = outer / "plan"
+            plan.mkdir(parents=True)
+            elsewhere.mkdir()
+            _git(outer, "init", "-q")
+            _git(elsewhere, "init", "-q")
+            (elsewhere / "f.txt").write_text("one\n", encoding="utf-8")
+            _write_task(plan, [self.GATE.format(repo=elsewhere.as_posix())])
+            with mock.patch("subprocess.run", wraps=subprocess.run) as run:
+                findings = _findings_for(plan, 18, execute=True)
+            self.assertEqual(self._ls_files_calls(run, elsewhere), [])
+        self.assertEqual([(f["check"], f["severity"]) for f in findings], [(18, "UNCERTAIN")])
+        self.assertIn("does not resolve inside the plan's repositories", findings[0]["message"])
+
+    def test_nested_repository_inside_the_plan_repository_is_still_checked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            outer = Path(tmp) / "outer"
+            plan, nested = outer / "plan", outer / "nested"
+            plan.mkdir(parents=True)
+            nested.mkdir()
+            _git(outer, "init", "-q")
+            _git(nested, "init", "-q")
+            (nested / "f.txt").write_text("one\n", encoding="utf-8")
+            _write_task(plan, [self.GATE.format(repo="nested")])
+            findings = _findings_for(plan, 18, execute=True)
+        self.assertEqual([(f["check"], f["severity"]) for f in findings], [(18, "ERROR")])
+
+    def test_parent_relative_escape_is_uncertain(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            outer, elsewhere = Path(tmp) / "outer", Path(tmp) / "elsewhere"
+            plan = outer / "plan"
+            plan.mkdir(parents=True)
+            elsewhere.mkdir()
+            _git(outer, "init", "-q")
+            _git(elsewhere, "init", "-q")
+            _write_task(plan, [self.GATE.format(repo="../../elsewhere")])
+            findings = _findings_for(plan, 18, execute=True)
+        self.assertEqual([(f["check"], f["severity"]) for f in findings], [(18, "UNCERTAIN")])
+
+
 class TestCheck19IntentToAddBeforeCommentOnlyAssertion(unittest.TestCase):
     def test_bad_add_n_then_comment_only_count(self):
         findings = _lint_lines(19, [
@@ -140,6 +203,14 @@ class TestCheck20CountGrepChainedWithAnd(unittest.TestCase):
             "grep -c 'TODO' notes.md   # expect 0",
             "grep -c 'FIXME' notes.md   # expect 0",
         ])
+        self.assertEqual(findings, [])
+
+    def test_bad_operator_glued_to_the_words(self):
+        findings = _lint_lines(20, ["grep -c TODO notes.md&&grep -c FIXME notes.md   # expect 0"])
+        self.assertEqual([(f["check"], f["severity"]) for f in findings], [(20, "WARNING")])
+
+    def test_good_quoted_and_operator_is_a_pattern(self):
+        findings = _lint_lines(20, ["grep -c '&&' notes.md   # expect 0"])
         self.assertEqual(findings, [])
 
 
@@ -232,6 +303,79 @@ class TestCheck25ToleranceWordWithoutBand(unittest.TestCase):
     def test_good_quoted_mention(self):
         extra = 'Flag a spec that says "approximate" with no band.\n\n'
         self.assertEqual(_lint_lines(25, ["wc -l notes.md   # expect 3"], extra=extra), [])
+
+
+class TestTokensAndPipelines(unittest.TestCase):
+    """The shared splitter behind Checks 18-24: an operator glued to a word is
+    split out, and a quoted operator stays a plain word."""
+
+    def _pipelines(self, text):
+        return commands_module._pipelines(commands_module._tokens(text))
+
+    def test_glued_operators_split(self):
+        cases = {
+            "a;b": [[["a"]], [["b"]]],
+            "x&&y": [[["x"]], [["y"]]],
+            "git diff -- p | wc -l; echo x": [[["git", "diff", "--", "p"], ["wc", "-l"]], [["echo", "x"]]],
+            "a ; b": [[["a"]], [["b"]]],
+            "x && y": [[["x"]], [["y"]]],
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(self._pipelines(text), expected)
+
+    def test_quoted_operators_stay_in_their_stage(self):
+        cases = {
+            "grep -c '&&' f": [[["grep", "-c", "&&", "f"]]],
+            "grep -c ';' f": [[["grep", "-c", ";", "f"]]],
+            'grep -c "a|b" f': [[["grep", "-c", "a|b", "f"]]],
+            "grep -c \\; f": [[["grep", "-c", ";", "f"]]],
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(self._pipelines(text), expected)
+
+    def test_redirections_keep_their_existing_tokens(self):
+        cases = {
+            "cmd 2>&1 | wc -l": ["cmd", "2>&1", "|", "wc", "-l"],
+            "cmd &>out.txt": ["cmd", "&>out.txt"],
+            "cmd >| out.txt": ["cmd", ">|", "out.txt"],
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(commands_module._tokens(text), expected)
+
+    def test_pipe_with_stderr_splits_a_stage(self):
+        self.assertEqual(self._pipelines("a |& b"), [[["a"], ["b"]]])
+
+    def test_unterminated_quote_does_not_tokenise(self):
+        self.assertIsNone(commands_module._tokens("grep -c 'x f"))
+
+
+class TestIsTaskFile(unittest.TestCase):
+    """The first real heading decides, so a ``# note`` inside frontmatter or a
+    fenced block before it is not read as the heading."""
+
+    def _is_task(self, text):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "task.md"
+            path.write_text(text, encoding="utf-8")
+            return commands_module._is_task_file(path)
+
+    def test_plain_task_heading(self):
+        self.assertTrue(self._is_task("# Task: Foo\n\nbody\n"))
+
+    def test_frontmatter_comment_before_the_heading(self):
+        self.assertTrue(self._is_task("---\n# note about the file\nagent: Sonnet\n---\n# Task: Foo\n"))
+
+    def test_fenced_comment_before_the_heading(self):
+        self.assertTrue(self._is_task("```bash\n# note\n```\n# Task: Foo\n"))
+
+    def test_fence_closed_only_by_its_own_marker(self):
+        self.assertTrue(self._is_task("````\n```\n# note\n````\n# Task: Foo\n"))
+
+    def test_other_first_heading_is_not_a_task(self):
+        self.assertFalse(self._is_task("---\nid: 1\n---\n# Signoff\n\n# Task: Foo\n"))
 
 
 class TestRegistrationContract(unittest.TestCase):
