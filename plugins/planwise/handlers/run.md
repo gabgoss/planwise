@@ -175,6 +175,17 @@ Corollary — when an upstream contract SUPERSEDES an EI-verbatim block, the fla
 >
 > Surface a foreign path in the CONFIRM block as a structural finding (Step 1.2a). Options: commit the peer's finished work here after verification, the owner commits it, or dispatch literally and HALT. Committing a peer's work is the user's decision, never the session's. Log the approval as a Scope-Expansion Decisions row. See [read-confirm-act-protocol.md §1.5](../references/read-confirm-act-protocol.md#15-attribute-a-dirty-path-before-choosing-a-remedy) for the verify-stage-commit order.
 
+### Step 1.1c: PLUGIN-PATH CURRENCY CHECK
+
+> [!binding] Check every versioned plugin path in the plan before CONFIRM
+> A stale versioned cache path makes a gate run the old tool and report OK. Run the check over the Plan root that holds the Master Plan, not the session folder, because Sprint Plans and sibling sessions carry gates too:
+> ```bash
+> python -B "{plugin_root}/scripts/check_plan_plugin_paths.py" --config {planwise_root}/config.yaml {Plan root}
+> ```
+> - **Exit 0:** continue.
+> - **Exit 1:** do not dispatch. Print every `[STALE]` line and every `[RATIO]` line verbatim in the CONFIRM block as a structural finding (Step 1.2a). The user chooses one option: route a binding gate line with the installed path beside each stale gate (record the routing in Recovery), re-scaffold the stale task files, or proceed knowingly (record the acknowledgment in Recovery).
+> - **Exit 2:** print the `NOT CHECKED:` line verbatim, say so in the CONFIRM block, and continue. Exit 2 is never a pass.
+
 ### Step 1.2: CONFIRM
 
 Output the confirmation block. See [examples/confirmation-block.md](../examples/confirmation-block.md) for correctly formatted examples (standard, multiple files, fresh session, recovery, and structural-finding variants).

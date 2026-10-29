@@ -199,6 +199,14 @@ The first line of the findings file is always a `Coverage:` line. `Coverage: che
 
 5. Pass `{GateLintPath}` into the spawn prompt of the reviewer that owns verification gates on the selected path: the No-Team Path's combined content reviewer, or the Team Path's Verification-Gate Reviewer.
 
+6. Check plugin-path currency. The lead owns these findings, because this phase runs before any reviewer is spawned. Run the check and record its result in the review report:
+
+```bash
+python -B "{plugin_root}/scripts/check_plan_plugin_paths.py" --config {planwise_root}/config.yaml "{PlanPath}"
+```
+
+At synthesis the lead adds one ERROR finding per `[STALE]` line and one WARNING finding per `[RATIO]` line. Exit `2` prints a `NOT CHECKED:` line. Record it as unavailable, never as a pass. This step does not halt the review.
+
 > [!practice] Lint once, classify rather than re-derive
 > A verification gate is vacuous when its measured pre-edit value already satisfies its stated post-edit expectation — it then passes with zero work done, and no amount of reading detects that without measuring the gate against the live tree. That decision is mechanical work, so a reviewer's job here is to classify and report what the scan already found, not to re-derive the same findings by hand. Only the roles that own verification gates receive the path; handing it to every reviewer would be noise.
 
