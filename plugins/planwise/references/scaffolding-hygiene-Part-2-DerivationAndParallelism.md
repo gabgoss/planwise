@@ -220,7 +220,7 @@ A sprint's verification gates are only as trustworthy as the tree state they nam
 > {ABBREV}_S{NN}_BASE=$(git -C <repo> rev-parse HEAD)
 > ```
 >
-> **Where.** The session Recovery file's Key Findings, as that task's **first** Recovery write — before any file edit, so a compaction or a crash mid-task does not lose the pin. Record the name, the value, and which task recorded it. Every later task in the sprint then **reads the value from Recovery** instead of re-deriving it: a `rev-parse HEAD` taken after the first edit is not the baseline, and a gate scoped to it is blind to every change made before it ran.
+> **Where.** The session Recovery file's Key Findings, as that task's **first** Recovery write — before any file edit, so a compaction or a crash mid-task does not lose the pin. Record the name, the value, and which task recorded it. That record is the orchestrator's own copy. Every later task in the sprint **receives the value as a literal** instead of re-deriving it. Under DELEGATED execution the orchestrator injects it as the `Base commit:` line of each spawn prompt. Under INLINE execution the executing session carries it in its own context and reads Recovery only on a resume. A later task never fetches the value out of Recovery during a delegated run. A `rev-parse HEAD` taken after the first edit is not the baseline, and a gate scoped to it is blind to every change made before it ran. See [agent-orchestration-delegated.md](agent-orchestration-delegated.md) §1.6 for the injection rule.
 >
 > **Series base.** A multi-sprint plan additionally records `{ABBREV}_SERIES_BASE` at the first task of the first sprint, for the release / whole-series battery that needs one base predating every sprint. **First-to-touch contingency:** a sprint that may not run first — any sprint the plan's ordering declares INDEPENDENT — MUST check the plan's Recovery files for an already-recorded series base before minting one, and **adopt that value verbatim** if it finds one. Only when none exists does its own HEAD become the series base.
 
@@ -242,7 +242,8 @@ A sprint's verification gates are only as trustworthy as the tree state they nam
 >           (first sprint of a series: also check the plan's Recovery files for
 >            {ABBREV}_SERIES_BASE and adopt it verbatim, else record it here too)
 >   Step 2: edit <file A>
-> {Abbrev}-S{XX}-02   Step 1: read {ABBREV}_S{NN}_BASE from Recovery — do not re-derive
+> {Abbrev}-S{XX}-02   Step 1: git -C <repo> cat-file -e <Base commit literal>^{commit}
+>                     # literal from the spawn prompt's Base commit: line; HALT if it does not resolve
 > ```
 
 This section owns **who** records a baseline, **when**, and **where** it lives; what a gate must then look like once a base exists — the `--` path scoping, the positive allow-list form of a scope test, and the five sub-rules governing each gate shape — belongs to [gate-diff-baseline-pinning.md](gate-diff-baseline-pinning.md#8-diff-scoped-gates-pin-a-recorded-baseline) §8, the definition site for `$..._BASE`. Its §8.1 and §8.4 state the pin mechanics and the series-base contingency from the *gate's* side; the scaffolding obligation above is what makes them satisfiable, and neither restates the other. Read §8 before authoring any diff-scoped gate.
@@ -405,6 +406,8 @@ Non-determinism is what makes this expensive. An order-dependent gate reads as f
 > {vcs} diff --name-only -- {this task's declared output paths} | wc -l   # 1
 > ```
 > Keep the repo-wide form for a **session-closing sweep task**, where the whole-session delta genuinely is the subject. The two answer different questions; do not collapse one into the other.
+
+Path scoping is not an exemption. A changed path that no `**Output:**` line of the session names is a HALT for the orchestrator. It attributes the path to a task, a peer writer or a census gap before it accepts the layer (`verify-caller-before-complete.md` §6).
 
 The scaffold emits the scoped form into every per-task gate, so the next plan inherits the correct shape rather than copying a repo-wide snippet out of a project-level document.
 

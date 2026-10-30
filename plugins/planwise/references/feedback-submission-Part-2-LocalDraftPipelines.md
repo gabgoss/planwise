@@ -276,17 +276,19 @@ python "{plugin_root}/scripts/feedback_drafts.py" list --table --config "{planwi
 ```
 
 Print the command's stdout verbatim, before any question. Do not rewrite, reorder or summarize
-it. Add `--all` when `--drafts --all` was given. Pass `--session-id {id}` only when the
-invoking context supplies the running session's id. The command prints the table below, so
-the table is the contract the command implements.
+it. Add `--all` when `--drafts --all` was given. The command reads the running session's id
+from the `CLAUDE_CODE_SESSION_ID` environment variable, which the Bash tool sets, so pass no
+id for it. Pass `--session-id {id}` only to override that variable. The command prints the
+table below, so the table is the contract the command implements.
 
 | Draft | Created | Kind | Title | Producer | Session |
 |---|---|---|---|---|---|
 | `2026-10-12-draft-bug-helper-exit-code.md` | 2026-10-12 | bug | Helper exits 1 on valid input | prompt | this session |
 
 Draft is the row's `path`. Session reads `this session` when the row's `source_session_id`
-equals the id passed with `--session-id`, `other session` when it differs, and `unknown` when
-no id was passed. A group with no rows is
+equals the session id, `other session` when it differs, and `unknown` when no id is
+available. The session id is the `--session-id` value, else `CLAUDE_CODE_SESSION_ID`. An
+empty variable counts as no id. A group with no rows is
 omitted. With no model drafts at all, print `No model drafts found in {feedback_dir}.` and
 exit 0. No question is asked.
 

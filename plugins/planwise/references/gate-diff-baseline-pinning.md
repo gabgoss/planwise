@@ -34,7 +34,7 @@ The defect is systemic rather than per-plan: one audit found 109 diff-scoped gat
 
 **This section is the definition site for `$..._BASE`.** [measurement-discipline.md](measurement-discipline.md) §8.7 governs the *input-set* half of the same gate — untracked-file registration (`git add -N`), the input-set assertion, the unfiltered on-disk sweep, and the known-bad dry-run — and its examples consume `$BASE` without defining it. The two halves are complementary and neither restates the other: §8.7 asks *did the gate inspect anything*, this section asks *did it inspect the right tree state*. An empty result means nothing until both are answered.
 
-Throughout this section `$BASE` stands for the sprint's own recorded `{ABBREV}_S{NN}_BASE` (or `{ABBREV}_SERIES_BASE` where a whole-series view is meant). It is a **recorded value**, never a literal to copy forward.
+Throughout this section `$BASE` stands for the sprint's own recorded `{ABBREV}_S{NN}_BASE` (or `{ABBREV}_SERIES_BASE` where a whole-series view is meant). It is a **recorded value**: pinned once from the live repo, then carried as the resolved SHA. Never copy it from another sprint, and never re-derive it from a later `HEAD`.
 
 ### 8.1 Record a baseline before the first edit
 
@@ -50,6 +50,8 @@ Throughout this section `$BASE` stands for the sprint's own recorded `{ABBREV}_S
 > {ABBREV}_S{NN}_BASE=$(git -C <repo> rev-parse HEAD)
 > ```
 > Record the name, the value, and the recording task in the session Recovery file's Key Findings. That record is the **first write of the session** — before any edit. A base pinned after an edit already contains it, so every gate scoped to that base is blind to the one change it was written to check, and reports empty for the reason that makes an empty result worthless.
+
+The Recovery record is the orchestrator's own copy of the base. It is not a runner input. Under DELEGATED execution the orchestrator reads the recorded value once and injects it as a `Base commit:` line, a resolved SHA literal, into every later spawn prompt. [agent-orchestration-delegated.md](agent-orchestration-delegated.md) §1.6 ("Inject the Literal, Do Not Indirect Through a File") defines that injection. A later task takes the base from its spawn prompt and never reads it back from Recovery. Each receiving task proves the literal with `git -C <repo> cat-file -e <sha>^{commit}` before its first diff gate, and HALTs when it does not resolve ([measurement-discipline.md](measurement-discipline.md) §8.7 sub-rule E). When the pinning task shares a dispatch layer with a diff-gating task, the orchestrator pins in the Orchestration file instead, behind the same `status --porcelain` precondition, before it dispatches that layer.
 
 The precondition is scoped with `--` to **this sprint's write paths**, not to the whole repo: unrelated dirt outside the sprint's area is not this sprint's problem to stash, and a whole-repo cleanliness demand is the kind of gate sessions learn to override. Carry the recorded value where later sprints can find it — a Sprint Overview status cell is enough. Edit that one cell of the sprint's existing row and leave every other column as authored, because the column set is authored per plan. A cell value looks like this:
 

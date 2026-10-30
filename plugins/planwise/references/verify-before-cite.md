@@ -833,6 +833,19 @@ Two checks apply before a guard is removed.
 
 **Applies to** any concurrency guard, lock, ordering constraint or "never do X" rule being removed because a redesign supposedly made it unnecessary. A false rationale here removes protection rather than failing a gate. That is why the severity is higher than for a stale count.
 
+### 9.B.24 A live-tree figure is a census row, re-measured at Session Start
+
+> [!constraint] A figure about the live tree is a claim about one tree at one moment. Record where it was read, and re-derive it at dispatch
+> A scaffold run wrote its one-time measurements into the plan as literals: a file count, a split point between two parallel tasks, a line-ending assumption. The tree moved 17 commits before the first task ran. The count had grown from 104 to 106, so two tasks that split the list at a pinned index each took the other's boundary name as its rule. A task asserted that every reference file uses CRLF, and a byte tally found 36 of 106 LF-only.
+
+Nothing recorded each literal's source, and nothing made a gate re-derive it. The fix has three parts.
+
+1. **Every such figure is one census row.** The row holds the scaffold value, artifact, commit, date, a runnable re-measure command and an on-drift mode. The rows live in the orchestration file's Session Start Census. A task gate writes `# pre-edit: 104 (references/*.md at <sha>, <date>) -> expect {census:ref_count}`, never `# expect 104`.
+2. **The orchestrator re-measures, and the runner never reads Recovery.** Before the first dispatch the orchestrator runs each row's command at the session base, records it in Recovery, and injects the value into each spawn prompt's `Census:` line. This applies the shared-pin injection rule (`agent-orchestration-delegated.md` §1.6) to figures other than a commit SHA.
+3. **The on-drift mode splits two cases.** A `substitute` row takes the session-base value, because the figure only parameterizes a check. A `halt` row surfaces a structural finding at CONFIRM, because the figure decides a task's Output paths or a layer's write-target intersection.
+
+The generic pin rule is in `measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md` §8.11.
+
 ---
 
 ## Plan-Review Enforcement Summary (Verify-Before-Cite)
@@ -847,6 +860,7 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 | 4 | Vacuous column-presence check | A task says "verify column X is in INSERT/UPDATE" against an upsert helper that uses dynamic column mapping | §9.B.4 |
 | 5 | Missing Schema Pin OR Pre-SQL Schema Verification on SQL-emitting task | A task file's Execution Steps include SQL-emitting verbs against project tables AND the file has neither a Schema Pin section nor a `Pre-SQL Schema Verification` block in Notes for Agent | §9.B.5 |
 | 6 | Target structure assumed from siblings | A row specifying an edit "in native format" / "matching the existing" / naming a section of its target carries no locator evidence measured against that target; or the live locator returns 0 and the row states no fallback form | §9.B.21 |
+| 7 | Live-tree figure pinned as a literal | A task gate or step asserts a file count, split boundary, scan-set size, line number or line-ending tally as a bare literal, with no census row naming its artifact, commit and date | §9.B.24 |
 
 ---
 

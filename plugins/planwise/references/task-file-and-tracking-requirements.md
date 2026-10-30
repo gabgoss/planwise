@@ -289,6 +289,34 @@ Issue: Required Context cites {cross_session_file} but Depends On lacks cross-se
 Fix: Add "cross-session: {Abbrev}-S{XX}-{YY}" per references/task-file-and-tracking-requirements.md §9 | Confidence: HIGH
 ```
 
+**Cross-sprint consumed values:**
+
+A value a later sprint consumes from an earlier sprint is a row in the sprint plan's `## Consumes` table with a runnable Read Command. The run handler fills the row at session start (Step 1.1e) and injects the value as a literal. A pointer to the producing task is not a value, and a literal written at scaffold time predates the producer. A plan with a promote sprint followed by a verify sprint shows the gap. The verify sprint needed the commit the promoted code descends from, the exact line the code prints on a missing config, a side effect the promoted writer gained, and the transcript facts its grader reads. Each of these exists only after the promote sprint lands, so a pointer gives the verify sprint nothing to read.
+
+> [!constraint] A consumed value is a row with a read command, never a pointer or a scaffold-time literal
+> WRONG — a pointer, with no value to read:
+> ```markdown
+> **Depends On:** cross-sprint: {Abbrev}-S01-03-01
+> Scratch copy: the commit the promote sprint's last task left.
+> ```
+> CORRECT — a Consumes row whose Read Command prints the value:
+> ```markdown
+> | `{ProducerCommit}` | commit the consumed code descends from | {Abbrev}-S01-03-01 | `git -C <repo> log -1 --format=%H -- <path>` | 40-hex SHA, ancestor of HEAD | {Abbrev}-S02-01-01 |
+> ```
+
+#### Reviewer Check 101 — Cross-Sprint Consumed Value Without a Read Command
+
+- **Severity / Role / Type:** BLOCKER | Dependency Reviewer | NEW
+- **What:** A sprint that reads a value from an earlier sprint MUST carry a `## Consumes` table, and every row MUST have a Read Command that prints the value.
+- **Detection:** Find each sprint whose Prerequisites or any task `Depends On` names an earlier sprint (`cross-sprint:`). Flag the sprint when its Sprint Plan has no `## Consumes` table. Flag each Consumes row whose Read Command cell is empty, a pointer ("see the producing task"), or prose that is not a runnable command. → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Cross-sprint consumed value without a read command
+File: {sprint plan path} | Location: ## Consumes
+Issue: {Sprint depends on an earlier sprint but has no Consumes table | Consumes row "{Name}" has no runnable Read Command}
+Fix: Add a Consumes row whose Read Command prints the value, per references/task-file-and-tracking-requirements.md §9 | Confidence: HIGH
+```
+
 **Post-scaffold back-propagation rule:**
 
 When a task file is edited AFTER scaffolding (adding a Required Context entry, extending Execution Steps, or changing Expected Output), the corresponding EI section MUST be back-propagated:

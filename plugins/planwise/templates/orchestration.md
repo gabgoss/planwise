@@ -161,6 +161,20 @@ Collect every member task's `**Output:**` paths; intersect them pairwise. Show t
 
 ---
 
+## Session Start Census <!-- REQUIRED when any task gate or step asserts a live-tree figure -->
+
+Every figure a task gate or step asserts about the live tree (a file count, a split boundary, a scan-set size, a line-ending tally) is one row here, never a bare literal in the task file. The task file names the row as `{census:<name>}`.
+
+| Name | Scaffold value | Artifact | Commit | Date | Re-measure command | On drift |
+|------|----------------|----------|--------|------|--------------------|----------|
+| `{ref_count}` | {104} | {references/*.md} | {short SHA} | {YYYY-MM-DD} | {runnable command that prints the count} | substitute |
+| `{split_boundary}` | {last file of the first half} | {sorted file list} | {short SHA} | {YYYY-MM-DD} | {runnable command that prints the boundary name} | halt |
+| `{crlf_tally}` | {CRLF files / LF-only files} | {references/*.md} | {short SHA} | {YYYY-MM-DD} | {runnable command that prints the tally} | substitute |
+
+Before the first dispatch the orchestrator runs every row's command at the session base and writes `CENSUS {name} = {session-base value} (scaffold {value}; {artifact} at {commit}; {date})` to Recovery Key Findings. A `substitute` row takes the session-base value. A `halt` row whose value moved is a structural finding at CONFIRM, because the figure decides a task's Output paths or a layer's write-target intersection. Two tasks that split one list read the same row.
+
+---
+
 ## Recovery Protocol <!-- REQUIRED -->
 
 Update `{Abbrev}-S{XX}-{YY}-Recovery.md` after EACH task completion.
@@ -186,6 +200,8 @@ Task file:        {task-file-absolute-path}
 Session ID:       {Abbrev}-S{XX}-{YY}
 Plugin root:      {value of config.yaml plugin_root, read at dispatch}
 Output directory: {output-dir-absolute-path}
+Base commit:      {ABBREV}_S{NN}_BASE={resolved SHA literal}  (omit when no task gate runs git diff)
+Census:           {name}={session-base value}, ...  (omit when no task gate names a census row)
 
 ## HARD CONSTRAINTS (non-negotiable)
 Execute ONLY {task-id}. Do not start any other task in the session even if the
@@ -193,7 +209,8 @@ Recovery file lists it as PENDING. Files you may write: {explicit list from the
 task file's Output}.
 
 1. Modify ONLY files listed in this task's Required Context — no other files
-2. Do NOT read files not listed in Required Context
+2. Do NOT read files not listed in Required Context. The `Base commit:` and `Census:`
+   values above are authoritative as given: never read them from Recovery or any other file
 3. Do NOT spawn sub-agents or create teams
 4. If you encounter an ambiguity requiring a file not in Required Context, STOP
    and report it; do NOT expand scope
@@ -212,7 +229,7 @@ Return after writing the single expected output file. Do NOT proceed to task
 {n+1}.
 ```
 
-Where a Verification Command in the task file holds the literal `{plugin_root}`, substitute the `Plugin root:` value above. Never copy a plugin path out of the task file.
+Where a Verification Command in the task file holds the literal `{plugin_root}`, substitute the `Plugin root:` value above. Never copy a plugin path out of the task file. Where a gate holds `{census:<name>}`, substitute that name's value from the `Census:` line above.
 
 <!-- Add when the project declares an isolated environment (§1.27): an
      ENVIRONMENT DISCIPLINE block naming interpreter/linter/runner paths in the

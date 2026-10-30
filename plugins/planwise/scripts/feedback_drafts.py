@@ -18,7 +18,7 @@ hand-written feedback draft, a posted-marker sidecar, and anything under
 | Command | Behaviour | Exit |
 |---|---|---|
 | `list [--json] [--all]` | Applies expiry, then lists queued and expired drafts. `--all` adds discarded and promoted | 0 |
-| `list --table [--all] [--session-id <id>]` | Same expiry and groups as `list`, printed as one `Queued (n)` / `Expired (n)` table per group, newest `created_at` first. Not with `--json` (exit 2) | 0 |
+| `list --table [--all] [--session-id <id>]` | Same expiry and groups as `list`, printed as one `Queued (n)` / `Expired (n)` table per group, newest `created_at` first. The Session column uses `--session-id`, else the `CLAUDE_CODE_SESSION_ID` environment variable, else prints `unknown`. Not with `--json` (exit 2) | 0 |
 | `sweep-list` | Read-only. Prints each `*.md` file that has a `.md.posted` sidecar and is not a model draft, with its `posted:`, `url:` and `route:` values, then each orphan sidecar and a summary line | 0 |
 | `admit <path>` | Needs `--feedback-dir` or `--config`, and the file directly in that directory. A draft already `expired`, `discarded` or `promoted` is left untouched. Otherwise needs `status` to be `pending` or `queued`, no duplicated frontmatter key, and a parseable `created_at`. Fills `pending` ids, replaces a colliding id, replaces a future `created_at` with now, refuses and deletes an oversize or duplicate-title model draft or one whose parsed frontmatter is invalid, refuses and keeps a file whose frontmatter does not parse, then runs expiry and eviction and names each draft it evicts on stderr | 0 admitted, 1 file missing or config unreadable, 2 name does not match, no usable directory option, `Archive/` directory, file not directly in the directory, or a draft already expired, discarded or promoted, 3 refused, expired on admission, or evicted on admission |
 | `discard <id>` | Sets `status: discarded` | 0, 1 not found |
@@ -433,7 +433,7 @@ def cmd_list(args: argparse.Namespace) -> int:
         wanted |= {"discarded", "promoted"}
     shown = [d for d in drafts if d.status in wanted]
     if args.table:
-        _print_tables(shown, directory, args.session_id)
+        _print_tables(shown, directory, args.session_id or os.environ.get("CLAUDE_CODE_SESSION_ID") or None)
     elif args.json:
         print(json.dumps([_public(d, directory) for d in shown], indent=2))
     elif not shown:
@@ -836,7 +836,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_list.add_argument("--json", action="store_true", help="print a JSON array")
     p_list.add_argument("--all", action="store_true", help="include discarded and promoted drafts")
     p_list.add_argument("--table", action="store_true", help="print the Queued and Expired tables; not with --json")
-    p_list.add_argument("--session-id", help="the running session id; marks the Session column of --table")
+    p_list.add_argument("--session-id", help="the running session id; marks the Session column of --table. Defaults to the CLAUDE_CODE_SESSION_ID environment variable")
     p_list.set_defaults(func=cmd_list)
 
     p_sweep = sub.add_parser("sweep-list", help="list posted drafts a sweep would archive; read-only")

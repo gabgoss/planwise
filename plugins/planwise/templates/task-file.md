@@ -13,7 +13,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 **Token Budget:** ~{X}K (exception: {none | 1M (cost) | paged-read (read) | refactor-pending})  <!-- OPTIONAL — Token Saver only. Add only when the warning engine flags this task. `1M (cost)` raises the dispatch to Opus/1M (cost-reason Critical, oversized indivisible file); `paged-read (read)` means a Required Context file trips a Read gate and the runner pages it (read-reason Critical — NOT 1M-resolvable); `refactor-pending` means a core/edited file must be split before this task is safe. -->
 **Depends On:** {task numbers for same-session producers; "cross-session: {Abbrev}-S{XX}-{YY}-{##}" for a file from an earlier session of the SAME sprint; "cross-sprint: {Abbrev}-S{XX}-{YY}-{##}" for a file from an earlier sprint; or "-"}  <!-- Every Required Context row that cites another task's output is mirrored here with that producer's full Task ID and the prefix its class requires (task-file-and-tracking-requirements.md §9 mirroring table). A same-sprint prior-session read is `cross-session:`, never `cross-sprint:` — the reviewer's Check 038 matches on the literal prefix. Listing the file in Cross-Sprint Refs below does not replace the mirror. -->
 **Cross-Sprint Refs:** {list of cross-sprint files in Required Context, or "None"}  <!-- Add only when Required Context cites cross-sprint files (per task-file-and-tracking-requirements.md cross-sprint dependency convention). This field names the FILES; the producer Task IDs still go in Depends On. -->
-**Output:** {path where deliverable should be saved, e.g., Outputs/{Abbrev}-{description}.md}
+**Output:** {path where deliverable should be saved, e.g., Outputs/{Abbrev}-{description}.md}  <!-- When the Change-Surface Census section below applies, this line is the union of the census paths the task edits, not the files the design says change. -->
 
 ---
 
@@ -96,6 +96,17 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 ### Comparison-Task Coverage Row (Required when the task's deliverable is a comparison or reconciliation)
 
 Where the task's deliverable is a comparison or reconciliation (enumerate discrepancies, reconcile A against B, find drift between a spec and an implementation), the Required Context table MUST carry the reference source's **measured coverage** as its own row — the sample size, the coverage fraction, and the date measured. The brief's framing follows the measurement (per `references/task-content-fidelity.md` §9.A.12 — Size comparison tasks by reference coverage): high coverage → a reconciliation; near-zero coverage → a census with an actionable tail, budgeted for listing volume.
+
+### Change-Surface Census (Required when the task adds a parameter, flag or field, or changes a shared function's side effect)
+
+Run the four searches against the live tree before writing the `**Output:**` line, and record each search with its hits. The Output line is the union of the paths the change edits. A census path left off the line carries a one-line reason. See `references/verify-caller-before-complete.md` §6.
+
+| Surface | Search run | Hits | On Output line? |
+|---------|------------|------|-----------------|
+| Definition site | {Grep pattern and path} | {file:line list} | {yes / no — reason} |
+| Callers | {Grep pattern and path} | {file:line list} | {yes / no — reason} |
+| Tests that reach it | {Grep pattern and path} | {file:line list} | {yes / no — reason} |
+| Documents and manifests that describe it | {Grep pattern and path} | {file:line list} | {yes / no — reason} |
 
 ### Schema Pin <!-- CONDITIONAL — required when the task touches DB writes -->
 
@@ -266,7 +277,10 @@ The later stale-reference sweep task lists this slot in its `## Required Context
 > work trips the gate as if it were this sprint's own edit. The baseline itself is
 > recorded once — by the sprint's first task that touches the repo, in Recovery Key
 > Findings, before that task's first edit — behind a clean-scope precondition
-> (`git status --porcelain -- <write paths>` empty, else HALT). See
+> (`git status --porcelain -- <write paths>` empty, else HALT). A later task takes the
+> base from its spawn prompt's `Base commit:` line, proves it with
+> `git -C <repo> cat-file -e <sha>^{commit}` before its first diff gate, and never reads
+> it back from Recovery. See
 > `references/gate-diff-baseline-pinning.md` §8 for the full rule; this block states the
 > requirement, the reference carries the doctrine.
 >
@@ -277,6 +291,18 @@ The later stale-reference sweep task lists this slot in its `## Required Context
 > CORRECT — scoped to the recorded base and to this sprint's own paths:
 > ```bash
 > git diff $<ABBREV>_S<NN>_BASE -- <paths> | grep -E '<pattern>'   # expect empty
+> ```
+
+> [!constraint] A Live-Tree Figure Is a Census Placeholder
+> A figure a gate or step asserts about the live tree (a file count, a split boundary, a scan-set size, a line number, a line-ending tally) MUST be a `{census:<name>}` placeholder that names a row of the session orchestration file's Session Start Census. A bare literal is a claim about one tree at one moment, and the tree can move between the scaffold and the dispatch. The `# pre-edit:` annotation keeps the scaffold reading with its artifact, commit and date. The runner substitutes the value from its spawn prompt's `Census:` line and never reads it from Recovery. Put the placeholder in the trailing annotation where possible: a `{...}` token inside the command text makes `scripts/lint_verification_gates.py` treat the line as a placeholder and skip its checks.
+>
+> WRONG — the scaffold-time count is a literal the gate asserts at dispatch:
+> ```bash
+> <count command over references/*.md>   # expect 104
+> ```
+> CORRECT — the scaffold reading is recorded, and the expectation is the census row:
+> ```bash
+> <count command over references/*.md>   # pre-edit: 104 (references/*.md at <sha>, <date>) -> expect {census:ref_count}
 > ```
 
 > [!constraint] Every Before/After Gate Records Its Measured Pre-Edit Value

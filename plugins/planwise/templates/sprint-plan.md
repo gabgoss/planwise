@@ -187,6 +187,21 @@ When this section is empty (no cross-sprint file touches in this sprint), delete
 
 ---
 
+## Consumes <!-- REQUIRED when Prerequisites or any task's Depends On names an earlier sprint (cross-sprint:) -->
+
+List every value this sprint reads from an earlier sprint's output: the commit the code descends from, a line the promoted code prints, a file list, a count. Give each value one row. A Read Command MUST print the value when it runs. A pointer such as "see the producing task" or "depends on the last task of the promote sprint" is not a Read Command, because it hands the consumer nothing to read.
+
+| Name | Artifact | Producing Task | Read Command | Consumer Asserts | Consuming Task |
+|------|----------|----------------|--------------|------------------|----------------|
+| `{ProducerCommit}` | {commit the consumed code descends from} | {Abbrev}-S{XX_prior}-{YY}-{##} | `git -C {repo} log -1 --format=%H -- {path/to/file.ext}` | {a 40-hex SHA that is an ancestor of HEAD} | {Abbrev}-S{XX}-{YY}-{##} |
+| `{PrintedLine}` | {line the produced code prints, or the file list it wrote} | {Abbrev}-S{XX_prior}-{YY}-{##} | `{command that prints that line or list}` | {the exact text, or a count of at least 1} | {Abbrev}-S{XX}-{YY}-{##} |
+
+Step 1.1e (CONSUMES FILL) of `handlers/run.md` fills each row at session start and injects the value into the spawn prompt. A task file refers to a filled value as `{census:<Name>}`. This plan holds no literal value, because the producing sprint has not landed when the plan is written.
+
+When this sprint consumes nothing from an earlier sprint, delete the section entirely rather than leaving an empty table.
+
+---
+
 ## Carried-Forward Coordination Flags <!-- OPTIONAL -->
 
 <!-- Include when an earlier session routed a coordination flag to a session of this sprint

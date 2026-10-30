@@ -186,6 +186,18 @@ Corollary — when an upstream contract SUPERSEDES an EI-verbatim block, the fla
 > - **Exit 1:** do not dispatch. Print every `[STALE]` line and every `[RATIO]` line verbatim in the CONFIRM block as a structural finding (Step 1.2a). The user chooses one option: route a binding gate line with the installed path beside each stale gate (record the routing in Recovery), re-scaffold the stale task files, or proceed knowingly (record the acknowledgment in Recovery).
 > - **Exit 2:** print the `NOT CHECKED:` line verbatim, say so in the CONFIRM block, and continue. Exit 2 is never a pass.
 
+### Step 1.1d: SESSION START CENSUS
+
+> [!binding] Re-measure every census row at the session base before CONFIRM
+> When the orchestration file holds a Session Start Census, re-run each row's command at the session base. Write `CENSUS {name} = {value} (scaffold {value}; {artifact} at {commit}; {date})` to Recovery Key Findings for each row. A `halt` row whose value moved is a structural finding (Step 1.2a). A `substitute` row's session-base value goes into the `Census:` line of each spawn prompt whose task gate names it, and a runner never reads Recovery. Under DIRECT or INLINE execution the session keeps the values in context and reads Recovery only on a resume. See `references/verify-before-cite.md` §9.B.24.
+
+### Step 1.1e: CONSUMES FILL
+
+> [!binding] Read every cross-sprint consumed value from the producing session before CONFIRM
+> For each sprint-plan `## Consumes` row whose Consuming Task is in this session, read the producing session's Recovery `## Session Commit Pin` and `## Files Modified`. Run the row's Read Command against that commit. Write `CONSUMES {Name} = {value} (producer {task} at {commit}; {date})` to Recovery Key Findings.
+> Then put `{Name}={value}` in the `Census:` line of each spawn prompt whose task names `{census:<Name>}`.
+> A `-` pin, a producing task that is not COMPLETE, a read that errors or prints nothing, or a failed Consumer Asserts check is a Step 1.2a structural finding. Do not dispatch and do not default the value. See `references/task-file-and-tracking-requirements.md` §9.
+
 ### Step 1.2: CONFIRM
 
 Output the confirmation block. See [examples/confirmation-block.md](../examples/confirmation-block.md) for correctly formatted examples (standard, multiple files, fresh session, recovery, and structural-finding variants).

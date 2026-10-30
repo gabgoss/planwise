@@ -1,13 +1,13 @@
 ---
-description: A definition is not a caller. Every presence gate — symbol exists, text is in the file, suite is green — stays green on behaviour that production never reaches, so a deliverable that adds a function, an optional parameter, a CLI flag, a config key, an event subscription or a guarded branch is terminal only when a production caller supplies the activating argument. Covers the call-site search that replaces the definition search, why the natural unit test is a false witness, the call-site quote the closing-sweep ledger owes per deliverable, why a runner's "dormant until a follow-up wires it" note is PARTIAL, never COMPLETE, and why a routed claim that a function, flag, script or writer already exists is grepped before it is written into a task as binding, and why a read-only reporter that predicts another command's behaviour calls that command's own predicate for every question it answers rather than re-deriving them. Consult before marking a behaviour-adding deliverable COMPLETE, before accepting a runner return that adds behaviour, when writing a closing-sweep ledger, before routing a "this is already wired" note into a task, and when authoring or accepting a doctor, lint, dry-run or status stage.
-consult-when: About to mark COMPLETE a deliverable that adds a function, optional parameter, CLI flag, config key or guarded branch, accepting a runner return that adds one, or writing the closing-sweep ledger — a definition is not a caller: search the production call site for the activating argument, quote it per deliverable, and treat "dormant until a follow-up wires it" as PARTIAL, and grep a routed claim that code already shipped before it is binding, and have a read-only reporter (doctor, lint, dry-run, status) call the actor's own predicate for every question it answers (§5)
+description: A definition is not a caller. Every presence gate — symbol exists, text is in the file, suite is green — stays green on behaviour that production never reaches, so a deliverable that adds a function, an optional parameter, a CLI flag, a config key, an event subscription or a guarded branch is terminal only when a production caller supplies the activating argument. Covers the call-site search that replaces the definition search, why the natural unit test is a false witness, the call-site quote the closing-sweep ledger owes per deliverable, why a runner's "dormant until a follow-up wires it" note is PARTIAL, never COMPLETE, and why a routed claim that a function, flag, script or writer already exists is grepped before it is written into a task as binding, and why a read-only reporter that predicts another command's behaviour calls that command's own predicate for every question it answers rather than re-deriving them, and why a task that adds a parameter, flag or field derives its Output line from a recorded census of the definition site, callers, tests and documents. Consult before marking a behaviour-adding deliverable COMPLETE, before accepting a runner return that adds behaviour, when writing a closing-sweep ledger, before routing a "this is already wired" note into a task, when authoring or accepting a doctor, lint, dry-run or status stage, and when writing the Output line of a task that adds a parameter, flag or field.
+consult-when: About to mark COMPLETE a deliverable that adds a function, optional parameter, CLI flag, config key or guarded branch, accepting a runner return that adds one, or writing the closing-sweep ledger — a definition is not a caller: search the production call site for the activating argument, quote it per deliverable, and treat "dormant until a follow-up wires it" as PARTIAL, and grep a routed claim that code already shipped before it is binding, and have a read-only reporter (doctor, lint, dry-run, status) call the actor's own predicate for every question it answers (§5), and derive the Output line of a task that adds a parameter, flag or field or changes a shared side effect from a recorded census of its definition site, callers, tests and describing documents (§6)
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Verify the Caller Before COMPLETE — a Definition Is Not a Caller
 
-**Purpose:** Every gate the verification discipline prescribes measures **presence**: the symbol exists, the message text is in the file, the suite is green, lint is clean. None measures **reachability** — whether production ever executes the thing. Two deliverables landed in one session complete, correct, tested and lint-clean, and unable to run. The same gap opens from the other side: a routed note that says a function, flag, script or writer already exists is a claim about a past plan, and §4 covers it. The file also covers a reporter that predicts another command's behaviour, which must call that command's own predicate (§5).
+**Purpose:** Every gate the verification discipline prescribes measures **presence**: the symbol exists, the message text is in the file, the suite is green, lint is clean. None measures **reachability** — whether production ever executes the thing. Two deliverables landed in one session complete, correct, tested and lint-clean, and unable to run. The same gap opens from the other side: a routed note that says a function, flag, script or writer already exists is a claim about a past plan, and §4 covers it. The file also covers a reporter that predicts another command's behaviour, which must call that command's own predicate (§5). It closes with the census that makes a task's `**Output:**` line match the files the live tree forces in (§6).
 
-**Read this when** you are about to mark COMPLETE a deliverable that adds a function, an optional parameter, a CLI flag, a config key, an event subscription or a guarded branch; when a runner's return adds such a behaviour; and when you write the closing-sweep deliverable ledger.
+**Read this when** you are about to mark COMPLETE a deliverable that adds a function, an optional parameter, a CLI flag, a config key, an event subscription or a guarded branch; when a runner's return adds such a behaviour; when you write the closing-sweep deliverable ledger, and when you write the `**Output:**` line of a task that adds a parameter, flag or field.
 
 | Deliverable shape | How it landed | Why every presence gate stayed green |
 |---|---|---|
@@ -127,6 +127,53 @@ Four operative points follow.
 - **After a fix to one shared predicate, `Grep` every other place that answers the same question.** The `paths:` fix in the verdict helper left the copy classifier, the refresh condition and the reconcile's handoff line answering the old way.
 
 **Applies to** doctor, lint, `--dry-run`, status and preview commands: anything that reports what another command will do. It applies to plan pins of the form "use helper X for state Y". The pin must cover every state, not only the ones the author thought of first.
+
+---
+
+## 6. A Task That Adds a Parameter, Flag or Field Derives Its Output Line From a Change-Surface Census
+
+An `**Output:**` line is the author's decomposition of the change. The live tree decides which files the change really touches. A line written from the design alone omits every file the tree forces in. A gate that counts changed files against the line ("exactly N changed") then false-fails correct work. A rule that exempts every path outside the line hides the omission.
+
+**Trigger.** The task adds a parameter, flag or field, or changes a shared function's side effect (it now starts a process, writes a file or makes a paid call).
+
+**The census.** Before writing the Output line, run four searches against the live tree. Record each search and its hits in the task's Change-Surface Census section (`templates/task-file.md`):
+
+| Surface | Search | Easy to miss |
+|---|---|---|
+| Definition site | `Grep` for where the symbol or type is defined | A dataclass or schema that lives in a different module than the one the task edits |
+| Callers | `Grep` production paths for each call site | A second call site that keeps passing the old arguments |
+| Tests that reach it | `Grep` the test tree for the symbol and for the folder it globs | Existing tests that now start a real process, and a test that parametrizes one case per file in a folder, which changes a "baseline plus new tests" count |
+| Documents and manifests that describe it | `Grep` shipped documents and manifest notes for the old behaviour's wording | A document that a keyword-presence test keeps green after it turns false |
+
+**The rule.** The Output line is the union of the census paths the change edits. A census path left off the line carries a one-line reason beside it. A path that a gate finds changed and that no Output line names is a HALT for the orchestrator (`scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §17.3), never another writer's path.
+
+> [!constraint] Derive the Output line from the tree, not from the design
+> WRONG — the Output line names only the file the design says changes:
+> ```
+> Task: add a `dry_run` field to the report and make `build_report` start a paid export
+> Output: scripts/report_cli.py
+> # scripts/report_model.py holds the dataclass, tests/test_report_cli.py calls build_report four times,
+> # and docs/usage.md and manifests/notes.yaml describe the old behaviour. None is on the line.
+> ```
+> CORRECT — the census runs first, and the Output line is its union:
+> ```
+> census: definition site scripts/report_model.py (1 hit) | callers scripts/report_cli.py (1 hit)
+>         tests tests/test_report_cli.py (4 hits) | documents docs/usage.md, manifests/notes.yaml (2 hits)
+> Output: scripts/report_cli.py, scripts/report_model.py, tests/test_report_cli.py, docs/usage.md, manifests/notes.yaml
+> ```
+
+#### Reviewer Check 103 — Named Definition Site Missing From the Task's Output Line
+
+- **Severity / Role / Type:** ERROR (HIGH confidence) | Task Reviewer | NEW
+- **What:** A task that adds a parameter, flag or field, or changes a shared function's side effect, MUST carry a Change-Surface Census, and every definition site its Execution Steps name MUST appear on its `**Output:**` line.
+- **Detection:** For each task whose steps add a parameter, flag or field or change a shared side effect, find its Change-Surface Census section. Flag the task when the section is absent. Flag each definition site, file or module an Execution Step names for the new symbol that is missing from the `**Output:**` line and carries no one-line reason. → ERROR.
+- **Finding template:**
+```
+[ERROR] Named definition site missing from the task's Output line
+File: {task file path} | Location: {Execution Step or Output line}
+Issue: Step {n} edits "{definition site}" but the Output line does not list it, or the task has no Change-Surface Census
+Fix: Run the four census searches, record them, and derive the Output line from the census, per references/verify-caller-before-complete.md §6 | Confidence: HIGH
+```
 
 ---
 

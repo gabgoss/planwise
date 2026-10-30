@@ -1,6 +1,6 @@
 ---
-description: A run sheet pins the field the observed mechanism reads, not the flag whose name matches the sheet's intent — a flag nothing reads is documentation, not control (§13); and a grader that reads a numeric field from a module's log fails on null, because a null where a number belongs is a failed measurement and a "row present" predicate passes a row whose every numeric field is null (§14).
-consult-when: Writing a run sheet or probe driver that pins flags, or a grader over a numeric log field — pin the field the hook reads, not the flag whose name matches the intent (§13); a null numeric field is a failed measurement (§14)
+description: A run sheet pins the field the observed mechanism reads, not the flag whose name matches the sheet's intent — a flag nothing reads is documentation, not control (§13); and a grader that reads a numeric field from a module's log fails on null, because a null where a number belongs is a failed measurement and a "row present" predicate passes a row whose every numeric field is null (§14); a driver or grader never defaults a missing input to 0, because an absent transcript, log or result file is a failed measurement (§14).
+consult-when: Writing a run sheet or probe driver that pins flags, or a grader over a numeric log field — pin the field the hook reads, not the flag whose name matches the intent (§13); a null numeric field is a failed measurement (§14); a driver or grader never defaults a missing input to 0 (§14)
 paths: {planwise_root}/{plans_dir}/**
 ---
 
@@ -8,7 +8,7 @@ paths: {planwise_root}/{plans_dir}/**
 
 **Purpose:** Two rules about the join between a sheet or grader and the mechanism it claims to control or measure. Every line of a sheet can run without error while its predicate stays unreachable, and every run can grade PASS while every measurement is unmeasured. Split from `verification-gates.md` on 2026-10-08. Section numbers are kept from that reference, so an existing `verification-gates.md §N` citation translates by filename alone. The family index is `verification-gates.md`.
 
-**Read this when** you write a run sheet, a probe driver or a test fixture that pins flags on a reset or launch line, two clean runs of a sheet give the same wrong outcome, or you write a grader predicate over a numeric field in a log.
+**Read this when** you write a run sheet, a probe driver or a test fixture that pins flags on a reset or launch line, two clean runs of a sheet give the same wrong outcome, or you write a grader predicate over a numeric field in a log or a driver that counts from a transcript or result file.
 
 ## Table of Contents
 
@@ -73,13 +73,37 @@ A module's log wrote one row per timed span. Arithmetic on an unresolved Promise
 >          span_ms is null -> FAIL "timing field unmeasured"
 > ```
 
-Three rules follow.
+Four rules follow.
 
 1. **Grade the field, not the row.** Name the type and the range of every numeric field the predicate reads. A `null`, a string or a negative value is a FAIL.
 2. **Record the failure beside every cost row.** When a run's timing fields are `null`, the arm table says so next to each cost row. A cost row with no usable timing data is not a zero.
 3. **Run the dry-run pair.** Run the predicate once against a row with a number and once against a row with `null`. The two results MUST differ. A predicate that returns PASS on both has never been shown to discriminate. [gate-instrument-proof-obligations.md](gate-instrument-proof-obligations.md) §10 states the general form.
+4. **Never default a missing input to 0.** A driver or grader that cannot find its transcript, log or result file exits non-zero and names the path. An absent input is a failed measurement, and a default turns it into a count of zero.
+
+A missing input fails closed. A driver counted the main-agent calls in a transcript and defaulted a missing count to 0. A "0 main calls" result then passed on a run that had no transcript at all.
+
+```
+WRONG:   count = data.get("main_calls", 0)      # or: n=${n:-0}
+         assert count == 0                       -> PASS   (no transcript existed)
+CORRECT: if not os.path.exists(path): sys.exit("input missing: " + path)
+         count = data["main_calls"]              -> KeyError is a FAIL, not a zero
+         n=$(wc -l < "$path") || { echo "input missing: $path"; exit 1; }
+```
 
 **Applies to** any grader, assertion or report that reads a numeric field from a log, a store or a result file. Cross-reference: [gate-runtime-boundary-evidence.md](gate-runtime-boundary-evidence.md) §6 covers a build that is fresh while the deployed copy is not. This section covers the run that graded PASS on a build whose measurements were never taken.
+
+#### Reviewer Check 102 — Driver or Grader Defaults a Missing Input to 0
+
+- **Severity / Role / Type:** ERROR (HIGH confidence) | Verification-Gate Reviewer | NEW
+- **What:** A driver, grader or gate in the plan MUST NOT turn an absent input (transcript, log, result file or field) into the number 0.
+- **Detection:** Use Grep over the plan's drivers, graders and gates for `.get(…, 0)`, `or 0`, `:-0`, `|| 0`, `|| echo 0`, and `2>/dev/null` placed before a count. Flag each hit where an absent input can reach the zero and the zero can satisfy the predicate. A hit that first asserts the input exists is not flagged.
+- **Finding template:**
+```
+[ERROR] Driver or grader defaults a missing input to 0
+File: {plan or task file path} | Location: {gate or grader line}
+Issue: "{expression}" turns a missing {input} into 0, so a run with no {input} can pass
+Fix: Exit non-zero with "input missing: {path}" before reading the value, per references/gate-run-sheet-and-grader-fields.md §14 | Confidence: HIGH
+```
 
 ---
 

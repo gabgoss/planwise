@@ -246,6 +246,8 @@ Path-specific rules (rules with `paths:` frontmatter patterns) do NOT automatica
 
 **The same injection discipline governs any shared pin, not only rules.** A baseline SHA — or any equivalent value every task in the session must agree on — is injected by the orchestrator as a **literal** into every task file and every spawn prompt. Instructing a runner to read it back from a shared file (Recovery, the Orchestration file, a scratch note) costs a read the §1.3 context boundary exists to avoid, and breaks outright under parallel dispatch, where that shared file is being written by a sibling runner at the moment the reader opens it. A pin the runner had to fetch is a pin that can arrive empty — and a gate pinned to an empty variable degrades **silently** rather than failing, so nothing downstream announces the loss. See [`measurement-discipline.md`](measurement-discipline.md) §8.7 sub-rule E for the liveness proof that makes such a pin falsifiable.
 
+The baseline SHA is defined in [`gate-diff-baseline-pinning.md`](gate-diff-baseline-pinning.md) §8.1. Its Recovery Key Findings record is the orchestrator's injection source and never a runner input. The orchestrator carries the value in the `Base commit:` line of the Spawn-Prompt Skeleton in `templates/orchestration.md`.
+
 > [!constraint] Inject the Literal, Do Not Indirect Through a File
 > WRONG — the spawn prompt names where the value lives, making every runner fetch it:
 > ```

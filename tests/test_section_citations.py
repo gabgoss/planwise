@@ -50,7 +50,7 @@ LEDGERED_PLUGIN = (
     ("references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md", 537),  # HISTORY: extraction note
     ("references/agent-orchestration-delegated.md", 2),  # HISTORY: frontmatter provenance
     ("references/agent-orchestration-delegated.md", 8),  # HISTORY: provenance of the extraction
-    ("references/agent-orchestration-delegated.md", 505),  # HISTORY: extraction note
+    ("references/agent-orchestration-delegated.md", 507),  # HISTORY: extraction note
     ("references/discovery-and-exit-criteria.md", 10),  # HISTORY: records the three-way split
     ("references/dispatch-batch-gate.md", 105),  # EXAMPLE: quotes a runner's internal pointer in an incident table
     ("references/dispatch-edit-surface-sweep.md", 100),  # EXAMPLE: worked example about another file's sections
@@ -67,7 +67,7 @@ LEDGERED_PLUGIN = (
     ("references/ei-fidelity.md", 24),  # EXAMPLE: example citation forms
     ("references/ei-source-promise-integrity.md", 2),  # HISTORY: frontmatter provenance
     ("handlers/plan-Part-3-VerifyConfirmAndReview.md", 57),  # CONSUMER: a section of the generated master plan
-    ("agents/plan-reviewer.md", 158),  # LABEL: check title copied from its canonical heading
+    ("agents/plan-reviewer.md", 159),  # LABEL: check title copied from its canonical heading
     ("agents/review-discovery.md", 78),  # CONSUMER: a section of the generated fact sheet
     ("agents/review-discovery.md", 158),  # CONSUMER: a section of the generated fact sheet
     ("references/exit-criteria-fidelity.md", 397),  # LABEL: the canonical check-title heading
@@ -88,7 +88,7 @@ LEDGERED_PLUGIN = (
 # ("rules/<name>.md", not ".claude/rules/<name>.md"). The outer roots are
 # `.claude/rules/` (minus `.claude/rules/planwise/`) and `CLAUDE.md`.
 LEDGERED_OUTER = (
-    ("rules/hook-deny-contract.md", 214),  # CONSUMER: provenance note naming a file outside every root
+    ("rules/hook-deny-contract.md", 233),  # CONSUMER: provenance note naming a file outside every root
     ("rules/plugin-identifier-isolation.md", 25),  # EXAMPLE: example of a forbidden citation form
     ("rules/promotion-sync-target-scoping.md", 36),  # EXAMPLE: the rule's own worked example of a dead anchor
     ("rules/promotion-sync-target-scoping.md", 43),  # EXAMPLE: the rule's own worked example of a dead anchor

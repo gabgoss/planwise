@@ -129,6 +129,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 070 — Plan Headline Metric vs Fixed Extraction Scope Reconciliation → references/measurement-discipline.md §8.3
 - Check 097 — Brief Restates a Design Pin and Drops Its Fallback → references/ei-source-promise-integrity.md §12
 - Check 100 — Plan Executes a Backlog Item Its Master Plan `**Resolves:**` Field Omits → references/session-planning-protocol.md §11
+- Check 103 — Named Definition Site Missing From the Task's Output Line → references/verify-caller-before-complete.md §6
 
 ### Dependency Reviewer
 
@@ -141,6 +142,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 038 — Cross-Session Required Context Mirrored in Depends On → references/task-file-and-tracking-requirements.md §9
 - Check 039 — Full Task ID Format in Cross-Sprint References → references/session-planning-protocol.md §2
 - Check 068 — Deferred Finding Owner Is a CLOSED Task → references/task-file-and-tracking-requirements.md §9 Cross-Sprint Deferred-Finding Ownership
+- Check 101 — Cross-Sprint Consumed Value Without a Read Command → references/task-file-and-tracking-requirements.md §9
 
 ### Coverage Reviewer
 
@@ -221,6 +223,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 090 — Size Band Stated Without Its Derivation → references/ei-citation-and-token-reconciliation.md §8.3
 - Check 096 — Size Constant Cannot Meet the Plan's Headline Margin → references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md §16.14
 - Check 098 — Format, Cap or Threshold Sentence With Neither a Writer Nor a Gate → references/rule-authoring.md §7
+- Check 102 — Driver or Grader Defaults a Missing Input to 0 → references/gate-run-sheet-and-grader-fields.md §14
 
 ## Sub-role: Change-Surface Reviewer (NEW)
 
