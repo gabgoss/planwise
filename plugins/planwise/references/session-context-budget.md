@@ -466,6 +466,25 @@ Each part MUST:
 
 This procedure covers the writer's side. For reading a file that is already over a gate, use [Page Large Files — Do Not Trust One Read](#reading-discipline-with-read-gates-binding) and Step 1 of [Large-File Read Tactics](#large-file-read-tactics).
 
+#### Size Targets Are Stated in Bytes
+
+**Purpose:** Keep a size target from carrying an expired bytes-per-token ratio.
+
+- Write a size target in a brief, task file or plan in bytes. Or name the `measure_files.py` `--model` and the plugin version that produced each token figure.
+- A bare token figure carries the ratio that was current when it was written. The ratio changes between plugin versions, so a stale figure can sit above the ceiling while the gate reports OK. Read the ratio from the installed tool, never from prose.
+- Re-measure one landed artifact with the installed tool before the next dispatch. If the ratio differs from the one a target used, restate every token-denominated target.
+- Add a split index up front when a Part's estimate sits within 20% of the ceiling under the installed tool.
+
+> [!constraint] State the Target in Bytes, With the Tool Reading Beside It
+> WRONG — a bare token figure:
+> ```
+> Target: 17,500 Sonnet tokens
+> ```
+> CORRECT — bytes first, with the tool and version that produced the token figure:
+> ```
+> Target: 52,000 bytes (measure_files.py --model sonnet, plugin 9.9.9: ~17,500 tokens)
+> ```
+
 ### File Size Limits — Generated Artifacts (BINDING)
 
 **Generated planwise artifacts that a runner MUST read** — task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, and task Output files — carry a **HARD** ceiling regardless of `context.token_saver`: each MUST land **OK on all three Read-tool gates** (see [Read-Tool Hard Limits](#read-tool-hard-limits) below) for the model that will read it. A generated artifact that trips any gate cannot be read cleanly in a single Read and MUST be split into multi-parts. (The gates are harness facts, not a carrying-cost policy — Token Saver's config-gated budget system is separate.)

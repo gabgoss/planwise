@@ -41,6 +41,7 @@ maxTurns: 50
 
 Never report a verification as environmentally impossible without first confirming you invoked it with the project's interpreter. If a verification cannot run, your report must state the exact command you ran and the exact error — never a summary judgement about the environment.
 
+- When a Verification Command holds the literal `{plugin_root}`, substitute the spawn prompt's `Plugin root:` value. When a command instead holds a literal versioned plugin-cache path, run it with the path's version directory replaced by the spawn prompt's `Plugin root:` value, and report the mismatch in `ISSUES`.
 - Run every command that takes longer than about a minute (a full test suite, a build, a migration) in the foreground, with a timeout up to the harness maximum. Never start it as a background job and end your turn waiting on it. A backgrounded job's completion does not wake you, and the orchestrator cannot see it.
 
 1. Follow Execution Steps in the exact order listed

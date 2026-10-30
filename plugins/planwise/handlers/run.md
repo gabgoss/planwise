@@ -340,6 +340,7 @@ Agent(
     Task file: {task-file-absolute-path}
     Session ID: {session-id}
     Abbreviation: {abbrev}
+    Plugin root: {config.yaml plugin_root, read at dispatch}
     Recovery file: {recovery-file-absolute-path}
     Output directory: {output-dir-absolute-path}
 
@@ -368,6 +369,8 @@ Agent(
     task {n+1}.
 )
 ```
+
+**Plugin root:** Read `plugin_root` from `config.yaml` at dispatch and write it as the `Plugin root:` line of every spawn prompt. The value never comes from a path inside a task file.
 
 **Model override:** The `model:` parameter in the Agent tool call MUST match the Agent field declared in the task file (e.g., if task file says `Agent: Haiku`, use `model: "haiku"`) — except when `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.19 (Model-Floor Bridge) or §1.20 (1M-Exception Dispatch) raises it for this dispatch only; log the raise per those sections, never silent.
 

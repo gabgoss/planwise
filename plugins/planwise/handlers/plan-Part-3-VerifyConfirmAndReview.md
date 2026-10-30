@@ -71,6 +71,8 @@ Commands Plan-Review Enforcement table; `templates/task-file.md` §Per-File-Type
 | `.md` (reference / rule edits) | `{md-lint-cmd} {path}` (if configured) | `python "{plugin_root}/scripts/measure_files.py" {path}` (must land OK — < 22K tokens / < 240 KiB / < 2,000 lines) | Per `references/session-context-budget.md` File Size Limits |
 | `.{ext}` (other) | `{lint-cmd} {path}` | `{exec-cmd}` | Consumer-project supplies the binding from `config.yaml.build_commands` |
 
+A planner writes `{plugin_root}` into a task file as the literal token and never substitutes the configured path there. A planner resolves the token only for a command the planner itself runs while planning. A substituted path names one plugin version and keeps running that version after an upgrade.
+
 > [!constraint] Verification Commands MUST Be Populated, Not Templated
 > WRONG — task file ships with the literal `{cmd_before_1}` / `{cmd_after_1}` placeholders, or
 > with vague prose like "run lint and tests":
