@@ -174,6 +174,34 @@ def test_write_edges_unions_the_edge_into_blocks(tmp_path, monkeypatch, capsys):
     assert b"| 001 | 002 |" in index_path.read_bytes()
 
 
+def test_write_edges_scans_again_only_when_it_edited_a_text(tmp_path, monkeypatch, capsys):
+    calls = []
+    real = mig.preflight_generator
+    monkeypatch.setattr(mig, "preflight_generator", lambda *a, **k: calls.append(1) or real(*a, **k))
+
+    def scans(name, blocks):  # one dry run of --write-edges over a tree whose first item holds `blocks`
+        calls.clear()
+        items = {"001": item("001", head=fm("001", blocks=blocks)), "002": item("002")}
+        config_path, _ = project(tmp_path / name, index(row("001", blocks="002"), row("002"), deps=DEPS_TABLE), items)
+        code, out, err = run(monkeypatch, capsys, config_path, "--write-edges")
+        assert code in (0, 1), err + out  # 1 is "migration needed"; 2 is a refusal
+        return len(calls)
+
+    assert scans("missing", "[]") - scans("present", "[002]") == 1  # the missing edge costs the one scan that reads its edit
+
+
+@pytest.mark.parametrize("text,expected", [
+    (fm("001"), ["id: 001", "blocks: []"]),
+    (fm("001").replace("\n", "\r\n"), ["id: 001", "blocks: []"]),
+    ("﻿" + fm("001"), ["id: 001", "blocks: []"]),
+    ("---\nid: 001\nblocks: []\n---", ["id: 001", "blocks: []"]),
+    ("---\nid: 001\nblocks: []\n", []),
+    ("# no block\n\nid: 001\n", []),
+], ids=["lf", "crlf", "bom", "close-ends-text", "unclosed", "no-block"])
+def test_key_lines_reads_the_block_the_shared_splitter_reads(text, expected):
+    assert mig._key_lines(text, ["id", "blocks"]) == expected
+
+
 def test_extract_dependency_notes_off_relocates_the_bullet_verbatim(tmp_path, monkeypatch, capsys):
     items = {"001": item("001", head=fm("001", blocks="[002]")), "002": item("002")}
     text = index(row("001", blocks="002"), row("002"), deps=DEPS_TABLE + SOFT)

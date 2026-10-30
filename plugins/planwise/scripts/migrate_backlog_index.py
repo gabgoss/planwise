@@ -100,7 +100,7 @@ import migrate_backlog_support as sup
 import migration_answers as ans
 from backlog_index_scan import _strip_inline_comment
 from config_loader import load_config
-from frontmatter_parser import FM_KEY_LINE_RE
+from frontmatter_parser import FM_KEY_LINE_RE, split_frontmatter_block
 from markdown_parser import retried_cells
 from reconcile_common import read_text_preserving_newlines as read_text
 
@@ -933,9 +933,9 @@ def _drop_lines(text: str, drop: set) -> str:
 
 def _key_lines(text: str, keys: list) -> list:
     """The frontmatter lines of `text` that set one of `keys`."""
-    lines = text.lstrip("﻿").replace("\r\n", "\n").split("\n")
-    end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), len(lines))
-    return [line for line in lines[1:end] if line.split(":", 1)[0] in keys]
+    # the added "\n" closes a block whose closing `---` ends the text
+    block = split_frontmatter_block(text.replace("\r\n", "\n") + "\n")
+    return [line for line in (block[0].split("\n") if block else []) if line.split(":", 1)[0] in keys]
 
 
 def _refuse_unusable_abbrevs(texts: dict, valid) -> None:
@@ -1018,11 +1018,15 @@ def _settle(config: dict, index_path: Path, resolved: list, roles: dict, compare
     the caller checks the final `items`, so a pair that reconcile settles never refuses. With `simulate`,
     a missing edge or an unsettled cell does not refuse either, so the caller can read the edge model first."""
     edges = [e for e in edges if (e[1], e[2]) not in dropped]  # an applied drop outranks the table
+    # Each scan re-runs the generator over `texts`, so one runs only after an edit to `texts`:
+    # the first reads the planned state, the others read the edge and reconcile edits made since.
     scan = partial(preflight_generator, config, index_path, texts, check_reciprocal=False)
+    items = scan(not options.backfill_frontmatter)
     edge_plan = []
     if options.write_edges and edges:
-        edge_plan = plan_edges(edges, scan(not options.backfill_frontmatter), texts)
-    items = scan(not options.backfill_frontmatter)
+        edge_plan = plan_edges(edges, items, texts)
+        if edge_plan:
+            items = scan(not options.backfill_frontmatter)
     missing = chk.missing_edges(edges, items)
     if missing and not simulate:
         raise Refusal(f"{len(missing)} '## Dependencies' edge(s) are missing from frontmatter blocks: "
@@ -1039,7 +1043,8 @@ def _settle(config: dict, index_path: Path, resolved: list, roles: dict, compare
     if written_cells:
         items = scan()
         if chk.missing_edges(edges, items):
-            for edge in plan_edges(edges, items, texts):
+            reconcile_edges = plan_edges(edges, items, texts)
+            for edge in reconcile_edges:
                 known = next((e for e in edge_plan if (e["src"], e["dst"]) == (edge["src"], edge["dst"])), None)
                 if known is None:
                     edge_plan.append(edge)
@@ -1048,7 +1053,8 @@ def _settle(config: dict, index_path: Path, resolved: list, roles: dict, compare
                 for cell in cells:
                     if cell["key"] == "blocks" and cell["path"] == edge["path"]:
                         cell["written"] = sorted({*cell.get("written", cell["index"]), edge["dst"]}, key=int)
-            items = scan()
+            if reconcile_edges:
+                items = scan()
     return {"items": items, "rows": rows, "edge_plan": edge_plan, "cells": cells, "written_cells": written_cells}
 
 
