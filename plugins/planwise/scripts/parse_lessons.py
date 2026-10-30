@@ -29,7 +29,8 @@ reported by id with every path (and line) that claims it -- never silently
 collapsed to whichever copy a dict-keyed read happened to keep last.
 
 Public surface: `LESSON_ROW_RE`, `LESSON_FILE_RE`, `format_id`,
-`lesson_files`, `duplicate_ids`, `detect_index_shape`,
+`lesson_files`, `unreadable_lesson_files`, `describe_unreadable`,
+`duplicate_ids`, `detect_index_shape`,
 `parse_legacy_master_table`, `parse_generated_table`, `Row`,
 `generated_index_files`, `parse_index`, `ParsedIndex`,
 `collect_all_known_ids`, `compute_next_id`, and a CLI
@@ -68,6 +69,10 @@ LESSON_ROW_RE = re.compile(r"^\|\s*(?:\*\*)?(?:\[)?LL-(\d+)(?:\]\([^)]*\))?(?:\*
 # `LL-{NNN}-{Domain}-{Topic}.md` -> NNN. Anchored so a file merely mentioning
 # an id elsewhere in its name is not counted.
 LESSON_FILE_RE = re.compile(r"^LL-(\d+)\b")
+
+# Windows `MAX_PATH`, and the prefix that lifts it for one path.
+WINDOWS_MAX_PATH = 260
+_EXTENDED_PREFIX = "\\\\?\\"
 
 MASTER_TABLE_HEADING_RE = re.compile(r"^##\s+Master Table\s*$", re.MULTILINE)
 PROMOTION_LOG_HEADING_RE = re.compile(r"^##\s+Rule Promotion Log\s*$", re.MULTILINE)
@@ -113,25 +118,87 @@ class ParsedIndex:
     duplicates: dict = field(default_factory=dict)
 
 
+def _extended_length(entry):
+    """`entry` behind the Windows `\\\\?\\` extended-length prefix, or None off
+    Windows and for a path that already carries it."""
+    if os.name != "nt":
+        return None
+    text = os.path.abspath(os.fspath(entry))
+    if text.startswith(_EXTENDED_PREFIX):
+        return None
+    if text.startswith("\\\\"):
+        return Path(_EXTENDED_PREFIX + "UNC" + text[1:])
+    return Path(_EXTENDED_PREFIX + text)
+
+
+def _readable_file(entry):
+    """The path to read `entry` through, or None when it is not a regular file.
+
+    `Path.is_file()` returns False, with no exception, for a path of
+    `WINDOWS_MAX_PATH` characters or more while Windows long paths are off.
+    The extended-length form of the same path is not subject to that limit,
+    so it is tried second and returned in place of `entry` when it succeeds.
+    """
+    if entry.is_file():
+        return entry
+    long_form = _extended_length(entry)
+    if long_form is not None and long_form.is_file():
+        return long_form
+    return None
+
+
+def _lesson_entries(lessons_dir, archive_dir):
+    """`(id, entry)` for every `LL-NNN*.md` name in either directory's listing,
+    whether or not the entry can be read as a file."""
+    for directory in (lessons_dir, archive_dir):
+        if directory is None or not directory.is_dir():
+            continue
+        for entry in sorted(directory.iterdir()):
+            if entry.suffix.lower() != ".md":
+                continue
+            match = LESSON_FILE_RE.match(entry.name)
+            if match:
+                yield int(match.group(1)), entry
+
+
 def lesson_files(lessons_dir, archive_dir) -> list:
     """Every `LL-NNN*.md` file under `lessons_dir` and `archive_dir` (each
     scanned non-recursively) as a LIST of `(id, path)` pairs, sorted by
     path -- never a dict, so two files claiming the same id are both kept
     for `duplicate_ids` to report instead of one silently overwriting the
     other on the way in (count rows before keying).
+
+    A file whose path is too long for Windows (see `_readable_file`) is
+    returned under its extended-length path. One that still cannot be read
+    as a file is absent here and listed by `unreadable_lesson_files`.
     """
     pairs = []
-    for directory in (lessons_dir, archive_dir):
-        if directory is None or not directory.is_dir():
-            continue
-        for entry in sorted(directory.iterdir()):
-            if not entry.is_file() or entry.suffix.lower() != ".md":
-                continue
-            match = LESSON_FILE_RE.match(entry.name)
-            if match:
-                pairs.append((int(match.group(1)), entry))
+    for lesson_id, entry in _lesson_entries(lessons_dir, archive_dir):
+        readable = _readable_file(entry)
+        if readable is not None:
+            pairs.append((lesson_id, readable))
     pairs.sort(key=lambda pair: str(pair[1]))
     return pairs
+
+
+def unreadable_lesson_files(lessons_dir, archive_dir) -> list:
+    """`(id, path)` for every `LL-NNN*.md` name the directory listing shows
+    that `lesson_files` leaves out because it cannot be read as a regular
+    file. A directory carrying such a name is not listed: it is a different
+    cause."""
+    return [(lesson_id, entry) for lesson_id, entry in _lesson_entries(lessons_dir, archive_dir)
+            if _readable_file(entry) is None and not entry.is_dir()]
+
+
+def describe_unreadable(entry) -> str:
+    """One sentence naming why a listed lesson file cannot be read. It names
+    the Windows path-length limit only when the path reaches that limit."""
+    length = len(os.fspath(entry))
+    sentence = f"{entry.name} is in the directory listing but cannot be read as a file (its path is {length} characters)"
+    if length >= WINDOWS_MAX_PATH:
+        sentence += (f"; Windows stops at {WINDOWS_MAX_PATH} characters while long paths are off, so enable "
+                     "LongPathsEnabled, run from a shorter path, or give --config a \\\\?\\ extended-length path")
+    return sentence + "."
 
 
 def duplicate_ids(pairs: list) -> dict:
