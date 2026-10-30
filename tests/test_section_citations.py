@@ -100,7 +100,7 @@ LEDGERED_OUTER = (
 # regression that stops parsing a form leaves its example without a finding.
 FORM_EXAMPLES = (
     ("file in code span then section", "handlers/backlog.md", 186),
-    ("plain path-prefixed", "agents/plan-reviewer.md", 181),
+    ("plain path-prefixed", "agents/plan-reviewer.md", 183),
     ("link text", "references/session-planning-protocol.md", 313),
     ("link then section", "references/gate-old-home-citation-sweep.md", 76),
     ("table cell", "references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md", 14),
@@ -113,7 +113,7 @@ FORM_EXAMPLES = (
     ("letter series", "references/verify-against-shipped-artifact.md", 393),
     ("letter series with a number", "references/verify-before-cite.md", 30),
     ("letter series with a suffix", "references/verify-backlog-citation-freshness.md", 8),
-    ("bare continuation", "agents/plan-reviewer.md", 158),
+    ("bare continuation", "agents/plan-reviewer.md", 160),
     ("section then file", "references/gate-predicate-discrimination.md", 41),
     ("wrapped across a line break", "handlers/init.md", 54),
     ("frontmatter description", "references/gate-old-home-citation-sweep.md", 2),
