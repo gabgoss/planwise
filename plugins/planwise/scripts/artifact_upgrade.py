@@ -277,8 +277,13 @@ def upgrade_artifacts(
     manifest: dict,
     from_version: str,
     to_version: str,
+    *,
+    verdicts: "dict | None" = None,
 ) -> tuple[list[str], list[str], list[tuple[str, str]], list[str], list[str], list[tuple[str, str]]]:
     """Refresh artifacts whose upgrade_behavior is `refresh_or_sidecar`.
+
+    `verdicts` is the already-loaded verdicts.json cache. A caller that also feeds the
+    de-scope migration loads it once and passes it here; the default `None` loads it here.
 
     Returns a 6-tuple:
       refreshed: list of destination paths overwritten cleanly (includes every
@@ -349,7 +354,8 @@ def upgrade_artifacts(
 
     # verdicts.json (if the interactive fan-out produced one) supersedes the
     # inline primitive per-file — loaded once, looked up per diverged file.
-    verdicts = _load_verdicts_cache(cfg, from_version, to_version)
+    if verdicts is None:
+        verdicts = _load_verdicts_cache(cfg, from_version, to_version)
 
     # `upgrade.customization_handoff` gates the automated transfer-then-adopt
     # path. Only the explicit `report+relocate` value (the shipped template
@@ -1155,16 +1161,21 @@ def _run_upgrade(
 
         # 3. Refresh artifacts.
         manifest = load_artifact_manifest(cfg.plugin_root)
+        # One load serves the refresh and the de-scope migration below.
+        verdicts = _load_verdicts_cache(cfg, pinned_version, target_version)
         refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = upgrade_artifacts(
-            cfg, manifest, pinned_version, target_version
+            cfg, manifest, pinned_version, target_version, verdicts=verdicts
         )
 
         # De-scope migration: a de-scoped leftover with a cached verdict is
         # processed on every pair, then dropped from the untracked list.
-        verdicts = _load_verdicts_cache(cfg, pinned_version, target_version)
+        # `evaluated` carries each override the force set already judged, so a
+        # rejected entry warns once.
+        evaluated: dict = {}
         migration = migrate_installed_rules(
             cfg, pinned_version, target_version,
-            force_filenames=descoped_force_set(cfg, verdicts))
+            force_filenames=descoped_force_set(cfg, verdicts, evaluated),
+            verdicts=verdicts, evaluated=evaluated)
         acted = {name.casefold() for name in migration["acted_on"]}
         untracked = [u for u in untracked if Path(u).name.casefold() not in acted]
 

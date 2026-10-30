@@ -103,10 +103,12 @@ def _load_verdicts_cache(cfg: "InitConfig", from_version: str, to_version: str) 
     * **Present** — consumed. An unreadable file or malformed (non-dict)
       JSON still degrades to ``{}``.
 
-    Both writer sites read through this helper, so on the one upgrade that
-    crosses the de-scope migration boundary the stray warning can print
-    twice; that duplication is accepted over a module-level "already warned"
-    flag, which would silence the second reader in a long-lived process.
+    One ``--upgrade`` run calls this helper once and passes the dict to both
+    writer sites (the artifact refresh and the de-scope migration), so the
+    stray warning prints at most once. A caller that passes no dict to a
+    writer site makes that site load it again, which keeps the stand-alone
+    calls working. A module-level "already warned" flag is not used, because
+    it would silence the second reader in a long-lived process.
     """
     path = verdicts_cache_path(cfg, from_version, to_version)
     if not path.exists():

@@ -38,7 +38,9 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
+import artifact_upgrade
 import init_project as ip
+import rule_descope_migration as rdm
 from structural_compare import StructuralVerdict
 from upgrade_io import (
     _installed_hash,
@@ -275,6 +277,107 @@ class TestUpgradePairPin(_UpgradeArtifactsFixtureBase):
         self.assertIn("Upgrade refused", err)
         self.assertEqual(out, "")
         self.assertEqual(self.config_path.read_bytes(), before)
+
+
+class TestOneCacheLoadPerUpgradeRun(_UpgradeArtifactsFixtureBase):
+    """One `--upgrade` run loads verdicts.json once and judges each override once.
+
+    Before the change `_run_upgrade` loaded the cache for the refresh and again for the
+    de-scope migration, and the migration loaded it a third time. The stray-pair warning
+    printed on each load, and a stale de-scoped entry warned in `descoped_force_set` and
+    again in the migration loop. The pair FROM-to-TO crosses the 1.0.3 migration window,
+    so the migration runs on it.
+    """
+
+    DESCOPED_NAME = "descoped-fixture.md"
+    STRAY_LINE = "no verdict cache for upgrade pair"
+    STALE_LINE = "has a missing or stale installed_sha256"
+
+    def setUp(self):
+        super().setUp()
+        if not ip.HAS_YAML:
+            self.skipTest("requires PyYAML (--upgrade hard-requires it)")
+        self.cfg.plugin_version = TO
+        config_dir = self.project_root / self.cfg.planwise_root
+        config_dir.mkdir(parents=True, exist_ok=True)
+        self.config_path = config_dir / "config.yaml"
+        self.config_path.write_text(f'plugin_version: "{FROM}"\n', encoding="utf-8")
+        real_template = Path(ip.__file__).resolve().parent.parent / "config.yaml.template"
+        shutil.copy(str(real_template), str(self.plugin_root / "config.yaml.template"))
+        body = "# Rule\n\nIdentical body.\n"
+        self.write_shipped_rule(body, ".claude/agents/**")
+        self.write_installed_rule(body, ".claude/agents/**")
+        patch = mock.patch.object(
+            rdm, "DESCOPED_RULES", [(self.DESCOPED_NAME, ".claude/agents/**")]
+        )
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def _run(self):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = ip._run_upgrade(self.cfg, expected_pair=None)
+        self.assertEqual(code, 0, err.getvalue())
+        return err.getvalue()
+
+    def _install_diverged_descoped_rule(self) -> None:
+        (self.refs_dir / self.DESCOPED_NAME).write_text(
+            self._rule_text("Shipped body.\n", ".claude/agents/**"), encoding="utf-8")
+        (self.rules_dst_dir / self.DESCOPED_NAME).write_text(
+            self._rule_text("Installed body, edited.\n", ".claude/agents/**"), encoding="utf-8")
+
+    def test_stray_pair_warning_prints_once_per_run(self):
+        stray = self.conflict_dir(FROM, OTHER_TO) / "verdicts.json"
+        stray.parent.mkdir(parents=True, exist_ok=True)
+        stray.write_text("{}", encoding="utf-8")
+        err = self._run()
+        self.assertEqual(err.count(self.STRAY_LINE), 1, err)
+        self.assertIn(str(stray), err)
+
+    def test_stale_descoped_entry_warns_once_per_run(self):
+        self._install_diverged_descoped_rule()
+        cache = verdicts_cache_path(self.cfg, FROM, TO)
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        entry = dict(CACHE_ENTRY["agent-authoring.md"])  # installed_sha256 is 64 zeros: stale
+        cache.write_text(json.dumps({self.DESCOPED_NAME: entry}), encoding="utf-8")
+        err = self._run()
+        self.assertEqual(err.count(self.STALE_LINE), 1, err)
+        self.assertIn(self.DESCOPED_NAME, err)
+
+    def test_force_set_records_each_judged_override(self):
+        self._install_diverged_descoped_rule()
+        installed = (self.rules_dst_dir / self.DESCOPED_NAME).read_text(encoding="utf-8")
+        good = dict(CACHE_ENTRY["agent-authoring.md"], installed_sha256=_installed_hash(installed))
+        bad = dict(CACHE_ENTRY["agent-authoring.md"])
+        evaluated: dict = {}
+        with contextlib.redirect_stderr(io.StringIO()):
+            accepted = rdm.descoped_force_set(self.cfg, {self.DESCOPED_NAME: good}, evaluated)
+        self.assertEqual(accepted, frozenset({self.DESCOPED_NAME}))
+        self.assertIsInstance(evaluated[self.DESCOPED_NAME], StructuralVerdict)
+        evaluated = {}
+        with contextlib.redirect_stderr(io.StringIO()):
+            accepted = rdm.descoped_force_set(self.cfg, {self.DESCOPED_NAME: bad}, evaluated)
+        self.assertEqual(accepted, frozenset())
+        self.assertIn(self.DESCOPED_NAME, evaluated)
+        self.assertIsNone(evaluated[self.DESCOPED_NAME], "a rejected entry is recorded as None")
+
+    def test_writers_load_the_cache_themselves_when_given_none(self):
+        self.write_shipped_rule("# Rule\n\nIdentical body.\n", ".claude/agents/**")
+        with mock.patch.object(artifact_upgrade, "_load_verdicts_cache", return_value={}) as art:
+            self.run_upgrade(FROM, TO)
+        art.assert_called_once()
+        with mock.patch.object(rdm, "_load_verdicts_cache", return_value={}) as mig:
+            rdm.migrate_installed_rules(self.cfg, FROM, TO)
+        mig.assert_called_once()
+
+    def test_writers_do_not_load_the_cache_when_given_a_dict(self):
+        # An empty dict is a loaded cache, not a missing argument.
+        with mock.patch.object(artifact_upgrade, "_load_verdicts_cache") as art:
+            ip.upgrade_artifacts(self.cfg, self.manifest, FROM, TO, verdicts={})
+        art.assert_not_called()
+        with mock.patch.object(rdm, "_load_verdicts_cache") as mig:
+            rdm.migrate_installed_rules(self.cfg, FROM, TO, verdicts={})
+        mig.assert_not_called()
 
 
 class TestUpgradePairCli(unittest.TestCase):
