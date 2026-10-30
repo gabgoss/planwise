@@ -361,6 +361,39 @@ def _reciprocal_anomalies(items: list, reciprocal: list) -> list:
     ]
 
 
+def _dropped_edges(index_path: Path, naming: IndexNaming) -> set:
+    """The (src, dst) edges the migrator's ledger records as dropped by an answer. A missing or unreadable
+    ledger records none."""
+    ledger = index_path.with_name(f"00-{naming.archive_stem}-Migration-Ledger.json")  # the name the migrator writes
+    try:
+        edges = json.loads(read_text_preserving_newlines(ledger)).get("edges") or []
+        return {(e["src"], e["dst"]) for e in edges if e.get("action") == "dropped"}
+    except (OSError, ValueError, AttributeError, KeyError, TypeError):
+        return set()
+
+
+def _pending_row_prose(backlog_dir: Path, archive_dir: Path, index_path: Path, naming: IndexNaming):
+    """The `pending_prose` argument of `sup.refuse_unless_generated`: names the table lines the migrator
+    would still move, which are soft-dependency bullets and `## Dependencies` edges missing from `blocks:`.
+    The migrator leaves two things in the table on purpose, and neither is named. One is a row's
+    parenthetical note, which it has already copied into the item file. The other is the row of an edge its
+    ledger records as dropped. Both stay until this generator rewrites the table."""
+    def pending(text: str, header_idx: int) -> list:
+        # imported here because migrate_backlog_checks reaches this module through migrate_backlog_repairs
+        import migrate_backlog_checks as chk
+        problems, edges, notes = chk.scan_index(text, header_idx, extract_notes=True)
+        problems += [f"line {note['line']}: text under '{chk.DEPENDENCIES}', {note['text'][:60]!r}"
+                     for note in notes if note["kind"] == "bullet"]
+        try:
+            items = {item["id"]: item for item in scan_backlog(backlog_dir, archive_dir, index_path)}
+        except GeneratorError:
+            return problems  # the scan the caller runs next reports this error itself
+        dropped = _dropped_edges(index_path, naming)
+        unsettled = [edge for edge in edges if (edge[1], edge[2]) not in dropped]
+        return problems + chk.missing_edges(unsettled, items)
+    return pending
+
+
 def _cmd_write(
     backlog_dir: Path,
     archive_dir: Path,
@@ -381,7 +414,8 @@ def _cmd_write(
     function writes or deletes comes from `report["files"]` or
     `_list_disk_generated_files`, both scoped to `is_generated_index_file`.
     """
-    verdict = sup.refuse_unless_generated(index_path, read_text_preserving_newlines)
+    verdict = sup.refuse_unless_generated(index_path, read_text_preserving_newlines,
+                                          _pending_row_prose(backlog_dir, archive_dir, index_path, naming))
     if verdict and not replace_legacy:
         print(sup.refusal_message(index_path, *verdict, config, "write"), file=sys.stderr)
         return Disposition.REFUSED
@@ -467,7 +501,8 @@ def _cmd_check(
     """`--check`, factored out of `main()` so it is callable in-process (an
     upgrade orchestrator, with no argv). Same `Disposition` code; never
     changes the report text."""
-    verdict = sup.refuse_unless_generated(index_path, read_text_preserving_newlines)
+    verdict = sup.refuse_unless_generated(index_path, read_text_preserving_newlines,
+                                          _pending_row_prose(backlog_dir, archive_dir, index_path, naming))
     if verdict:
         print(sup.refusal_message(index_path, *verdict, config, "check"), file=sys.stderr)
         return Disposition.REFUSED

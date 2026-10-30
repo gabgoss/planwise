@@ -240,6 +240,68 @@ def test_pointer_footer_with_a_header_only_changelog_is_refused(tmp_path, capsys
     assert sup.refuse_unless_generated(backlog / base.INDEX, mig.read_text) is None
 
 
+def _pointer_project(tmp_path, *, bullet, edge, dropped=None):
+    """A pointer-footer index over a populated changelog and four well-formed items. `bullet` keeps the
+    soft-dependency bullet under `## Dependencies`. `edge` writes the table's 001 -> 002 edge into 001's `blocks:`.
+    `dropped` adds the table row 002 -> 001, which no item's `blocks:` carries, and writes the migrator's ledger
+    with that edge recorded as dropped when it is "ledger", or no ledger when it is "unrecorded"."""
+    index = POINTER_INDEX.format(CHANGELOG)
+    if not bullet:
+        index = index.replace(f"**Soft dependencies**\n\n{base.BULLET}\n\n", "")
+    if dropped:
+        index = index.replace("| 001 | 002 |\n", "| 001 | 002 |\n| 002 | 001 |\n")
+    cfg, backlog = base._project(tmp_path, index)
+    if dropped == "ledger":
+        ledger = mig.artifact_paths(backlog / base.INDEX)[1]
+        record = {"edges": [{"src": "002", "dst": "001", "action": "dropped", "source": "answer"}]}
+        base._write(ledger, json.dumps(record))
+    base._write(backlog / CHANGELOG, POPULATED)
+    base._write(backlog / "001-Sample.md", base.item_text(blocks="[002]" if edge else "[]"))
+    base._write(backlog / "ITEM-003-INFRA-Third.md", base.item_text("003", "Third body."))
+    base._write(backlog / "ITEM-004-SMP-Partial.md", base.item_text("004", "Partial body."))
+    return cfg, backlog
+
+
+@pytest.mark.parametrize("bullet, edge, named", [
+    pytest.param(True, True, "text under '## Dependencies'", id="soft-dependency-bullet"),
+    pytest.param(False, False, "001 blocks 002", id="edge-missing-from-blocks"),
+])
+def test_pointer_footer_with_pending_row_prose_is_refused(tmp_path, capsys, bullet, edge, named):
+    cfg, backlog = _pointer_project(tmp_path, bullet=bullet, edge=edge)
+    config = _config(cfg)
+    before = base._snapshot(backlog)
+    for mode in ("write", "check"):
+        code, err = _gen(config, mode, capsys)
+        assert code == 2 and "un-migrated prose" in err and named in err, (mode, err)
+        assert "/planwise upgrade" in err and ("WITHOUT a backup" in err) == (mode == "write"), mode
+    assert base._snapshot(backlog) == before
+
+
+def test_pointer_footer_without_pending_row_prose_still_writes(tmp_path, capsys):
+    cfg, backlog = _pointer_project(tmp_path, bullet=False, edge=True)  # control: the same tree, prose moved
+    config = _config(cfg)
+    code, err = _gen(config, "write", capsys)
+    assert code == 0 and err == "", err
+    assert sup.classify_shape(mig.read_text(backlog / base.INDEX))[0] == "migrated"
+
+
+def test_pointer_footer_keeping_an_answered_drop_row_still_writes(tmp_path, capsys):
+    # The migrator drops 002 -> 001 from blocks: to settle the reciprocal pair, records it in its ledger,
+    # and leaves the row in the table until the generator rewrites it.
+    cfg, backlog = _pointer_project(tmp_path, bullet=False, edge=True, dropped="ledger")
+    code, err = _gen(_config(cfg), "write", capsys)
+    assert code == 0 and err == "", err
+    assert sup.classify_shape(mig.read_text(backlog / base.INDEX))[0] == "migrated"
+
+
+def test_pointer_footer_drop_row_with_no_ledger_record_is_refused(tmp_path, capsys):
+    cfg, backlog = _pointer_project(tmp_path, bullet=False, edge=True, dropped="unrecorded")  # control: no ledger
+    before = base._snapshot(backlog)
+    code, err = _gen(_config(cfg), "write", capsys)
+    assert code == 2 and "un-migrated prose" in err and "002 blocks 001" in err, err
+    assert base._snapshot(backlog) == before
+
+
 def test_unrecognized_index_refusal_names_the_reason_and_the_report(tmp_path, capsys):
     cfg, _backlog = base._project(tmp_path, UNRECOGNIZED)
     config = _config(cfg)
@@ -281,6 +343,19 @@ def test_disposition_rows_name_the_real_backup_path(tmp_path):
     rows = (base._pair(cfg) / "DISPOSITIONS.md").read_text(encoding="utf-8")
     for rel in ("001-Sample.md", base.INDEX):
         assert f"pre-image at upgrade-backups/1.0-to-1.1/backlog/{rel}" in rows, rel
+
+
+def test_dispositions_header_says_a_backlog_backup_is_relative_to_its_directory(tmp_path):
+    cfg, _backlog = base._project(tmp_path)
+    assert base._migrate(cfg).state == "migrated"
+    pair = base._pair(cfg)
+    log = (pair / "DISPOSITIONS.md").read_text(encoding="utf-8")
+    header = " ".join(log.split("\n- ")[0].split())  # everything before the first row
+    assert "mirrors its project-relative path" in header
+    assert "under backlog/, lessons/ or plans/, at its path relative to that directory" in header
+    assert "mirroring their project-relative paths" not in header
+    # the path the header describes: the index sits at backlog/{name}, with no planwise/Backlog/ prefix
+    assert (pair / "backlog" / base.INDEX).is_file() and not (pair / "planwise").exists()
 
 
 def test_resplit_rows_name_the_real_backup_path(tmp_path):
