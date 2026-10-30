@@ -168,7 +168,7 @@ flowchart LR
 This sends your plan through a staged AI review:
 
 1. **Measurement pass** — one agent walks the plan tree before any reviewer starts and writes a *review discovery fact sheet* to `Reviews/{Abbrev}-Discovery-{date}.md`: a measured line and byte count for every plan file, a map of its headings, and the declared values the reviewer checks compare against (token estimates, dependencies, Required Context rows). It runs once, so the whole reviewer fan-out cites one measured number instead of each reviewer re-deriving its own.
-2. **Gate scan** — lints the plan's verification commands
+2. **Gate scan** — lints the plan's verification commands, and reports any gate that names a versioned plugin path other than the installed one
 3. **Structural review** — checks that files are named correctly, links aren't broken, and the plan hierarchy makes sense
 4. **Content review** — checks task quality, token estimates, dependencies, and success criteria
 
@@ -203,6 +203,8 @@ This starts working through your planned tasks in order. The plan's orchestratio
 
 You approve once, before the first task starts.
 
+Before that prompt, `run` checks every gate in the plan for a versioned plugin path other than the installed one. A gate like that keeps running the old tool after an upgrade and still reports OK. When `run` finds one, it dispatches nothing and lists each stale gate in the approval prompt. You choose to route the installed path, re-scaffold the task files, or proceed anyway.
+
 If you need to stop mid-session, don't worry — planwise saves a recovery file so you can pick up exactly where you left off. `--resume` re-enters from that file when it shows a complete mid-session stop.
 
 #### How `run` works
@@ -228,7 +230,7 @@ Opens an interactive view of all your tracked items, scored and prioritized. For
 |-------|-------------|--------------|
 | **A — Direct Fix** | Small bugs, quick changes | An AI agent fixes it right away |
 | **B — Task List** | Medium scope work | Breaks it into steps and works through them |
-| **C — New Plan** | Large features or overhauls | Creates a full plan for it |
+| **C — Session Planning** | Large features or overhauls | Designs the approach in plan mode, then builds a small item now or marks a large one `needs_plan: true` for `/planwise plan` |
 
 **Filter your backlog:**
 
@@ -247,8 +249,9 @@ Loop mode works through several items without you at the keyboard. Each session 
 - **The hooks module.** Looping needs a Claude Code build that loads the plugin's hooks module. No environment variable is needed.
 - **Graceful degradation.** Without the module the marker line prints and nothing else happens. Continue by hand with `/planwise backlog --loop-resume <run-id>`.
 - **Where state lives.** Each run keeps one file, `Backlog-Runs/{YYYYMMDD-HHMMSS}.json`, in your backlog folder. The run id is the file name without `.json`.
+- **Answering skipped items.** `/planwise backlog --answer [item-id]` asks you each open question an item carries and records your answer in the item file. It changes no status and commits nothing.
 
-After the setup questions, loop mode asks nothing. An item that needs a user decision is skipped. It gets a dated `## Loop Decision Needed` section in its own item file, and its status returns to its pre-loop value. The end summary lists every such item, and the next interactive `/planwise backlog <id>` run answers it. Phase 8 files any lesson on its own.
+After the setup questions, loop mode asks nothing. An item that needs a user decision is skipped. It gets a `### Q{n}. Loop decision (run …)` block under `## Open Questions` in its own item file, and its status returns to its pre-loop value. The end summary lists every such item, and `/planwise backlog --answer` answers it. Phase 8 files any lesson on its own. Refining is opt-in. An unrefined item is refined in place by the creation process only when you name it in specific mode, or when the run's `--refine-max N` cap covers it (default 0). `--init --dry-run` previews the queue and its exclusions without writing a run file. Route C no longer authors a session plan, in an interactive run or a loop run: an item that needs one is marked `needs_plan: true` for a later planning session.
 
 **Archival stays in sync.** Closing an item moves its file to `Archive/`, and re-runs are safe. The next `generate_backlog_index.py --write` renders the new link from the file's new location. If an item was closed by hand and its file left stranded, `backlog` detects the drift on open and offers to reconcile it — nothing is moved without your consent. It also detects a legacy `**Status:**` line that an older item writer left under an item's title, and offers to strip it, so frontmatter `status:` stays the only status field. `--no-check` skips both detect passes for fast triage.
 
@@ -372,6 +375,9 @@ flowchart LR
 - **Backlog index shape audit** — classifies your backlog index as generated, hand-authored, or unrecognized, flags any changelog file over its read budget, and names the fix: [`/planwise upgrade`](#10-planwise-upgrade) for a hand-authored index, or `migrate_backlog_index.py --split-changelog` for an over-budget changelog.
 - **Lessons index shape audit** — classifies your lessons index as generated, hand-authored, or unrecognized, and names the fix: [`/planwise upgrade`](#10-planwise-upgrade) for a hand-authored index.
 - **Plans index shape audit** — classifies your plans index as generated, hand-authored, or unrecognized, counts what a migration would move, and names the fix: [`/planwise upgrade`](#10-planwise-upgrade) for a hand-authored index.
+- **Project read-gate scan** — checks your `.claude/` rules, agents and skills, and every in-progress plan's files, against the same Read-tool limits. For each file it flags, it names the open backlog item that tracks it, or prints a line to file one.
+- **Section-citation check** — resolves your own rules' citations of plugin reference sections against the installed plugin. It reports each citation whose section moved or no longer exists, so you can repoint it after an upgrade.
+- **Config path keys** — lists any of `project.planwise_root`, `plans_dir` or `backlog_dir` that is missing from `config.yaml`. [`/planwise upgrade`](#10-planwise-upgrade) fills them in.
 
 **Opt-in writers:** three `doctor` flags write, and none runs unless you ask for it by name. Two clean up; the third creates one missing directory. The index and body-status audits also offer a fix, which runs only after you say yes.
 
@@ -462,6 +468,7 @@ When a new plugin version is published, upgrading happens in two stages:
    - Bumps the pinned `plugin_version:` in your `config.yaml`
    - Migrates a hand-authored backlog, lessons or plans index, backing up every file first. A refusal names the fix.
    - Adds any new top-level config keys (the additive merge previously available via `--migrate`), including the `upgrade:` block described below
+   - Fills in a missing `project.planwise_root`, `plans_dir` or `backlog_dir` with the folders planwise already used. A re-run changes nothing.
    - **States the drafting behaviour once:** when the config has no `feedback.drafts` key, the upgrade asks about `feedback.drafts` and `feedback.enabled`, writes the answers (or the `notify` default when unattended), and prints a `Feedback drafting:` entry once.
    - Backfills missing lessons scaffolding — seeds the generated lessons index (hub, overflow leaves, Archive shards) and the categorization file that gates `lessons curate` / `promote-batch` when either is absent (idempotent; an existing file, customised or not, is preserved verbatim)
    - Refreshes installed rules whose local body still matches the previously-shipped body
@@ -600,7 +607,7 @@ planwise is built entirely on markdown files and Python scripts — no databases
 
 ### Custom agents
 
-planwise uses eight specialized AI agents behind the scenes:
+planwise uses ten specialized AI agents behind the scenes:
 
 | Agent | What it does |
 |-------|-------------|
@@ -610,10 +617,12 @@ planwise uses eight specialized AI agents behind the scenes:
 | **task-runner** | Executes individual tasks during DELEGATED plan runs |
 | **fix-agent** | Applies targeted code fixes for small backlog items |
 | **rule-comparator** | Classifies a diverged installed rule against the shipped version during `/planwise upgrade` — stale copy vs. genuine customization |
-| **backlog-planner** | Authors a session plan for large-scope or architectural backlog items routed to a new plan |
-| **backlog-author** | Drafts and files backlog items in batch — re-verifies each candidate against the live repo, writes the item file, and updates the index |
+| **backlog-preflight** | Proves backlog candidates against the live repository before anything is designed or filed |
+| **backlog-planner** | Designs the solution for one backlog item: approach, numbered steps, verification, or the questions only the user can answer; never authors a session plan |
+| **backlog-author** | Files or rewrites backlog items from the planner's designs, writes the executable sections and the `refined` flag, and regenerates the index |
+| **plan-author** | Fills one plan session's rendered task files from the metadata spec and the plan-notes state file when plan authoring is delegated; stops with the open questions when any remain |
 
-You don't need to interact with these directly — they're called automatically when you use `/planwise review`, `/planwise run`, `/planwise backlog`, `/planwise lessons`, `/planwise upgrade`, and `/planwise harvest`. Agents run straight from the plugin (invoked as `planwise:<name>`); nothing is copied into your project.
+You don't need to interact with these directly — they're called automatically when you use `/planwise plan`, `/planwise review`, `/planwise run`, `/planwise backlog`, `/planwise lessons`, `/planwise upgrade`, and `/planwise harvest`. Agents run straight from the plugin (invoked as `planwise:<name>`); nothing is copied into your project.
 
 ### Configuration
 
@@ -626,6 +635,7 @@ After running `/planwise init`, your settings live in `planwise/config.yaml`. He
 | `scoring` | How backlog items are scored and ranked | Sensible defaults |
 | `build_commands.default` | Command to verify builds after changes | `echo '...'` |
 | `context.token_saver` | Token Saver mode default (see [§9](#9-planwise-token-saver)) | `false` |
+| `context.plan_authoring` | Who writes a plan's task bodies: `inline` (the plan handler itself) or `delegated` (the plan-author agent, one session per dispatch) | `inline` |
 | `upgrade.customization_handoff` | How upgrade hands off files you've customised (see [§10](#10-planwise-upgrade)) | `report+relocate` |
 
 ### Style Rules
@@ -663,13 +673,13 @@ planwise/                           # Plugin root
   .claude-plugin/
     plugin.json                     # Plugin identity
   skills/planwise/SKILL.md          # The /planwise command router
-  handlers/                         # 12 subcommand handlers across 20 files (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, feedback, harvest; help is served inline by the skill router)
-  agents/                           # 8 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
+  handlers/                         # 12 subcommand handlers across 22 files (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, feedback, harvest; help is served inline by the skill router)
+  agents/                           # 10 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
   references/                       # Knowledge base documents (4 installed as path-scoped rules + 2 installed as global style rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
   templates/                        # Markdown templates
   manifests/                        # Artifact manifest and agent history
   seed/                             # Index file seeds for init
-  scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py, list_plans.py and skill_preflight.py (the zero-call list and the upgrade card))
+  scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py, list_plans.py, skill_preflight.py (the zero-call list, the upgrade card and the plan Config Gate) and scaffold_plan.py (the plan skeleton render))
   hooks/                            # hooks.json and register.ts — the backlog loop's compaction-and-re-entry module
   examples/                         # Sample outputs
   config.yaml.template              # Config template

@@ -1,5 +1,6 @@
 ---
 description: A session delivering an IPC, protocol or codec layer includes round-trip evidence before COMPLETE (§2); the two failure modes that collapse a multi-signal verification surface into one "looks green" reading (§1); build-clean ≠ computation-correct for in-process numeric and codec code (§5); build-fresh ≠ deploy-fresh (§6); and runtime-correct on one target ≠ correct on all targets (§7).
+consult-when: A deliverable touches an IPC/protocol/codec boundary, in-process numeric or codec code, a deploy step, or multi-target runtime code — the two failure modes (§1), round-trip evidence before COMPLETE (§2), build-clean ≠ computation-correct (§5), build-fresh ≠ deploy-fresh (§6), one target ≠ all targets (§7)
 paths: {planwise_root}/{plans_dir}/**
 ---
 

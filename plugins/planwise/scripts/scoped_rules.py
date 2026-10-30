@@ -19,8 +19,8 @@ matched against every rule's globs, and the item gets one of three verdicts:
 
 This is a library with no CLI. It reads files and never writes them. The
 backlog router imports this module, and this module imports nothing from the
-router; the fence toggle the router also uses is re-implemented here for
-that reason.
+router. This module owns the fence scanner (`fence_flags`) that the loop
+writers share, so they agree on which lines are fenced.
 """
 
 import re
@@ -33,6 +33,16 @@ from markdown_parser import normalize_id, split_row_cells_code_aware
 
 CONTENT_TREES = (".claude/rules/", ".claude/agents/", ".claude/skills/", ".claude/commands/")
 LOOP_WRITTEN_HEADINGS: tuple[str, ...] = ("Loop Decision Needed",)
+# The sections no route signal and no destination scan reads: the loop's
+# own sections, and the questions an item still asks (a question names work
+# the item has not chosen to do).
+SIGNAL_EXCLUDED_HEADINGS: tuple[str, ...] = LOOP_WRITTEN_HEADINGS + ("Open Questions",)
+# The sections that also end at a thematic break or a level-1 or level-2
+# heading, as the shape gate's reading of them does, so a footer after the
+# section stays in the body.
+BREAK_ENDED_HEADINGS: tuple[str, ...] = ("Open Questions",)
+# The last line of every section the loop writes.
+LOOP_SECTION_END = "<!-- loop-decision-end -->"
 VERDICT_NONE = "none"
 VERDICT_INJECT = "inject"
 VERDICT_PLACEMENT = "placement"
@@ -49,6 +59,13 @@ _LINE_SUFFIX_RE = re.compile(r":\d+(?:-\d+)?$")
 _WIN_ABS_RE = re.compile(r"^[A-Za-z]:/")
 _FORBIDDEN_SPAN_CHARS = set("*{}$<>|()")
 _TRAILING_PUNCT = ".,;:)"
+# A fence line: 0-3 spaces, then a run of 3+ backticks or 3+ tildes, then the rest.
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+# A heading of level 1 or 2, which bounds the search for a section's end
+# marker. The loop's decision guard refuses a line it matches.
+TOP_HEADING_RE = re.compile(r"^#{1,2}(?:[ \t]|\r?$)")
+# A thematic break: 0-3 spaces, then three or more `-`, `*` or `_`.
+THEMATIC_BREAK_RE = re.compile(r"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*\r?$")
 
 
 @dataclass(frozen=True)
@@ -229,6 +246,11 @@ def glob_to_regex(pattern: str) -> re.Pattern:
     return re.compile("^(?:" + "|".join(alts) + ")$")
 
 
+# The private config key a caller that scores many items sets to the result
+# of one `load_rule_scopes` call; `scoped_rules_block` then reads no rule file.
+RULE_SCOPES_KEY = "_rule_scopes"
+
+
 def load_rule_scopes(project_root: Path) -> list[RuleScope]:
     """Load every path-scoped rule under `project_root/.claude/rules/`, sorted by path.
 
@@ -269,46 +291,235 @@ def load_rule_scopes(project_root: Path) -> list[RuleScope]:
     return scopes
 
 
-def _blank_fenced_blocks(body: str) -> str:
-    """Blank every fenced block's lines, keeping line positions (local fence toggle)."""
-    out: list[str] = []
-    in_fence = False
-    for line in body.split("\n"):
-        if line.lstrip().startswith(("```", "~~~")):
-            in_fence = not in_fence
-            out.append("")
+def _scan_fences(text: str) -> tuple[list[bool], bool]:
+    """Return one fenced flag per line of `text.split("\\n")`, and whether a fence is still open at the end."""
+    flags: list[bool] = []
+    fence: tuple[str, int] | None = None
+    for line in text.split("\n"):
+        match = _FENCE_RE.match(line)
+        if fence is None:
+            # A backtick fence's info string may not hold a backtick.
+            if match and not (match.group(1)[0] == "`" and "`" in match.group(2)):
+                fence = (match.group(1)[0], len(match.group(1)))
+                flags.append(True)
+            else:
+                flags.append(False)
             continue
-        out.append("" if in_fence else line)
-    return "\n".join(out)
+        flags.append(True)
+        if (
+            match
+            and match.group(1)[0] == fence[0]
+            and len(match.group(1)) >= fence[1]
+            and not match.group(2).strip()
+        ):
+            fence = None
+    return flags, fence is not None
+
+
+def fence_flags(text: str) -> list[bool]:
+    """One flag per line of `text.split("\\n")`: True when the line is fenced.
+
+    The fence rules follow CommonMark. A fence opens on a line of 0-3 spaces
+    and then 3 or more backticks or 3 or more tildes; a backtick fence's info
+    string holds no backtick. It closes only on a line of 0-3 spaces and the
+    same character, at least as many times, with nothing after but
+    whitespace. So a tilde line inside a backtick fence, or a shorter run,
+    does not close it. A fence that never closes runs to the end of the
+    text. The opening and closing lines count as fenced. A CRLF line keeps
+    its `\\r`, which counts as trailing whitespace.
+    """
+    return _scan_fences(text)[0]
+
+
+def fence_left_open(text: str) -> bool:
+    """True when text opens a fence that it never closes."""
+    return _scan_fences(text)[1]
+
+
+def _blank_fenced_blocks(body: str) -> str:
+    """Blank every fenced block's lines, keeping line positions."""
+    lines = body.split("\n")
+    return "\n".join("" if fenced else line for line, fenced in zip(lines, fence_flags(body)))
+
+
+def loop_sections(
+    text: str, headings: tuple[str, ...] = LOOP_WRITTEN_HEADINGS
+) -> list[tuple[int, int, bool]]:
+    """Every loop-written section in text, in file order: `(start, end, marker_bounded)`.
+
+    A section opens at a line equal to `## {heading}` for a heading in
+    headings, outside any fence. A fenced heading is not a section.
+
+    - Marker-bounded: an unfenced `LOOP_SECTION_END` line comes after the
+      heading and before the next unfenced heading of level 1 or 2
+      (`TOP_HEADING_RE`). A fenced quote of the marker does not count, so a
+      section never ends inside a fence. The section runs to
+      that first end-marker line, inclusive. A fenced `## ` line in between
+      does not end it, and text after the marker is outside it.
+    - Legacy: no such end-marker line. The section runs to the next `## `
+      line outside a fence, or to the end of the text. A heading in
+      `BREAK_ENDED_HEADINGS` also ends at an unfenced thematic break
+      (`THEMATIC_BREAK_RE`) or level-1 heading, and that line stays outside.
+
+    Lines split on `\\n` only, so a CRLF line keeps its `\\r` and still
+    matches. A span starts at the first character of its heading line and
+    ends at the first character of the line after it, or at `len(text)`.
+    """
+    loop_lines = {f"## {h}" for h in headings}
+    lines = text.split("\n")
+    flags = fence_flags(text)
+    starts: list[int] = []
+    pos = 0
+    for line in lines:
+        starts.append(pos)
+        pos += len(line) + 1
+
+    def offset(index: int) -> int:
+        return starts[index] if index < len(lines) else len(text)
+
+    def unfenced_h2(index: int) -> bool:
+        return not flags[index] and lines[index].startswith("## ")
+
+    sections: list[tuple[int, int, bool]] = []
+    index = 0
+    while index < len(lines):
+        if not unfenced_h2(index) or lines[index].strip() not in loop_lines:
+            index += 1
+            continue
+        marker: int | None = None
+        probe = index + 1
+        while probe < len(lines):
+            if flags[probe]:
+                # A fenced line neither ends the search nor counts as the marker.
+                probe += 1
+                continue
+            if lines[probe].strip() == LOOP_SECTION_END:
+                marker = probe
+                break
+            if TOP_HEADING_RE.match(lines[probe]):
+                break
+            probe += 1
+        if marker is not None:
+            sections.append((offset(index), offset(marker + 1), True))
+            index = marker + 1
+            continue
+        break_ended = lines[index].strip()[3:] in BREAK_ENDED_HEADINGS
+        probe = index + 1
+        while probe < len(lines) and not unfenced_h2(probe):
+            if break_ended and not flags[probe] and (
+                THEMATIC_BREAK_RE.match(lines[probe]) or TOP_HEADING_RE.match(lines[probe])
+            ):
+                break
+            probe += 1
+        sections.append((offset(index), offset(probe), False))
+        index = probe
+    return sections
+
+
+def loop_section_spans(
+    text: str, headings: tuple[str, ...] = LOOP_WRITTEN_HEADINGS
+) -> list[tuple[int, int]]:
+    """Character spans `(start, end)` of every loop-written section in text, in file order.
+
+    The spans are those `loop_sections` finds, marker-bounded and legacy alike.
+    """
+    return [(start, end) for start, end, _bounded in loop_sections(text, headings)]
 
 
 def strip_loop_sections(body: str) -> tuple[str, int]:
     """Remove every loop-written section from an item body; return it and the lines removed.
 
-    A section opens at a line equal to `## {heading}` for a heading in
-    `LOOP_WRITTEN_HEADINGS`, outside any fence, and runs to the next `## `
-    line outside a fence, or to the end of the body. Fenced text inside the
-    section goes with it. A loop heading quoted inside a fenced example never
-    opens a section, so the text the loop wrote cannot feed any signal.
+    The sections are the spans `loop_section_spans` finds. A section that
+    ends with the loop's end marker is removed through that marker, and the
+    text after it stays. Fenced text inside a section goes with it. A loop heading quoted inside a fenced example
+    never opens a section, so the text the loop wrote cannot feed any signal.
+    Removal and the line count follow `strip_sections`.
     """
-    loop_lines = {f"## {h}" for h in LOOP_WRITTEN_HEADINGS}
-    out: list[str] = []
-    removed = 0
-    in_fence = False
-    skipping = False
-    segments = body.split("\n")
-    for idx, line in enumerate(segments):
-        if line.lstrip().startswith(("```", "~~~")):
-            in_fence = not in_fence
-        elif not in_fence and line.startswith("## "):
-            skipping = line.strip() in loop_lines
-        if skipping:
-            # The empty segment after a final newline is not a line of the section.
-            if not (idx == len(segments) - 1 and line == "" and idx > 0):
-                removed += 1
-        else:
-            out.append(line)
-    return "\n".join(out), removed
+    return strip_sections(body, LOOP_WRITTEN_HEADINGS)
+
+
+def _section_line_indexes(body: str, headings: tuple[str, ...]) -> tuple[list[str], set[int]]:
+    """Split body on `\\n`; return its lines and the indexes of the lines inside a section.
+
+    The sections are the spans `loop_sections` finds for headings. The empty
+    segment after a final newline is not a line, so it is never an index.
+    """
+    lines = body.split("\n")
+    index_at: dict[int, int] = {}
+    pos = 0
+    for index, line in enumerate(lines):
+        index_at[pos] = index
+        pos += len(line) + 1
+    inside: set[int] = set()
+    for start, end in loop_section_spans(body, headings):
+        inside.update(range(index_at[start], index_at.get(end, len(lines))))
+    return lines, inside
+
+
+def section_line_count(body: str, headings: tuple[str, ...]) -> int:
+    """Count the lines inside every `## {heading}` section for a heading in headings.
+
+    A section's lines run from its heading to its end, as `loop_sections`
+    finds them. A blank line outside the section is not counted, even when
+    `strip_sections` removes it as a separator.
+    """
+    return len(_section_line_indexes(body, headings)[1])
+
+
+def strip_sections(body: str, headings: tuple[str, ...]) -> tuple[str, int]:
+    """Remove every `## {heading}` section for a heading in headings; return the body and the lines removed.
+
+    The sections are the spans `loop_sections` finds for those headings, so
+    a section ends at the loop's end marker, or else at the next unfenced
+    `## ` line or the end of the body. A `BREAK_ENDED_HEADINGS` section
+    also ends at a thematic break or level-1 heading, so a footer after it
+    stays. For any other heading a thematic break is not a heading: a
+    footer after the last section goes with it. Removal follows
+    `strip_loop_sections`, which is this function over `LOOP_WRITTEN_HEADINGS`.
+
+    The body is read as lines split on `\\n`; the empty segment after a final
+    newline is not a line. Every section line is removed. A section with no
+    end marker that ends at a later heading holds its trailing blank lines,
+    so they go with it. A run of section lines also takes the blank-line
+    separator it owns: when a blank line or the start of the body comes
+    before the run, the blank lines after it go too. When only blank lines
+    and section lines follow the last kept non-blank line, that whole tail
+    goes, and the kept lines end at that line, with no newline. The kept
+    lines are joined on `\\n`, so they keep one separator where the item
+    with the sections never written has one. The body's line count less the
+    lines removed is that item's count, whatever the position and number of
+    the sections and the blank lines around them.
+    """
+    lines, removed = _section_line_indexes(body, headings)
+    if not removed:
+        return body, 0
+    real = len(lines) - 1 if body.endswith("\n") else len(lines)
+    # The start of the body counts as a separator before the first run.
+    separated = True
+    index = 0
+    while index < real:
+        if index not in removed:
+            separated = not lines[index].strip()
+            index += 1
+            continue
+        while index < real and index in removed:
+            index += 1
+        if separated:
+            # A separator already precedes the run, so the blank lines after it are its own.
+            while index < real and not lines[index].strip():
+                removed.add(index)
+                index += 1
+    index = real - 1
+    while index >= 0 and (index in removed or not lines[index].strip()):
+        index -= 1
+    tail = range(index + 1, real)
+    if any(line in removed for line in tail):
+        # A run in the blank tail of the body takes the whole tail and the
+        # blank lines before it, back to the last kept text.
+        removed.update(tail)
+        lines = lines[:real]
+    kept = [line for index, line in enumerate(lines) if index not in removed]
+    return "\n".join(kept), len(removed)
 
 
 def _normalize_path(raw: str, project_root: Path) -> str | None:
@@ -495,18 +706,25 @@ def scoped_rules_block(item_id: str, body: str, config: dict) -> dict[str, Any]:
     """Compute the scoped-rule block for one item: the single entry point.
 
     Reads `config["_project_root"]` and `config.get("_lessons_dir")`, loads
-    the rules once, extracts and classifies the destinations, and returns a
+    the rules once (or takes them from `config[RULE_SCOPES_KEY]` when a
+    caller loaded them already), extracts and classifies the destinations, and returns a
     dict with `verdict`, `source`, `rules_scanned` (the number of path-scoped
     rules; global rules are not counted), `owning_lessons`, `destinations`
     (one dict per destination), `rules_to_inject` (sorted rel paths of every
     matched rule), `rules_bytes` (their total size on disk), `inject_form`
     (`content` at or under `INJECT_CONTENT_MAX_BYTES`, else `paths`, and
     `none` with no rule to inject) and `truncated`.
+
+    The `SIGNAL_EXCLUDED_HEADINGS` sections are removed before the scan, so
+    a path quoted only in an open question is not a destination.
     """
     project_root = Path(config["_project_root"])
     lessons_dir = config.get("_lessons_dir")
-    scopes = load_rule_scopes(project_root)
-    destinations, source, truncated = extract_destinations(body, project_root)
+    scopes = config.get(RULE_SCOPES_KEY)
+    if scopes is None:
+        scopes = load_rule_scopes(project_root)
+    scanned, _ = strip_sections(body, SIGNAL_EXCLUDED_HEADINGS)
+    destinations, source, truncated = extract_destinations(scanned, project_root)
     lessons = owning_lessons(item_id, Path(lessons_dir) if lessons_dir else None) or []
     verdict = classify(destinations, scopes, bool(lessons))
     by_rel = {s.rel: s for s in scopes}

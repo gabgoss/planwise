@@ -1,5 +1,6 @@
 ---
 description: Mandatory READ-CONFIRM-ACT pattern — confirmation block, structural-findings gate, cross-task coordination flags (sender §1.3, including an ordering flag read against the pinned command, a produce-flag reconciled against the write-set, and a Key Finding that names another session's file re-filed as a flag; receiver-side reconciliation §1.4), attributing a dirty path before choosing a remedy (§1.5), probing a commit-shaped criterion's paths in `git log` at CONFIRM so history satisfies it (§1.6), and reading two disagreeing representations through their writers before calling either stale (§1.7)
+consult-when: Following the mandatory READ-CONFIRM-ACT pattern — confirmation block, structural-findings gate, and a commit-shaped criterion probed with `git log` over its pinned paths at CONFIRM so history satisfies it (§1.6), and two disagreeing representations (an index row and its source status line) read through their declared writers and the line's `git log -L` history before either is called stale (§1.7), and (in the `read-confirm-act-protocol-Part-2-FlagAuthoringSurfaces.md` sibling) an ordering flag reads the pinned command first, a produce-flag reconciles against the write-set (`Output:` line, write-target row), and a Key Finding naming another session's file is re-filed as a flag
 ---
 
 # READ-CONFIRM-ACT Protocol
@@ -291,7 +292,7 @@ The reserved placeholder for later sources is intentional — it tells future cl
 >
 > The return edge goes to the **same destinations the propagation table above already defines** — the named task's file, the session's orchestration file, the sprint plan's `## Carried-Forward Coordination Flags` section, or the Master Plan — applied in **both** directions, each entry tagged with its own source session ID and surface date. Propagating one direction and leaving the other for a downstream orchestrator to infer fails the same way as not propagating at all: the writer who was never named has no reason to go looking, and a threshold nobody was told they share is measured by each of them alone.
 >
-> The plan-level counterpart is [scaffolding-hygiene-Part-2-DerivationAndParallelism.md](scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §16.5, which imposes the same reciprocal requirement on cross-sprint flags at scaffold time, where the write-sets that make a file shared are first declared. This section governs the same reciprocity at flag-propagation time.
+> The plan-level counterpart is [scaffolding-hygiene-Part-2-DerivationAndParallelism.md](scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §16 (rule 16.5), which imposes the same reciprocal requirement on cross-sprint flags at scaffold time, where the write-sets that make a file shared are first declared. This section governs the same reciprocity at flag-propagation time.
 
 #### Audit-Trail Requirement
 

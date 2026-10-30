@@ -10,8 +10,9 @@
 - `--status IN_PROGRESS` — filter by status
 - `--no-check` — skip both Phase 1 item-file audits, archival drift and body status lines (fast triage)
 - `--loop-resume <run-id>` — re-enter a loop run after the hooks module compacts the session; skips the loop questions and processes exactly one item
+- `--answer [item-id]` — answer open questions; see `handlers/backlog-Part-3-Answers.md`
 
-Loop mode is offered by Q1 on every interactive no-args run. The full contract is in `handlers/backlog-Part-2-LoopMode.md`.
+Loop mode is offered by Q1 on every interactive no-args run.
 
 ---
 
@@ -74,6 +75,8 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - For the backlog index format, item file schema, scoring formula, script interfaces, status flow, or error handling: Read `references/backlog-schema.md`
 - For Auto Mode behavior (how a step behaves when `AskUserQuestion` cannot be answered non-interactively): Read `references/auto-mode-policy.md`
 - In loop mode, or on `--loop-resume`: Read `handlers/backlog-Part-2-LoopMode.md`
+- With `--answer`: Read `handlers/backlog-Part-3-Answers.md`
+- When filing or refining items: Read `references/backlog-creation-process.md`
 
 ---
 
@@ -167,7 +170,7 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
 python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --write                        # once, after the loop
 ```
 
-In loop mode only the one popped item is set IN_PROGRESS. After that write, run `python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yaml --mark --phase selected --run {run-id} --id {item_id}`.
+In loop mode only the one popped item is set IN_PROGRESS. After that write, run `python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yaml --mark --phase selected --run {run-id} --id {item_id}`. When `--next` reported disposition `refine`, run Part 2 § Refine step before Phase 3.
 
 `--status` writes frontmatter only; a non-zero `--write` exit does not undo it — fix what it names and re-run `--write`. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's Index shape gate was bypassed — run it.
 
@@ -191,7 +194,7 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
    > - [ ] For every acceptance criterion, run the cheapest proof it is still unsatisfied before writing a fix; mark any already-satisfied criterion "already satisfied — verified"
    > - [ ] For every pre-drafted note/callout that asserts "test/section/function X does Y", verify against the live file and re-word to name the artifact that actually carries the behavior
 
-5. **Staleness check:** If the item has measurable acceptance criteria (counts, percentages, coverage targets), run `{build_command}` (from config.yaml `build_commands.default`) *before* routing. If criteria are already met or nearly met, present a "Close as COMPLETE" option instead of routing through a fix workflow.
+5. **Staleness check:** If the item has measurable acceptance criteria (counts, percentages, coverage targets), run `{build_command}` (from config.yaml `build_commands.default`) *before* routing. If criteria are already met or nearly met, present a "Close as COMPLETE" option instead of routing through a fix workflow. In loop mode, when every criterion is already met, close the item without asking per Part 2 § Unattended close; when any criterion is unmet, continue to step 6.
    - If the BLI's motivating driver is a runtime symptom (keywords: collision, race, hang, missing endpoint, intermittent), run a `grep -rn` for the symptom in `src/` and cross-check against recent session summaries in `Plans/**/Sessions/**/Outputs/`. If the driver is no longer active (no recent matches, fix landed), mark the BLI as STALE per `verify-backlog-citation-freshness.md §3h` and skip routing. Include §3h.untested-axes and §3h.cluster signal checks per the same reference.
 
 6. **Assess the item's scope: run the mechanical signals, then reconcile the stored hint.** The [Routing Decision Tree](#routing-decision-tree) below is the source of the logic; the script applies it without modification.
@@ -200,7 +203,7 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
       ```bash
       python {plugin_root}/scripts/score_backlog.py --config {planwise_root}/config.yaml --route --id {item_id}
       ```
-      It prints the signal vector (`abbrev`/`is_bug`, whole-file line count, keyword hits with the line each sits on, `##` and numbered-step counts, file count, the `HAS_CLEAR_FIX` evidence shapes), the provisional route, `LARGE_SCOPE`, and the Decision Logic branch that fired. Read the keyword hit lines before accepting `HAS_MULTI_SPRINT` or `IS_ARCHITECTURAL`: an item that quotes the signal table, or names a plan whose title contains "redesign", matches every keyword without being either. `IS_ARCHITECTURAL` reads only the `## Proposed Solution` section when the item has one (an item without that heading is read whole), and inside it drops a stem that sits inside a file name, a multi-segment path, a snake_case identifier, an `**Evidence:**` line or a table row. Every dropped hit is listed under `ignored (N)` with its reason, so a stem in the title, the Summary or a Related line still shows there. A plain-prose hit that remains is still a candidate, so read its line. `HAS_CLEAR_FIX` is reported as its mechanical half only — the evidence shapes are *present*; whether they are *sufficient* is your judgment. The script never runs the pivot check or gates 3b, 4, 5 and 7.
+      It prints the signal vector (`abbrev`/`is_bug`, whole-file line count, keyword hits with the line each sits on, `##` and numbered-step counts, file count, the `HAS_CLEAR_FIX` evidence shapes), the provisional route, `LARGE_SCOPE`, and the Decision Logic branch that fired. Read the keyword hit lines before accepting `HAS_MULTI_SPRINT` or `IS_ARCHITECTURAL`: an item that quotes the signal table, or names a plan whose title contains "redesign", matches every keyword without being either. `IS_ARCHITECTURAL` reads only the `## Proposed Solution` section when the item has one (an item without that heading is read whole), and inside it drops a stem that sits inside a file name, a multi-segment path, a snake_case identifier, an `**Evidence:**` line or a table row. Every dropped hit is listed under `ignored (N)` with its reason, so a stem in the title, the Summary or a Related line still shows there. A plain-prose hit that remains is still a candidate, so read its line. `HAS_CLEAR_FIX` is reported as its mechanical half only — the evidence shapes are *present*; whether they are *sufficient* is your judgment. The script never runs the pivot check or gates 3b, 4 and 5. It computes gate 7's verdict as the `scoped_rules` block, which step 7 reads.
    b. Read the item's `route_hint` / `route_evidence` / `route_dated` frontmatter when present. The report prints them beside the computed route with a verdict: `agree`, `agree — but the hint predates the item's newest evidence`, `undecided — …`, or `script wins — …`.
    c. Reconcile the two into one recommendation, and state the reconciliation in the Scope Assessment Block's `Reason:` line rather than in a new template:
       - Script and hint agree → recommend that route and note that both agreed.
@@ -213,33 +216,23 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
    d. Override the script's route only on a signal it cannot see — a keyword hit you read and classified as self-quotation, edit evidence you judged insufficient, a `##` count inflated by appended coordination flags — and name that signal in `Reason:`. Carry the script's `LARGE_SCOPE` forward unchanged when the route stays C.
 
 <!-- AUTO-MODE: critical — discharged by auto-escalation, not by a prompt. See step 7's Auto Mode paragraph. -->
-7. **Scoped-rule pre-delegation check (§3g):** Read the BLI's `Files` section. For each named destination path, grep `.claude/rules/**/*.md` for `paths:` declarations that include the destination. If any rule scopes a path matching the BLI's destination, flag the placement decision for human review BEFORE spawning the fix-agent.
+7. **Scoped-rule pre-delegation check (`verify-against-shipped-artifact.md` §3g):** Read the `scoped_rules` block that step 6a's `--route --id` report printed. The script took the item's destinations from its `## Files Touched` table (Role `EDIT` or `CREATE`), or, when the item has no table, from the path-like tokens in its body, and matched each one against the frontmatter `paths:` of every rule under `.claude/rules/`. The block ends in one of three verdicts:
 
-   ```bash
-   grep -rn "paths:" .claude/rules/
-   ```
+   | Verdict | Meaning | What to do |
+   |---|---|---|
+   | `none` | No rule scopes any destination | Continue to step 8 |
+   | `inject` | One or more rules scope a destination, and every one of them is a behaviour rule, or the destination is an edit in place | Continue to step 8. Carry `rules_to_inject` into the Route A spawn prompt's `Scoped rules` field in the form the block's `inject_form` names: `content` pastes each listed rule file (their sizes total at most 8 KiB), `paths` lists each file's absolute path with an instruction to read it before the first edit (both forms per `references/agent-orchestration-delegated.md` §1.6). Route A VERIFY still runs the self-containment grep on any content-tree diff |
+   | `placement` | The item would create a file under a rule that declares `placement: true`, or under `.claude/rules/`, `.claude/agents/`, `.claude/skills/` or `.claude/commands/`, and no archived lesson owns the item | Interactive: present the warning below and ask whether the destination is right before delegating. Auto Mode: see the paragraph below. Loop mode: a documented skip (Part 2 § Documented skip) |
 
-   Compare each `paths:` value against the BLI's destination paths. If a match is found, present a warning:
+   > **Placement decision needed:** destination `{path}` would be created under `{rule-file or content tree}`. Confirm the file belongs there before delegating.
 
-   > **Scoped-rule conflict detected:** destination `{path}` is covered by a scoped rule in `{rule-file}`. Verify the fix targets the correct file before delegating.
+   **Promotion exemption.** An item is exempt from the `placement` verdict, for every destination, when an archived lesson names it in `promoted-to:` and that lesson's `promotion-target:` includes `rule`. The script finds the owning lessons under `{lessons_dir}` and `{lessons_dir}/Archive` and reports them in the block; `promote-batch` already decided the placement of such an item, and its existing-rule check chose between extending a rule and writing a new one. The exemption covers any destination tree, a rule file or a reference alike.
 
-   **Promotion exemption.** Do not flag a destination when both conditions hold:
-   - An archived lesson names this item in its `promoted-to:` line, and that lesson's `promotion-target:` includes `rule`.
-   - The destination lies under `.claude/rules/`.
+   This gate applies regardless of route (Route A or Route B) — do not skip it. The verdict is the script's; override it only on a signal the script cannot see, and name that signal in `Reason:`.
 
-   Find the owning lesson with `Grep` for the item id over `{lessons_dir}` and `{lessons_dir}/Archive`. `promote-batch` already decided the placement of such an item. Its existing-rule check chose between extending a rule and writing a new one. Inject the matching rules' content into the fix-agent spawn prompt, per `references/agent-orchestration-delegated.md` §1.6. Route A VERIFY still runs the self-containment grep on the rules diff. A destination outside `.claude/rules/` keeps the flag. So does an item that no lesson owns.
+   **Auto Mode.** This is a human-judgment gate, so it is classified `critical`. It issues no `AskUserQuestion`: under automation an item with a `placement` verdict **auto-escalates to Route C**, which under automation writes the `needs_plan: true` marker and skips (see Route C below). An `inject` or `none` verdict proceeds with no prompt.
 
-   This gate applies regardless of route (Route A or Route B) — do not skip it. The exemption above is the only exception.
-
-   **Auto Mode.** This is a human-judgment gate, so it is classified `critical`. It issues
-   no `AskUserQuestion`, so it is discharged differently from the critical sites in
-   `references/auto-mode-policy.md` § Critical Question Behavior: under automation an item
-   that is not exempt **auto-escalates to Route C** rather than prompting or failing loud. The placement
-   decision cannot be inferred, and the Phase-5 mechanical gate cannot backstop it — a
-   misplaced-but-valid file builds clean and leaks nothing, so nothing downstream would
-   report the error.
-
-   In loop mode a conflict is a documented skip (Part 2 § Documented skip), never an escalation to Route C.
+   In loop mode a `placement` verdict is a documented skip, never an escalation to Route C.
 
 8. Present the scope assessment to the user:
 
@@ -290,19 +283,20 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
 - Option 2: Alternative route
 - Option 3: Skip this item
 
-**In loop mode:** ask nothing. Take the recommended route when it is A or B. A Route C result is a documented skip (Part 2 § Documented skip), with a `--decision` text that starts `LOOP: re-assessed to Route C`. Before the Route A or B dispatch, run `backlog_loop.py --mark --phase acting --run {run-id} --id {item_id}`. Every other decision point follows Part 2 § No questions after setup.
+**In loop mode:** ask nothing. Take the recommended route when it is A or B. A Route C result is a documented skip (Part 2 § Documented skip) that also writes the marker: `--mark --outcome SKIPPED --needs-plan` with a `--decision` text that starts `LOOP: re-assessed to Route C`. Before the Route A or B dispatch, run `backlog_loop.py --mark --phase acting --run {run-id} --id {item_id}`. Every other decision point follows Part 2 § No questions after setup. A refined item never reaches the default Route C branch; a `needs_plan` item is skipped per the marker rule.
 
 ### Route A: Direct Fix (fix-agent delegation)
 
 For bugs and targeted fixes with clear scope:
 
-**Pre-spawn: extract cross-cutting audit candidates (§3i):** Before building the spawn prompt, read the BLI file and look for sections named `Cross-cutting check`, `Cross-cutting consideration`, or `Notes`. Extract any cross-cutting items listed there to include in the spawn prompt. If none are found, use `"none identified"`.
+**Pre-spawn: extract cross-cutting audit candidates (`verify-backlog-citation-freshness.md` §3i):** Before building the spawn prompt, read the BLI file and look for sections named `Cross-cutting check`, `Cross-cutting consideration`, or `Notes`. Extract any cross-cutting items listed there to include in the spawn prompt. If none are found, use `"none identified"`.
 
 Delegate to the `fix-agent` via the Agent tool:
 
 ```
 Task {
   subagent_type: "planwise:fix-agent"
+  run_in_background: false
   description: "Fix backlog item {item-id}: {item-summary}"
   prompt: |
     Fix the following backlog item:
@@ -312,6 +306,7 @@ Task {
     Description: {item-description}
     Affected files: {file-list}
     Build command: {build-command-from-config}
+    Scoped rules (content to honour): {per the scoped_rules block's inject_form: "content" = the content of each file in rules_to_inject; "paths" = each file's absolute path with "Read each one before your first edit"; or "none"}
     Cross-cutting audit candidates (in-scope by default): {list extracted from BLI cross-cutting sections, or "none identified" if absent}
 }
 ```
@@ -324,7 +319,7 @@ A backlog item whose deliverable edits the permission configuration is not a Rou
 
 ### Route B: Task List
 
-For medium-scope items with 3-5 discrete steps:
+For medium-scope items with 2-5 discrete steps:
 
 1. Analyze the backlog item file to extract discrete steps
 2. **(Track B)** When `TaskCreate` is in your tool list: run `TaskList` first, then `TaskCreate` one task per step with subject `[{item-id}-{n}] {step}`. Mark each `in_progress` when you start it and `completed` when it is done. When `TaskCreate` is absent, track the steps as a checklist in the item file and call none of the Task tools. The gate is `references/session-execution-protocol.md` §5.
@@ -333,17 +328,15 @@ For medium-scope items with 3-5 discrete steps:
 
 ### Route C: Session Planning
 
-<!-- AUTO-MODE: critical --> Step 2 below (EnterPlanMode) requires interactive user
-consent the harness cannot obtain unattended. **If Auto Mode is active, skip directly
-to step 5's `LARGE_SCOPE: true` dispatch (below) for every Route C item regardless of
-LARGE_SCOPE, dispatching `backlog-planner` with item ID/summary/description/affected
-files ONLY — no `Approved Approach` block, since steps 1-4 (which would have produced
-a plan-mode design) never ran** — this mirrors `handlers/harvest.md` Stage 3's
-existing unattended Route C contract exactly (it dispatches `backlog-planner` with
-the item's own scope only; `agents/backlog-planner.md` §1 CLASSIFY confirms it
-authors from the item's own scope with no such input). Log the skip: "Auto Mode:
-skipping EnterPlanMode (no interactive consent channel); dispatching backlog-planner
-directly with item scope only."
+<!-- AUTO-MODE: critical --> Step 2 below (`EnterPlanMode`) requires interactive user
+consent the harness cannot obtain unattended. **If Auto Mode is active, do not run
+steps 1 to 5. Mark the item as needing a planning session and skip it:** run
+`python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id {item_id} --mark-needs-plan`,
+which writes `needs_plan: true` into the item's frontmatter; set `--status
+NOT_STARTED`; log `Auto Mode: marked for a planning session; skipping (no plan is
+authored unattended)`; regenerate the index; continue to Phase 7. No planner is
+dispatched. A later interactive run, or a planning hand-off that reads the marker,
+authors the plan.
 
 **Interactive flow (Auto Mode not active):**
 
@@ -367,38 +360,12 @@ directly with item scope only."
    - Phase 6 outcome: "Fix approved" -> COMPLETE, or "Fix reverted" -> NOT_STARTED
      (existing table rows — no new row needed for this branch).
 
-   **`LARGE_SCOPE: true`** — hand off to the full session-planning agent:
-   - Dispatch `planwise:backlog-planner` via the Agent tool, using the same
-     invocation shape Route A uses for `fix-agent` (above), passing: item ID,
-     summary, description, affected files — and, ONLY when reached via this
-     interactive flow (steps 1-4 ran and produced a plan-mode design), an
-     `Approved Approach` block containing the just-approved plan-mode plan file's
-     content (backlog-planner authors its Standard plan FROM this approach when
-     present). When this dispatch is instead reached via the Auto Mode skip above,
-     omit the `Approved Approach` block entirely — backlog-planner authors from the
-     item's own scope, exactly as `harvest.md` Stage 3 already does.
-   - Read the returned status block (`agents/backlog-planner.md` §Status Block).
-     - If `TASK_STATUS: BLOCKED` -> apply `agents/backlog-planner.md`'s own
-       Failure Semantics table verbatim: status -> NOT_STARTED (never PLANNING
-       with no plan file), Notes `AUTO-PLAN FAILED {date}: {reason} — needs manual
-       triage`. Do NOT proceed to the review step below.
-     - If `TASK_STATUS: COMPLETE` and `REVIEW_REQUESTED: true` -> immediately run
-       `/planwise review {PLAN_PATH}` via the Agent tool (mirroring
-       `handlers/plan.md` Step 10's auto-review dispatch) — this MUST run exactly
-       once here; do NOT also offer `/planwise plan`'s own Step 10 review gate for
-       this plan, since `backlog-planner` already skips its side of that gate for
-       this exact reason. Recompute the verdict from the review report's own
-       Verdict section per `agents/backlog-planner.md`'s Verdict Table
-       (BLOCKER > 0, or an unjustified ERROR > 0 -> NEEDS_FIXES; else ->
-       APPROVED). Record the verdict in this item's Notes.
-   - Proceed to Phase 6 (status -> PLANNING) when a plan file was produced,
-     whether the review verdict was APPROVED or NEEDS_FIXES (per
-     `backlog-planner`'s own Failure Semantics table: a `NEEDS_FIXES` verdict
-     still leaves the item PLANNING — "a plan exists, unapproved" — it does not
-     revert to NOT_STARTED). The item then stays `PLANNING` until `/planwise run`
-     closeout closes it from the Master Plan's `**Resolves:**` header field
-     (`handlers/run.md` Step 4.3) — no backlog route closes it, so a plan whose
-     Master Plan lacks the item in that field leaves the item open after shipping.
+   **`LARGE_SCOPE: true`** — mark the item for a planning session. No plan is authored here:
+   - Run `python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id {item_id} --mark-needs-plan`.
+     It writes `needs_plan: true` into the item's frontmatter. Phase 6 sets the status.
+   - Print the hand-off: "Run `/planwise plan` on this item; the plan-mode file is the
+     approved approach", and name the plan-mode file's path.
+   - Proceed to Phase 6 (outcome "Marked for a planning session").
 
 ---
 
@@ -434,7 +401,7 @@ directly with item scope only."
 
    If a hit needs repointing, return it to the fix-agent (Route A) or open a follow-up task (Route B) requesting the shell command be repointed. Do NOT proceed to step 4 with unrepointed hits outstanding.
 
-In loop mode, before step 4 run `backlog_loop.py --mark --phase verifying --run {run-id} --id {item_id}`. Then skip step 4 and step 5: all gates passing means COMPLETE, and a failing gate is a documented skip that reverts nothing (Part 2 § No questions after setup).
+In loop mode, before step 4 run `backlog_loop.py --mark --phase verifying --run {run-id} --id {item_id}`. Then skip step 4 and step 5: all gates passing means COMPLETE, and a failing gate is a documented skip that reverts nothing (Part 2 § No questions after setup). Verification commands are in scope, never a reason to skip (Part 2 § Verification is in scope).
 
 <!-- AUTO-MODE: critical -->
 4. Use `AskUserQuestion`:
@@ -457,9 +424,7 @@ In loop mode, before step 4 run `backlog_loop.py --mark --phase verifying --run 
 **After Route C (Session Planning):**
 - `LARGE_SCOPE: false` items were already verified via the "After Route B" flow
   above — Route C's own step 5 routes them there directly.
-- `LARGE_SCOPE: true` items: no additional verification needed here — the
-  mandatory `/planwise review` pass Route C's step 5 already ran against
-  `PLAN_PATH` before this phase was reached IS this branch's verification
+- `LARGE_SCOPE: true` items: nothing to verify; the item carries the marker.
 
 ---
 
@@ -472,15 +437,14 @@ In loop mode, before step 4 run `backlog_loop.py --mark --phase verifying --run 
 | Fix approved | `--status COMPLETE` |
 | Fix reverted | `--status NOT_STARTED` |
 | Task list completed | `--status COMPLETE` |
-| Session plan created | `--status PLANNING` — `/planwise run` closeout later sets COMPLETE from the Master Plan `**Resolves:**` field |
-| Session planning failed (backlog-planner BLOCKED) | `--status NOT_STARTED` |
+| Marked for a planning session | `--status NOT_STARTED`; marker already written |
 | Skipped | No change |
 
 ```bash
 python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id "{item_id}" --status "{new_status}"
 ```
 
-**In loop mode,** after the `update_backlog.py --status` call, record the outcome with `backlog_loop.py --mark --outcome {COMPLETE|NOT_STARTED|SKIPPED} --run {run-id} --id {item_id}`. Approved or task list done maps to COMPLETE, reverted or planner blocked to NOT_STARTED, skipped to SKIPPED (see Part 2 § Per-iteration contract).
+**In loop mode,** after the `update_backlog.py --status` call, record the outcome with `backlog_loop.py --mark --outcome {COMPLETE|NOT_STARTED|SKIPPED} --run {run-id} --id {item_id}`. Approved or task list done maps to COMPLETE, reverted to NOT_STARTED, skipped to SKIPPED (see Part 2 § Per-iteration contract).
 
 **Regenerate the index once after status changes** (skip if outcome was "Skipped" — nothing changed):
 
@@ -509,7 +473,7 @@ python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/
 > ID  | Feature                              | Action        | Status
 > ----|--------------------------------------|---------------|--------
 > 002 | Fix login redirect bug               | Direct Fix    | COMPLETE
-> 001 | Setup project CI pipeline            | Plan Created  | PLANNING
+> 001 | Setup project CI pipeline            | Marked for planning | NOT_STARTED
 > 003 | Add user profile page                | Skipped       | IN_PROGRESS
 > ```
 
@@ -588,65 +552,22 @@ Use `AskUserQuestion`: "Create backlog item from this candidate?"
 >
 > This is a different concern from shipped-artifact self-containment (`references/artifact-self-containment.md`, which strips internal identifiers out of distributed artifacts) — here the goal is that the capture itself carries its own substance.
 
-For the accepted candidate set — the gate below applies per candidate, the routing decision after it applies to the set as a whole:
+For the accepted candidate set — the gate below applies per candidate, the hand-over after it applies to the set as a whole:
 
 > [!important] Pre-filing re-verification gate (before any file is written)
 > For each candidate, re-prove the condition it asserts against the live repository, per `references/verify-backlog-citation-freshness.md` §10. Candidates sourced from a plan's out-of-scope table, an audit's findings, or a prior session's deferred-work section carry their source's authoring date, not today's state. A candidate whose condition no longer holds is not filed — it is reported with the evidence that retired it, and the source document is reconciled per §10.4.
 
-> [!decide] Delegate the batch, or file inline
-> | Accepted candidates | Path |
-> |---|---|
-> | **N ≥ 2** | Dispatch `backlog-author` once (below), then render Step 7.4 from its status block |
-> | **N = 1** | File inline via steps 1-4 below — a single item does not repay a subagent's startup and re-read cost |
->
-> The accept/skip decision in Step 7.2 has already happened and stays in this session: the interactive question tool does not exist in a spawned context. Dispatch carries only accepted candidates.
+**Hand-over to the creation process.** File the accepted set (any N ≥ 1) through the filing path of [`references/backlog-creation-process.md`](../references/backlog-creation-process.md) §3, which holds the spawn-prompt shapes. Pass only accepted candidates: no spawned agent has the question tool.
 
-**Delegated path (N ≥ 2)** — dispatch [`agents/backlog-author.md`](../agents/backlog-author.md) via the Agent tool:
-
-```
-Task {
-  subagent_type: "planwise:backlog-author"
-  description: "File {N} follow-up backlog items from {item-id} resolution"
-  prompt: |
-    File the following accepted candidates as backlog items.
-
-    plugin_root:    {plugin_root}
-    planwise_root:  {planwise_root}
-    backlog_dir:    {backlog_dir}
-    Candidates:     {one block per candidate: description, target file, severity, originating item}
-    Source docs:    {paths this session already read, for SOURCE_PINS comparison}
-
-    Run the pre-filing re-verification gate on every candidate before writing
-    anything. Do not file a candidate whose condition no longer holds — return
-    it under ITEMS_RETIRED with the evidence that retired it.
-}
-```
+1. Dispatch `backlog-preflight` once in `file` mode, one block per candidate. It runs the pre-filing re-verification gate above, so a candidate that no longer holds returns as a retirement.
+2. Dispatch `backlog-planner` once per `HOLDS` block, named `planner-{id-or-label}`.
+3. On a `QUESTIONS` return, ask each question with one `AskUserQuestion` call. Then send the answers with `SendMessage` to the planner's dispatch name (`references/backlog-creation-process.md` §5).
+4. Dispatch `backlog-author` once in `file` mode after the last planner returns. It files the batch and regenerates the index. It sets no status: a status change runs through `update_backlog.py --status` here.
 
 > [!constraint] One dispatch, never a fan-out
 > **Never dispatch two of these agents concurrently.** The id-allocation race is the only remaining reason. `--next-id` reads the generated index files, and those change only when `generate_backlog_index.py --write` runs at the end of a dispatch. Two concurrent dispatches can therefore read the same next-free id and file two items under it. This guard can retire once id allocation stops depending on the regenerated index. Batch candidates into **one** dispatch rather than fanning out per candidate. One dispatch also costs less than several. Dispatch **foreground only** — a background subagent silently auto-denies its own Write/Edit/Bash calls, and permission-bypass modes do not override that gate.
 
-**Result handling:** render Step 7.4 from the returned status block. `ITEMS_FILED < CANDIDATES_IN` is a valid COMPLETE — name each retirement and its evidence in the summary. Reconcile each source document listed under `SOURCE_RECONCILE` per `references/verify-backlog-citation-freshness.md` §10.4; the agent does not touch those files. If `SOURCE_PINS` shows a source file whose line count differs from this session's own read, re-read it before trusting the item drafted from it.
-
-**Inline path (N = 1)** — steps 1-3:
-
-1. **Get next BLI ID:**
-   ```bash
-   python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.yaml --next-id
-   ```
-
-2. **File the item through the guarded writer, then fill its body:**
-   ```bash
-   python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --create --id "{NNN}" --feature "{recommendation, 120 characters or fewer}" --priority "{inferred from severity}" --abbrev "{Domain}" --files "BB-{NNN}-01-{Domain}-{Topic}.md"
-   ```
-   `--create` writes the item file at `{backlog_dir}/BB-{NNN}-01-{Domain}-{Topic}.md` from the [backlog-item.md](../templates/backlog-item.md) template. `01` is the sub-item segment that [backlog-schema.md](../references/backlog-schema.md) defines, and a new item always starts at `01`. It writes nothing else — no index row, no regeneration. **Cap the title at 120 characters** — `--create` rejects a longer `--feature`, writes nothing, and names the actual length and the cap; it never truncates. Shorten the title and move the overflow into the item body's `## Summary`. Then use `Edit` to add the candidate description, target file, and severity.
-   - **Route hint (optional, when the evidence supports it):** in the same `Edit`, add `route_hint:` (`A`, `B`, or `C`), `route_evidence:` (one line — why, from what was verified live), and `route_dated:` (today) to the frontmatter. Filing time is when the routing evidence is richest; Phase 3 step 6 reads the three fields back as a dated recommendation, never a decision. Omit all three rather than guess.
-   - **Self-containment check:** the body inlines every block, spec, or piece of evidence the item depends on — a reference may add context, but the substantive content required to act is pasted in, not only linked. (Apply the durability test above.)
-
-3. **Regenerate the index once, after the item is filed:**
-   ```bash
-   python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --write
-   ```
-   The generator rebuilds the whole index from every item file's frontmatter and computes the Score column itself — there is no separate re-score step. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's Index shape gate was bypassed — run it.
+**Result handling:** render Step 7.4 from the author's status block. `ITEMS_FILED < CANDIDATES_IN` is a valid COMPLETE — name each retirement the author lists under `ITEMS_RETIRED`, with its evidence, in the summary. Reconcile each source document listed under `SOURCE_RECONCILE` per `references/verify-backlog-citation-freshness.md` §10.4; the author does not touch those files. If the preflight's `SOURCE_PINS` shows a source file whose line count differs from this session's own read, re-read it before trusting the item drafted from it.
 
 ### Step 7.4: Output Summary
 
@@ -660,7 +581,7 @@ Skipped: {N - M}
 New BLI IDs: BLI-{NNN}, BLI-{NNN+1}, ...
 ```
 
-When the number of items filed differs from the number of candidates surfaced, name each candidate that was retired rather than filed, with the evidence that retired it (from the Step 7.3 pre-filing gate) — a silent count difference is indistinguishable from a dropped candidate.
+Render this summary from the author's status block: `BLIs created` is its `ITEMS_FILED`. When the number of items filed differs from the number of candidates surfaced, name each candidate that was retired rather than filed, with the evidence that retired it (from the author's `ITEMS_RETIRED` lines) — a silent count difference is indistinguishable from a dropped candidate.
 
 ---
 
@@ -723,14 +644,16 @@ Use this logic to determine the recommended route in Phase 3.
 |--------|---------------|--------|
 | Item predates active work in its own domain, or is cohort-shaped (siblings by period/abbrev/`blocks:`) | Pivot check per `references/backlog-triage-pivot-detection.md` | Gate → run before any routing weight is assigned |
 | `abbrev: BUG` in frontmatter | Read the item's `abbrev` field | Strong → Direct Fix |
-| Item file < 50 lines | Line count on read | Moderate → Direct Fix (a *proxy* for a small fix — a file that is long only because it is thoroughly documented is NOT large scope) |
+| Item file < 50 lines | Line count on read | Moderate → Direct Fix (a *proxy* for a small fix; length alone is never large scope) |
 | Exact fix evidence: named files + line anchors + before/after content + scope-confinement bound | BB body supplies concrete, bounded edit targets | Strong → Direct Fix — sets `HAS_CLEAR_FIX` regardless of file length |
 | Specific file paths mentioned | Regex for code file extensions | Moderate → Direct Fix |
 | "multi-sprint" / "phased" keywords | Case-insensitive content search | Strong → Session Planning |
 | "refactor" / "redesign" / "architecture" / "migration" | Content keywords in the `## Proposed Solution` section (the whole body when the item has no such section); a stem in a title, Summary, evidence line, table row or name is listed as ignored | Strong → Session Planning |
-| 6+ sub-items or ## headings | Take the larger of two counts: the longest consecutive numbered list (two lists of 2 and 4 are 4 parts, not 6) and the H2 headers, excluding the backlog item template's own section headings (Summary, Problem, Proposed Solution, Acceptance Criteria, Related, Files Touched, Notes) | Moderate → Session Planning |
+| 6+ sub-items or ## headings | Take the larger of two counts: the longest consecutive numbered list (two lists of 2 and 4 are 4 parts, not 6) and the H2 headers, excluding the backlog item template's own section headings (Summary, Problem, Proposed Solution, Acceptance Criteria, Related, Files Touched, Notes, Resolution, Verification, Open Questions, Loop Decision Needed) | Moderate → Session Planning |
 | Multiple reference files (YY > 01) | Files column has 2+ links | Moderate → Session Planning |
-| 3-5 numbered steps | Count discrete steps | Moderate → Task List |
+| 2-5 numbered steps (`ROUTE_B_MIN_STEPS`..`ROUTE_B_MAX_STEPS` in `score_backlog.py`) | Count discrete steps | Moderate → Task List |
+| `refined: true` and the shape gate passes (`## Resolution` with at least one numbered step, `## Verification`, no open question) | `score_backlog.py --route --id` shape block | Strong → Task List; its step count, keyword and sub-item signals are read from `## Resolution` only |
+| `needs_plan: true` in frontmatter | Read the item's `needs_plan` field | Gate → Session Planning, never A or B |
 
 ### Decision Logic
 
@@ -750,17 +673,26 @@ Use this logic to determine the recommended route in Phase 3.
     IF premise fails (bare target + all variants absent) -> SURFACE: commit probe evidence,
     route the scope decision to the user. Do NOT route to Direct Fix, regardless of edit size.
 
-IF HAS_CLEAR_FIX AND NOT (IS_ARCHITECTURAL OR HAS_MULTI_SPRINT OR SUB_ITEMS >= 6):
+IF NEEDS_PLAN:
+    -> SESSION PLANNING (Route C), LARGE_SCOPE = true   # NEEDS_PLAN: true (marked for a planning session)
+
+ELIF HAS_CLEAR_FIX AND NOT (IS_ARCHITECTURAL OR HAS_MULTI_SPRINT OR SUB_ITEMS >= 6):
     -> DIRECT FIX (Route A)          # IS_BUG strengthens this signal but is not required
 
 ELIF HAS_MULTI_SPRINT OR IS_ARCHITECTURAL OR (SUB_ITEMS >= 6):
     -> SESSION PLANNING (Route C), LARGE_SCOPE = true
 
+ELIF REFINED AND SHAPE_OK AND 1 <= STEP_COUNT <= 5:
+    -> TASK LIST (Route B)           # REFINED: 1 <= STEP_COUNT <= 5 from ## Resolution
+
+ELIF REFINED:
+    -> SESSION PLANNING (Route C), LARGE_SCOPE = false   # REFINED but shape gate failed (see shape block)
+
 ELIF 2 <= STEP_COUNT <= 5:
     -> TASK LIST (Route B)
 
 ELSE:
-    -> SESSION PLANNING (Route C) [conservative default], LARGE_SCOPE = false
+    -> SESSION PLANNING (Route C) [conservative default], LARGE_SCOPE = false   # ELSE (conservative default)
 
 3. Present recommendation via AskUserQuestion (include LARGE_SCOPE in the Scope
    Assessment Block when Route = SESSION_PLANNING)
@@ -770,4 +702,4 @@ ELSE:
    conditions above independently hold.
 ```
 
-`score_backlog.py --route` implements step 2 and the `IF` / `ELIF` / `ELSE` chain above mechanically (`compute_route_signals` and `decide_route` in that script); Phase 3 step 6 runs it. This pseudocode is the source: a script that diverges from it is defective, and the fix is to the script. Steps 0 and 0.5, the sufficiency half of `HAS_CLEAR_FIX`, and steps 3-4 stay with the handler.
+`score_backlog.py --route` implements step 2 and the `IF` / `ELIF` / `ELSE` chain above mechanically (`compute_item_shape`, `compute_route_signals` and `decide_route` in that script); Phase 3 step 6 runs it. The shape gate and the `refined` step count are read from `## Resolution`; the handler never re-derives them. `## Open Questions` feeds only the shape gate, no route signal or line count. A script that diverges from this pseudocode is defective. Steps 0 and 0.5, the sufficiency half of `HAS_CLEAR_FIX`, and steps 3-4 stay with the handler.

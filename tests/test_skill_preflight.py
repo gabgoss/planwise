@@ -49,6 +49,16 @@ FALLBACK = "PLANWISE_LIST_FALLBACK:"
 UPGRADE_BEGIN = "<!-- planwise:upgrade:begin -->"
 UPGRADE_END = "<!-- planwise:upgrade:end -->"
 UPGRADE_FALLBACK = "PLANWISE_UPGRADE_FALLBACK:"
+PLAN_BEGIN = "<!-- planwise:plan:begin -->"
+PLAN_END = "<!-- planwise:plan:end -->"
+PLAN_FALLBACK = "PLANWISE_PLAN_FALLBACK:"
+PLAN_FIELD_KEYS = (
+    "plugin_root",
+    "project.planwise_root",
+    "project.plans_dir",
+    "project.lessons_dir",
+    "project.index_files.lessons",
+)
 NO_DRIFT = "No drift detected. All index rows match their Master Plan status."
 ROUTING_ROW = re.compile(r"^\| `([a-z-]+)` \| ", re.MULTILINE)
 
@@ -267,7 +277,8 @@ class TestSilentForEveryRoutedSubcommand(_Fixture):
 
     def test_every_other_subcommand_is_silent_and_imports_nothing(self):
         self.build_plans([("AAA", "Alpha", "COMPLETE")])
-        others = sorted(self.routed_subcommands() - {"list", "upgrade"})
+        self.assertIn("plan", self.routed_subcommands())  # the exclusion below must not hide a removed row
+        others = sorted(self.routed_subcommands() - {"list", "upgrade", "plan"})
         self.assertTrue(others)
         for sub in others:
             for args in ([sub, "", ""], [sub, "--active", "--no-check"]):
@@ -353,6 +364,196 @@ class TestUpgradeCard(_Fixture):
         self.assertIn(UPGRADE_END, text)
         card = text[text.index(UPGRADE_BEGIN):]
         self.assertTrue("—" in card or "…" in card)
+
+
+class TestPlanConfigGate(_Fixture):
+    """`plan` prints the handler's Config Gate between markers, or one fallback line, and exits 0."""
+
+    PLAN_CONFIG_YAML = (
+        "project:\n"
+        '  name: "PreflightFixtureProject"\n'
+        '  planwise_root: "planwise"\n'
+        '  plans_dir: "Plans"\n'
+        '  lessons_dir: "LessonsLearned"\n'
+        "  index_files:\n"
+        '    plans: "00-Index-Plans.md"\n'
+        '    lessons: "00-Index-LessonsLearned.md"\n'
+        f"plugin_root: '{(REPO_DIR / 'plugins' / 'planwise').as_posix()}'\n"
+    )
+
+    def setUp(self):
+        super().setUp()
+        (self.planwise_dir / "config.yaml").write_text(self.PLAN_CONFIG_YAML, encoding="utf-8")
+
+    @staticmethod
+    def block_lines(stdout):
+        return [ln for ln in stdout.splitlines() if ln]
+
+    @staticmethod
+    def field_values(lines):
+        return dict(ln.split(": ", 1) for ln in lines[1:-1])
+
+    def test_block_carries_the_config_path_and_the_five_fields(self):
+        proc = run_router(["plan", "", ""], self.tmp)
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stderr, "")
+        lines = self.block_lines(proc.stdout)
+        self.assertEqual(lines[0], PLAN_BEGIN)
+        self.assertEqual(lines[-1], PLAN_END)
+        self.assertNotIn(PLAN_FALLBACK, proc.stdout)
+        keys = [ln.split(": ", 1)[0] for ln in lines[1:-1]]
+        for key in ("config", *PLAN_FIELD_KEYS):
+            with self.subTest(key=key):
+                self.assertEqual(keys.count(key), 1)
+        values = self.field_values(lines)
+        self.assertEqual(Path(values["config"]).resolve(), (self.planwise_dir / "config.yaml").resolve())
+        self.assertEqual(Path(values["plugin_root"]).resolve(), (REPO_DIR / "plugins" / "planwise").resolve())
+        self.assertEqual(values["project.planwise_root"], "planwise")
+        self.assertEqual(values["project.plans_dir"], "Plans")
+        self.assertEqual(values["project.lessons_dir"], "LessonsLearned")
+        self.assertEqual(values["project.index_files.lessons"], "00-Index-LessonsLearned.md")
+        self.assertEqual(values["plans_path"], "planwise/Plans")
+        self.assertEqual(values["lessons_path"], "planwise/LessonsLearned")
+        self.assertLess(len(proc.stdout), 30000)
+
+    def test_no_config_prints_one_fallback_line_then_the_end_marker(self):
+        bare = Path(tempfile.mkdtemp(prefix="skill_preflight_bare_")).resolve()
+        self.addCleanup(shutil.rmtree, bare, ignore_errors=True)
+        proc = run_router(["plan", "", ""], bare)
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stderr, "")
+        self.assertEqual(
+            self.block_lines(proc.stdout),
+            [PLAN_BEGIN, f"{PLAN_FALLBACK} FileNotFoundError: config.yaml not found", PLAN_END],
+        )
+
+    def test_malformed_config_prints_a_parse_error_fallback(self):
+        cases = {
+            "with the project marker": "project:\n  name: [unclosed\n",
+            "without the project marker": "plugin_version: [unclosed\n  : : {\n",
+        }
+        for label, text in cases.items():
+            with self.subTest(case=label):
+                (self.planwise_dir / "config.yaml").write_text(text, encoding="utf-8")
+                proc = run_router(["plan", "", ""], self.tmp)
+                self.assertEqual(proc.returncode, 0)
+                self.assertNotIn("Traceback", proc.stderr)
+                lines = self.block_lines(proc.stdout)
+                self.assertEqual(len(lines), 3)
+                self.assertEqual((lines[0], lines[2]), (PLAN_BEGIN, PLAN_END))
+                self.assertTrue(lines[1].startswith(PLAN_FALLBACK))
+                self.assertIn("config.yaml parse error at ", lines[1])
+
+    def test_config_warning_never_reaches_the_block(self):
+        # `plan_statuses: [1]` makes config_loader.load_config warn on stderr.
+        (self.planwise_dir / "config.yaml").write_text(
+            self.PLAN_CONFIG_YAML + "plan_statuses: [1]\n", encoding="utf-8")
+        proc = run_router(["plan", "", ""], self.tmp)
+        self.assertEqual((proc.returncode, proc.stderr), (0, ""))
+        self.assertNotIn("Warning", proc.stdout)
+        self.assertEqual(self.block_lines(proc.stdout)[-1], PLAN_END)
+
+    def test_plan_imports_neither_list_plans_nor_upgrade_preflight(self):
+        stdout, imported = run_router_module_probe(
+            ["plan", "", ""], self.tmp, ["list_plans", "upgrade_preflight"])
+        self.assertIn(PLAN_BEGIN, stdout)
+        self.assertEqual(imported, {"list_plans": False, "upgrade_preflight": False})
+
+    def test_stray_flags_render_the_same_block(self):
+        plain = run_router(["plan", "", ""], self.tmp)
+        flagged = run_router(["plan", "--active", ""], self.tmp)
+        self.assertEqual(flagged.returncode, 0)
+        self.assertIn(PLAN_BEGIN, flagged.stdout)
+        self.assertEqual(flagged.stdout, plain.stdout)
+
+    def test_block_bytes_decode_as_utf8_under_a_cp1252_stdout(self):
+        (self.planwise_dir / "config.yaml").write_text(
+            self.PLAN_CONFIG_YAML.replace("LessonsLearned", "Lessons—Learned"), encoding="utf-8")
+        env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+        proc = subprocess.run(
+            [sys.executable, "-B", str(SCRIPT), "plan", "", ""],
+            capture_output=True, cwd=str(self.tmp), env=env, timeout=60, check=False)
+        self.assertEqual(proc.returncode, 0)
+        text = proc.stdout.decode("utf-8")
+        self.assertIn("project.lessons_dir: Lessons—Learned", text)
+        self.assertIn(PLAN_END, text)
+
+
+class TestPlanGateResolutionAndRawFields(_Fixture):
+    """The block follows the handler's resolution order and prints the raw config values."""
+
+    PLAN_CONFIG_YAML = TestPlanConfigGate.PLAN_CONFIG_YAML
+    block_lines = staticmethod(TestPlanConfigGate.block_lines)
+    field_values = staticmethod(TestPlanConfigGate.field_values)
+
+    def setUp(self):
+        super().setUp()
+        (self.planwise_dir / "config.yaml").write_text(self.PLAN_CONFIG_YAML, encoding="utf-8")
+
+    def render(self):
+        proc = run_router(["plan", "", ""], self.tmp)
+        self.assertEqual((proc.returncode, proc.stderr), (0, ""))
+        lines = self.block_lines(proc.stdout)
+        self.assertEqual((lines[0], lines[-1]), (PLAN_BEGIN, PLAN_END))
+        return lines
+
+    def test_unmarked_planwise_config_wins_over_a_marked_sibling(self):
+        # A flow-style `project:` block carries no line-start marker, and the handler checks this file first.
+        (self.planwise_dir / "config.yaml").write_text("project: {plans_dir: Plans}\n", encoding="utf-8")
+        docs = self.tmp / "docs"
+        docs.mkdir()
+        (docs / "config.yaml").write_text(self.PLAN_CONFIG_YAML, encoding="utf-8")
+        values = self.field_values(self.render())
+        self.assertEqual(Path(values["config"]).resolve(), (self.planwise_dir / "config.yaml").resolve())
+
+    def test_marked_sibling_is_found_one_level_down(self):
+        (self.planwise_dir / "config.yaml").unlink()
+        docs = self.tmp / "docs"
+        docs.mkdir()
+        (docs / "config.yaml").write_text(self.PLAN_CONFIG_YAML, encoding="utf-8")
+        values = self.field_values(self.render())
+        self.assertEqual(Path(values["config"]).resolve(), (docs / "config.yaml").resolve())
+
+    def test_root_level_config_is_not_a_candidate(self):
+        (self.planwise_dir / "config.yaml").unlink()
+        (self.tmp / "config.yaml").write_text(self.PLAN_CONFIG_YAML, encoding="utf-8")
+        self.assertEqual(
+            self.render(),
+            [PLAN_BEGIN, f"{PLAN_FALLBACK} FileNotFoundError: config.yaml not found", PLAN_END],
+        )
+
+    def test_absent_fields_print_their_default_with_a_suffix(self):
+        (self.planwise_dir / "config.yaml").write_text(
+            'project:\n  name: "PreflightFixtureProject"\n', encoding="utf-8")
+        values = self.field_values(self.render())
+        lessons_index = config_loader.INDEX_NAME_DEFAULTS["lessons"]
+        expected = {
+            "project.planwise_root": "planwise (default)",
+            "project.plans_dir": "Plans (default)",
+            "project.lessons_dir": "(not set)",
+            "project.index_files.lessons": f"{lessons_index} (default)",
+            "plans_path": "planwise/Plans",
+            "lessons_path": "(not set)",
+        }
+        for key, value in expected.items():
+            with self.subTest(key=key):
+                self.assertEqual(values[key], value)
+        self.assertTrue(values["plugin_root"].endswith(" (default)"))
+
+    def test_stale_plugin_root_prints_the_configured_value(self):
+        stale = (self.tmp / "no-such-plugin").as_posix()
+        (self.planwise_dir / "config.yaml").write_text(
+            self.PLAN_CONFIG_YAML.replace((REPO_DIR / "plugins" / "planwise").as_posix(), stale),
+            encoding="utf-8")
+        values = self.field_values(self.render())
+        self.assertEqual(values["plugin_root"], f"{stale} (missing on disk)")
+
+    def test_non_utf8_config_prints_a_parse_error_fallback(self):
+        (self.planwise_dir / "config.yaml").write_bytes(b"project:\n  name: caf\xe9 \xff\n")
+        lines = self.render()
+        self.assertEqual(len(lines), 3)
+        self.assertTrue(lines[1].startswith(PLAN_FALLBACK))
+        self.assertIn("config.yaml parse error at ", lines[1])
 
 
 class TestVersionNoticeRoute(_Fixture):

@@ -56,6 +56,21 @@ Map each Consolidated Context part to a sprint. Each part's `Scope:` and `What T
 
 ## Scaffolding Step 4: Create Execution Inputs
 
+**Write CONFIRM (before the first plan file):** Before writing any plan file (Master Plan, Execution Input, Sprint Plan, Orchestration, Recovery, task file, `Outputs/`), output this block and wait for approval. No mode waives it, Auto Mode included.
+
+> [!template] Scaffolding Write Confirmation
+> ```
+> CONTEXT LOADED
+> Plan: {plan name + abbreviation}
+> Expected outputs: 1 Master Plan + N Execution Inputs + M Sprint Plans
+> Per-sprint session count: Sprint-{XX}: K1 sessions, Sprint-{YY}: K2 sessions, ...
+> Total file count: F files (Σ session-folder × per-session file count + Master Plan + EIs + Sprint Plans)
+> Next Action: Write {first file path}
+> ```
+
+<!-- AUTO-MODE: critical -->
+Use `AskUserQuestion`: "Write these {F} plan files?"
+
 For EACH sprint, produce an **Execution Input** file -- a sprint-scoped extraction of the Consolidated Context parts. Use the [execution-input.md](../templates/execution-input.md) template.
 
 **Process:**
@@ -64,7 +79,7 @@ For EACH sprint, produce an **Execution Input** file -- a sprint-scoped extracti
 3. **Extract** the relevant content into sections, noting which tasks use each section
 4. From cross-sprint reference parts, extract ONLY the decisions/conventions this sprint needs
 5. Add Cross-References table tracing each section back to its source
-6. If at/over 22K measured tokens (`python "{plugin_root}/scripts/measure_files.py" {EI file}`), split into parts: `{Abbrev}-S{XX}-Execution-Input-Part-{N}-{Topic}.md`
+6. If at/over 22K measured tokens (`python "{plugin_root}/scripts/measure_files.py" {EI file}`), split into parts: `{Abbrev}-S{XX}-Execution-Input-Part-{N}-{Topic}.md`. State the target in bytes beside the token figure, and add a split index when the estimate is within 20% of the ceiling.
 7. **Before finalizing each section (binding):** (a) for any row citing a project-side backlog item or prior review as authority for a conclusion, read that authority's corrections/acceptance-criteria before compressing — a cited authority that has revised the claim is a HALT, not a footnote (`references/ei-source-promise-integrity.md` §10.4); (b) preserve hedge language verbatim, or record what was measured to resolve it (`references/ei-fidelity.md` §4.5); (c) for any row asserting a state (not just citing a path), re-run the assertion against the live artifact and record the measured value + date inline (`references/scaffolding-hygiene.md` §12.3).
 
 **Output:** One `{Abbrev}-S{XX}-Execution-Input.md` per sprint, placed in the sprint folder.
@@ -143,6 +158,10 @@ Use the [scaffolding master plan template](../templates/scaffolding-master-plan.
 
 Use standard templates for all other files (sprint plans, orchestrations, recovery, task files).
 
+**Spec, render, fill (mirrors standard [Steps 4-7](plan-Part-2-GatherAndGenerate.md#steps-4-7-generate-files)) when `Exec-{Abbrev}/` holds no file yet.** Write ONE metadata-only spec, run `python -B "{plugin_root}/scripts/scaffold_plan.py" lint-spec --spec {spec}`, then `python -B "{plugin_root}/scripts/scaffold_plan.py" render --spec {spec} --out {plans_dir}/{PlanName}/Exec-{Abbrev}`, and fill every FILL marker, exactly as Steps 4-7 describe. Cite each Execution Input section as a `kind` `"span"` row (`path` = the EI file, `span` = its section range), never as a hand-filled row after the render. The renderer reads the standard templates only, so it renders a standard Master Plan. Replace that file with ONE whole-file `Write` from the scaffolding master plan template. `render` refuses an `--out` folder that is not empty (exit 2) and never overwrites a plan file. Step 4 normally writes the Execution Inputs into the sprint folders first, so on that order write each file from its template as above. Do the same when the script is absent or exits non-zero.
+
+Whichever path writes the files, repairs follow standard [Step 8](plan-Part-2-GatherAndGenerate.md#step-8-generate-task-files)'s whole-file Write rule. An unanticipated section follows the Steps 4-7 rule: an `###` H3 under `## Plan-Specific Sections`, never a new H2, with one `idea` drafted through `mcp__planwise__draft_feedback` per new H3 heading text (none with drafts `off`). Run `python -B "{plugin_root}/scripts/scaffold_plan.py" check-headings {plans_dir}/{PlanName}/Exec-{Abbrev}` before Step 6, and move each stray H2 it lists under the catch-all.
+
 **Critical difference from standard planning:** Every task file's `Required Context` table MUST reference the sprint's **Execution Input** file (with section numbers), NOT the original Consolidated Context parts. The Execution Input replaces the parts for execution purposes.
 
 **Status rule:** Set ALL Sprint Plan files to `**Status:** PLANNED`. Only the Master Plan gets `READY_TO_EXECUTE`. Do NOT copy the Master Plan's status into Sprint Plans — each Sprint Plan starts as PLANNED and transitions to IN_PROGRESS → COMPLETE during execution.
@@ -151,7 +170,7 @@ Use standard templates for all other files (sprint plans, orchestrations, recove
 
 - **Collect each sprint's write-set as the Step 3 decomposition settles.** A write-set is the directories and files that sprint **EDITS** — never the ones it merely reads. Write it into that Sprint Plan's `## Write-Set` section as a `| Path | Task |` table naming the task that writes each path.
 - **Compute the pairwise intersection for every `∥` pair** the declared-ordering line joins, and write each result into the Master Plan's `## Execution Ordering` → `### Computed Write-Set Intersection` table (`| Declared pair | Intersection | Verdict |`). Show **the intersection itself** — the named shared paths, or `∅` — and not only a verdict. A shown `∅` is as much a computation as a non-empty row; a verdict standing alone, with no result beside it, is an assertion wearing a computation's clothes.
-- **On a non-empty intersection, take exactly one of the two dispositions §16.2 permits** and record which one in the same row: (1) **serialize the pair, dropping `∥`**; or (2) **qualify the parallelism per-file, naming an explicit task-level ordering edge for each shared file** (`S0A-01-0x → S0B-01-0y`).
+- **On a non-empty intersection, take exactly one of the two dispositions `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §16 (rule 16.2) permits** and record which one in the same row: (1) **serialize the pair, dropping `∥`**; or (2) **qualify the parallelism per-file, naming an explicit task-level ordering edge for each shared file** (`S0A-01-0x → S0B-01-0y`).
 - **Never infer disjointness from sprint names, cluster names, or subsystem labels.** "Agents vs handlers, disjoint files" names two clusters, and a cluster is not a write-set; the distance between the two is exactly where two concurrent sessions overwrite each other. This inference is the originating failure the rule exists to prevent, and no degree of apparent obviousness licenses it.
 - **Recompute the whole matrix whenever any sprint's write-set changes during scaffolding,** and stamp the `Last recomputed:` date beneath the table on every recomputation. A mid-plan coordination flag that admits one new file into a sprint's scope can turn a `∅` row false, and the row does not re-derive itself.
 
@@ -163,7 +182,7 @@ See `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §16 for
 - **Give each entry five fields:** `id`, `adopted-at` (this pass, or the review that adopted it), `requires`, a runnable `predicate`, and the `basis` value measured when the entry was written plus its date.
 - **Dry-run each predicate against a known-bad sprint and a known-good sprint before the entry ships.** The two runs MUST return different results. A predicate that reads the same either way is decoration, not a gate.
 - **Do not discharge the register here.** Each sprint's pre-run review runs every open entry's predicate against that sprint and records what came back. Adoption owns writing the entry, and review owns running it.
-- **A discharge never reads the `basis` field in place of re-running the predicate.** The basis is a scaffold-time snapshot and expires exactly like the state claims §12.3 governs — a stale entry misleads the reviewer in the very act of applying it.
+- **A discharge never reads the `basis` field in place of re-running the predicate.** The basis is a scaffold-time snapshot and expires exactly like the state claims `references/scaffolding-hygiene.md` §12.3 governs — a stale entry misleads the reviewer in the very act of applying it.
 
 See `references/scaffolding-hygiene.md` §12.6 for the full rule, the recorded ownership reasoning, and Reviewer Check 092.
 
@@ -176,13 +195,13 @@ See `references/scaffolding-hygiene.md` §12.6 for the full rule, the recorded o
 - **Classify each hit current-roster or historical-roster before editing it.** Only current-roster surfaces move. A frozen historical list — a "formerly X" set that some sweep walks — is correct precisely while it disagrees with the live roster, and updating it breaks the sweep it feeds. Record such a hit as verified-not-owed rather than skipping it silently.
 - **Removal is the same rule as addition.** State the trigger as *the roster changed*, never as *an artifact was added*.
 
-See §13.4 for the full derivation, the frozen-list counter-example, and Reviewer Check 093.
+See `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §13.4 for the full derivation, the frozen-list counter-example, and Reviewer Check 093.
 
-**`.gitkeep` emission (mirrors standard [Step 3](plan.md#step-3-create-folder-structure)):** For EVERY session folder created during scaffolding, write an empty `Outputs/.gitkeep` placeholder file inside the session's `Outputs/` directory. Empty directories are not tracked by git, so a missing `.gitkeep` means the `Outputs/` folder disappears on clone and downstream `/planwise run` cannot write summary or task-output files into the expected path. Apply to every sprint × every session — same per-session `.gitkeep` rule as the standard Step 3 constraint. Also populate each task file's Verification Commands per the [Step 8e per-file-type command map](plan.md#step-8e-populate-verification-commands-per-file-type-map) — scaffolded plans must NOT ship with blank verification placeholders any more than standard plans do.
+**`.gitkeep` emission (mirrors standard [Step 3](plan-Part-2-GatherAndGenerate.md#step-3-create-folder-structure)):** For EVERY session folder created during scaffolding, write an empty `Outputs/.gitkeep` placeholder file inside the session's `Outputs/` directory. Empty directories are not tracked by git, so a missing `.gitkeep` means the `Outputs/` folder disappears on clone and downstream `/planwise run` cannot write summary or task-output files into the expected path. Apply to every sprint × every session — same per-session `.gitkeep` rule as the standard Step 3 constraint. Also populate each task file's Verification Commands per the [Step 8e per-file-type command map](plan-Part-3-VerifyConfirmAndReview.md#step-8e-populate-verification-commands-per-file-type-map) — scaffolded plans must NOT ship with blank verification placeholders any more than standard plans do.
 
-**Token Saver large-file scan (mirrors standard [Step 8c](plan.md#step-8c-validate-token-estimates-bottom-up)):** When the **effective** Token Saver value is `true` (resolve it via the plan's Master-Plan `Token Saver:` field over the project default — `get_effective_token_saver_config(config, plan_override)`, exactly as Step 8c does), run the same per-file warning ladder over every scaffolded task file's Required Context, with one scaffolding-specific addition — a scaffolded task's Required Context references the sprint's **Execution Input** (per the Critical-difference rule above), so scan the **EI-section sizes** the task cites (not the original Consolidated Context parts) plus any direct code references in the task. Derive thresholds via `token_saver.derive_thresholds(...)` and classify each cited file/section with `token_saver.classify_file(path, model=<task's Agent>, projected_added_bytes=<byte delta if the task edits it>, thresholds=...)`, then emit the graduated ladder (Warn/Critical), file a backlog item at Warn+, and flag the task `1M-exception` only for a **cost-reason** Critical — identical contract to Step 8c (`reason=read` Critical → paged read / refactor, never `1M-exception`). The Execution Input itself is a **generated artifact a runner reads**, so its read-gate ceiling is HARD: if a sprint's EI trips the token, byte, OR line gate, split it into `{Abbrev}-S{XX}-Execution-Input-Part-{N}-{Topic}.md` parts at scaffold time rather than letting a runner hit a truncated read.
+**Token Saver large-file scan (mirrors standard [Step 8c](plan-Part-2-GatherAndGenerate.md#step-8c-validate-token-estimates-bottom-up)):** When the **effective** Token Saver value is `true` (resolve it via the plan's Master-Plan `Token Saver:` field over the project default — `get_effective_token_saver_config(config, plan_override)`, exactly as Step 8c does), run the same per-file warning ladder over every scaffolded task file's Required Context, with one scaffolding-specific addition — a scaffolded task's Required Context references the sprint's **Execution Input** (per the Critical-difference rule above), so scan the **EI-section sizes** the task cites (not the original Consolidated Context parts) plus any direct code references in the task. Derive thresholds via `token_saver.derive_thresholds(...)` and classify each cited file/section with `token_saver.classify_file(path, model=<task's Agent>, projected_added_bytes=<byte delta if the task edits it>, thresholds=...)`, then emit the graduated ladder (Warn/Critical), file a backlog item at Warn+, and flag the task `1M-exception` only for a **cost-reason** Critical — identical contract to Step 8c (`reason=read` Critical → paged read / refactor, never `1M-exception`). The Execution Input itself is a **generated artifact a runner reads**, so its read-gate ceiling is HARD: if a sprint's EI trips the token, byte, OR line gate, split it into `{Abbrev}-S{XX}-Execution-Input-Part-{N}-{Topic}.md` parts at scaffold time rather than letting a runner hit a truncated read. Write the measured cells as Step 8c's default path does: `python "{plugin_root}/scripts/token_saver.py" --scan --plan {plan_path} --write-estimates --task {task file} [--task ...]` prices each row it can resolve, leaves any other row as authored and reports it, and re-rolls the task, session and sprint totals. The per-task `measure_files.py` loop stays the fallback.
 
-**Shared-context single measurement (mirrors the standard [Step 8c](plan.md#step-8c-validate-token-estimates-bottom-up) pre-pass):** The measure-once/fan-out rule applies equally to scaffolded plans. A sprint's **Execution Input** is by construction cited in every task of the sprint — measure it (or each cited EI section) **ONCE** with `measure_files.py` on the live file, and write the **IDENTICAL** `KiB` / `~Tokens` into every citing task's Required Context row. The same applies to any cross-sprint shared doc (design pins, shared reference files). Never re-guess a shared file's size per task: one wrong guess otherwise replicates into every task subtotal, header, orchestration total, and the sprint total. If an EI or shared doc changes during scaffolding (e.g., a Multi-Part split), re-measure and re-fan the new value into all citing rows.
+**Shared-context single measurement (mirrors the standard [Step 8c](plan-Part-2-GatherAndGenerate.md#step-8c-validate-token-estimates-bottom-up) pre-pass):** The measure-once/fan-out rule applies equally to scaffolded plans. A sprint's **Execution Input** is by construction cited in every task of the sprint — measure it (or each cited EI section) **ONCE** with `measure_files.py` on the live file, and write the **IDENTICAL** `KiB` / `~Tokens` into every citing task's Required Context row. The same applies to any cross-sprint shared doc (design pins, shared reference files). Never re-guess a shared file's size per task: one wrong guess otherwise replicates into every task subtotal, header, orchestration total, and the sprint total. If an EI or shared doc changes during scaffolding (e.g., a Multi-Part split), re-measure and re-fan the new value into all citing rows.
 
 **Sprint-signoff scaffold (multi-session sprints):** For each sprint with multi-session work, add a sprint-signoff scaffold using the [sprint-signoff.md](../templates/sprint-signoff.md) template per `references/exit-criteria-fidelity.md` §16.3. Place the signoff file at `{plans_dir}/{PlanName}/Sprint-{XX}-{Name}/Sprint-Signoff.md`. The signoff quotes the sprint's EI exit-criteria verbatim — one row per criterion, one mechanical anchor per row — giving a multi-session sprint a single closeout checkpoint before it is marked COMPLETE. Single-session sprints MAY omit it.
 
@@ -202,6 +221,8 @@ See §13.4 for the full derivation, the frozen-list counter-example, and Reviewe
 > ```
 >
 > This applies to ALL file-generation agent prompts during scaffolding: sprint plans, orchestrations, task files.
+>
+> When a file keeps an OPTIONAL section, name it in its template position too. For an Orchestration that is `## Pre-Known Cross-Task Coordination Flags` after `## Task Files`, and `## Plan-Specific Sections` as the last H2, which holds unanticipated sections as H3s.
 
 ## Scaffolding Step 6: Validation
 
@@ -245,7 +266,7 @@ Sprints created: {N}
 
 For a complete scaffolding example, see [sample-scaffolding-output.md](../examples/sample-scaffolding-output.md).
 
-After the scaffolding confirmation, run [handlers/plan.md Step 9a: Emit the Cross-Sprint File-Touch Declarations](plan.md#step-9a-emit-the-cross-sprint-file-touch-declarations) and then [Step 9b: Post-Pass Harmonization](plan.md#step-9b-post-pass-harmonization) — a `--scaffold` pass authors 2+ sprints by construction, so both steps always apply here — and then proceed to [handlers/plan.md Step 10: Plan Review Gate](plan.md#step-10-plan-review-gate).
+After the scaffolding confirmation, run [handlers/plan-Part-3-VerifyConfirmAndReview.md Step 9a: Emit the Cross-Sprint File-Touch Declarations](plan-Part-3-VerifyConfirmAndReview.md#step-9a-emit-the-cross-sprint-file-touch-declarations) and then [Step 9b: Post-Pass Harmonization](plan-Part-3-VerifyConfirmAndReview.md#step-9b-post-pass-harmonization) — a `--scaffold` pass authors 2+ sprints by construction, so both steps always apply here — and then proceed to [handlers/plan-Part-3-VerifyConfirmAndReview.md Step 10: Plan Review Gate](plan-Part-3-VerifyConfirmAndReview.md#step-10-plan-review-gate).
 
 ---
 

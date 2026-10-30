@@ -1474,5 +1474,128 @@ class TestSharedFrontmatterIdNormalizer(unittest.TestCase):
         self.assertIn(update_backlog.normalize_id("005"), known)
 
 
+class TestCreateFilesPathResolution(_UpdateBacklogFixtureBase):
+    """The first `--files` entry is the new item file. It resolves against the
+    config-derived backlog folder: a bare name, a project-relative path, or an
+    absolute path is accepted when it names a file directly inside that folder.
+    Anything else is refused before a byte is written. The heading and the
+    first Related link always carry the bare file name, never a path."""
+
+    ITEM = "BB-099-01-TEST-Probe.md"
+    STEM = "BB-099-01-TEST-Probe"
+
+    def _create(self, files: str) -> tuple[str, str, object]:
+        return self._run_main(
+            [
+                "--config", str(self.config_path),
+                "--create",
+                "--id", "099",
+                "--feature", "Path probe",
+                "--priority", "Low",
+                "--abbrev", "TEST",
+                "--files", files,
+            ]
+        )
+
+    def _tree(self) -> list[str]:
+        return sorted(
+            p.relative_to(self.tmp).as_posix() for p in self.tmp.rglob("*") if p.is_file()
+        )
+
+    def _assert_written_directly(self, code) -> str:
+        self.assertIsNone(code)
+        self.assertEqual(
+            self._tree(),
+            [
+                "planwise/Backlog/00-Index-Backlog.md",
+                f"planwise/Backlog/{self.ITEM}",
+                "planwise/config.yaml",
+            ],
+        )
+        rendered = (self.backlog_dir / self.ITEM).read_text(encoding="utf-8")
+        self.assertIn(f"# {self.STEM}: Path probe\n", rendered)
+        self.assertIn(f"- [{self.ITEM}]({self.ITEM}) - file for this item", rendered)
+        self.assertNotIn("planwise/Backlog", rendered)
+        return rendered
+
+    def _assert_refused_and_nothing_written(self, files: str) -> str:
+        before = self._tree()
+        # Positive control: the walk saw the two fixture files, so an
+        # unchanged tree afterwards is a real "nothing written", not a blind walk.
+        self.assertEqual(len(before), 2)
+
+        _out, err, code = self._create(files)
+
+        self.assertEqual(code, 1)
+        self.assertEqual(self._tree(), before)
+        return err
+
+    def test_bare_name_heading_holds_the_stem(self):
+        self.write_index("")
+
+        _out, _err, code = self._create(self.ITEM)
+
+        self._assert_written_directly(code)
+
+    def test_project_relative_path_writes_directly_in_the_backlog_folder(self):
+        self.write_index("")
+
+        _out, _err, code = self._create(f"planwise/Backlog/{self.ITEM}")
+
+        self._assert_written_directly(code)
+
+    def test_absolute_path_inside_the_backlog_folder_is_accepted(self):
+        self.write_index("")
+
+        _out, _err, code = self._create(str(self.backlog_dir / self.ITEM))
+
+        self._assert_written_directly(code)
+
+    def test_backslash_path_is_accepted(self):
+        self.write_index("")
+
+        _out, _err, code = self._create(f"planwise\\Backlog\\{self.ITEM}")
+
+        self._assert_written_directly(code)
+
+    def test_path_outside_the_backlog_folder_is_refused_and_names_the_expected_folder(self):
+        self.write_index("")
+
+        err = self._assert_refused_and_nothing_written("src/Some/File.cs")
+
+        self.assertIn("src/Some/File.cs", err)
+        self.assertIn("planwise/Backlog", err)
+
+    def test_path_into_the_archive_folder_is_refused(self):
+        self.write_index("")
+
+        err = self._assert_refused_and_nothing_written(f"planwise/Backlog/Archive/{self.ITEM}")
+
+        self.assertIn("planwise/Backlog", err)
+
+    def test_dot_dot_escape_out_of_the_backlog_folder_is_refused(self):
+        self.write_index("")
+
+        self._assert_refused_and_nothing_written(f"planwise/Backlog/../Other/{self.ITEM}")
+
+    def test_later_entries_keep_their_directory_parts_in_related(self):
+        self.write_index("")
+
+        _out, _err, code = self._create(f"planwise/Backlog/{self.ITEM};src/a/B.cs;docs/c.md")
+
+        self.assertIsNone(code)
+        rendered = (self.backlog_dir / self.ITEM).read_text(encoding="utf-8")
+        self.assertIn(f"- [{self.ITEM}]({self.ITEM}) - file for this item", rendered)
+        self.assertIn("- [src/a/B.cs](src/a/B.cs) - file for this item", rendered)
+        self.assertIn("- [docs/c.md](docs/c.md) - file for this item", rendered)
+
+    def test_help_states_the_accepted_form_of_the_first_entry(self):
+        out, _err, _code = self._run_main(["--help"])
+
+        flat = " ".join(out.split())
+        self.assertIn("bare file name", flat)
+        self.assertIn("directly inside the backlog folder", flat)
+
+
 if __name__ == "__main__":
     unittest.main()

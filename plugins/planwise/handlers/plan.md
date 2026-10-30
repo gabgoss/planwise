@@ -2,6 +2,16 @@
 
 **Purpose:** Create a new plan following structured development best practices.
 
+This handler spans **three files**, split by step range because the combined text exceeds the Read-tool page cap. Each step keeps its own identifier wherever it lands, so an existing `Step N` reference still names exactly one section — only the filename that holds it changes.
+
+| Part | File | Steps / Sections | Topic |
+|---|---|---|---|
+| 1 (this file) | `plan.md` | Config Gate, Required References, Status Field, the Workflow gate, Step 0, Naming Conventions | The config gate, the references to load, the index-shape gate, mode detection, and the naming patterns |
+| 2 | [`plan-Part-2-GatherAndGenerate.md`](plan-Part-2-GatherAndGenerate.md) | Steps 1, 2, 3, 4-7, 8, 8b, 8c | Gather and validate the plan details, create the folder structure, generate the plan files and task files, and validate the token estimates |
+| 3 | [`plan-Part-3-VerifyConfirmAndReview.md`](plan-Part-3-VerifyConfirmAndReview.md) | Steps 8d, 8e, 9, 9a, 9b, 10, Validation Checklist, Deferred Authoring | Update the plans index, populate the Verification Commands, confirm the output, harmonize the pass, gate the plan review, and check completeness |
+
+Reading order by mode: Standard mode reads this file, then Part 2, then Part 3. Discovery mode reads this file, then `plan-discovery.md`, then Part 3 for Step 10. Scaffolding mode reads this file, then `plan-scaffolding.md`, then Part 3 for Steps 9a, 9b and 10, and Part 2 when it follows a Step 3, 4-7, 8 or 8c link.
+
 ## Table of Contents
 
 - [Config Gate](#config-gate-auto-init-fallback)
@@ -9,15 +19,21 @@
 - [Status Field](#status-field)
 - [Workflow](#workflow)
   - [Step 0: Detect Mode](#step-0-detect-mode)
-  - [Steps 1-9: Standard Plan](#step-1-gather-information)
-  - [Step 10: Plan Review Gate](#step-10-plan-review-gate)
-- [Validation Checklist](#validation-checklist)
+  - [Steps 1-9: Standard Plan](plan-Part-2-GatherAndGenerate.md#step-1-gather-information)
+  - [Step 10: Plan Review Gate](plan-Part-3-VerifyConfirmAndReview.md#step-10-plan-review-gate)
+- [Validation Checklist](plan-Part-3-VerifyConfirmAndReview.md#validation-checklist)
 - [Naming Conventions](#naming-conventions)
 - [Additional Resources](#additional-resources)
 
 ---
 
 ## Config Gate (Auto-Init Fallback)
+
+0. Read the injected block first. `scripts/skill_preflight.py` renders this gate through the skill's shell line, between `<!-- planwise:plan:begin -->` and `<!-- planwise:plan:end -->`. Route by what the block holds:
+   - A `config:` line and the field lines, no fallback line: take the config path and the five fields from the block, and continue to Required References. Read no file. A ` (default)` suffix marks a value `config.yaml` does not set, and ` (missing on disk)` marks a configured `plugin_root` that does not exist.
+   - A `PLANWISE_PLAN_FALLBACK:` line reading `config.yaml not found`: go to step 3.
+   - A `PLANWISE_PLAN_FALLBACK:` line reading `parse error`: apply the Config Malformed gate below.
+   - Any other fallback line, no block, or `[shell command execution disabled by policy]`: follow steps 1-2 as written.
 
 1. Resolve config.yaml:
    a. Check `planwise/config.yaml` (default planwise root)
@@ -58,7 +74,7 @@ All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Pla
 ---
 
 > [!practice] Session-Level Effort for Large Plans
-> This handler executes inline in the calling session — there is no dispatched planner agent to carry an `effort:` frontmatter field. For a large or multi-sprint scaffold, consider running `/effort high` (or your project's measured preference) before invoking this command, or set a standing default in *your own project's* `.claude/settings.json` (`effortLevel`, or a per-model entry under `modelSettings`). The plugin pins `effort:` only on the agents it dispatches and measured (`references/agent-authoring.md` § Shipped Effort Levels); nothing it ships changes the session level. This recommendation is advisory only.
+> This handler executes inline in the calling session. With `context.plan_authoring` at its default `inline`, no planner agent is dispatched, so no agent carries an `effort:` frontmatter field. With `delegated`, `planwise:plan-author` writes the task bodies (Part 2, Steps 4-7), and it pins no `effort:`, so the session level governs it too. For a large or multi-sprint scaffold, consider running `/effort high` (or your project's measured preference) before invoking this command, or set a standing default in *your own project's* `.claude/settings.json` (`effortLevel`, or a per-model entry under `modelSettings`). The plugin pins `effort:` only on the agents it dispatches and measured (`references/agent-authoring.md` § Shipped Effort Levels); nothing it ships changes the session level. This recommendation is advisory only.
 
 ---
 
@@ -66,17 +82,17 @@ All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Pla
 
 Before proceeding, read these reference files from `{plugin_root}/references/`:
 
-**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`, `native-tool-use.md`, `feedback-drafting.md`) are pre-injected by SKILL.md.
+**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`, `native-tool-use.md`, `feedback-drafting.md`) are linked from SKILL.md, not loaded by it. Read one only when a step below cites it.
 
 **Plan-specific references (always load):**
-1. Read `references/session-planning-protocol.md`
-2. Read `references/session-plan-requirements.md`
-3. Read `references/session-context-budget.md`
-4. Read `references/session-execution-protocol.md` — source for session invariants
-5. Read `references/read-confirm-act-protocol.md` — source for READ-CONFIRM-ACT, the structural-findings gate, and the post-step checklist (cited in this handler's checklists)
-6. Read `references/context-loading-and-conservation.md` — source for the standard-plan-vs-Meta-Plan decision (Step 0: Detect Mode) and context-conservation tactics
+1. Read `references/session-plan-requirements.md`
 
 **Conditional references:**
+- If a file this plan authors routes or reconciles a cross-task coordination flag (a `## Pre-Known Cross-Task Coordination Flags` block or a flag-routing step), records a Scope-Expansion Decision, or pins a commit-shaped criterion: Read `references/read-confirm-act-protocol.md` (READ-CONFIRM-ACT, the structural-findings gate, §1.2-§1.6) and, to author a flag, `references/read-confirm-act-protocol-Part-2-FlagAuthoringSurfaces.md`
+- If Step 0's indicator tables leave Standard vs Meta-Plan undecided, or a task file this plan authors states context-conservation rules (task list format, compaction triggers, minimal prompts, output file strategy): Read `references/context-loading-and-conservation.md`
+- If a naming or folder question is not settled by Naming Conventions and Step 3 (the With Meta-Plan tree, full Task ID format in cross-sprint references, agent delegation, pre- or post-session checklists): Read `references/session-planning-protocol.md`
+- If Step 8c's Token Saver scan reports a Warn-or-worse file, a task sizes a file that does not exist yet, or a generated artifact must be split into Parts: Read `references/session-context-budget.md` (Per-Operation Cost Reference, File Size Limits, Read-Tool Hard Limits, Threshold Formulas)
+- If the plan is a Discovery / Meta-Plan whose Master Plan carries a user-action gate outside `/planwise run`: Read `references/session-execution-protocol.md` §4.5 (Discovery / Meta-Plan Status)
 - If the plan creates or modifies agents: Read `references/agent-authoring.md`
 - If the plan creates or modifies skills: Read `references/skill-authoring.md`
 - If the plan creates or modifies rules: Read `references/rule-authoring.md`
@@ -98,6 +114,8 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If a task's deliverable creates or modifies a cross-process boundary (IPC layer, wire-protocol serialization, file-format codec), in-process numeric or codec code, a deploy step, or multi-target runtime code: Read `references/verification-gates.md` (the family index) and `references/gate-runtime-boundary-evidence.md` before populating that task's Verification Commands (Step 8e); `references/gate-exit-verdict-and-smoke-reports.md` governs the Sprint exit verdict and the Verification Commands presence checks
 - If a task's Verification Commands use `git diff`: Read `references/gate-diff-baseline-pinning.md` — record `$..._BASE` before the first edit and scope every gate to it (Step 8e)
 - If a task's deliverable is a gate, guard, hook, linter or validation pass, or the plan composes a verification battery: Read `references/gate-instrument-proof-obligations.md` (the four obligations) and `references/gate-change-vs-state-detecting.md` (name at least one state-detecting gate)
+- If a task's Verification Commands include an absence gate ("MUST be empty"), a cross-task prerequisite marker or a per-run check on a transcript or log, or the task adds a declaration something else must render: Read `references/gate-satisfiability.md` — pair an absence gate with an exempt-set count, execute a new declaration's path once, prove a marker is an upstream addition, and probe the surface with an ordinary prompt (Step 8e)
+- If a task builds or modifies a measurement harness, campaign driver or eval framework: Read `references/harness-instrument-integrity.md` — run the instrument against live artifacts, not fixtures, couple every fact it duplicates, and give every terminal state a signal
 - If a task writes a run sheet or probe driver that pins flags on a reset or launch line, or a grader over a numeric log field: Read `references/gate-run-sheet-and-grader-fields.md` (§13-§14) — pin the field the hook reads, not the flag whose name matches the intent
 - If a task spec cites third-party SDK identifiers, type names, enum members, delegate shapes, framework presence, or destination file paths under scoped-rule triggers: Read `references/verify-against-shipped-artifact.md`
 - If the plan authors a task that creates or modifies a rule, agent, skill, handler, or CLAUDE.md callout (promoting lesson/backlog content): Read `references/artifact-self-containment.md`
@@ -200,580 +218,6 @@ If **no indicators** are detected → proceed to Step 1 (Standard).
 
 ---
 
-### Step 1: Gather Information
-
-Parse `$1` for the plan name. If `$1` is empty, use `AskUserQuestion` to collect it.
-
-<!-- AUTO-MODE: critical -->
-Use `AskUserQuestion` to collect:
-
-**Question 1: Plan Details**
-- What is the name of your plan? (e.g., "UserAuthentication", "DataMigration") — pre-fill from `$1` if provided
-- What is the 2-4 character abbreviation? (e.g., "UA", "DM")
-- Briefly describe the vision (1-2 sentences)
-- Which backlog item(s) does this plan resolve, if any? (item ids, or "none")
-
-**Question 2: Scope**
-- How many sprints do you anticipate? (1-5)
-- For EACH sprint in that count, what is its name and purpose? (e.g., "Sprint 1: CoreAuth — login and registration; Sprint 2: AdvancedAuth — SSO and MFA")
-- For EACH sprint, how many sessions does it need, and what is each session's name? (default: 1 session per sprint)
-
-**Bind the answers before leaving this step.** Later steps consume them by name, so record them explicitly rather than leaving the count in the conversation:
-
-| Bound value | From | Consumed by |
-|-------------|------|-------------|
-| `{sprint_count}` | the sprint count above | Step 3 (folder tree), Steps 5-7 (per-sprint cardinality), the Validation Checklist |
-| `{sprint_names[XX]}` | each sprint's name | Step 3, Step 4's Sprint Overview table |
-| `{session_count[XX]}` | sessions in sprint `{XX}` | Step 3, Steps 6-8 (per-session cardinality), the Validation Checklist |
-| `{session_names[XX][YY]}` | each session's name | Step 3, Step 9's confirmation block |
-| `{resolves}` | the backlog item ids above, or `none` | Step 4's Master Plan `**Resolves:**` header field and its Project Complete When criterion — `/planwise run` closeout closes these items when the plan reaches COMPLETE |
-
-Under Auto Mode, or when the answer is empty, bind `{resolves}` to `none` unless the invoking context names an item. A `/planwise backlog` Route C dispatch always names one.
-
-**Every sprint AND every session named here gets fully scaffolded in this pass** (Steps 3-9 below) — this handler does not stop after Sprint 1, and it does not stop after each sprint's Session-01. `sum({session_count[XX]})` over all sprints is the number of Orchestration files this pass must produce.
-
-If some sprints are deliberately left unauthored, that is legitimate but MUST be declared — see [Deferred Authoring](#deferred-authoring) before proceeding.
-
-### Step 2: Validate
-
-Before creating files, verify:
-
-```
-[ ] Abbreviation is 2-4 characters (see validation protocol below)
-[ ] Abbreviation is unique (check {plans_dir} for existing)
-[ ] Vision is clear and actionable
-[ ] At least one sprint is defined
-```
-
-If validation fails, ask user to correct.
-
-#### Abbreviation Length Validation
-
-> [!constraint] Never Silently Truncate Abbreviations
-> WRONG: User provides `HBS-VBD` → handler silently truncates to `VBD` and proceeds.
->
-> CORRECT: User provides `HBS-VBD` → handler prompts with `AskUserQuestion` showing the constraint, what they provided, and alternatives.
-
-<!-- AUTO-MODE: critical -->
-> [!protocol] Abbreviation Validation Protocol
-> 1. Check if the user-provided abbreviation is 2-4 characters
-> 2. If valid (2-4 chars) → proceed to uniqueness check
-> 3. If invalid (< 2 or > 4 chars) → use `AskUserQuestion` with the following:
->
->    **Prompt the user with:**
->    - The constraint: "Planwise abbreviations must be 2-4 characters"
->    - What they provided: "`{user_abbrev}` is {N} characters"
->    - Alternatives (present all that apply):
->
->    | # | Alternative | When to Show |
->    |---|-------------|--------------|
->    | 1 | "`{matching_abbrev}` (matches existing `Meta-{matching_abbrev}/` — recommended)" | A `Meta-{portion}/` folder exists in `{plans_dir}` for a substring of the provided abbreviation |
->    | 2 | "`{truncated}` (first 4 characters)" | Always (as fallback) |
->    | 3 | "Other — type your preferred 2-4 character abbreviation" | Always |
->
-> 4. Validate the user's choice is 2-4 characters — if not, repeat from step 3
-
-### Step 3: Create Folder Structure
-
-Create the following structure under the configured `{plans_dir}`. **Two nested loops, both bound in Step 1:** repeat the `Sprint-{XX}-{SprintName}/` block for every sprint (`{XX}` = `01` … `{sprint_count}`), and inside each one repeat the `Session-{YY}-{SessionName}/` block for every session of that sprint (`{YY}` = `01` … `{session_count[XX]}`). Do not stop after the first sprint, and do not stop after each sprint's first session.
-
-```
-{plans_dir}/{PlanName}/
-├── {Abbrev}-Master-Plan.md
-└── Sprint-{XX}-{sprint_names[XX]}/                    # for XX = 01 … {sprint_count}
-    ├── {Abbrev}-S{XX}-Sprint-Plan.md                  # one per sprint
-    └── Session-{YY}-{session_names[XX][YY]}/          # for YY = 01 … {session_count[XX]}
-        ├── {Abbrev}-S{XX}-{YY}-Orchestration.md       # one per SESSION
-        ├── {Abbrev}-S{XX}-{YY}-Recovery.md            # one per SESSION
-        ├── {Abbrev}-S{XX}-{YY}-{##}-{Agent}-{Task}.md # one per task in that session
-        └── Outputs/
-            └── .gitkeep                               # Required so Outputs/ is tracked by git
-```
-
-Worked example — 2 sprints, the second with 2 sessions (`{sprint_count}` = 2, `{session_count}` = `[1, 2]`, so 3 Orchestrations):
-
-```
-{plans_dir}/{PlanName}/
-├── {Abbrev}-Master-Plan.md
-├── Sprint-01-{Sprint1Name}/
-│   ├── {Abbrev}-S01-Sprint-Plan.md
-│   └── Session-01-{Name}/  → {Abbrev}-S01-01-Orchestration.md, -Recovery.md, task files, Outputs/.gitkeep
-└── Sprint-02-{Sprint2Name}/
-    ├── {Abbrev}-S02-Sprint-Plan.md
-    ├── Session-01-{Name}/  → {Abbrev}-S02-01-Orchestration.md, -Recovery.md, task files, Outputs/.gitkeep
-    └── Session-02-{Name}/  → {Abbrev}-S02-02-Orchestration.md, -Recovery.md, task files, Outputs/.gitkeep
-```
-
-**Every sprint AND every session bound in Step 1 gets its own folder here.** A plan with 3 sprints creates `Sprint-01/`, `Sprint-02/` and `Sprint-03/` in this same pass; a sprint declaring 4 sessions creates `Session-01/` through `Session-04/` inside it. `{YY}` is a loop variable, not the literal `01`.
-
-**Task File Naming:** `{##}` = two-digit task number (01, 02, 03...) matching the task list.
-
-> [!constraint] Emit `Outputs/.gitkeep` for Every Session Folder
-> WRONG — Outputs/ folder created empty; git does not track empty directories, so the folder disappears on clone:
-> ```
-> mkdir Session-01-{Name}/Outputs    # ← empty dir, not committed
-> ```
-> CORRECT — write an `Outputs/.gitkeep` placeholder file inside every session's Outputs/ folder so the directory is preserved in version control:
-> ```
-> Write {plans_dir}/{PlanName}/Sprint-01-{Name}/Session-01-{Name}/Outputs/.gitkeep
-> ```
-> Apply this to EVERY session folder created during planning (standard mode here, Scaffolding Step 5 for scaffolded plans). The `.gitkeep` file is an empty placeholder — its purpose is solely to make git track the otherwise-empty `Outputs/` directory.
-
-### Steps 4-7: Generate Files
-
-Use templates from `{plugin_root}/templates/`:
-
-| Step | Template | Output File | Cardinality |
-|------|----------|-------------|-------------|
-| 4 | [master-plan.md](../templates/master-plan.md) | `{Abbrev}-Master-Plan.md` | Once — Sprint Overview lists **all** `{sprint_count}` sprints; **Total Sessions** equals `sum({session_count[XX]})` |
-| 5 | [sprint-plan.md](../templates/sprint-plan.md) | `{Abbrev}-S{XX}-Sprint-Plan.md` | **Once per sprint** (`{XX}` = `01` … `{sprint_count}`) — its Sessions table lists all `{session_count[XX]}` sessions |
-| 6 | [orchestration.md](../templates/orchestration.md) | `{Abbrev}-S{XX}-{YY}-Orchestration.md` | **Once per SESSION** (`{YY}` = `01` … `{session_count[XX]}`, for every sprint) |
-| 7 | [recovery.md](../templates/recovery.md) | `{Abbrev}-S{XX}-{YY}-Recovery.md` | **Once per SESSION** |
-
-Step 5 repeats for every sprint; Steps 6-7 repeat for every session of every sprint. Their cardinality is **not** the sprint count — a 3-sprint plan whose second sprint has 3 sessions produces 3 Sprint Plans and **5** Orchestration/Recovery pairs. Do not stop after Sprint-01, and do not stop after each sprint's Session-01.
-
-### Step 8: Generate Task Files
-
-**Steps 8 through 8e repeat for EVERY Orchestration file created in Step 6 — every session of every sprint, not one per sprint.** Finish one session's task files before moving to the next, and one sprint's sessions before moving to the next sprint. Step 8d (Update Plans Index) is the one exception: it runs once, after every sprint has been scaffolded.
-
-**Search the lessons index for the artifact classes this plan will touch, before authoring task files.**
-
-A plan that will author schema definitions, verification greps, generated notebooks, module docstrings, or any other recurring artifact class should search the lessons index for each class before writing task files, and cite the hits inline in the Required Context or Verification Commands of the tasks that touch them:
-
-```bash
-grep -rliE "{artifact_class_keyword}" {lessons_dir}/**/LL-*.md
-```
-
-Capture is a store, not a channel — a lesson reaches a runner only when it is cited in the artifact that runner actually reads (a task file's Required Context, its Verification Commands, or a coordination-flag block).
-
-A lesson sitting correctly indexed and uncited is delivered to nobody.
-
-The payoff scales with repetition: a plan that repeats one task chain across several sprints misses the same lesson once per repetition unless it is cited.
-
-**CRITICAL:** Create ONE task file per task in the Orchestration task list.
-
-For each task, create a file using the [task-file.md](../templates/task-file.md) template.
-
-**File name pattern:** `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md` (`{XX}` = the sprint being processed, `{YY}` = the session being processed — both loop variables, neither a literal `01`)
-
-After creating task files, update the Orchestration file's Task Files table with links.
-
-### Step 8b: Add Lessons Reference to Post-Session Checklist
-
-Each Orchestration file created MUST include this item in its post-session checklist:
-
-```
-[ ] Document lessons learned in {lessons_dir}/LL-{NNN}-{Domain}-{Name}.md
-    - Get next NNN from `parse_lessons.py --config {config} --next-id`
-    - Use the lesson file template from templates/lesson.md
-    - Required frontmatter: id, title, date, source (session ID), category, severity,
-      language, technology, domain, status, applied-as
-    - Run the generator; append the changelog entry
-```
-
-Where `{lessons_dir}` comes from `config.yaml`.
-
-### Step 8c: Validate Token Estimates (Bottom-Up)
-
-**Shared-context pre-pass (measure once, fan out):** Before computing per-task estimates, build the set of files cited in the Required Context of **two or more** tasks (group Required Context rows by file path across the whole session). For each such shared file, measure it **ONCE** — `measure_files.py` on the live file — and record its KiB and tokens once; then write the **IDENTICAL** `KiB` / `~Tokens` values into every citing task's row. A multiply-cited file's size is a single source of truth, never a per-task guess — otherwise one estimation error replicates silently into every citing task's Context subtotal and header `Estimated Tokens`. If a shared doc is edited during authoring, re-measure it and re-fan the new value into all citing rows, then re-roll the affected subtotals, headers, and session totals. The drift is direction-agnostic: an over-estimate merely inflates budgets, but an under-estimate can mis-route a file in the Token Saver Large-File Scan below or under-budget a DELEGATED dispatch.
-
-For each task in the session, compute a bottom-up token estimate:
-
-1. **Measure Required Context files:** Run `python "{plugin_root}/scripts/measure_files.py" {files...} --model {task's Agent} --md` over every file in the task's Required Context table — it reports each file's KiB and measured tokens and emits ready-to-paste table rows
-2. **Convert to tokens:** For files that do not exist yet, estimate byte size ÷ the reading model's bytes-per-token ratio (≈3.0 prose/code, ≈2.6 dense markdown; see [Per-Operation Cost Reference](../references/session-context-budget.md#per-operation-cost-reference)) — never lines × a rate
-3. **Add output cost:** Estimate output generation tokens from the operation-level table
-4. **Compare:** If the bottom-up estimate exceeds the qualitative category estimate, use the higher number
-5. **DELEGATED check:** For DELEGATED tasks, verify `(task estimate + injected path-rule tokens + 54K overhead) < the dispatched model's window` per subagent. A subagent's window is set by its **dispatched model** (Sonnet/Haiku 200K, Opus 1M), NOT the parent tier — a Sonnet runner is 200K even when the orchestrator is on Max. See `references/session-context-budget.md` [§ Subagent Context Window](../references/session-context-budget.md#subagent-context-window).
-
-Update the task's `Estimated Tokens` field and the Orchestration Session Task List with the validated estimates.
-
-#### Token Saver Large-File Scan (gated on the **effective** Token Saver value)
-
-Resolve the **effective** Token Saver value for THIS plan ONCE here — it gates the entire scan, and the resulting flags (`1M-exception`, etc.) are baked into the task files so the spawned runner never re-resolves. Read the plan's Master-Plan `Token Saver:` field (`on`→True, `off`→False, `inherit`/absent→None), then call `config_loader.get_effective_token_saver_config(config, plan_override)` — the per-plan override wins over the project `context.token_saver` default; the project key is the fallback. The measured overheads (`token_saver_runner_overhead`, `token_saver_session_target`, etc.) are ALWAYS project-level and never overridden per-plan.
-
-When the effective `token_saver` is `true`, after the bottom-up estimate above, run a per-file large-file scan over **every** Required Context file in **every** task. This is the plan-author-time instance of the per-file warning ladder anchored in `references/task-content-fidelity.md` §9.A.8 (levels, formulas, and the `reason=cost|read` contract live there — read it before authoring the scan output). The scan folds the carrying-cost ladder and the two FIXED Read-tool gates into one verdict, so it also catches files that are unreadable in a single Read — including files a task will push past a gate once it edits them.
-
-**Run the scan — do not hand-annotate it.** The scan is a shipped tool, not a procedure to reproduce by judgement:
-
-```bash
-python "{plugin_root}/scripts/token_saver.py" --scan --plan {plan_path} --config {config} [--json]
-```
-
-It walks every task file under `{plan_path}`, reads each task's assigned **Agent**, resolves every Required Context row to a path, classifies it, prints one recommendation block per Warn-or-worse file with the citing tasks, prints the backlog filing worklist, and **exits non-zero when any file lands Warn or worse**. Add `--projected {path}={bytes}` for a file this plan will grow. Rows that are not files — a command corpus, a not-yet-written output, a glob — are reported by reason rather than classified.
-
-Run it rather than reproducing it by judgement. Why a *correct* hand-written annotation is the worst case, with the WRONG/CORRECT pair, is [`references/task-content-fidelity.md`](../references/task-content-fidelity.md) §9.A.15.
-
-The contract the tool implements, for reference when reading its output:
-
-1. **Cost thresholds** are derived from the measured overhead, never hardcoded:
-
-   ```
-   thresholds = token_saver.derive_thresholds(
-       session_target = context.token_saver_session_target,   # default 150000
-       runner_overhead = context.token_saver_runner_overhead)  # measured by /planwise calibrate
-   # → {available_per_task, critical, warn}
-   ```
-
-2. **Each Required Context file is classified** against the runner that will read it (the task's assigned **Agent** — tokens = bytes ÷ that model family's bytes-per-token ratio; the byte cap and line window are model-independent). For a file the **same task will modify**, the projected byte delta (projected added lines × the file's observed average bytes/line) is passed so a file that *will* cross a gate post-edit is flagged pre-emptively:
-
-   ```
-   verdict = token_saver.classify_file(
-       path,
-       model = <task's Agent, lowercased>,
-       projected_added_bytes = <bytes this task adds to this file, else 0>,
-       thresholds = thresholds)
-   # → {level, reason, bytes, tokens, lines}; level = max(cost_level, read_level)
-   ```
-
-   Token figures come from **bytes ÷ the reading model's ratio**. Never derive one from a line count: measured per-line rates range 7–365 tokens/line by content, so a per-line band under-reports exactly the dense index files this scan exists to catch.
-
-3. **Emit a recommendation block per file** at **Notice / Warn / Critical** (Green files are silent), naming the driving `reason`:
-   - **Notice** — advisory only. Docs/specs → note a Multi-Part split is advisable; code → note for awareness. No backlog item.
-   - **Warn** (`reason=cost` ≥ `warn`, or `reason=read` ≥ 240 KiB / ≥ 22K model-tok) — recommend the remedy by file type (below) **and file a backlog item** via the consumer project's backlog mechanism (`handlers/backlog.md` Phase 7 create flow — generic, no project identifiers).
-   - **Critical / `reason=cost`** (≥ `critical`) — warn + file a backlog item + flag the task **`1M-exception`** (dispatch on Opus / 1M) so the plan still completes; the file won't fit a lean task even alone.
-   - **Critical / `reason=read`** (≥ 25K model-tok page cap OR ≥ 256 KiB byte cap OR ≥ 2,000 lines) — warn + file a backlog item + recommend a **paged read** (`offset`/`limit`/Grep) for read-only context, or **refactor/split + backlog item** for a core or to-be-edited dependency. Do **NOT** flag `1M-exception`: the 1M window does not raise the per-Read page cap, and the Claude 5 tokenizer trips it on *fewer bytes* than Haiku 4.5's.
-   - The scan is **never a hard stop** — a source-file Critical advises and files an item; it does not abort planning.
-
-4. **Differentiate the remedy by file type** in the recommendation:
-   - **Code** → refactor into smaller modules.
-   - **Doc / spec / Execution Input** → Multi-Part split (existing [Multi-Part Output Convention](../references/session-context-budget.md#file-size-limits)).
-   - **Dense (notebook / minified / compressed JSON)** → measure precisely (`measure_files.py` auto-detects the notebook and json classes from the extension; minified files take the conservative text ratio) and extract only the needed sections.
-
-5. **Generated artifacts the plan itself authors** that a runner MUST read — task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, task Output files — carry a **HARD** read-gate ceiling (MUST Multi-Part split to stay readable), NOT advisory, per `references/session-context-budget.md` [§ File Size Limits — Generated Artifacts](../references/session-context-budget.md#file-size-limits--generated-artifacts-binding). External source files the runner reads but does not generate stay advisory (warn + backlog + read tactics).
-
-> [!constraint] Read-Reason Critical Is NOT `1M-Exception`-Resolvable
-> WRONG — a Required Context file scans Critical with `reason=read`; the planner flags the task `1M-exception` and dispatches it to Opus, expecting the 1M window to absorb the file:
-> ```
-> # 280 KiB external doc → classify_file → {level: Critical, reason: read}
-> Task flagged: 1M-exception   ← WRONG: the per-Read page cap is unchanged by the window,
->                                and the Claude 5 tokenizer trips the token gate on FEWER bytes than Haiku 4.5's
-> ```
-> CORRECT — `reason=read` Critical recommends a paged read / refactor and files a backlog item; only `reason=cost` Critical earns `1M-exception`:
-> ```
-> # reason=read  → paged read (offset/limit/Grep) for read-only; refactor+backlog for a to-be-edited dep
-> # reason=cost  → flag 1M-exception (Opus/1M); plan still completes
-> ```
-
-### Step 8d: Update Plans Index
-
-**Runs once, after every sprint has been scaffolded** (not per-sprint like 8/8a-8c/8e).
-
-The plans index is generated from each plan's Master Plan, so `/planwise list` reflects the new plan once the generator runs. The Master Plan written earlier in this handler already carries `**Status:** READY_TO_EXECUTE` and its dates. Nothing writes a row by hand, and no Path is composed.
-
-Run the generator once, after every sprint is scaffolded:
-
-```bash
-python "{plugin_root}/scripts/generate_plans_index.py" --config "{planwise_root}/config.yaml" --write
-```
-
-Exit 2 means nothing was written. Print the `Error:` line verbatim and route by cause. `hand-authored plans index`: the gate before Step 0 was bypassed, so run it. `neither a hand-authored nor a generated`: `/planwise upgrade` will not migrate it, so name `migrate_plans_index.py --report` and never `--replace-legacy`. `over the … -token budget` (an over-budget render): the render is too large, so tell the user to shard or shorten the index.
-
-To change a plan's row later, edit the Master Plan's `**Status:**` line (and its footer date), then run `generate_plans_index.py --write`. See [`references/plans-schema.md`](../references/plans-schema.md) § The One-Writer Rule.
-
-### Step 8e: Populate Verification Commands (Per-File-Type Map)
-
-For every task file generated in Step 8 whose task touches code, tests, or schemas, populate
-the **Verification Commands** section using a per-file-type command map — never leave the
-section's `{placeholder}` tokens unfilled. The plan-reviewer treats blank, vague, or single-type
-Verification Commands as a finding (`references/task-file-and-tracking-requirements.md` §Verification
-Commands Plan-Review Enforcement table; `templates/task-file.md` §Per-File-Type Commands).
-
-**Procedure:**
-
-1. **Inspect** the task's Expected Output and Execution Steps to identify the set of file
-   extensions the task creates or modifies (e.g., `.py`, `.ipynb`, `.sql`, `.cs`, `.cshtml`,
-   `.ts`, `.tsx`, `.md`).
-2. **Look up** the verification command(s) for each extension in the per-file-type command
-   map below (resolve `{lint-cmd}`, `{format-cmd}`, `{exec-cmd}`, `{notebook-exec-cmd}` from
-   `config.yaml.build_commands` or project convention).
-3. **Emit** a `Verification Commands` section in the task file using the
-   `templates/task-file.md` `> [!verify] Before / After Commands` block + Per-File-Type
-   Commands table — substitute every `{placeholder}` with a concrete shell invocation for a
-   build, test, lint, or database check, or a named native tool call (`Read`, `Grep`, or
-   `Glob`) for a file-read or content-search check.
-4. **Ensure all three command types appear** (connectivity / pre-condition, lint or format,
-   exec or smoke test). A task missing one of these types uses the `<!-- NEEDS-COMMAND -->`
-   marker carried in the `> [!verify]` skeleton (`templates/task-file.md`) in place of that
-   type's command line, so the gap is visible at review time, NOT silently left blank.
-5. **Measure at the gate's scope.** Run each per-task Before/After command against the task's
-   own paths. Record that value as the gate's pre-edit annotation. Run a whole-population
-   command once per plan, before the first task file. A whole-population command is the full
-   suite or the whole-repo lint. Run it in the foreground with a timeout above its expected
-   duration, and state that duration. Record the value with the repo's `HEAD` sha in the Master
-   Plan § Decisions (Locked). Reuse it only in gates that run before any edit to that population.
-   Re-check the tree identity at each dispatch. See `references/gate-pre-edit-baseline.md`
-   §10.1.1 Scope the measurement to the gate's population.
-
-**Per-File-Type Command Map** (mirrors `templates/task-file.md` §Per-File-Type Commands):
-
-| File Type | Lint / Format | Exec / Smoke | Notes |
-|-----------|--------------|--------------|-------|
-| `.{src-ext}` (compiled or scripted source) | `{lint-cmd} {path}` / `{format-cmd} {path}` | `{test-cmd} {path}` | Consumer fills `{lint-cmd}` / `{test-cmd}` from `config.yaml.build_commands` |
-| `.{notebook-ext}` (runnable-notebook artifact) | `{lint-cmd} {path}` (if applicable) | `{exec-cmd} {path}` | `{exec-cmd}` is the consumer's notebook runner / execute-in-place command |
-| `.sql` | `{sql-lint-cmd} {path}` (if applicable) | `{driver-cli} -f {path}` | DB writes also pin schema per `references/schema-pin-requirement.md` |
-| `.{build-system-ext}` (e.g., compiled-language sources) | `{format-cmd} {project} --verify-no-changes` | `{build-cmd} {project}` then `{test-cmd} {project}` | Connectivity precheck if integration test |
-| `.{view-template-ext}` | `{format-cmd} {project} --verify-no-changes` | `{build-cmd} {project}` | Smoke render if applicable |
-| `.{ts-ext}` / `.{tsx-ext}` | `{lint-cmd} {path}` | `{build-cmd}` then `{test-cmd}` | Plus `{type-check-cmd}` if the language supports it |
-| `.md` (reference / rule edits) | `{md-lint-cmd} {path}` (if configured) | `python "{plugin_root}/scripts/measure_files.py" {path}` (must land OK — < 22K tokens / < 240 KiB / < 2,000 lines) | Per `references/session-context-budget.md` File Size Limits |
-| `.{ext}` (other) | `{lint-cmd} {path}` | `{exec-cmd}` | Consumer-project supplies the binding from `config.yaml.build_commands` |
-
-> [!constraint] Verification Commands MUST Be Populated, Not Templated
-> WRONG — task file ships with the literal `{cmd_before_1}` / `{cmd_after_1}` placeholders, or
-> with vague prose like "run lint and tests":
-> ```markdown
-> ## Verification Commands
-> > [!verify] Before / After Commands
-> > **Before:** {cmd_before_1}
-> > **After:**  {cmd_after_1}
-> ```
-> CORRECT — placeholders resolved to explicit shell invocations (build/test/lint/DB checks) or
-> named native tool calls (file-read/search checks) from the per-file-type map, covering all
-> three command types (precheck + lint/format + exec):
-> ```markdown
-> ## Verification Commands
-> > [!verify] Before / After Commands
-> > **Before:**
-> > ```
-> > {lint-cmd} src/{module}/        # lint baseline, this module only
-> > {test-cmd} src/{module}/        # test baseline, this module only — never the whole suite per task
-> > ```
-> > **After:**
-> > ```
-> > {lint-cmd} src/{module}/
-> > # pre-edit: 0 findings → invariant: 0
-> > {test-cmd} src/{module}/
-> > # pre-edit: 41 passed → expect 43 passed
-> > ```
-> ```
->
-> A blank or vague Verification Commands section is a `/planwise review` finding (per the
-> `Verification Commands Plan-Review Enforcement` table in `task-file-and-tracking-requirements.md`).
-
-**If the task creates no code/test/schema files** (pure documentation, decision-only, or
-research): the Verification Commands section MAY be omitted, but the task file MUST then
-include a `<!-- VERIFICATION: not-applicable (reason) -->` HTML comment in its `## Notes for
-Agent` section so the reviewer can confirm the omission was intentional.
-
----
-
-### Step 9: Output Confirmation
-
-After creating all files, output:
-
-```
-PLAN CREATED: {PlanName}
-
-**Abbreviation:** {ABBREV}
-**Location:** {plans_dir}/{PlanName}/
-
-**Files Created:**
-- {Abbrev}-Master-Plan.md
-- Sprint-{XX}-{sprint_names[XX]}/{Abbrev}-S{XX}-Sprint-Plan.md            (x{sprint_count})
-- Sprint-{XX}-.../Session-{YY}-.../{Abbrev}-S{XX}-{YY}-Orchestration.md   (one per session)
-- Sprint-{XX}-.../Session-{YY}-.../{Abbrev}-S{XX}-{YY}-Recovery.md        (one per session)
-- Sprint-{XX}-.../Session-{YY}-.../{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{Task}.md (one per task)
-- Sprint-{XX}-.../Session-{YY}-.../Outputs/.gitkeep                       (one per session)
-- ... enumerate the real path of every file, for every sprint AND every session
-
-**Sprints Authored:** {sprint_count}   **Sessions Authored:** {sum of session_count}
-**Task Files Created:** {N} files total (one per task, per session)
-{If any sprint or session was deliberately not authored, name it here and point at the Master Plan's `## Deferred Authoring` section.}
-
-**Next Steps:**
-1. Review and refine the Master Plan
-2. Review task files for completeness
-3. Run `/planwise review {Abbrev}` to validate the plan (recommended before execution)
-4. Execute Sprint-01/Session-01 using `/planwise run` or manually following READ-CONFIRM-ACT
-```
-
-### Step 9a: Emit the Cross-Sprint File-Touch Declarations
-
-**Runs when this invocation authored 2+ Sprint Plan files.** It runs after every sprint's files exist — the matrix cannot be built before then — and before Step 9b.
-
-Build the file-touch matrix across the sprints this pass authored: for every path named as an edit target, the set of `(sprint, task)` writers. Take it from each Sprint Plan's `## Write-Set` section, which [`references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md`](../references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §16.1 already requires. **Intersect every sprint pair, not only the pairs the ordering line joins with `∥`.**
-
-For each path with two or more writing sprints, emit all three of these — none is optional, and §16.6 owns the full rule:
-
-| Emit | Into | Content |
-|------|------|---------|
-| A `## Cross-Sprint File Touches` row | **each** involved Sprint Plan | the file, every writing task, and the region each one touches |
-| A Step-1 prerequisite gate | the first writing task of the later sprint — or, where the pair has no declared ordering, of **both** sprints | read the live file and record its observed co-writer state before editing |
-| An ordering edge, **or** a `MUST NOT run concurrently (shared file: {path})` row | the Master Plan's Sprint Dependencies table | whichever disposition the pair takes; a blank cell is not a third option |
-
-> [!constraint] An Unordered Shared File Is the Dangerous Case, Not the Exempt One
-> The sequential rule speaks of "the *later* sprint". A pair with no declared ordering has no later sprint, so a matrix walked only for ordered pairs skips it — while that pair is precisely the one free to run in either order or at once. Emit into both sprints and close the ordering explicitly.
->
-> Add the co-writer content assertion to each writing task's Verification Commands as well: a path-scoped diff count verifies the presence of that task's own edit and can never show the absence of another writer's loss, so it cannot be the control for a shared file no matter how rigorously it is applied.
-
-Record the matrix's outcome — the shared paths found and how each pair was closed, or `no shared paths` — in the Step 9 confirmation block.
-
-### Step 9b: Post-Pass Harmonization
-
-**Runs when this invocation authored 2+ Sprint Plan files** — the same `n_sprints_scaffolded_this_pass` count Step 10 uses — **or fanned out to 2+ scaffolding subagents.** Skip it for a single-sprint pass. It runs after every sprint's files exist and **before** the Step-10 review gate.
-
-The three deviation classes in [`references/scaffolding-hygiene.md`](../references/scaffolding-hygiene.md) §8 accumulate whenever plan files are authored in parallel from one template set. The scaffolder is the cheapest place to catch them, because it still holds every file it just wrote: at authoring time a rename has no consumers, while after the fact the same rename is an edit sweep through every citing task file across every sprint.
-
-Sweep this pass's own output for all three classes, then harmonize what surfaces:
-
-| Class | Sweep | Harmonize to |
-|-------|-------|--------------|
-| **A — section-header drift** | `Grep` each template-mandated `##` / `###` heading across every Orchestration, Sprint Plan and task file this pass authored. A heading whose hit count is below the file count is missing from the remainder | The template's exact wording, restored in every file that dropped it |
-| **B — optional formatting lines omitted** | `Grep` the same file set for the template's non-structural lines — the `**Total Estimated:**` line after the Session Task List, the `**Mode:**` line in Execution Strategy | The line restored wherever it is absent |
-| **C — `Scaffold-{Abbrev}/` absent** | `Glob` for `Exec-{Abbrev}/` first: absent ⇒ the plan is still at Discovery and this class does not apply. Present ⇒ `Glob` for `Scaffold-{Abbrev}/` | The folder created, per §8 Class C |
-
-> [!constraint] The Output-Naming Scheme Is a Pass-Level Decision, Not a Per-Sprint One
-> Task-output filenames may number by **task** ordinal or by **session** ordinal. Either is fine. Mixing the two across sprints in one pass is not.
->
-> WRONG — each sprint picks its own scheme, and the single-session sprint hides which one it used:
-> ```
-> Sprint-01 (1 session):  {Abbrev}-S01-01-{Topic} … {Abbrev}-S01-05-{Topic}   ← numbered by TASK
-> Sprint-02 (3 sessions): {Abbrev}-S02-02-{TopicA/B/C}                        ← numbered by SESSION
-> ```
-> Read across sprints, `{Abbrev}-S01-02-…` parses as sprint-session when it is in fact sprint-task. A single-session sprint never reveals which scheme it used, so the ambiguity stays invisible until a later multi-session sprint picks the other one — by which time every consuming task file cites the old names and harmonizing means editing every citation.
->
-> CORRECT — one scheme, chosen for the pass and applied to every sprint in it:
-> ```
-> Sprint-01 … Sprint-{N}: all task outputs numbered by the SAME ordinal,
->                         with the topic disambiguating within a number
-> ```
-> Choose the scheme once, apply it uniformly including to single-session sprints, and state the choice in the Master Plan rather than leaving it implicit.
-
-Record the outcome — the classes found and what was harmonized, or `clean` — in the Step 9 confirmation block. Step 10's review then **confirms** the sweep instead of discovering the drift. The review-side checks stay in force regardless: they are what still catches a hand-authored or resumed scaffold that skipped this step.
-
-### Step 10: Plan Review Gate
-
-After outputting the Step 9 confirmation and running Step 9b, offer plan review options.
-
-**Mega-Scaffold Gate — count sprints authored this pass.**
-
-Before presenting the review options, count `n_sprints_scaffolded_this_pass` — the number of distinct Sprint Plan files this `/planwise plan` invocation authored. For a standard single-sprint plan, this is 1. For an inline mega-scaffold (`/planwise plan --scaffold` against Meta-Plan output, or a multi-sprint `/planwise plan` session that authored 2+ Sprint Plan files in one pass), this can be 2 or more.
-
-If `n_sprints_scaffolded_this_pass ≥ 2`, the "Skip to /planwise run" option is REMOVED from Question 1 below — `/planwise review` becomes mandatory. The rationale and full rule live at `references/scaffolding-hygiene.md` §11 (Mega-Scaffold Review-Gate); the short version is that inline mega-scaffolds trade per-sprint authoring-time self-review for speed, and the post-scaffold review gate is what catches the EI header⇄Cross-References hygiene defects that otherwise ride into execution.
-
-<!-- AUTO-MODE: convenience -->
-<!-- Default: auto-review in this session. -->
-Use `AskUserQuestion` with:
-
-**Question 1: Plan Review Approach**
-
-*If `n_sprints_scaffolded_this_pass == 1` (standard single-sprint plan):*
-
-- "Auto-review with /planwise review" (Recommended) -- Spawn a subagent to validate the plan and return findings
-- "Review manually first" -- User will review plan files before executing
-- "Skip to /planwise run" -- Proceed directly to execution
-
-*If `n_sprints_scaffolded_this_pass ≥ 2` (mega-scaffold — review is MANDATORY per `references/scaffolding-hygiene.md` §11):*
-
-- "Auto-review with /planwise review" (Recommended) -- Spawn a subagent to validate the plan and return findings
-- "Review manually first" -- User will review plan files before executing
-
-(The "Skip to /planwise run" option is intentionally omitted for multi-sprint scaffolds. If review must legitimately be deferred — e.g., a follow-up session is scheduled — record the deferral in the Master Plan's Status note rather than skipping the gate.)
-
-<!-- AUTO-MODE: convenience -->
-<!-- Default: this session; switch to new session if > 3 sprints or > 10 task files. -->
-**Question 2: Review Context** (show only if Question 1 = auto-review)
-- "Run in this session" (Recommended for standard plans) -- Subagent gets fresh context; no token budget concern
-- "Run in a new session" -- Output the command for user to run separately; recommended if this was a large scaffolding session
-
-**If auto-review + this session:**
-
-Spawn the review as an Agent subagent:
-
-```
-Agent(
-  subagent_type: "general-purpose",
-  description: "Plan review for {Abbrev}",
-  prompt: "Run /planwise review {plan-folder-path}. Return: verdict, finding counts
-          by severity, systemic finding count, and report file path."
-)
-```
-
-Present the subagent's results to the user:
-- If **APPROVED** -- "Plan validated. Ready to execute with `/planwise run @{orch-path}`"
-- If **NEEDS_FIXES** -- "Review found issues. Fix findings in the report, then re-run `/planwise review` or proceed to `/planwise run`"
-
-**If auto-review + new session:**
-
-Output:
-```
-To review this plan, run in a new session:
-/planwise review {plan-path}
-```
-
-**If manual review or skip:** No additional action needed.
-
----
-
-## Validation Checklist
-
-Before completing `/planwise plan`, verify:
-
-```
-[ ] Abbreviation is 2-4 chars and unique
-[ ] Master Plan has Vision and Sprint Overview
-[ ] COMPLETENESS — Sprint Plan files on disk == Sprint Overview rows in the Master Plan
-    (minus any sprint listed under `## Deferred Authoring`). Count both; a mismatch FAILS.
-[ ] COMPLETENESS — Session folders on disk == Sessions-table rows summed across all Sprint
-    Plans (minus any session listed under `## Deferred Authoring`). Count both; a mismatch FAILS.
-    Both checks are counts that can fail, not prose to affirm. Run them by Glob-ing
-    `Sprint-*/` and `Sprint-*/Session-*/` and comparing against the declared tables — a plan
-    that declares 6 sprints and authored 1 must FAIL here and name the 5 it did not author.
-[ ] Every Sprint Plan has Objective and Sessions table
-[ ] Orchestration has Task List
-[ ] Orchestration has Task Files table with links
-[ ] Task files exist (one per task, numbered 01, 02, 03...)
-[ ] Task files follow naming: {Abbrev}-S{XX}-{YY}-{##}-{Agent}-{Task}.md
-[ ] Recovery file initialized
-[ ] Outputs/ folder created
-[ ] All files follow naming conventions
-[ ] Plans index regenerated (generate_plans_index.py --write; no hand-written row)
-[ ] Session token estimates validated (< `practical_session_limit` per session — 100K on Pro, 400K on Max; see `references/session-context-budget.md` §5)
-[ ] Each task has a bottom-up estimate: (Required Context tokens) + (output tokens) <= task estimate
-[ ] If DELEGATED: each task estimate + 54K overhead < `context_window` (200K on Pro, 1M on Max)
-[ ] Execution Strategy declared in Orchestration (DIRECT or DELEGATED)
-[ ] If 2+ Opus tasks or META session -> Strategy is DELEGATED
-[ ] If DELEGATED: Orchestration Required Context = plan files only
-[ ] If DELEGATED: the template's `> [!constraint] Mandatory Context Boundary` callout (Reviewer Check 012) lists what orchestrator never reads
-[ ] If effective Token Saver on (plan Master-Plan `Token Saver:` field over the project `context.token_saver` default) — the Step 8c large-file scan was **run, not reproduced by hand**, and its exit code recorded: `python "{plugin_root}/scripts/token_saver.py" --scan --plan {plan_path} --config {config}`. **Exit 0 ticks this box.** A non-zero exit names the Warn+ files: each needs a backlog item, a cost-reason Critical needs its task flagged `1M-exception`, and a read-reason Critical needs a paged-read/refactor note — never `1M-exception`. Re-run until it exits 0, or record per remaining file why it stands. Generated artifacts a runner reads must also be under the line/byte/token read gates. This item is the tool's exit code, not a judgement — a ticked box with no run behind it is the failure the scan exists to prevent
-[ ] If Discovery → Scaffolding: Multi-tier extraction tiers documented in EI header (Tier 1 + Tier 2 + Tier 3 where applicable)
-[ ] If Discovery → Scaffolding: Deferred/Out-of-Scope Log present per sprint
-[ ] If Discovery → Scaffolding: Retention threshold ≥ 80 % per EI section (auto-reject below)
-[ ] If Discovery has user-action gates outside /planwise run: Master Plan Status is IN_PROGRESS with `awaiting {user action}` note (per `references/session-execution-protocol.md` Discovery / Meta-Plan Status section)
-[ ] Scope favors the coherent treatment — no known-partial fix is planned without a recorded constraint and a named residual defect (see the callout below)
-```
-
-### Deferred Authoring
-
-Authoring a later sprint is sometimes correctly postponed — a sprint whose design depends on what an earlier sprint finds cannot be written honestly up front. Deferral is legitimate. **Silent deferral is not**, because an unauthored sprint and a forgotten sprint look identical on disk.
-
-Declare it in the Master Plan, so the two completeness checks above can pass against a declared subset instead of forcing every plan to author everything:
-
-```markdown
-## Deferred Authoring
-
-| Sprint / Session | Not authored because | Unblocked when |
-|------------------|----------------------|----------------|
-| Sprint-{XX} ({Name}) | {why its design depends on an earlier sprint's finding} | {the concrete trigger} |
-| Sprint-{XX} Session-{YY} | {reason} | {trigger} |
-```
-
-Each row names a concrete trigger, not "later" — the trigger is what a future session tests to know the deferral has expired.
-
-> [!pitfall] Read the Deferral Set From the FIRST Column Only
-> The "Unblocked when" cell routinely names another sprint (*"Sprint-01 Recovery shows COMPLETE"*). A check that scans the whole section for `Sprint-NN` counts those trigger mentions as deferrals, over-counts the deferred set, and can subtract away a sprint that was never declared deferred at all — masking the shortfall the check exists to catch. Parse the **Sprint / Session column** only.
-
-> [!constraint] A Deferral Is Declared or It Is a Shortfall
-> WRONG — the Master Plan declares 6 sprints, the pass authors 1, the checklist is affirmed as prose, and the plan reports success. Every later session has to be authored mid-execution, in a session whose context budget was sized for running tasks rather than writing them.
->
-> CORRECT — either author all `{sprint_count}` sprints and all `sum({session_count[XX]})` sessions, or list the unauthored ones under `## Deferred Authoring` with a trigger apiece. The completeness checks subtract the declared rows and still fail on anything undeclared.
-
-An absent instruction reads as a boundary: without this section, an authoring agent that produced one session of one sprint can pass the checklist and assert the shortfall was prescribed. The counts above are what make that claim testable.
-
-> [!practice] Plan the Right Fix, Not the Easy Fix
-> When scoping reveals two treatments — a complete one that touches more surface (a full renumber, a schema migration, propagating a change through every consumer) and a narrower patch that leaves known incoherence behind — scope the complete treatment and cost it honestly. Budget pressure is answered by SPLITTING the coherent fix across tasks or sessions (see `references/session-context-budget.md` § Task-Level Estimation / Task Sizing Categories), never by shrinking it into a partial fix that is cheaper to execute. If a real constraint genuinely forces the partial path (an interface external consumers depend on, an irreversible boundary, a user-set deadline), record the constraint and the residual defect in the plan so the gap is a visible decision, not an accident. Overall project quality comes from doing the hard thing once, not the easy thing twice. Full principle, exception clause, and stage table: [do-the-hard-things.md](../references/do-the-hard-things.md).
-
----
-
 ## Naming Conventions
 
 ### Plan Abbreviation
@@ -819,7 +263,8 @@ Orchestration and Recovery files inside `Meta-{Abbrev}/` use the standard naming
 
 ## Additional Resources
 
-- [session-planning-protocol.md](../references/session-planning-protocol.md) -- Detailed protocol: plan hierarchy, naming conventions, agent delegation, recovery, checklists, git workflow, READ-CONFIRM-ACT
+- [session-planning-protocol.md](../references/session-planning-protocol.md) -- Detailed protocol: plan hierarchy, naming conventions, agent delegation, recovery, checklists, git workflow
+- [read-confirm-act-protocol.md](../references/read-confirm-act-protocol.md) -- READ-CONFIRM-ACT and the structural-findings gate
 - [templates/](../templates/) -- All plan templates (including scaffolding master plan)
 - [examples/sample-plan-output.md](../examples/sample-plan-output.md) -- Example standard plan
 - [examples/sample-scaffolding-output.md](../examples/sample-scaffolding-output.md) -- Example scaffolding from Discovery

@@ -71,7 +71,7 @@ If your own reading contradicts the sheet, say so explicitly: re-measure — `wc
 - Confirm agent assignment is appropriate (Haiku for lookups, Sonnet for code, Opus for decisions)
 - Check Execution Steps are ordered correctly and complete
 - When a brief's Success Criteria cite a test by name, walk each row of its test table through the contract prose; report a row the contract makes unreachable (`references/task-file-and-tracking-requirements.md` §9, "Walk the Worked Example Through the Contract Prose Before Dispatch")
-- [Token Saver on only] Each task's Required Context obeys the §9.A.8 large-file ladder (Check 065): no over-ceiling task without `1M-exception`; Warn+ files carry a backlog item; a `read`-reason Critical is never `1M-exception`'d; oversized generated artifacts are Multi-Part split
+- [Token Saver on only] Each task's Required Context obeys the `references/task-content-fidelity.md` §9.A.8 large-file ladder (Check 065): no over-ceiling task without `1M-exception`; Warn+ files carry a backlog item; a `read`-reason Critical is never `1M-exception`'d; oversized generated artifacts are Multi-Part split
 - Session Summary's Consumption Record present with `measured|estimated` tags; orchestrator-window total kept distinct from summed dispatch budgets
 
 - Check 010 — Task DELEGATED Mandatory Triggers Honored → references/agent-orchestration-delegated.md §1.1
@@ -87,10 +87,10 @@ If your own reading contradicts the sheet, say so explicitly: re-measure — `wc
 - Check 020 — Task Facade Re-Export Verification → references/verify-before-cite.md §9.B.3
 - Check 021 — Task Helper-Function Design Categorization → references/verify-before-cite.md §9.B.4
 
-<!-- STAYS-INLINE: handler-sourced (handlers/plan.md §Step 8c), out of this sprint's edit scope -->
+<!-- STAYS-INLINE: handler-sourced (handlers/plan-Part-2-GatherAndGenerate.md §Step 8c), out of this sprint's edit scope -->
 ### Check 071 — Shared-Context Measured-Size Fan-Out Consistency
 
-- **Severity / Role / Source / Type:** WARNING | Task Reviewer | `handlers/plan.md` §Step 8c (shared-context pre-pass) | NEW
+- **Severity / Role / Source / Type:** WARNING | Task Reviewer | `handlers/plan-Part-2-GatherAndGenerate.md` §Step 8c (shared-context pre-pass) | NEW
 - **What:** When the same file path appears in the Required Context of ≥2 tasks, the `KiB`/`~Tokens` values MUST be identical across those rows AND within tolerance of a live `measure_files.py` measurement. A multiply-cited file is measured once and the single value fanned out — divergent rows, or a shared-doc figure deviating >15% from the live measurement, is a replicated-drift candidate: one stale guess copied into every citing task's Context subtotal and header. The check is direction-agnostic — an over-estimate merely inflates budgets, but an under-estimate can mis-route a file in the Token Saver large-file scan or under-budget a DELEGATED dispatch — so flag ANY divergence or stale value, not only under-estimates.
 - **Detection:**
   1. Group all tasks' Required Context rows by file path. For any path cited in ≥2 rows, compare the `KiB`/`~Tokens` values — any mismatch → WARNING (name the file path, the task IDs involved, and the divergent values).
@@ -100,7 +100,7 @@ If your own reading contradicts the sheet, say so explicitly: re-measure — `wc
 [WARNING] Shared-context measured size divergent/stale across citing tasks
 File: {cited file path} | Location: Required Context rows in {task IDs}
 Issue: {KiB/~Tokens values {A} vs {B} diverge across citing tasks | fanned value {N} deviates {pct}% from live measurement ({actual})}
-Fix: Re-measure once with measure_files.py, fan the identical value into every citing row, re-roll affected subtotals/headers/session totals per handlers/plan.md Step 8c | Confidence: MEDIUM
+Fix: Re-measure once with measure_files.py, fan the identical value into every citing row, re-roll affected subtotals/headers/session totals per handlers/plan-Part-2-GatherAndGenerate.md Step 8c | Confidence: MEDIUM
 ```
 - **Insert:** Seventh item under `**New checks (task content fidelity — Required Context):**`.
 
@@ -198,6 +198,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Verify that every task's `git diff` is scoped to a recorded `{ABBREV}_S{NN}_BASE` and path-scoped with `-- <paths>` rather than a `grep` pipe (`references/gate-diff-baseline-pinning.md` §8)
 - Verify that every After-block gate records its measured pre-edit value beside its post-edit expectation, and that no gate's recorded pre-edit value already satisfies that expectation — such a gate passes with zero work done and is vacuous by construction (`references/gate-pre-edit-baseline.md` §10)
 - Verify that every numeric threshold used as a binding gate carries its derivation — the measurement that produced it or a named external basis — and that a derived size/count criterion has not been invalidated by a decision recorded later in the same plan (`references/measurement-discipline.md` §8.9)
+- Verify that every literal count pinned in a test assertion, gate or acceptance criterion names the artifact and version it was read from, and that the task regenerating that artifact owns the re-pin (`references/measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md` §8.11)
 - Verify that a bug-fix deliverable's criteria include one phrased against a fixture reproducing the defect and one requiring the probe to fail on the unfixed artifact — criteria querying live project data pass identically against unfixed code (`references/gate-instrument-proof-obligations.md` §10 obligation A)
 - Confirm no gate asserts a format or spelling pattern where the property at stake is resolution, and that a gate-repair deliverable's criteria are not satisfiable entirely by fixtures with no live sweep of the guarded tree (`references/gate-instrument-proof-obligations.md` §10 obligations B and D)
 - Verify that a deliverable containing a move, extraction, consolidation or collapse carries at least one blast-radius gate — a copy-count probe at both ends, a set-difference audit of the deleted copy against the survivor, a test-surface sweep for patches steering the moved symbols, or an execution-stage gate beyond collection (`references/session-execution-protocol.md` §6.1)

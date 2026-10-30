@@ -313,6 +313,7 @@ class TestGetTokenSaverExtensionConfigDefaults(unittest.TestCase):
             {"window": 400000, "turns": 194},
         )
         self.assertEqual(result["run_layer_stop"], "off")
+        self.assertEqual(result["plan_authoring"], "inline")
 
     def test_absent_keys_within_a_present_context_block_use_defaults(self):
         config = {"context": {"plan_tier": "pro"}}
@@ -467,6 +468,48 @@ class TestGetTokenSaverExtensionConfigCoercion(unittest.TestCase):
         result = config_loader.get_token_saver_extension_config(config)
         self.assertEqual(result["run_layer_stop"], "off")
 
+    def test_plan_authoring_absent_key_defaults_to_inline(self):
+        config = {"context": {"plan_tier": "pro"}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["plan_authoring"], "inline")
+
+    def test_plan_authoring_accepts_delegated(self):
+        config = {"context": {"plan_authoring": "delegated"}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["plan_authoring"], "delegated")
+
+    def test_plan_authoring_accepts_inline(self):
+        config = {"context": {"plan_authoring": "inline"}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["plan_authoring"], "inline")
+
+    def test_plan_authoring_normalizes_case_and_whitespace(self):
+        config = {"context": {"plan_authoring": " Delegated "}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["plan_authoring"], "delegated")
+
+    def test_plan_authoring_unrecognized_value_falls_back(self):
+        config = {"context": {"plan_authoring": "sometimes"}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["plan_authoring"], "inline")
+
+    def test_plan_authoring_non_string_falls_back(self):
+        # Neither enum word is a YAML boolean, so no bool mapping exists: a
+        # bool, an int or None is malformed and reads as the default.
+        for value in (True, False, 1, None):
+            config = {"context": {"plan_authoring": value}}
+            result = config_loader.get_token_saver_extension_config(config)
+            self.assertEqual(result["plan_authoring"], "inline", repr(value))
+
+    def test_plan_authoring_bare_yaml_scalar_round_trips(self):
+        # The exact text a consumer writes in config.yaml, parsed the way the
+        # loader parses it, must reach the enum value the text names.
+        import yaml
+
+        config = yaml.safe_load("context:\n  plan_authoring: delegated\n")
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["plan_authoring"], "delegated")
+
 
 # ---------------------------------------------------------------------------
 # Migration — the five new sub-keys reach a PRE-EXISTING context: block via
@@ -517,6 +560,24 @@ class TestMergeContextSubkeysAddsSprint08Keys(unittest.TestCase):
         # and the default must not have been re-added alongside it.
         self.assertIn("  token_saver_injection_ceiling: 75000\n", result)
         self.assertEqual(result.count("token_saver_injection_ceiling"), 1)
+
+    def test_plan_authoring_lands_on_a_pre_existing_context_block(self):
+        text = "context:\n  plan_tier: pro\n  run_layer_stop: off\n"
+        result = ip.merge_context_subkeys(text)
+        self.assertIn("  run_layer_stop: off\n", result)
+        # The added line is whole, on its own line, and inside the block.
+        lines = result.split("\n")
+        self.assertIn("  plan_authoring: inline", lines)
+        self.assertEqual(lines.count("  plan_authoring: inline"), 1)
+        self.assertGreater(lines.index("  plan_authoring: inline"), lines.index("context:"))
+
+    def test_already_present_plan_authoring_is_skipped_not_replaced(self):
+        text = "context:\n  token_saver: true\n  plan_authoring: delegated\n"
+        result = ip.merge_context_subkeys(text)
+        # A user's already-set value must survive untouched, and the default
+        # must not have been re-added alongside it.
+        self.assertIn("  plan_authoring: delegated\n", result)
+        self.assertEqual(result.count("plan_authoring"), 1)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 ---
 description: DELEGATED dispatch discipline, Part 1 of 3 — declaration, foundations, and dispatch-prompt construction (§1.1–§1.13) for spawning task-runner subagents; extracted from agent-orchestration.md §11-§12
+consult-when: Running a DELEGATED session — the orchestrator protocol for spawning task-runners, from declaration through dispatch-prompt construction, with dispatch mechanics and returns in the Part-2 sibling and cross-cutting prompt discipline in the Part-3 sibling
 ---
 
 # DELEGATED Dispatch Discipline — Part 1: Foundations and Dispatch-Prompt Construction
@@ -488,8 +489,8 @@ For Recovery specifically, **Option C is the binding default whenever 3 or more 
 > ```
 
 > [!pitfall] Sequential-Phase Tail After Parallel Dispatch
-> **Problem:** A session that runs 3+ parallel runners followed by a single sequential verification task. If the verifier follows the standard Recovery-write protocol (§4 of task-runner contract), Recovery gets written twice — once by the orchestrator's reconciliation, once by the verifier — and the second write may clobber the first if the verifier read Recovery before reconciliation completed.
-> **Solution:** Reconcile Recovery centrally BEFORE dispatching the sequential tail. The tail task may then write Recovery directly per the normal §4 protocol — it runs alone, so no race exists.
+> **Problem:** A session that runs 3+ parallel runners followed by a single sequential verification task. If the verifier follows the standard Recovery-write protocol (`agents/task-runner.md` §5.A), Recovery gets written twice — once by the orchestrator's reconciliation, once by the verifier — and the second write may clobber the first if the verifier read Recovery before reconciliation completed.
+> **Solution:** Reconcile Recovery centrally BEFORE dispatching the sequential tail. The tail task may then write Recovery directly per the normal `agents/task-runner.md` §5.A protocol — it runs alone, so no race exists.
 
 #### Reviewer Check 052 — DELEGATED Round-2 Compliance
 
@@ -501,5 +502,5 @@ For Recovery specifically, **Option C is the binding default whenever 3 or more 
 
 **Continues in:** [Part 2 — Dispatch Mechanics and Returns](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) (§1.14–§1.22) · [Part 3 — Cross-Cutting Dispatch Discipline](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) (§1.23–§1.32)
 
-*Originally extracted from [`agent-orchestration.md`](agent-orchestration.md) §11-§12 (DELEGATED Dispatch Discipline + Verify-Before-Acting on LSP Diagnostics); §1.19–§1.22 folded from `handlers/run.md`'s Delegated Execution Protocol (2026-08-10). That file now carries only a short §11 pointer stub back to this file. Split into three topical parts (2026-09-06) because the combined text exceeded the Read-tool page cap; section numbers were frozen across the split.*
+*Originally extracted from [`agent-orchestration.md`](agent-orchestration.md) §11-§12 (DELEGATED Dispatch Discipline + Verify-Before-Acting on LSP Diagnostics); §1.19–§1.22 folded from `handlers/run.md`'s Delegated Execution Protocol (2026-08-10). `agent-orchestration.md` now carries only a short §11 pointer stub back to this file. Split into three topical parts (2026-09-06) because the combined text exceeded the Read-tool page cap; section numbers were frozen across the split.*
 *Cross-reference: [agent-orchestration.md](agent-orchestration.md), [agent-authoring.md](agent-authoring.md), [skill-authoring.md](skill-authoring.md)*

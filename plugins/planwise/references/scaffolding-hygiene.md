@@ -1,5 +1,6 @@
 ---
 description: Nine binding hygiene rules plus three advisory practices for what a multi-sprint scaffold emits — Meta-Plan source detection, Exec folder naming, abbreviation validation, Sprint Plan status defaults, Outputs/ folder creation, sequential-sprint prerequisite declarations, no-improvisation of artifact types, parallel-scaffold deviation classes, multi-shape plan-sizing, high-divergence cohort token uplift, mega-scaffold review-gate, and run-time-sound verification commands and context pointers. Part 1 of 2 — the five derivation-and-parallelism rules (§13–§17), the §18 sheet-authoring rule and the §19 replay-command rule live in scaffolding-hygiene-Part-2-DerivationAndParallelism.md
+consult-when: Scaffolding a multi-sprint plan — eleven binding hygiene rules plus advisory practices, and (in the `scaffolding-hygiene-Part-2-DerivationAndParallelism.md` sibling, §13–§19) a sheet a human pastes — break the long paste line, echo the resolved parameters in "Watch for", and add one general stop clause for a halt the harness starts (§18), and a parallel layer greps called symbols against layer-mate outputs because disjoint outputs do not prove no import edge (§17.4), and an orchestrator re-verify item names a replay command the producing task ships in its Output (§19)
 ---
 # Scaffolding Hygiene — Part 1: What the Scaffold Emits
 
@@ -283,7 +284,7 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 >    and harmonizes what they surface: section headers restored to the
 >    template's wording, optional formatting lines restored, and the pass's
 >    output-naming scheme applied to every sprint in the pass. The mechanics
->    live at `handlers/plan.md` Step 9b. The cost asymmetry is the whole
+>    live at `handlers/plan-Part-3-VerifyConfirmAndReview.md` Step 9b. The cost asymmetry is the whole
 >    argument — at authoring time a rename has no consumers, while after the
 >    fact the same rename is an edit sweep through every citing task file
 >    across every sprint.
@@ -411,7 +412,7 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 > **The gate, stated mechanically:**
 >
 > 1. The scaffolder counts `n_sprints_scaffolded_this_pass` — the number of distinct Sprint Plan files authored during the current `/planwise plan` invocation.
-> 2. If `n_sprints_scaffolded_this_pass ≥ 2`, the plan's Step-10 plan-review gate (in `handlers/plan.md`) MUST present a non-skippable branch — "Skip to /planwise run" is removed from the available options. Only "Auto-review with /planwise review" or "Review manually first" remain.
+> 2. If `n_sprints_scaffolded_this_pass ≥ 2`, the plan's Step-10 plan-review gate (in `handlers/plan-Part-3-VerifyConfirmAndReview.md`) MUST present a non-skippable branch — "Skip to /planwise run" is removed from the available options. Only "Auto-review with /planwise review" or "Review manually first" remain.
 > 3. The scaffold session may legitimately defer the *content* review for cause (e.g., a follow-up session is already scheduled), but the *gate itself* — the explicit decision to defer — MUST be recorded in the Master Plan's status note rather than silently skipped.
 >
 > WRONG — scaffold N sprints inline, declare the scaffold "done", proceed toward `/planwise run` without a review:
@@ -442,7 +443,7 @@ The cost asymmetry justifies the gate: roughly half a dozen mechanical fixes aft
 
 How the gate is enforced at the planner layer:
 
-- `handlers/plan.md` Step 10 counts `n_sprints_scaffolded_this_pass` (1 for standard plans; N for `/planwise plan --scaffold` sessions).
+- `handlers/plan-Part-3-VerifyConfirmAndReview.md` Step 10 counts `n_sprints_scaffolded_this_pass` (1 for standard plans; N for `/planwise plan --scaffold` sessions).
 - When `n_sprints_scaffolded_this_pass ≥ 2`, the `AskUserQuestion` "Plan Review Approach" prompt omits the "Skip to /planwise run" option.
 - The handler's Question 2 ("Review Context") still applies — auto-review can run in this session or a new one — but Question 1's "Skip" option is gated off.
 
@@ -457,7 +458,7 @@ Red flags during reviewer audit:
 - Master Plan Status is `READY_TO_EXECUTE` AND `n_sprints_scaffolded_this_pass ≥ 2` AND no `/planwise review` report is referenced — gate skipped.
 - The Step-10 confirmation block in the planner's transcript shows a "Skip to /planwise run" choice was offered for a multi-sprint scaffold — gate not enforced by the handler.
 
-See also: `handlers/plan.md` Step 10 (the gate's mechanical enforcement point), `ei-completeness.md` §9 (EI bidirectional consistency — the rule the inline mega-scaffold most often violates), `ei-source-promise-integrity.md` §10 (Source-Promise Integrity — the rule the scaffolder's body⇄citation promises depend on).
+See also: `handlers/plan-Part-3-VerifyConfirmAndReview.md` Step 10 (the gate's mechanical enforcement point), `ei-completeness.md` §9 (EI bidirectional consistency — the rule the inline mega-scaffold most often violates), `ei-source-promise-integrity.md` §10 (Source-Promise Integrity — the rule the scaffolder's body⇄citation promises depend on).
 
 ---
 

@@ -61,7 +61,7 @@ Use `AskUserQuestion` to collect:
 4. **Plans directory** — Subdirectory name for plans within the root (default: `Plans`)
 5. **Backlog directory** — Subdirectory name for backlog items within the root (default: `Backlog`)
 6. **Lessons directory** — Subdirectory name for lessons learned within the root (default: `LessonsLearned`)
-7. **Claude plan tier** — Which Claude plan you're on: `pro` (200K context window) or `max` (1M context window). This scales all token budgets, Meta-Plan thresholds, and DELEGATED checks. Default: `pro`. See `references/session-context-budget.md` §4 for tier-specific budget tables.
+7. **Claude plan tier** — Which Claude plan you're on: `pro` (200K context window) or `max` (1M context window). This scales all token budgets, Meta-Plan thresholds, and DELEGATED checks. Default: `pro`. See `references/session-context-budget.md` §5 for tier-specific budget tables.
 8. **Enable Token Saver mode?** — Keeps task sessions under ~150K (avoids the linear carrying-cost of big sessions) and warns when a file is too large to fit a lean task. Recommended: `yes`. See `references/token-saver-profile.md` for the two-tier policy and derivation formulas.
 9. **Feedback drafts level** (`feedback.drafts`) — ask exactly this text, the same text `/planwise upgrade` Step 1.6 asks:
 

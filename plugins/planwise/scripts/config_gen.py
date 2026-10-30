@@ -24,7 +24,9 @@ except ImportError:
 
 try:
     from config_loader import (
+        PROJECT_DIR_DEFAULTS,
         find_context_block,
+        find_top_level_block,
         get_feedback_config,
         get_upgrade_config,
         splice_context_block,
@@ -74,6 +76,17 @@ except ImportError:
             "the scripts/ directory appears to be partially installed"
         )
 
+    def find_top_level_block(lines: list, key: str) -> "tuple[int, int, str] | None":
+        # Same fail-loud rationale as find_context_block above.
+        raise ImportError(
+            "config_loader is required for config.yaml block editing; "
+            "the scripts/ directory appears to be partially installed"
+        )
+
+    # The defaults live only in config_loader. Empty here, and unused: every
+    # reader of this table calls find_top_level_block first, which raises.
+    PROJECT_DIR_DEFAULTS: dict = {}
+
 
 PLAN_TIER_WINDOWS = {
     "pro": 200000,
@@ -104,8 +117,9 @@ MIGRATABLE_TOP_LEVEL_KEYS = [
 # reach an existing install without this nested merge. Each tuple is
 # (sub_key, default_value_literal) where the literal is rendered verbatim
 # into the YAML line. Existing sub-keys are NEVER overwritten — purely
-# additive. Most entries are Token Saver keys; run_layer_stop is not, but it
-# rides the same nested merge since it also lives under context:.
+# additive. Most entries are Token Saver keys; run_layer_stop and
+# plan_authoring are not, but they ride the same nested merge since they also
+# live under context:.
 MIGRATABLE_CONTEXT_SUBKEYS: list[tuple[str, str]] = [
     ("token_saver", "false"),
     ("token_saver_session_target", "150000"),
@@ -122,6 +136,7 @@ MIGRATABLE_CONTEXT_SUBKEYS: list[tuple[str, str]] = [
     ("token_saver_orchestrator_advisory", "measured"),
     ("token_saver_session_checkpoint", "{window: 400000, turns: 194}"),
     ("run_layer_stop", "off"),
+    ("plan_authoring", "inline"),
     # Last CLI build planwise confirmed this project's harness against. This
     # is consumer-side, mutable state -- NOT a version pin baked into shipped
     # plugin source (see references/verify-against-shipped-artifact.md for why
@@ -208,6 +223,79 @@ def merge_context_subkeys(text: str, token_saver_value: str = "false") -> str:
 
     new_lines = lines[:end] + additions + lines[end:]
     return "\n".join(new_lines)
+
+
+def merge_project_subkeys(text: str, planwise_root: str) -> tuple[str, list[str]]:
+    """Add any missing path keys to an existing `project:` block.
+
+    Returns (new_text, added) where `added` lists the `project.<key>` names
+    written, in the order planwise_root, plans_dir, backlog_dir. Targeted,
+    comment-preserving, in-place text edit, like merge_context_subkeys: an
+    existing key is never overwritten, and a second run adds nothing, so the
+    text comes back byte-identical. A key counts as present when its line
+    exists at the block's own sub-key indent, whatever its value.
+
+    The values written are the ones the config loader already resolves for an
+    absent key (PROJECT_DIR_DEFAULTS), plus the folder that holds this
+    config.yaml for `planwise_root`, so the edit changes no behavior. Three
+    keys are left out on purpose. `feedback_dir` has its own backfill that
+    points at an existing legacy folder. `lessons_dir` has no default, and an
+    absent key means the lessons stages are skipped. `archive_dir` is optional
+    and derives from `backlog_dir`.
+
+    Returns the text unchanged, with nothing added, when there is no
+    top-level `project:` block in the multi-line form. Creating the block is
+    outside this function.
+    """
+    lines = text.split("\n")
+    block = find_top_level_block(lines, "project")
+    if block is None:
+        return text, []
+    header_idx, end, subkey_indent = block
+
+    wanted = {
+        "planwise_root": planwise_root,
+        "plans_dir": PROJECT_DIR_DEFAULTS["plans_dir"],
+        "backlog_dir": PROJECT_DIR_DEFAULTS["backlog_dir"],
+    }
+    additions: list[str] = []
+    added: list[str] = []
+    for key, value in wanted.items():
+        present = any(
+            re.match(rf"^{re.escape(subkey_indent)}{re.escape(key)}:", lines[k])
+            for k in range(header_idx + 1, end)
+        )
+        if present:
+            continue
+        additions.append(f'{subkey_indent}{key}: "{value}"')
+        added.append(f"project.{key}")
+
+    if not additions:
+        return text, []
+    return "\n".join(lines[:end] + additions + lines[end:]), added
+
+
+def backfill_project_dirs(cfg: "InitConfig", config_path: Path) -> str | None:
+    """Backfill missing `project` path keys into the config on disk.
+
+    Runs on every upgrade path that reaches an existing config, and on
+    `init --migrate`, because `project` is not one of MIGRATABLE_TOP_LEVEL_KEYS
+    and migrate_config() never touches it. Writes through the parse-checked
+    writer only when merge_project_subkeys() added something, so a config that
+    already has the keys is left byte-identical. Returns one line to print
+    naming the keys added, or None when nothing was added.
+    """
+    if not config_path.is_file():
+        return None
+    text = config_path.read_text(encoding="utf-8")
+    merged, added = merge_project_subkeys(text, cfg.planwise_root)
+    if not added:
+        return None
+    write_config_checked(config_path, merged)
+    return (
+        f"Project directories: added {', '.join(added)} to {config_path.name} "
+        "(the folders this project already resolves to by default)."
+    )
 
 
 def extract_top_level_block(text: str, key: str) -> str | None:

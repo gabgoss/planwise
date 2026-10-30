@@ -1,5 +1,6 @@
 ---
 description: The plans index's generated contract — the six columns, the enumeration rule, the status definitions and normalization, the one-writer rule (and the separate writers of a Master Plan's status line), the Index Notes convention for harvested prose, and the one-file budget. Every consumer of the generated plans index defers here.
+consult-when: Reading or changing the generated plans index — six columns, enumeration rule, status normalization, one-writer rule (including the separate writers of a Master Plan's `**Status:**` line), Index Notes
 ---
 
 # Plans Schema

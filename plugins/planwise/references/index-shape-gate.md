@@ -1,3 +1,7 @@
+---
+description: The one preflight that the run, lessons, backlog and plan handlers share before any write — it keeps a handler from writing against a hand-authored backlog, lessons or plans index.
+consult-when: A writing handler (run, lessons, backlog, plan) must refuse to write against a hand-authored index — the one shared preflight runs `index_shape_preflight.py`, asks once, migrates through upgrade Step 2.3b then 2.4 with every placeholder bound, re-runs the preflight, and STOPs on any refusal
+---
 # Index Shape Gate
 
 **Purpose:** The one preflight that `run`, `lessons`, `backlog` and `plan` share. It keeps a handler from writing against a hand-authored backlog, lessons or plans index.

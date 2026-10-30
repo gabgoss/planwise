@@ -1,5 +1,6 @@
 ---
 description: Agent definition format, YAML frontmatter field reference, scope levels, naming conventions, and relationship to runtime contexts. Loads when authoring .claude/agents/ files.
+consult-when: Authoring agent definitions — format, frontmatter, scope levels, naming
 paths: .claude/agents/**
 ---
 
@@ -100,14 +101,17 @@ disallowedTools: Edit   # Result: Read, Grep, Glob
 
 ### Shipped Effort Levels
 
-The plugin pins `effort:` on the agents it measured and leaves the rest inheriting the session level.
+The plugin pins `effort:` on the agents it measured and on agents assigned by role class (the Basis column says which), and leaves the rest inheriting the session level.
 
 | Agent | `effort:` | Basis |
 |-------|-----------|-------|
 | `task-runner` | `medium` (pinned) | Execution arm, measured 2026-09 |
 | `plan-reviewer` | `high` (pinned) | Review arm, measured 2026-09 |
 | `structural-reviewer` | `high` (pinned) | Review arm, measured 2026-09 |
-| `fix-agent`, `backlog-author`, `backlog-planner`, `review-discovery`, `rule-comparator` | inherited (not set) | Not yet measured |
+| `backlog-preflight` | `medium` (pinned) | assigned by role class (execution → medium, judgment → high), not separately measured; re-measure per the clause below |
+| `backlog-planner` | `high` (pinned) | assigned by role class (execution → medium, judgment → high), not separately measured; re-measure per the clause below |
+| `backlog-author` | `medium` (pinned) | assigned by role class (execution → medium, judgment → high), not separately measured; re-measure per the clause below |
+| `fix-agent`, `review-discovery`, `rule-comparator`, `plan-author` | inherited (not set) | Not yet measured |
 
 **How the values were measured.** Seven execution tasks with scripted graders (a newline round-trip, a diff-gate baseline, shell quoting, test-collection scope, an aggregate filter, and two under-specified briefs — one parse, one merge), 4 repetitions per cell, on Sonnet 5 and Opus 5, at each of `low`, `medium`, `high`, `xhigh`. The execution arm dispatched `claude --agent task-runner -p` against a frozen copy of the shipped agent file with only its `effort:` line changed. The review arm dispatched a reviewer against a document carrying eight seeded defects, 4 repetitions per cell at the same four levels, and counted defects found. Verdicts use one rule: a cheaper level HOLDS when its pass rate is at least the dearer level's, else it REGRESSES. The figures in the table above are the pooled baseline-run pass rates and the review medians from that grid.
 
@@ -119,7 +123,7 @@ The plugin pins `effort:` on the agents it measured and leaves the rest inheriti
 
 **`maxTurns`** — Maximum API round-trips. No value = unlimited.
 
-**`background`** — `true` = always run as background task. MCP unavailable; `AskUserQuestion` unavailable; permissions must be pre-approved.
+**`background`** — `true` = always run as background task. `AskUserQuestion` unavailable; permissions must be pre-approved. An `Agent` call that omits `run_in_background` also runs in the background, so an agent that must run in the foreground needs `run_in_background: false` on the call (see [agent-orchestration.md](agent-orchestration.md) §9).
 
 **`isolation`** — `worktree` = isolated git worktree copy. Auto-cleaned if agent makes no changes.
 
@@ -132,7 +136,7 @@ skills:
   - planwise
 ```
 
-**`mcpServers`** — Reference existing configured servers by name or define inline. Not available in `background: true` mode.
+**`mcpServers`** — Reference existing configured servers by name or define inline. Background mode did not withhold MCP in the 2.1.310 measurement: a background `general-purpose` subagent listed a configured server's tool. An agent's own `mcpServers:` entry in background mode was not tested.
 
 **`memory`** — Enables persistent memory across conversations. Auto-adds Read/Write/Edit tools regardless of `tools` field.
 
@@ -318,7 +322,7 @@ visual-fix-agent    # Workflow-based
 An agent definition file maps to runtime behavior in two modes:
 
 1. **`claude --agent <name>`** — Agent definition configures a **Main Session**: full context, all tools, can spawn subagents.
-2. **`subagent_type: "<name>"` in Agent tool** — Agent definition configures a **Subagent**: fresh context, 18 tools, Agent tool absent (no further spawning).
+2. **`subagent_type: "<name>"` in Agent tool** — Agent definition configures a **Subagent**: no parent conversation, and the tools its `tools:` list names. It still loads CLAUDE.md and global rules. Measured 2026-10-25 on Claude Code 2.1.310: every planwise agent, whose `tools:` lists omit `Agent`, had no Agent tool. `general-purpose`, which has no `tools:` list, had it. See [agent-orchestration.md](agent-orchestration.md) §2 and §3.
 
 > [!practice] Empirically Verified
 > **Custom agents created mid-session are NOT dynamically registered.** If you write a new agent definition to `.claude/agents/` during an active session, it will NOT be discoverable as a `subagent_type` value in that session. Agent discovery happens at session startup only.
@@ -327,12 +331,14 @@ An agent definition file maps to runtime behavior in two modes:
 
 | Type | Model | Tools | Purpose |
 |------|-------|-------|---------|
-| `Explore` | Haiku | Read, Glob, Grep (no Write/Edit) | Fast codebase exploration |
-| `Plan` | Inherit | Read, Glob, Grep (no Write/Edit) | Architecture planning |
-| `general-purpose` | Inherit | All tools | Complex autonomous tasks |
+| `Explore` | Sonnet in the measured run, under a Sonnet parent | No Edit, Write or NotebookEdit. Has Read, Glob, Grep, Bash, PowerShell, WebFetch and WebSearch | Fast codebase exploration |
+| `Plan` | Inherit | Same set as `Explore` | Architecture planning |
+| `general-purpose` | Inherit | 20 tools in the background, 31 in the foreground | Complex autonomous tasks |
 | `Bash` | Inherit | Bash only | Terminal commands |
 | `statusline-setup` | Sonnet | Read, Edit | Status line configuration |
 | `claude-code-guide` | Haiku | Limited | Claude Code feature questions |
+
+The `Explore`, `Plan` and `general-purpose` rows were measured 2026-10-25 on Claude Code 2.1.310, with tool lists self-reported. `Explore` and `Plan` load no CLAUDE.md and no rule files, so their prompt must carry everything they need. See [agent-orchestration.md](agent-orchestration.md) §2 and §3.
 
 > [!practice] Claude Code Guide subagent_type
 > The built-in guide agent's `subagent_type` string is `claude-code-guide` (lowercase, hyphenated) — confirmed against the live Claude Code agent registry (the Agent tool's available subagent types).

@@ -14,7 +14,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 
 <!-- Scaffolding CONFIRM block placeholder:
      When this orchestration is part of a scaffolded plan, ensure the handler emits the CONFIRM block
-     before reading Consolidated Context parts. See handlers/plan.md Scaffolding Step 1
+     before reading Consolidated Context parts. See handlers/plan-scaffolding.md Scaffolding Step 1
      and references/scaffolding-hygiene.md §1. -->
 
 ---
@@ -57,7 +57,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 >
 > See `references/session-plan-requirements.md` § Execution Strategy (Set by Planner) for the binding rule (canonical); `references/agent-orchestration-delegated.md` §1.1 Mandatory Triggers cites it.
 
-### Context Boundary (DELEGATED mode only)
+### Context Boundary <!-- CONDITIONAL — DELEGATED mode only -->
 
 > [!constraint] Mandatory Context Boundary
 > In DELEGATED mode, the orchestrator reads ONLY plan files (Orchestration, Recovery, task files). Heavy context files (Consolidated Context parts, reference docs, source code) are read by subagents only.
@@ -184,9 +184,14 @@ you ARE the task-runner.
 
 Task file:        {task-file-absolute-path}
 Session ID:       {Abbrev}-S{XX}-{YY}
+Plugin root:      {value of config.yaml plugin_root, read at dispatch}
 Output directory: {output-dir-absolute-path}
 
 ## HARD CONSTRAINTS (non-negotiable)
+Execute ONLY {task-id}. Do not start any other task in the session even if the
+Recovery file lists it as PENDING. Files you may write: {explicit list from the
+task file's Output}.
+
 1. Modify ONLY files listed in this task's Required Context — no other files
 2. Do NOT read files not listed in Required Context
 3. Do NOT spawn sub-agents or create teams
@@ -206,6 +211,8 @@ Plain-text output does NOT reach the orchestrator.
 Return after writing the single expected output file. Do NOT proceed to task
 {n+1}.
 ```
+
+Where a Verification Command in the task file holds the literal `{plugin_root}`, substitute the `Plugin root:` value above. Never copy a plugin path out of the task file.
 
 <!-- Add when the project declares an isolated environment (§1.27): an
      ENVIRONMENT DISCIPLINE block naming interpreter/linter/runner paths in the
@@ -235,12 +242,12 @@ Per `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns
 
 **On every failure state, resume the SAME agent — never dispatch a fresh one.** Its context already holds the task; a fresh runner re-reads everything and can race or duplicate the first one's partial work.
 
-### Step 2 — Gate acceptance on on-disk evidence, not the final message
+### Step 2 — Gate acceptance on on-disk evidence
 
 A harness `completed` status means the agent stopped with no live children. It is **not** a check that the deliverables were produced (§1.17.4). Before marking any task done:
 
 - [ ] Every path in `OUTPUT_FILES` exists on disk
-- [ ] **The orchestrator** runs `python "{plugin_root}/scripts/measure_files.py" {output files}` and compares against the task's declared Expected Output **token** budget — a deviation over 20% is a signal to review before the next dispatch (§1.4). The runner's self-reported count is not this check
+- [ ] **The orchestrator** runs `python "{plugin_root}/scripts/measure_files.py" {output files}` (the orchestrator reads `plugin_root` from `config.yaml` at run time) and compares against the task's declared Expected Output **token** budget — a deviation over 20% is a signal to review before the next dispatch (§1.4). The runner's self-reported count is not this check
 - [ ] Grep the edit target for the symbol that was supposed to change — confirm it is present, and that residual references meant to be swept are gone
 - [ ] `git status --short` shows the expected file set dirty and nothing unexpected
 - [ ] Every required status-block field is present and non-empty (a blanked field is not a short one)
@@ -290,6 +297,21 @@ See `agents/task-runner.md` §5.B for the runnable schema.
 
 ---
 
+## Pre-Known Cross-Task Coordination Flags <!-- OPTIONAL -->
+
+<!-- Include when an upstream session's closeout routed coordination flags to this session.
+     Omit the section when none arrived. Add one H3 block per source session, and append to
+     an existing block rather than opening a second one. The run handler's flag preflight
+     reads this section and routes each flag into the consuming task file before dispatch. -->
+
+### From {source-session-id} — recorded {date}
+
+| Flag # | Source Task | Consuming Task | Observation | Recommended Action |
+|--------|-------------|----------------|-------------|--------------------|
+| {n} | {source-task-id} | {task-id, or "session" when the consumer is unclear} | {observation} | {recommended action} |
+
+---
+
 ## Post-Session Checklist <!-- REQUIRED -->
 
 > Corresponds to Phase 4 of the run handler. Complete these steps after all tasks finish.
@@ -300,6 +322,16 @@ See `agents/task-runner.md` §5.B for the runnable schema.
 - [ ] **Capture lessons** — ask "Were any lessons learned?" If yes, create lesson file and run the generator
 - [ ] **Update plan status** — mark this orchestration COMPLETE; update sprint plan and master plan status fields
 - [ ] **Git commit and push** — stage specific files (`git add` by name, never `git add .`), commit, push
+
+---
+
+## Plan-Specific Sections <!-- OPTIONAL -->
+
+Write any section that no heading above covers here, as an `###` H3. Never add it as a new `##` H2 elsewhere in this file, and draft one `idea` feedback draft for each new H3 heading (see `references/feedback-drafting.md`).
+
+### {Section Heading}
+
+{content}
 
 ---
 

@@ -1,5 +1,6 @@
 ---
 description: Recorded-figure discipline continued — a recorded delta states both endpoints and says whether it is net or set size, with the figure stated on both sides of any transform (§8.10), and a pinned count names the artifact and version it was read from, with the diff-gate header-line corollary (§8.11), and a byte pin names its instrument because blob bytes and checkout bytes differ by the line count under `core.autocrlf` (§8.12). Split out of measurement-discipline.md when that file crossed the Read-tool token gate.
+consult-when: Writing a spec delta, a test assertion copied from a spec, or a pinned count — record both endpoints beside a "+A/-R" delta and say whether it is net or set size, state the figure on both sides of a transform, write the artifact and version beside a pinned count, and count removed diff lines with `grep -c '^-[^-]'`; a byte count from a blob and one from the checkout differ by the line count under `core.autocrlf`, so name the instrument beside every byte pin; carries §8.10, §8.11 and §8.12 of `measurement-discipline.md`
 paths: {planwise_root}/{plans_dir}/**
 ---
 

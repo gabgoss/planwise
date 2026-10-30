@@ -1,5 +1,6 @@
 ---
 description: Markdown header hierarchy, section structure, YAML frontmatter, structural signals, emphasis, and cross-reference conventions
+consult-when: Formatting a markdown doc — header hierarchy, section length limits, frontmatter, cross-refs
 ---
 
 # Markdown Conventions

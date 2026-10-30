@@ -16,9 +16,13 @@ the regenerate command; it never writes an index row itself, and its
 duplicate-id guard checks both the generated index files (hub, overflow
 leaves, Archive shards) and every on-disk item file's own id, since a
 freshly created or not-yet-regenerated file has no row in the former.
+`--mark-needs-plan` writes `needs_plan: true` into an item's frontmatter,
+and `--resolution-file` (with `--status COMPLETE`) appends the file's text
+under a `## Resolution` section of the closed item once it has moved.
 """
 
 import argparse
+import os
 import re
 import shutil
 import sys
@@ -50,6 +54,7 @@ from reconcile_common import (
     read_text_preserving_newlines,
     write_text_preserving_newlines,
 )
+from scoped_rules import fence_flags
 
 # Accepted values for the optional top-level `id_format` config key. An
 # unrecognized value is announced on stderr and falls back to "bare" — see
@@ -272,6 +277,135 @@ def sync_yaml_status(item_file_path: Path, new_status: str) -> SyncStatusResult:
     return SyncStatusResult("changed", item_file_path)
 
 
+def set_frontmatter_key(path: Path, key: str, value: str) -> SyncStatusResult:
+    """Set one `key: value` line in the item file's YAML frontmatter.
+
+    The same BOM and fence handling as `sync_yaml_status`. An existing
+    `key:` line is replaced in place; otherwise `key: value` is inserted as
+    the last frontmatter line, before the closing fence, with that line's
+    own line ending. Outcomes:
+      - "changed": the line was rewritten or inserted.
+      - "unchanged": the line already reads that value; nothing written.
+      - "absent_file": path does not exist.
+      - "no_frontmatter": no opening fence, or the fence is never closed.
+    Every outcome other than "changed" leaves the file byte-unchanged.
+    """
+    if not path.exists():
+        return SyncStatusResult("absent_file", path)
+
+    raw = read_text_preserving_newlines(path)
+    bom = "﻿" if raw.startswith("﻿") else ""
+    content = raw[len(bom) :]
+
+    open_match = _OPEN_FENCE_RE.match(content)
+    if not open_match:
+        return SyncStatusResult("no_frontmatter", path)
+    close_match = _CLOSE_FENCE_RE.search(content, open_match.end())
+    if close_match is None:
+        return SyncStatusResult("no_frontmatter", path)
+
+    frontmatter = content[open_match.end() : close_match.start()]
+    new_line = f"{key}: {value}"
+    # [ \t]* and [^\r\n]*, never \s* or .*: neither may cross a line break,
+    # so the replacement keeps the line's own CRLF and never eats the next key.
+    existing = re.search(
+        rf"^{re.escape(key)}:[ \t]*([^\r\n]*)", frontmatter, flags=re.MULTILINE
+    )
+    if existing is not None:
+        if existing.group(1).strip() == value:
+            return SyncStatusResult("unchanged", path)
+        updated_fm = frontmatter[: existing.start()] + new_line + frontmatter[existing.end() :]
+    else:
+        updated_fm = frontmatter + close_match.group(1) + new_line
+    new_content = (
+        bom + content[: open_match.end()] + updated_fm + content[close_match.start() :]
+    )
+    write_text_preserving_newlines(path, new_content)
+    return SyncStatusResult("changed", path)
+
+
+RESOLUTION_HEADING = "## Resolution"
+
+
+def _resolution_section_span(text: str) -> tuple[int, int] | None:
+    """`(first line, end line)` of the unfenced `## Resolution` section, or None.
+
+    The section runs from its heading line to the next unfenced heading of
+    level 1 or 2, or to the end of the text. The fence rules are the shared
+    scanner's (`scoped_rules.fence_flags`), so this writer and the loop's
+    writers agree on what is fenced.
+    """
+    lines = text.split("\n")
+    flags = fence_flags(text)
+    start = next(
+        (n for n, (line, fenced) in enumerate(zip(lines, flags))
+         if not fenced and line.rstrip() == RESOLUTION_HEADING),
+        None,
+    )
+    if start is None:
+        return None
+    for n in range(start + 1, len(lines)):
+        if not flags[n] and re.match(r"#{1,2}(\s|$)", lines[n]):
+            return start, n
+    return start, len(lines)
+
+
+def _resolution_bodies(lines: list[str], flags: list[bool], span: tuple[int, int]) -> list[str]:
+    """The stripped texts of the section: its own text, then each `### Closed` block's.
+
+    A record counts as written only when it equals one of these texts, so a
+    short record that merely appears inside the section is still appended.
+    """
+    bodies: list[list[str]] = [[]]
+    for n in range(span[0] + 1, span[1]):
+        if not flags[n] and lines[n].startswith("### Closed"):
+            bodies.append([])
+        else:
+            bodies[-1].append(lines[n])
+    return ["\n".join(body).strip() for body in bodies]
+
+
+def append_resolution_section(path: Path, text: str) -> SyncStatusResult:
+    """Append a `## Resolution` section holding text to the item file.
+
+    Outcomes:
+      - "appended": the section was written at the end of the file.
+      - "closed_block": a `## Resolution` section already sits outside any
+        fenced block, so a dated `### Closed {date}` block holding text was
+        written at the end of that section.
+      - "exists": the section's own text, or one of its `### Closed`
+        blocks, already equals text; nothing written, so a retry never
+        stacks a copy.
+      - "absent_file": path does not exist.
+    The writes use the file's own line endings: a blank line, the heading,
+    a blank line, the stripped text, and a final newline.
+    """
+    if not path.exists():
+        return SyncStatusResult("absent_file", path)
+    raw = read_text_preserving_newlines(path)
+    eol = "\r\n" if "\r\n" in raw else "\n"
+    plain = text.strip().replace("\r\n", "\n").replace("\r", "\n")
+    body = plain.replace("\n", eol)
+    lf_raw = raw.replace("\r\n", "\n")
+    span = _resolution_section_span(lf_raw)
+    if span is not None:
+        lines = lf_raw.split("\n")
+        if plain in _resolution_bodies(lines, fence_flags(lf_raw), span):
+            return SyncStatusResult("exists", path)
+        # Insert before the next top heading, after the section's own text.
+        head = "\n".join(lines[:span[1]]).rstrip("\n").replace("\n", eol)
+        tail = "\n".join(lines[span[1]:]).replace("\n", eol)
+        date = datetime.now().astimezone().date().isoformat()
+        block = eol.join(["", "", f"### Closed {date}", "", body, ""])
+        write_text_preserving_newlines(path, head + block + (eol + tail if tail else ""))
+        return SyncStatusResult("closed_block", path)
+    if raw and not raw.endswith(("\n", "\r")):
+        raw += eol
+    section = eol.join(["", RESOLUTION_HEADING, "", body, ""])
+    write_text_preserving_newlines(path, raw + section)
+    return SyncStatusResult("appended", path)
+
+
 def _frontmatter_id(fm_map: dict) -> str | None:
     """Return a file's frontmatter id, normalized the same prefix-aware way
     the index itself compares ids (`normalize_id`).
@@ -428,6 +562,38 @@ def _render_bli_file(
     )
 
 
+def _resolve_bli_path(raw: str, backlog_dir: Path, project_root: Path) -> Path | None:
+    """Resolve the first `--files` entry to the new item's file, or None.
+
+    A bare file name resolves inside `backlog_dir`. A value with a directory
+    part is read as a path from `project_root` (or as an absolute path) and is
+    accepted only when it names a file directly inside `backlog_dir`, the one
+    folder an item file may be created in. Both `/` and `\\` separate
+    directories on every platform, and `..` is collapsed before the check, so
+    a path into `Archive/`, outside the backlog folder, or climbing out of it
+    returns None. The result is always `backlog_dir / <file name>`, so every
+    later comparison sees one spelling of the path.
+    """
+    value = raw.replace("\\", "/")
+    root = os.path.abspath(project_root)
+    folder = os.path.abspath(backlog_dir)
+    if "/" in value:
+        candidate = os.path.abspath(value if os.path.isabs(value) else os.path.join(root, value))
+    else:
+        candidate = os.path.abspath(os.path.join(folder, value))
+    if os.path.normcase(os.path.dirname(candidate)) != os.path.normcase(folder):
+        return None
+    return backlog_dir / os.path.basename(candidate)
+
+
+def _folder_from_project_root(folder: Path, project_root: Path) -> str:
+    """Return `folder` as a `/`-separated path from `project_root`, for messages."""
+    try:
+        return os.path.relpath(os.path.abspath(folder), os.path.abspath(project_root)).replace("\\", "/")
+    except ValueError:  # different drives: no relative form exists
+        return Path(folder).as_posix()
+
+
 def create_backlog_item(args) -> None:
     """Create a new backlog item: write its BLI file (if absent) and nothing else.
 
@@ -558,7 +724,22 @@ def create_backlog_item(args) -> None:
     # be "known" via a generated index file (hub, overflow leaf, Archive
     # shard) or via an on-disk item file's own frontmatter that hasn't been
     # folded into any of those yet.
-    bli_path = backlog_dir / files_list[0]
+    # The first --files entry is the new item file. It resolves against the
+    # config-derived backlog folder and must land directly inside it; the
+    # heading stem and the first Related link then carry the bare file name,
+    # never the path the caller typed.
+    bli_path = _resolve_bli_path(files_list[0], backlog_dir, config["_project_root"])
+    if bli_path is None:
+        expected = _folder_from_project_root(backlog_dir, config["_project_root"])
+        print(
+            f"Error: --files entry '{files_list[0]}' is not a file directly inside "
+            f"the backlog folder '{expected}'. Give a bare file name "
+            f"(BB-NNN-01-Domain-Topic.md) or a path from the project root such as "
+            f"'{expected}/BB-NNN-01-Domain-Topic.md'. Nothing was written.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    files_list = [bli_path.name, *files_list[1:]]
     key = normalize_id(item_id)
     existing_location = _known_ids_from_disk(backlog_dir, archive_dir, index_path).get(key)
     if existing_location is not None and Path(existing_location) == bli_path:
@@ -623,6 +804,90 @@ def create_backlog_item(args) -> None:
     )
 
 
+def _locate_single_item(item_id: str) -> tuple[Path, Path, Path, Path]:
+    """Load config and return (item path, backlog_dir, archive_dir, index_path).
+
+    Exits 1 when no item file, or more than one, carries the id.
+    """
+    config = load_config(Path(__file__))
+    index_path = config["_index_path"]
+    backlog_dir = config["_backlog_dir"]
+    archive_dir = config["_archive_dir"]
+    matches = _find_items_by_id(backlog_dir, archive_dir, index_path, item_id)
+    if len(matches) != 1:
+        print(
+            f"Error: expected one item file for ID '{item_id}' under {backlog_dir} "
+            f"or {archive_dir}, found {len(matches)}.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return matches[0][0], backlog_dir, archive_dir, index_path
+
+
+def mark_needs_plan(item_id: str) -> None:
+    """`--mark-needs-plan`: write `needs_plan: true` into the item's frontmatter."""
+    path, _backlog_dir, _archive_dir, _index_path = _locate_single_item(item_id)
+    result = set_frontmatter_key(path, "needs_plan", "true")
+    if result.outcome in ("absent_file", "no_frontmatter"):
+        print(
+            f"Error: needs_plan NOT written for {path.name} ({result.outcome}): {result.path}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    print(
+        f"Marked item {item_id} needs_plan: true (frontmatter only -- regenerate "
+        f"the index with generate_backlog_index.py --write)"
+    )
+
+
+class ResolutionFileError(Exception):
+    """A `--resolution-file` that is missing, unreadable or empty."""
+
+
+def read_resolution_file(path: Path) -> str:
+    """The `--resolution-file` text, the one reader both writers share.
+
+    Read as `utf-8-sig`, so a byte-order mark never reaches the item body.
+    Raises ResolutionFileError when the file is missing, unreadable or
+    empty; each caller turns that into its own exit-1 path.
+    """
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as e:
+        raise ResolutionFileError(f"--resolution-file could not be read: {path} ({e})") from e
+    if not text.strip():
+        raise ResolutionFileError(f"--resolution-file is empty: {path}")
+    return text
+
+
+def append_resolution_after_close(
+    backlog_dir: Path, archive_dir: Path, index_path: Path, item_id: str, text: str
+) -> None:
+    """Re-locate the item after the archive move and append its resolution.
+
+    A fresh lookup, because the path found before the move is stale once
+    the file has moved into Archive/.
+    """
+    matches = _find_items_by_id(backlog_dir, archive_dir, index_path, item_id)
+    if len(matches) != 1:
+        print(
+            f"Error: Resolution NOT written: expected one item file for ID "
+            f"'{item_id}' after the move, found {len(matches)}.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    result = append_resolution_section(matches[0][0], text)
+    if result.outcome == "absent_file":
+        print(f"Error: Resolution NOT written: {result.path} is missing.", file=sys.stderr)
+        sys.exit(1)
+    if result.outcome == "appended":
+        print("Resolution: appended")
+    elif result.outcome == "closed_block":
+        print("Resolution: section present, dated close block appended")
+    else:
+        print("Resolution: section already present, left unchanged")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Update a backlog item's status in the index markdown."
@@ -651,10 +916,49 @@ def main():
     parser.add_argument("--abbrev", help="Domain abbreviation (required when --create).")
     parser.add_argument(
         "--files",
-        help="Affected files, semicolon-separated; the first is the new BLI file written from the template (required when --create).",
+        help=(
+            "Files, semicolon-separated (required when --create). The first is the new BLI file "
+            "written from the template. It must sit directly inside the backlog folder: give a "
+            "bare file name, or a path from the project root, or an absolute path. A path "
+            "elsewhere is refused and nothing is written. Later entries are affected-file "
+            "references and are listed under Related as given."
+        ),
+    )
+    parser.add_argument(
+        "--mark-needs-plan",
+        action="store_true",
+        dest="mark_needs_plan",
+        help="Write needs_plan: true into the item's frontmatter (needs --id; refuses --status and --create).",
+    )
+    parser.add_argument(
+        "--resolution-file",
+        type=Path,
+        default=None,
+        dest="resolution_file",
+        help=(
+            f"With --status COMPLETE: a file whose text is appended under {RESOLUTION_HEADING} "
+            "in the item file after the archive move (a no-op when the section exists)."
+        ),
     )
 
     args, _ = parser.parse_known_args()
+
+    if args.mark_needs_plan:
+        if args.status or args.create or args.resolution_file is not None:
+            print(
+                "Error: --mark-needs-plan stands alone: give no --status, --create "
+                "or --resolution-file.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        mark_needs_plan(args.id)
+        return
+
+    if args.resolution_file is not None and (
+        args.create or (args.status or "").upper() != "COMPLETE"
+    ):
+        print("Error: --resolution-file requires --status COMPLETE.", file=sys.stderr)
+        sys.exit(1)
 
     # --create takes a fully separate path: build a new item rather than update one.
     if args.create:
@@ -677,6 +981,16 @@ def main():
         sys.exit(1)
 
     new_status = args.status.upper()
+
+    # Read the resolution text before any write, so a missing or empty file
+    # fails the command with the item untouched.
+    resolution_text = None
+    if args.resolution_file is not None:
+        try:
+            resolution_text = read_resolution_file(args.resolution_file)
+        except ResolutionFileError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
 
     # Load config
     config = load_config(Path(__file__))
@@ -751,6 +1065,12 @@ def main():
             for filename, _success, message in failed_move:
                 print(f"Error: {filename} could not be moved: {message}", file=sys.stderr)
             sys.exit(1)
+        # A retry after a partial close lands here: append, or no-op when the
+        # section is already present, and report either way.
+        if resolution_text is not None:
+            append_resolution_after_close(
+                backlog_dir, archive_dir, index_path, args.id, resolution_text
+            )
         return
 
     # Sync every matched file's frontmatter BEFORE reporting success or
@@ -782,6 +1102,11 @@ def main():
         for filename, _success, message in failed_move:
             print(f"Error: {filename} could not be moved: {message}", file=sys.stderr)
         sys.exit(1)
+
+    if resolution_text is not None:
+        append_resolution_after_close(
+            backlog_dir, archive_dir, index_path, args.id, resolution_text
+        )
 
 
 if __name__ == "__main__":

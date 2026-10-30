@@ -1,5 +1,6 @@
 ---
 description: Fix tasks targeting a canonical file outside the working planwise repo MUST treat the live file, not audit excerpts or a Consolidated Context snapshot, as the source of truth — BINDING SOURCE Required Context row, Execution Step 1 full-read mandate, and the content-anchor / data-shape / system-consistent-value / structured-data sub-rules that keep the fix faithful to live state
+consult-when: A fix task targets a file outside the working repo — treat the live file as source of truth, not excerpts
 ---
 
 # Cross-Repo Canonical Source — Fix-Task Authoring Discipline

@@ -1,5 +1,6 @@
 ---
 description: Every Before/After gate records its measured pre-edit value inline beside its post-edit expectation, written from a run against the live pre-edit tree (§10.1); a gate whose pre-edit value already satisfies its expectation is vacuous by construction and is rewritten, never shipped with a caveat (§10.2); a preservation gate is marked `invariant:` on the annotation line (§10.3); why the annotation and not only the discipline, and the WARNING/ERROR split (§10.4); Reviewer Check 082.
+consult-when: Writing or reviewing an After-block gate — every gate records its measured pre-edit value (§10.1), a value that already satisfies the expectation is vacuous and is rewritten (§10.2), a preservation gate is marked `invariant:` (§10.3), Check 082
 paths: {planwise_root}/{plans_dir}/**
 ---
 
@@ -47,7 +48,7 @@ The annotation's grammar is one comment line adjacent to the command it annotate
 # pre-edit: {measured value} → expect {post-edit expectation}
 ```
 
-The literal token `pre-edit:` is the load-bearing part — a reviewer or a mechanical checker keys on it — so keep it verbatim and keep the measured value immediately after it. The arrow and the surrounding wording are readability, not syntax.
+The literal token `pre-edit:` is the load-bearing part — a reviewer or a mechanical checker keys on it — so keep it verbatim and keep the measured value immediately after it. The arrow and the surrounding wording are readability, not syntax. `scripts/lint_verification_gates.py` Check 2 (`_check2_missing_pre_edit_baseline`) flags an After-block gate with no `pre-edit:` annotation beside its expectation.
 
 #### 10.1.1 Scope the measurement to the gate's population
 
@@ -67,11 +68,11 @@ Measure a whole-population baseline once per plan, before the first task file. R
 > # pre-edit: 41 passed → expect 43 passed
 > ```
 
-A per-task gate measures the files its task touches. `scripts/lint_verification_gates.py` Check 16 fires on a task file's Before or After `pytest` gate that names no path, because a whole-suite run costs minutes per task and moves for reasons outside the task. A whole-population baseline belongs in the Master Plan, measured once with its tree identity recorded.
+`scripts/lint_verification_gates.py` Check 16 (`_check16_unscoped_suite_gate`) flags a task file's Before or After `pytest` gate that names no path. A whole-population baseline belongs in the Master Plan, measured once with its tree identity recorded.
 
 ### 10.2 A gate whose pre-edit value already satisfies its expectation is vacuous by construction
 
-Once both numbers sit side by side, the test is arithmetic. If the recorded pre-edit value **already satisfies** the stated expectation, the gate is vacuous by construction: it passes with zero work done, so it cannot answer the only question a gate exists to answer. Such a gate MUST be rewritten before it ships — not relaxed, not shipped with a caveat, and not retained "as a sanity check". A gate that always passes contributes nothing to an exit battery except false confidence, and it displaces the gate that would have caught the failure.
+Once both numbers sit side by side, the test is arithmetic. If the recorded pre-edit value **already satisfies** the stated expectation, the gate is vacuous by construction: it passes with zero work done, so it cannot answer the only question a gate exists to answer. Such a gate MUST be rewritten before it ships — not relaxed, not shipped with a caveat, and not retained "as a sanity check". `scripts/lint_verification_gates.py` Check 1 (`_check1_vacuous_after_gate`) flags a gate whose live pre-edit measurement already meets its expectation.
 
 > [!constraint] Rewrite a vacuous gate — never ship one with a caveat
 > WRONG — a count gate measured against an untouched file that already met its threshold. The token the edit is meant to introduce is already present elsewhere in the file: in a section this task does not modify, or in text this task preserves verbatim. The count clears the threshold before the task begins:
@@ -102,7 +103,7 @@ The second row deserves particular attention: an absence gate measuring `0` befo
 
 Some gates exist precisely to assert that a value does **not** move: a count the edit must preserve, a block that must survive a refactor untouched, a section a split must leave in place. For these, `pre == post` is the correct and intended outcome, and §10.2's test would flag every one of them.
 
-They are exempt — but only when the author marks them, because a marked preservation gate and an unmarked vacuous gate are textually identical. Both record a pre-edit value that satisfies the expectation. The marking is the only thing separating an author who measured the value and intends it to hold from an author who never measured at all.
+They are exempt — but only when the author marks them, because a marked preservation gate and an unmarked vacuous gate are textually identical. Both record a pre-edit value that satisfies the expectation. The marking is the only thing separating an author who measured the value and intends it to hold from an author who never measured at all. Check 1 (`_check1_vacuous_after_gate`) exempts a gate marked `invariant:`.
 
 > [!constraint] Mark a preservation gate with `invariant:` in place of `expect` on the annotation line
 > CORRECT — the marker sits on the annotation line and names what must not move:
@@ -116,14 +117,7 @@ They are exempt — but only when the author marks them, because a marked preser
 
 ### 10.4 Why the annotation, and not just the discipline
 
-A rule saying only "make sure your gates can fail" would be correct and unenforceable. Without the recorded value, vacuity is **unknowable** from the artifact: the command and the expectation are both present and both look fine, and the one fact that decides the question exists nowhere in the file. A reviewer cannot recover it without re-running every command against a tree state that no longer exists. The measurement therefore has to be written down at the only moment it is cheap — before the edit, by the author who is running the command anyway to decide what to expect.
-
-That asymmetry is why the two findings carry different severities:
-
-- **No annotation → WARNING.** The gate may be perfectly good; nothing in the artifact establishes that. Absence of evidence is not evidence of a defect — but it is exactly indistinguishable from an author who never measured, which is why it cannot be silently accepted.
-- **Annotation present and already satisfied → ERROR.** Here the artifact carries positive evidence that the gate cannot fail. No further investigation is needed, and none should be spent.
-
-Recording the value costs nothing beyond writing down what the author already ran. It is the cheapest available defence against the class, which is why it is required rather than recommended.
+Without the recorded value, vacuity is **unknowable** from the artifact, so the measurement has to be written down at the only moment it is cheap — before the edit, by the author who is running the command anyway to decide what to expect. `scripts/lint_verification_gates.py` Check 7 (`_check7_contradicted_before_baseline`) flags a Before-block gate whose stated baseline disagrees with the live pre-edit measurement. Reviewer Check 082 carries the severity split: no annotation is a WARNING, an annotation already satisfied is an ERROR.
 
 #### Reviewer Check 082 — Verification Gate Without a Measured Pre-Edit Baseline
 
@@ -136,6 +130,7 @@ Recording the value costs nothing beyond writing down what the author already ra
   4. An author-marked invariant/preservation gate — the annotation line reads `invariant:` rather than `expect`, and `pre == post` is the intended outcome — is exempt and MUST NOT be flagged by steps 2 or 3.
   5. Where the pre-edit tree state is still reachable, re-measure and compare against the recorded value; a recorded baseline that disagrees with the measured one → ERROR (the annotation was authored from intent, not from a run).
   6. A gate whose subject is a report the same work produces: if it greps a bare token the report's own template emits, rather than the machine-readable verdict line or the status-cell row pattern → WARNING.
+- **Enforced by script:** steps 2, 3 and 5 are tested by Checks 2, 1 and 7 of `scripts/lint_verification_gates.py`.
 - **Finding template:**
 ```
 [ERROR] Verification gate is vacuous — pre-edit value already satisfies its expectation

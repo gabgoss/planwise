@@ -33,7 +33,12 @@ import dataclasses
 import hashlib
 import io
 import json
+import os
+import shutil
+import stat
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -379,18 +384,85 @@ def _backup_failed(report, src, exc) -> None:
     report.fix = "free the backup location or fix its permissions, then " + RERUN
 
 
+REPLACE_ATTEMPTS = 6  # os.replace tries per restored file; Windows refuses while another process holds the target open
+REPLACE_PAUSE = 0.1  # seconds between two tries
+
+
+def _fsync_dir(directory: Path) -> None:
+    """Flush a directory entry to disk where the platform allows it (POSIX). Windows cannot open a
+    directory for fsync, so there the call does nothing."""
+    try:
+        dfd = os.open(str(directory), os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(dfd)
+    except OSError:
+        pass
+    finally:
+        os.close(dfd)
+
+
+# Separate from `_replace_bytes` (config.yaml) on purpose: that helper decodes to text and does not fsync;
+# a restore must write the pre-image's raw bytes and flush them.
+def _write_atomic(path: Path, data: bytes) -> None:
+    """Put `data` at `path` byte for byte without ever truncating `path`: write a temp file in the same
+    directory, flush and fsync it, copy the target's permission mode, then `os.replace` it over `path`.
+    A process kill leaves either the old file or the new one. The directory entry is fsynced after the
+    replace on POSIX only, so a power loss on Windows may lose the replace itself and keep the old file.
+    A `PermissionError` from the replace (another process holds the target open) is retried
+    `REPLACE_ATTEMPTS` times; it is never answered with an in-place write. On failure the temp file is
+    removed, even when it was made read-only to match a read-only target."""
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".restore")
+    replaced = False
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        if path.exists():
+            shutil.copymode(path, tmp)
+        else:
+            os.chmod(tmp, sup.default_mode())
+        for attempt in range(REPLACE_ATTEMPTS):
+            try:
+                os.replace(tmp, path)
+                break
+            except PermissionError:
+                if attempt == REPLACE_ATTEMPTS - 1:
+                    raise
+                time.sleep(REPLACE_PAUSE)
+        replaced = True
+        _fsync_dir(path.parent)
+    finally:
+        if not replaced:
+            try:
+                os.chmod(tmp, stat.S_IWRITE)  # Windows will not delete a read-only file
+            except OSError:
+                pass
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+
 def _write_failed(report, pre: dict, fix: str) -> None:
     """State `write_failed`, after putting every path back to its pre-image: rewrite a changed
-    file and delete one this run created. If that restore fails, `detail` names the backups."""
+    file and delete one this run created. A path that fails does not stop the others. If any restore
+    fails, `detail` names each error and the backups."""
     report.state, report.fix = "write_failed", fix
-    try:
-        for path, data in pre.items():
+    errors = []
+    for path, data in pre.items():
+        try:
             if data is None:
                 path.unlink(missing_ok=True)
             elif not path.is_file() or path.read_bytes() != data:
-                path.write_bytes(data)
-    except OSError as exc:
-        report.detail += f"\nrestore failed ({exc}); the tree is partly written -- restore it from {report.backup_dir}"
+                _write_atomic(path, data)
+        except OSError as exc:
+            errors.append(str(exc))
+    if errors:
+        report.detail += (f"\nrestore failed ({'; '.join(errors)}); the tree is partly written"
+                          f" -- restore it from {report.backup_dir}")
         report.fix = f"copy the backed-up files back from {report.backup_dir} by hand, {RERUN}"
         return
     report.detail += "\nthe tree was restored: every file this step touched is back to its pre-run bytes"

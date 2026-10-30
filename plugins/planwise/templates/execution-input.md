@@ -69,7 +69,7 @@ Only include decisions/conventions relevant to THIS sprint's scope.}
 2. **Section-to-Task mapping.** Each section header lists which tasks use it in parentheses — this tells agents exactly where to look
 3. **Self-contained.** Executing agents should NOT need the original Consolidated Context parts. The Execution Input replaces them for that sprint's scope
 4. **Cross-references table.** Trace every section back to its source part and section — enables auditing and recovery
-5. **One-read token limit.** Keep each file under 22,000 measured tokens (verify with `measure_files.py`); if a sprint needs more, split into parts:
+5. **One-read token limit.** Keep each file under 22,000 measured tokens (verify with `measure_files.py`). State the target in bytes beside the token figure, and add a split index when the estimate is within 20% of the ceiling. If a sprint needs more, split into parts:
    - `{Abbrev}-S{XX}-Execution-Input-Part-1-{Topic}.md`
    - `{Abbrev}-S{XX}-Execution-Input-Part-2-{Topic}.md`
 6. **Cross-sprint content.** Only extract the portions of cross-sprint reference parts that are relevant to THIS sprint. Don't include all design decisions if only 2 of 8 apply
@@ -83,7 +83,7 @@ Only include decisions/conventions relevant to THIS sprint's scope.}
 
 | Variant | Pattern | When |
 |---------|---------|------|
-| Single file | `{Abbrev}-S{XX}-Execution-Input.md` | Sprint input under the one-read token budget (< 22K measured tokens) |
+| Single file | `{Abbrev}-S{XX}-Execution-Input.md` | Sprint input under the one-read token budget (< 22K measured tokens; see step 5 for the byte target) |
 | Multi-part | `{Abbrev}-S{XX}-Execution-Input-Part-{N}-{Topic}.md` | Sprint input over the one-read token budget |
 
 ---
@@ -115,7 +115,7 @@ During scaffolding, for each sprint:
 4. **Group into sections.** Organize extracted content into logical sections, noting which tasks use each
 5. **Filter cross-sprint parts.** From cross-sprint reference parts, extract ONLY the decisions/conventions this sprint needs
 6. **Build cross-references table.** Map each section back to its source part and section
-7. **Measure the file.** Run `measure_files.py`; if at/over 22K measured tokens (or any other Read gate), split into topic-focused parts
+7. **Measure the file.** Run `measure_files.py`; if at/over 22K measured tokens (or any other Read gate), split into topic-focused parts. State the target in bytes beside the token figure, and add a split index when the estimate is within 20% of the ceiling.
 
 ---
 

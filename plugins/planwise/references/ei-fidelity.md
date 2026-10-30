@@ -1,5 +1,6 @@
 ---
 description: EI fidelity across scaffolding tiers — source preservation, threshold alignment, and UNCONFIRMED caveat enforcement (§1-§4; §5-§11 split to sibling files)
+consult-when: Checking EI fidelity across scaffolding tiers — source preservation, thresholds, UNCONFIRMED caveats (anchor file)
 ---
 
 # EI Fidelity (Cross-Tier Preservation)

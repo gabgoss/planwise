@@ -1,5 +1,6 @@
 ---
 description: Bind an instrument to the event it measures, not to the plan's shape. Covers why a re-measure scheduled as "the last sprint, after the install" opens an empty window by construction, why n = 0 is a data gap that licenses nothing in either direction, why a cumulative "stop when spend approaches N" guard runs only between calls and cannot catch an overrun inside the first one, and why a failed probe must never be priced at zero on an agentic harness. Consult when scheduling a did-the-figure-fall re-measure, writing a plan's success criteria for one, or dispatching a probe under a budget guard.
+consult-when: Scheduling a did-the-figure-fall re-measure, writing its success criteria, reporting an empty sample, or dispatching a probe under a budget guard — bind the window to a traffic precondition, treat n = 0 as a data gap, put the ceiling on the single call, never price a failed probe at zero
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Instrument Placement — The Control Was Well-Designed, Correctly Worded, and Structurally Incapable of Firing

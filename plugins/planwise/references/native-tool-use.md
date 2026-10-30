@@ -1,5 +1,6 @@
 ---
 description: When to use the dedicated file tools (Read/Grep/Glob/Edit/Write) versus the shell, and the closed list of file-operation verbs a scoped doctrine forbids.
+consult-when: Choosing native file tools vs. the shell — the closed list of forbidden file-op verbs, `Grep` alternation as a bare pipe, and (§ Glob Pattern Anchoring) a `Glob` call with an in-project `path` leads its pattern with `**/`, because a folder-led pattern anchors at the project root and matches nothing, with the control in the same shape
 ---
 
 # Native Tool Use

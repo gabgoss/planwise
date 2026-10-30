@@ -638,6 +638,31 @@ def _detect_orphaned_block_signature(text: str) -> str | None:
     return None
 
 
+# The `project` path keys a healthy config carries. `feedback_dir` is listed
+# although its backfill lives in a separate helper: the loader falls back for
+# it exactly as it does for the others. `lessons_dir` and `archive_dir` are
+# not listed. An absent `lessons_dir` is a valid opt-out (the lessons stages are
+# skipped), and `archive_dir` is optional and derives from `backlog_dir`.
+_PROJECT_PATH_KEYS = ("planwise_root", "plans_dir", "backlog_dir", "feedback_dir")
+
+
+def _missing_project_path_keys(parsed) -> list[str]:
+    """Return the `project` path keys the config loader would replace with a default.
+
+    A key counts as missing when it is absent, null, empty or not a string,
+    which is the loader's own test for falling back. A config whose `project`
+    value is not a mapping reports every key.
+    """
+    project = parsed.get("project") if isinstance(parsed, dict) else None
+    if not isinstance(project, dict):
+        return list(_PROJECT_PATH_KEYS)
+    return [
+        key
+        for key in _PROJECT_PATH_KEYS
+        if not (isinstance(project.get(key), str) and project[key].strip())
+    ]
+
+
 def _doctor_config_parse_check(cfg: "InitConfig") -> dict | None:
     """Read-only YAML parse check of the resolved project config.
 
@@ -647,8 +672,13 @@ def _doctor_config_parse_check(cfg: "InitConfig") -> dict | None:
     the real parser and reports the failure loudly, adding a specific hint when
     the orphaned-block signature is present.
 
+    A config that parses is also checked for the `project` path keys. A missing
+    key is an advisory in the report, never a failure: the state stays "ok"
+    and the keys are listed under "missing_project_keys".
+
     Returns None when there is nothing to check (no config on disk, or no YAML
-    parser available), otherwise {"state": "ok"|"unparseable", "report": str}.
+    parser available), otherwise {"state": "ok"|"unparseable", "report": str},
+    plus "missing_project_keys" (a list) when the state is "ok".
     Never mutates anything — doctor only reports and recommends.
     """
     if not HAS_YAML:
@@ -666,7 +696,7 @@ def _doctor_config_parse_check(cfg: "InitConfig") -> dict | None:
         return {"state": "unparseable", "report": "\n".join(lines)}
 
     try:
-        yaml.safe_load(text)
+        parsed = yaml.safe_load(text)
     except yaml.YAMLError as exc:
         detail = str(exc).strip().splitlines()
         lines.append(f"  ! {config_path} does not parse as YAML.")
@@ -690,7 +720,18 @@ def _doctor_config_parse_check(cfg: "InitConfig") -> dict | None:
         return {"state": "unparseable", "report": "\n".join(lines)}
 
     lines.append(f"  {config_path.name} parses cleanly")
-    return {"state": "ok", "report": "\n".join(lines)}
+    missing = _missing_project_path_keys(parsed)
+    if missing:
+        lines.append(
+            "  ! These project path keys are not set, so the config loader silently "
+            "falls back to a default folder:"
+        )
+        lines.extend(f"      project.{key}" for key in missing)
+        lines.append(
+            "      action:  run /planwise upgrade. It writes the missing keys with the "
+            "folders already in use, so no folder changes."
+        )
+    return {"state": "ok", "report": "\n".join(lines), "missing_project_keys": missing}
 
 
 def _norm_path(p: "str | Path") -> str:
@@ -879,7 +920,10 @@ def _run_doctor(cfg: "InitConfig") -> int:
     printing them after the verified-CLI-version drift advisory and before
     Stage 23 is the documented order. Then runs Stage 23, the style-rule check
     (run_style_stage()): per rule, its config switch, installed copy, copies
-    that also load, and token cost — also always-on and read-only. Always exits
+    that also load, and token cost — also always-on and read-only. Then runs
+    Stage 24, the consumer read-gate scan (run_read_gate_stage()), and Stage
+    25, the consumer section-citation check (run_section_citation_stage()) —
+    both always-on and read-only. Always exits
     0 (diagnostic, not a gate).
 
     Runs the plugin version-state gate FIRST (always-on, independent of Token
@@ -1142,6 +1186,30 @@ def _run_doctor(cfg: "InitConfig") -> int:
         run_style_stage(cfg)
     except Exception as exc:  # noqa: BLE001 -- the style stage must never change doctor's exit status
         print(f"Style rules: the check failed: {exc}")
+
+    # Stage 24: consumer read-gate scan — read-only, always-on. Reports each Warn or
+    # Critical file under .claude/ and the active plans, and whether a backlog item names it.
+    print()
+    print("planwise doctor — consumer read-gate scan")
+    print()
+    try:
+        from doctor_read_gate_stage import run_read_gate_stage
+
+        run_read_gate_stage(cfg)
+    except Exception as exc:  # noqa: BLE001 -- the read-gate stage must never change doctor's exit status
+        print(f"Consumer read-gate scan: the check failed: {exc}")
+
+    # Stage 25: consumer section-citation check — read-only, always-on. Reports each
+    # dangling § citation in the consumer's .claude/rules/ against the installed references/.
+    print()
+    print("planwise doctor — consumer section-citation check")
+    print()
+    try:
+        from doctor_citation_stage import run_section_citation_stage
+
+        run_section_citation_stage(cfg)
+    except Exception as exc:  # noqa: BLE001 -- the citation stage must never change doctor's exit status
+        print(f"Consumer section-citation check: the check failed: {exc}")
     return 0
 
 

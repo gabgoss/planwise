@@ -14,6 +14,7 @@ row's padding. Only ``"|".join(split_row_raw(row)) == row`` holds.
 import re
 import sys
 from collections.abc import Callable
+from typing import NamedTuple
 
 # Matches a pipe that is NOT preceded by a backslash. A cell may legitimately
 # contain an escaped pipe — `` `git diff --name-only \| grep dir` `` is the
@@ -418,3 +419,104 @@ def parse_markdown_table(
         )
 
     return items
+
+
+class Heading(NamedTuple):
+    """One ATX heading found by ``extract_headings``.
+
+    ``raw`` is the heading line as written, without its line ending or
+    trailing whitespace. ``number`` is the whole number token (``15``,
+    ``15.1``, ``9.B.12``, ``3a.2``, ``3b.archive``), or ``Stage 8b`` /
+    ``Step 5`` for a stage or step heading, or ``None`` for an unnumbered
+    heading. ``title`` is the text after the number token. ``line`` is
+    1-based.
+    """
+
+    level: int
+    raw: str
+    number: str | None
+    title: str
+    line: int
+
+
+_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(\S.*?)[ \t]*$")
+# A CommonMark closing sequence: a run of '#' preceded by whitespace. A '#'
+# glued to a word ("C#") is text and stays.
+_CLOSING_HASHES_RE = re.compile(r"(?:^|[ \t]+)#+$")
+# A number token is kept whole: a letter suffix (3k, 8b) and its dotted
+# segments (9.B.12, 9.A.16, 3a.2, 3b.archive, 3h.untested-axes) stay part of the
+# token, never stripped. A segment is a number or one capital letter. A
+# lowercase name segment follows only a letter-suffixed base (3b.archive), so
+# a word glued to a plain number ("1.Introduction") is the title, not the token.
+_NUMERIC_SEGMENT = r"[0-9]+[a-z]?"
+_LETTER_SEGMENT = r"[A-Z](?![A-Za-z])"
+_NAME_SEGMENT = r"[a-z][a-z0-9-]*"
+_NUMBER_TOKEN = (
+    rf"[0-9]+(?:[a-z](?:\.(?:{_NUMERIC_SEGMENT}|{_LETTER_SEGMENT}|{_NAME_SEGMENT}))*"
+    rf"|(?:\.(?:{_NUMERIC_SEGMENT}|{_LETTER_SEGMENT}))*)"
+)
+_STAGE_STEP_RE = re.compile(rf"^(Stage|Step)[ \t]+({_NUMBER_TOKEN})\.?[ \t]*(?::[ \t]*(.*))?$")
+# After the token: a closing '.' or ':' (the title may follow with or without a
+# space), or whitespace, or the end of the text.
+_NUMBERED_RE = re.compile(rf"^({_NUMBER_TOKEN})(?:[.:][ \t]*|[ \t]+|$)(.*)$")
+
+
+def extract_headings(content: str) -> list[Heading]:
+    """Return every ATX heading (``#`` to ``######`` at column 0) outside fenced code.
+
+    Fence rule (literal): a line whose first non-space characters are three
+    backticks toggles the fence state, so a ``> `` callout line that holds
+    backticks never opens or closes a fence. Every line inside a fence is
+    skipped, and an unclosed fence skips the rest of the file.
+
+    ``\\r\\n`` and ``\\r`` are normalized to ``\\n`` for parsing only, so CRLF and
+    LF input give equal results. A heading's number token is parsed from these
+    forms: ``15. Title``, ``15: Title``, ``15.1 Title``, ``9.B Title``,
+    ``9.B.12 Title``, ``3a. Title``, ``3a.2 Title``, ``3b.archive Title``,
+    ``Stage 8b: Title`` and ``Step 5: Title``. A word glued to a plain number
+    (``1.Introduction``) is the title. Any other heading is unnumbered. A
+    closing run of ``#`` preceded by whitespace is dropped before parsing.
+    """
+    headings: list[Heading] = []
+    in_fence = False
+    text = content.replace("\r\n", "\n").replace("\r", "\n")
+    for idx, line in enumerate(text.split("\n"), start=1):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = _HEADING_RE.match(line)
+        if not m:
+            continue
+        body = _CLOSING_HASHES_RE.sub("", m.group(2))
+        number: str | None = None
+        title = body
+        stage = _STAGE_STEP_RE.match(body)
+        numbered = _NUMBERED_RE.match(body)
+        if stage:
+            number = f"{stage.group(1)} {stage.group(2)}"
+            title = stage.group(3) or ""
+        elif numbered:
+            number = numbered.group(1)
+            title = numbered.group(2) or ""
+        headings.append(Heading(len(m.group(1)), line.rstrip(), number, title, idx))
+    return headings
+
+
+def numbered_heading_index(headings: list[Heading]) -> dict[str, list[Heading]]:
+    """Index numbered headings by their exact number token.
+
+    The headings come from ``extract_headings``, which applies the literal
+    fence rule: a line whose first non-space characters are three backticks
+    toggles the fence, and a ``> `` callout line never does. Keys are whole
+    tokens (``3k``, ``3a.2``, ``9.B.1``), and a stage or step heading keys as
+    ``Stage 8b`` / ``Step 5`` so it never collides with a ``8`` section.
+    Unnumbered headings are left out. Each key maps to a list in file order,
+    so a duplicated number keeps every heading instead of the last one.
+    """
+    index: dict[str, list[Heading]] = {}
+    for heading in headings:
+        if heading.number is not None:
+            index.setdefault(heading.number, []).append(heading)
+    return index

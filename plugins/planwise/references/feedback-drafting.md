@@ -1,5 +1,6 @@
 ---
 description: When and how Claude drafts a planwise feedback file silently during /planwise work — triggers, the feedback.drafts setting, the write recipe through the shared helper, and the frontmatter the model fills.
+consult-when: Drafting a planwise feedback file silently during `/planwise` work — triggers, the `feedback.drafts` key, the write recipe through `scripts/feedback_drafts.py`
 ---
 
 # Feedback Drafting
@@ -14,7 +15,7 @@ Claude may draft a feedback file when planwise itself misbehaves during `/planwi
 
 ## Triggers
 
-Draft when one of these six happens during `/planwise` work:
+Draft when one of these seven happens during `/planwise` work:
 
 1. A handler step failed, or you had to work around it.
 2. A shipped planwise script errored on valid input.
@@ -22,6 +23,18 @@ Draft when one of these six happens during `/planwise` work:
 4. The user expressed frustration with planwise in their own words.
 5. A reasonable request needed a planwise capability that does not exist.
 6. The user corrected your own planwise behaviour.
+7. A plan author wrote a section under `## Plan-Specific Sections` because no template heading fit. See [The catch-all section trigger](#the-catch-all-section-trigger).
+
+## The catch-all section trigger
+
+Every plan template ends with a `## Plan-Specific Sections` catch-all. A section no template heading covers goes there as an `###` H3. Each new H3 heading text is evidence for a later template heading, so draft one `idea` for it:
+
+- Call `mcp__planwise__draft_feedback` with `kind: idea`, `title` naming the H3 heading text, `learned` (what the section holds), `why` (why no template section fit), `where` (the template file, for example `templates/task-file.md`) and `subcommand: plan`.
+- Draft once per heading text per session. A second plan file with the same H3 heading text adds no draft.
+- The hooks module caps the tool at 10 calls per session. After its limit reply, do not call it again.
+- The module registers the tool only when `feedback.drafts` is not `off`. With drafts `off`, write no draft.
+- The tool queues the draft locally, and its reply says not to announce it. Print nothing yourself.
+- When drafts are on but the tool is not registered (the hooks module did not load), use the [Write recipe](#write-recipe) below, with the same title and the `idea` body headings.
 
 ## Not triggers
 

@@ -1,12 +1,13 @@
 ---
 description: Execution-time binding rules — design-extension traceability with inline What/Why/Source documentation, cross-tier audit-finding triage into Remediation vs pre-emptive-flag buckets, the bounded-temp-fix that seeds a deferred Discovery, spike-instrument synthetic-fixture verdict partitioning, and re-homing a standing mechanism's post-gate qualification out of the plan artifacts that expire and into the artifact that governs the mechanism, and reading both sides of a run-time pair from the tool's own output instead of pinning the derived side from the plan
+consult-when: A plan-fidelity concern surfaces mid-execution — design-extension traceability, audit triage, bounded temp-fixes, both sides of a run-time pair come from the tool
 ---
 
 # Execution-Time Binding Rules
 
 **Purpose:** Binding rules covering plan-fidelity concerns that surface during execution rather than at Discovery or signoff time — design-extension traceability (§17), cross-tier audit-finding triage (§18), the bounded-temp-fix that seeds a deferred Discovery (§19), spike-instrument verdict discipline (§20), and re-homing a post-gate qualification about a standing mechanism (§21), and reading both sides of a run-time pair from the tool (§22). Each rule has been re-derived in independent sessions; review-cycle tokens are wasted relitigating the same issues.
 
-This file is the §17-§22 segment of a 3-way split of `discovery-and-exit-criteria.md` (the anchor, which keeps §15 and the shared 11-row Plan-Review Enforcement Summary — see the anchor for how each of that table's rows now resolves across the three files); §16 lives in [exit-criteria-fidelity.md](exit-criteria-fidelity.md). Extracted to keep all three files comfortably within a single Read call. Read it before authoring design-extension documentation, cross-tier audit triage, bug-fix sessions that surface a recurring defect class, or de-risk spikes that run on synthetic fixtures.
+This file is the §17-§22 segment of a 3-way split of `discovery-and-exit-criteria.md` (the anchor, which keeps §15 and the shared 11-row Plan-Review Enforcement Summary — see the anchor for how each of that table's rows now resolves across the three files); [exit-criteria-fidelity.md](exit-criteria-fidelity.md) holds §16. Extracted to keep all three files comfortably within a single Read call. Read it before authoring design-extension documentation, cross-tier audit triage, bug-fix sessions that surface a recurring defect class, or de-risk spikes that run on synthetic fixtures.
 
 ## Table of Contents
 

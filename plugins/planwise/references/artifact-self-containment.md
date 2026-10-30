@@ -1,5 +1,6 @@
 ---
 description: Binding rule — content-bearing artifacts (rules, agents, skills, handlers, CLAUDE.md callouts, BB rule-design sections) MUST inline content from source lessons and backlog items, never cite them. Bookkeeping artifacts (indexes, promotion logs, frontmatter pointers, BB Notes) MAY carry cross-references for traceability.
+consult-when: Deciding whether an artifact must inline lesson/backlog content vs. may cross-reference
 ---
 
 # Artifact Self-Containment
@@ -195,7 +196,7 @@ A promotion BB's self-containment grep verifies that **the content the BB promot
 > 3. **Decide pre-existing cleanup EXPLICITLY — don't silently gut it.** Removing a pre-existing References section or a routing table destroys intentional traceability and is usually outside the BB's scope. Surface the discrepancy at the VERIFY gate and let the human choose between "promoted content is self-contained, leave pre-existing as-is" vs. "also clean the pre-existing cites in this file."
 
 > [!practice] Write the Promotion BB's Grep Criterion to Match Reality
-> When authoring a promotion BB's grep Acceptance Criterion, write it so it can actually pass: scope its file list/paths to exclude zones that legitimately carry cross-refs, OR annotate the criterion with the expected exempt/pre-existing hits. Otherwise the executor is forced to choose between an impossible literal pass and an unscoped destructive cleanup.
+> When authoring a promotion BB's grep Acceptance Criterion, write it so it can actually pass: scope its file list/paths to exclude zones that legitimately carry cross-refs, and state the expected count of each exempt or pre-existing set as a second clause, per the two-clause exemption in §7. Otherwise the executor is forced to choose between an impossible literal pass and an unscoped destructive cleanup.
 
 ### 4.3 Widen the Gate to Plan-Structure Names — Semantic vs Syntactic Leaks
 
@@ -225,7 +226,7 @@ The §4 grep matches ID-shaped bookkeeping tokens (`LL-`, `BB-`, `BLI-`, `PLG-`,
 **Gate semantics:**
 
 - `{PLAN_ABBREV}-` hits are **always** leaks — a plan abbreviation resolves only inside the authoring repo.
-- `Sprint-[0-9]` and `Session-[0-9]` hits are leaks **unless** the line is demonstrably the plugin's own template/example vocabulary — `templates/`, `examples/`, and `handlers/plan.md` legitimately show resolved sprint and session folder names (e.g. `Sprint-NN-{Name}`) as sample output of the tool itself. Inspect every hit; never ignore one silently. The detection-pattern lines in this file match their own pattern: classify those hits as the pattern, not a leak.
+- `Sprint-[0-9]` and `Session-[0-9]` hits are leaks **unless** the line is demonstrably the plugin's own template/example vocabulary — `templates/`, `examples/`, and `handlers/plan.md` with its `handlers/plan-Part-N-{Topic}.md` parts legitimately show resolved sprint and session folder names (e.g. `Sprint-NN-{Name}`) as sample output of the tool itself. Inspect every hit; never ignore one silently. The detection-pattern lines in this file match their own pattern: classify those hits as the pattern, not a leak.
 - The predicate widens from a term list toward a shape. The leak is any `<Word>-<digits>` structure name that resolves only in an authoring repo. When a review finds a phrasing the pattern missed, add that shape to every copy of the battery.
 - The `{Sprint-N}` template placeholder (no digit after the dash) stays legal — the pattern targets resolved numerals, not the placeholder.
 - For plan sessions editing non-template plugin files (scripts, handlers, agents, references), expect strictly EMPTY.
@@ -242,7 +243,7 @@ The §4 grep matches ID-shaped bookkeeping tokens (`LL-`, `BB-`, `BLI-`, `PLG-`,
 >
 > | Bucket | What it looks like | Disposition |
 > |--------|--------------------|-------------|
-> | Plugin's own scaffold vocabulary | `templates/`, `examples/`, `handlers/plan.md` showing resolved sample structure names, and sample abbreviations invented for the doc | False positive — leave it |
+> | Plugin's own scaffold vocabulary | `templates/`, `examples/`, `handlers/plan.md` and its `handlers/plan-Part-N-{Topic}.md` parts showing resolved sample structure names, and sample abbreviations invented for the doc | False positive — leave it |
 > | Rule text enumerating the forbidden forms | This file, and any prose that must *name* `LL-NNN` / `PLG-NNN` to ban them | False positive — leave it |
 > | Declared §7 exemption | Command-syntax samples, seed starting state, template sample rows, bookkeeping frontmatter | False positive — leave it |
 > | Anything else | A real authoring repo's abbreviation, its real artifact file names, a resolved sprint reference | **Leak — reword or inline** |
@@ -326,6 +327,29 @@ A small set of cases need exemption from the §4 grep. When a BB needs one of th
 | Bookkeeping frontmatter cross-refs | `applied-as:`, `promoted-to:`, `promotion-target:`, and the deprecated `rule-as:` — lesson frontmatter fields pointing at the owning backlog item or promotion target, not content citations. Exempt regardless of which scheme a lesson was written under; see [`references/lessons-schema.md`](lessons-schema.md) § Pointer Fields — Authoritative Definition for what each field means | Lesson frontmatter across `{lessons_dir}/**`, including archived lessons |
 
 Each exemption MUST be a sample/placeholder pattern, NOT a load-bearing cross-reference to recover content from a specific lesson or backlog item. If you find yourself adding an exemption to silence a grep hit that IS actually a citation, the fix is to inline the content — not to widen the exemption list.
+
+> [!constraint] A declared exemption takes two clauses: the residue is empty AND the exempt set is intact
+> An exclusion filter on its own is the half-measure. It makes the check pass, and two cheaper states pass it too: someone deletes the exempt literal, or the excluded path is mistyped. Both return the same empty residue as a correct tree. The filter also hides a genuinely new citation inside the excluded file. Write every declared exemption into the Acceptance Criterion as two clauses:
+>
+> - **(a)** Hits outside the declared exemption MUST be empty.
+> - **(b)** The declared exemption MUST still count the N that the criterion states.
+>
+> Exemplar, the seed-template row above. N is 1, measured 2026-10-28 on `seed/00-Index-LessonsLearned.md`:
+> ```
+> # (a) residue outside the exemption MUST be empty:
+> Grep  pattern='(LL|BB)-[0-9]{3}'  path='{plugin_root}/{paths-touched}'
+>       glob='!**/seed/00-Index-LessonsLearned.md'  output_mode='content'  -n=true
+> # (b) exempt set MUST be intact. MUST print 1:
+> Grep  pattern='(LL|BB)-[0-9]{3}'  path='{plugin_root}/seed/00-Index-LessonsLearned.md'  output_mode='count'
+> ```
+>
+> Clause (b) does three jobs:
+>
+> 1. **It removes the destructive shortcut.** Deleting the exempt literal now fails the check instead of passing it.
+> 2. **It is a positive control inside the tree.** A mistyped path makes (b) print 0 or a path error, so the check fails loudly instead of passing on a file it never read.
+> 3. **It bounds the assertion.** "Nothing except this exemption, and exactly N of it" is a set a reviewer can audit. "Nothing anywhere" is not.
+>
+> Re-measure N whenever the exempt file changes, and write the file and the date beside the number.
 
 ---
 

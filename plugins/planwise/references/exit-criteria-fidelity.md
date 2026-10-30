@@ -1,12 +1,13 @@
 ---
 description: Cross-layer enforcement of exit-criteria fidelity — binding-refinement callout echo across plan layers, "surfaces" as an enforceable claim not a mention, sprint-signoff verbatim quoting with a mechanical anchor per row, BLI-cited audit-anchor re-verification, metric-definition verification before reproduction, filling the signoff at sprint close so a mechanical consumer never reads placeholders, appending rather than inserting into an identifier sequence other files cite, an anchor that runs a writer naming a scratch copy and comparing two writes with each other (§16.10.7), and a decision that leaves a known verifier failure rewriting every criterion pinned to that verifier's exit code (§16.13, held in the Part-2 file), and a size constant derived from the headline criterion (§16.14, Part-2 file)
+consult-when: Checking exit-criteria fidelity across plan layers — binding-refinement echo, signoff verbatim quoting, filling the signoff at sprint close, appending (never inserting) into a cited identifier sequence, and an anchor that runs a writer naming a scratch copy and comparing two writes with each other, with decision-driven criterion rewrites and headline-derived size constants in the Part-2 sibling
 ---
 
 # Exit-Criteria Fidelity (Cross-Layer Enforcement)
 
 **Purpose:** Binding rules for cross-layer enforcement of exit-criteria fidelity (§16) — binding-refinement callout echo across plan layers, "surfaces" as an enforceable claim rather than a mention, sprint-signoff verbatim quoting with a mechanical anchor per row (including the BLI-Cited Audit-Anchor Re-Verification extension), and metric-definition verification before reproduction. Two closeout-artifact rules close the section: §16.11 (fill the signoff at sprint close) and §16.12 (append, never insert, into a cited sequence). Each rule has been re-derived in independent sessions; review-cycle tokens are wasted relitigating the same issues.
 
-This file is the §16 segment of a 3-way split of `discovery-and-exit-criteria.md` (the anchor, which keeps §15 and the shared 11-row Plan-Review Enforcement Summary — see the anchor for how each of that table's rows now resolves across the three files); §17-§21 live in [execution-time-binding-rules.md](execution-time-binding-rules.md). Extracted to keep all three files comfortably within a single Read call. Read it before authoring multi-layer binding refinements, BLOCKING-coverage task files, or sprint signoff checklists.
+This file is the §16 segment of a 3-way split of `discovery-and-exit-criteria.md` (the anchor, which keeps §15 and the shared 11-row Plan-Review Enforcement Summary — see the anchor for how each of that table's rows now resolves across the three files); [execution-time-binding-rules.md](execution-time-binding-rules.md) holds §17-§21. Extracted to keep all three files comfortably within a single Read call. Read it before authoring multi-layer binding refinements, BLOCKING-coverage task files, or sprint signoff checklists.
 
 ## Table of Contents
 
@@ -741,7 +742,7 @@ A newest-first numbered record renumbers itself on each append: §16.15, Part-2 
 > the canonical template for §16.3 (verbatim sprint-signoff checklist block).
 > Maintaining it inline (rather than as a sibling template file) keeps the
 > template, the rationale, and the WRONG/CORRECT contrast in a single source.
-> Template 1 (§15.1 Discovery identification-query block) lives in
+> Template 1 (discovery-and-exit-criteria.md §15.1 Discovery identification-query block) lives in
 > [discovery-and-exit-criteria.md](discovery-and-exit-criteria.md#scaffolding-templates-canonical-paste-ready-blocks).
 >
 > **Template 2 — Sprint signoff checklist block (§16.3).** Paste into the sprint

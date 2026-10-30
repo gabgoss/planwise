@@ -1,5 +1,6 @@
 ---
 description: A verifier returns FAIL or [UNCERTAIN] when Actual contradicts Expected and never fudges a PASS (§5, Check 060), a check that could not be run returns UNCERTAIN with the exact command and error rather than a narrative claim (§5.1), and an orchestrator adjudicates a BLOCKER raised from a heuristic against source before routing rework (§6).
+consult-when: Writing a verifier's output template, or a BLOCKER arrives from a heuristic — FAIL or UNCERTAIN when Actual contradicts Expected (§5, Check 060), a check that could not run returns UNCERTAIN with the exact command (§5.1), the orchestrator adjudicates against source before routing rework (§6)
 paths: {planwise_root}/{plans_dir}/**
 ---
 
@@ -26,14 +27,14 @@ paths: {planwise_root}/{plans_dir}/**
 > |-------|--------|----------|---------|
 > | … | 44 | ≥54 | PASS (44 is ≥54) |
 > ```
-> CORRECT — when Actual contradicts Expected, the verifier returns FAIL or `[UNCERTAIN]` for orchestrator adjudication. The verifier is not authorized to relax the threshold on its own.
+> CORRECT — the verifier returns FAIL or `[UNCERTAIN]`. The escalation rule (orchestrator adjudication, never a threshold the verifier relaxes itself) is `gate-heuristic-verifier-patterns.md` §1.
 > ```markdown
 > | Check | Actual | Expected | Verdict |
 > |-------|--------|----------|---------|
 > | … | 44 | ≥54 | [UNCERTAIN] — Actual<Expected; possible structurally unreachable threshold (`gate-heuristic-verifier-patterns.md` §2) or format enumeration gap (§3 there); escalating to orchestrator |
 > ```
 
-The verdict-arithmetic check is mechanical: if the comparison operator's evaluation against `(Actual, Expected)` returns false, the verdict cannot be PASS. A reviewer flagging this anti-pattern can grep the verifier's reported rows for `(Actual, Expected, Verdict)` triples where the arithmetic does not hold and flag every such row.
+The verdict-arithmetic check is mechanical: if the comparison operator's evaluation against `(Actual, Expected)` returns false, the verdict cannot be PASS. `scripts/check_report_verdicts.py` checks every `(Actual, Expected, Verdict)` table row: exit 0 clean, 1 on a contradicted PASS, 2 on usage, and 3 when no numeric row was checked, which is a check that did not run (§5.1).
 
 ### 5.1 A Check That Could Not Be Run Returns UNCERTAIN, Never PASS
 
@@ -67,14 +68,8 @@ The verdict-arithmetic check is mechanical: if the comparison operator's evaluat
   1. Open Verification Commands and any output-template the verifier task instructs the subagent to emit (e.g., a results table with `Actual` / `Expected` / `Verdict` columns).
   2. If the template permits a PASS verdict on a row where the `Actual` value does not satisfy the `Expected` comparator → BLOCKER (verdict-arithmetic contract violation enabled).
   3. If the spec emits BLOCKER directly to downstream rework without an `INVESTIGATE` / orchestrator-adjudication branch → ERROR (denies the adjudication path required when a heuristic produces a false signal).
-  4. If the spec contains language like "approximate", "close enough", or "within tolerance" without a numeric tolerance band → WARNING (arithmetic-fudging risk).
-- **Finding template:**
-```
-[BLOCKER] Verification task spec permits PASS on contradicted comparator
-File: {task file path} | Location: Verification Commands / output template
-Issue: Spec permits Verdict=PASS when Actual does not satisfy Expected; orchestrator adjudication path for BLOCKER-from-heuristic not declared
-Fix: Constrain verdict per references/gate-verdict-contract-and-adjudication.md §5 (FAIL or [UNCERTAIN] when Actual contradicts Expected) and §6 (orchestrator adjudicates BLOCKER-from-heuristic against source before routing rework) | Confidence: HIGH
-```
+  4. If the spec contains language like "approximate", "close enough", or "within tolerance" without a numeric tolerance band → WARNING (arithmetic-fudging risk). `scripts/lint_gate_checks_commands.py` Check 25 runs this step.
+- **Script:** `scripts/check_report_verdicts.py` checks a filled report for a contradicted PASS (exit 1). Steps 1 to 3 stay a reviewer's read. Fix: constrain the verdict per §5 and the adjudication path per §6.
 
 ---
 

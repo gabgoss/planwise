@@ -66,6 +66,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If reviewing a scaffolded multi-sprint plan: Read `references/ei-fidelity.md`, `references/task-content-fidelity.md`, `references/discovery-and-exit-criteria.md`, `references/scaffolding-hygiene.md` (§1–§12) **and** `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` (§13–§19) — the hygiene reference is split across two files, and Checks 078, 083, 093 and 099 live in Part 2
 - If reviewing a plan with DB-write tasks: Read `references/schema-pin-requirement.md`
 - If reviewing IPC/protocol/codec sessions, Sprint exit verdicts, `git diff` gates or a verification battery's shape: Read `references/verification-gates.md` (the family index), then `references/gate-runtime-boundary-evidence.md`, `references/gate-exit-verdict-and-smoke-reports.md` (Checks 013, 014, 015, 034, 035, 036), `references/gate-diff-baseline-pinning.md` (Check 077), `references/gate-instrument-proof-obligations.md` (Checks 087, 088), `references/gate-change-vs-state-detecting.md`, and `references/gate-run-sheet-and-grader-fields.md` for a run sheet or a grader
+- If reviewing an absence gate, a cross-task prerequisite marker, a per-run check on a transcript or log, or a task that adds a declaration something else must render: Read `references/gate-satisfiability.md` — ask whether the cheapest pass deletes the protected thing, and whether a state exists where the property holds and the gate still fails
 - If reviewing tasks with cross-sprint/cross-version symbol citations: Read `references/verify-against-shipped-artifact.md`
 - If reviewing a gate anchor, a named landing zone, a lifted `§N` citation, a cross-plan status assertion, or a projected set size: Read `references/verify-anchor-against-artifact.md` — an anchor derived from the criterion it verifies inherits every false premise that criterion holds, and the two then corroborate each other
 - If reviewing a plan with verification tasks (match-pattern + pass/fail gate): Read `references/verification-task-authoring.md` (the family index and its §7 checklist), then `references/gate-heuristic-verifier-patterns.md` (Checks 058 and 059), `references/gate-verdict-contract-and-adjudication.md` (Check 060) and `references/gate-absence-and-consistency.md`
@@ -87,6 +88,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If a plan's hypothesis, baseline, or evidence-gap statement rests on one dispatch, one project, or one swept corpus: Read `references/measure-scope-and-sample.md` — check that the sample size, the project boundary, and the corpus boundary are written into the sentence that states the finding
 - If a plan grades probes or dry-runs, or its evidence names the control that produced a result: Read `references/measure-from-the-record.md` — a correct verdict is not evidence the attribution was correct, and a permission result scored on `is_error` alone cannot separate a denial from a downstream failure
 - If a plan schedules a re-measure as its closing sprint, states only a method criterion for a headline figure, or bounds probe spend with a cumulative guard: Read `references/measure-instrument-placement.md` — a window opening at the install is empty by construction, a method criterion is satisfied by an empty window, and a between-calls guard cannot catch an overrun inside the first call
+- If a plan builds or operates a measurement harness, or its evidence comes from a harness's own scoring, blinding or guard: Read `references/harness-instrument-integrity.md` — check that each instrument was shown to discriminate on live data and that every terminal state has a signal
 - If reviewing task briefs, a spawn-prompt skeleton, a fix instruction that names a target figure, or a plan whose central question has several enumerated outcomes: Read `references/dispatch-brief-neutrality.md` — classify each brief sentence as context or premise, check that every anti-inference guardrail is symmetric, and confirm each outcome branch has a concrete route rather than an enum slot
 - If a plan's verification tasks can return ABSENT, a finding arrives pre-confirmed by a second agent, or a batch of runner status blocks is the evidence for a whole-set property: Read `references/verify-verdict-source.md` — a negative rests on a symbol-level search of the code, a confirmation names the primary source it re-opened, severity does not rise on agreement, and cross-artifact invariants are recomputed from the artifacts on disk
 - If a brief changes a count, a section number, a selector or an enum member bound to many sites, renumbers headings, or a flag asserts an upstream change was applied in place: Read `references/dispatch-edit-surface-sweep.md` — the brief names the quantity and hands over the locator instead of naming a line, the runner reports how many occurrences it found, the renumbering gate carries its true expected count, and an in-place edit is re-derived by one search for the old value
@@ -137,6 +139,7 @@ Runs on **both** paths, after Scale Detection and **before any reviewer is spawn
 ```
 Agent(
   subagent_type: "planwise:review-discovery",
+  run_in_background: false,
   description: "Review discovery for {Abbrev}",
   prompt: |
     You are the measurement pass for the review of plan {Abbrev}.
@@ -195,6 +198,14 @@ The first line of the findings file is always a `Coverage:` line. `Coverage: che
 4. If the script could not be run at all, exit `2` produced no findings, or the first line starts `Coverage: NOT CHECKED`, continue the review with `{GateLintPath}` recorded as **unavailable** and say so in the report — the owning reviewer then derives its verification-gate findings by hand and states that it did. When only some gates were refused, the reviewer derives just those by hand.
 
 5. Pass `{GateLintPath}` into the spawn prompt of the reviewer that owns verification gates on the selected path: the No-Team Path's combined content reviewer, or the Team Path's Verification-Gate Reviewer.
+
+6. Check plugin-path currency. The lead owns these findings, because this phase runs before any reviewer is spawned. Run the check and record its result in the review report:
+
+```bash
+python -B "{plugin_root}/scripts/check_plan_plugin_paths.py" --config {planwise_root}/config.yaml "{PlanPath}"
+```
+
+At synthesis the lead adds one ERROR finding per `[STALE]` line and one WARNING finding per `[RATIO]` line. Exit `2` prints a `NOT CHECKED:` line. Record it as unavailable, never as a pass. This step does not halt the review.
 
 > [!practice] Lint once, classify rather than re-derive
 > A verification gate is vacuous when its measured pre-edit value already satisfies its stated post-edit expectation — it then passes with zero work done, and no amount of reading detects that without measuring the gate against the live tree. That decision is mechanical work, so a reviewer's job here is to classify and report what the scan already found, not to re-derive the same findings by hand. Only the roles that own verification gates receive the path; handing it to every reviewer would be noise.

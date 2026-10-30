@@ -1,5 +1,6 @@
 ---
 description: Detect an unnoticed project pivot before triaging an aged or high-priority backlog item, sweep the affected cohort to one shared BLOCKED disposition via the umbrella item's `blocks:` frontmatter instead of closing items individually, and gate the check to the triage passes where it pays for itself
+consult-when: Triaging an aged/high-priority backlog item — detect an unnoticed pivot before routing, and an item whose deliverable edits the permission configuration is not agent-executable (route it to the user, never to a fix-agent)
 ---
 
 # Backlog Triage: Pivot Detection

@@ -37,7 +37,6 @@ import argparse
 import dataclasses
 import json
 import os
-import re
 import sys
 from pathlib import Path
 
@@ -110,6 +109,7 @@ try:
         _context_subkeys_delta,  # noqa: F401 -- re-exported for callers of init_project
         _existing_context_subkeys,  # noqa: F401 -- re-exported for callers of init_project
         _flip_token_saver_on,  # noqa: F401 -- re-exported for callers of init_project
+        backfill_project_dirs,
         extract_top_level_block,  # noqa: F401 -- re-exported for callers of init_project
         find_context_block,  # noqa: F401 -- re-exported for callers of init_project
         generate_config,
@@ -585,9 +585,12 @@ def _backfill_feedback_dir(cfg: InitConfig, config_path: Path) -> str | None:
     the key is absent from the config already on disk, and never overwrites
     an existing value. When a pre-existing `feedback-drafts/` directory is
     found non-empty, the key is pointed at it instead of the new default —
-    nothing is ever moved, renamed, copied, or deleted. Returns a one-line
-    notice to print for that re-point case, or None when no notice is
-    warranted (including when the key was already present).
+    nothing is ever moved, renamed, copied, or deleted. The key is appended at
+    the end of the multi-line `project:` block, so the insert does not depend
+    on any other key (`lessons_dir` is an optional key). Returns a one-line
+    notice to print for the re-point case, or None when no notice is
+    warranted. None is also returned when nothing was written: the key was
+    already present, or the config has no multi-line `project:` block.
     """
     if not HAS_YAML or not config_path.exists():
         return None
@@ -598,6 +601,13 @@ def _backfill_feedback_dir(cfg: InitConfig, config_path: Path) -> str | None:
     project = parsed.get("project") if isinstance(parsed, dict) else None
     if not isinstance(project, dict) or "feedback_dir" in project:
         return None
+
+    text = config_path.read_text(encoding="utf-8")
+    lines = text.split("\n")
+    block = config_loader.find_top_level_block(lines, "project")
+    if block is None:
+        return None
+    _header_idx, block_end, subkey_indent = block
 
     legacy_dir = cfg.project_root / cfg.planwise_root / "feedback-drafts"
     notice = None
@@ -610,14 +620,8 @@ def _backfill_feedback_dir(cfg: InitConfig, config_path: Path) -> str | None:
     else:
         value = "Feedback"
 
-    text = config_path.read_text(encoding="utf-8")
-    lines = text.split("\n")
-    for i, line in enumerate(lines):
-        match = re.match(r"^(\s*)lessons_dir:", line)
-        if match:
-            lines.insert(i + 1, f'{match.group(1)}feedback_dir: "{value}"')
-            write_config_checked(config_path, "\n".join(lines))
-            break
+    lines.insert(block_end, f'{subkey_indent}feedback_dir: "{value}"')
+    write_config_checked(config_path, "\n".join(lines))
     return notice
 
 
@@ -710,6 +714,7 @@ def _run_migrate(cfg: InitConfig) -> int:
         print(f"Migration failed: {exc}", file=sys.stderr)
         return 2
 
+    project_notice = backfill_project_dirs(cfg, Path(path))
     feedback_notice = _backfill_feedback_dir(cfg, Path(path))
 
     _ensure_draft_gitignore(cfg, _configured_feedback_rel(cfg, Path(path)))
@@ -725,6 +730,8 @@ def _run_migrate(cfg: InitConfig) -> int:
         print("Top-level keys already present (preserved):")
         for key in present:
             print(f"  = {key}")
+    if project_notice:
+        print(project_notice)
     if feedback_notice:
         print(feedback_notice)
     print()
@@ -1092,7 +1099,7 @@ def main():
         skipped.append(SkippedArtifact(
             artifact=str(index_path),
             reason=_backlog.detail,
-            consumer="/planwise backlog, /planwise harvest, backlog-author",
+            consumer="/planwise backlog, /planwise harvest, backlog-preflight, backlog-planner, backlog-author",
             remediation=_backlog.fix or "re-run /planwise upgrade",
         ))
 

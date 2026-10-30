@@ -450,7 +450,7 @@ class TestIndexShapeGateIsDefinedOnce(unittest.TestCase):
         self.assertNotIn("Step 2.4 with `--upgrade-pair", text)
 
     def test_plan_step_8d_routes_the_three_exit_2_causes(self):
-        text = (RUN_HANDLER.parent / "plan.md").read_text(encoding="utf-8-sig")
+        text = (RUN_HANDLER.parent / "plan-Part-3-VerifyConfirmAndReview.md").read_text(encoding="utf-8-sig")
         step = _span_between(text, "### Step 8d", "### Step 8e")
         self.assertIn("hand-authored plans index", step)
         self.assertIn("migrate_plans_index.py --report", step)

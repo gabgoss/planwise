@@ -1,5 +1,6 @@
 ---
 description: Project motto — favor the coherent, complete treatment over the easy partial one, at every workflow stage
+consult-when: Choosing between a coherent complete fix and an easier partial one — favor coherent
 ---
 
 # Do the Hard Things

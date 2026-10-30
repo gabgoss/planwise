@@ -1,5 +1,6 @@
 ---
 description: Task file template and structure, completion tracking rules, cross-sprint deferred-finding ownership, a user gate that leads with a plain-language brief and carries a "something else" answer, and walking a brief's worked example through its contract prose before dispatch
+consult-when: Authoring a task file — template, structure, completion tracking, deferred-finding ownership, and a user gate that leads with a plain-language brief and carries a "something else" answer, and a worked example walked through the contract prose before dispatch
 ---
 
 # Task Files and Completion Tracking
@@ -136,7 +137,9 @@ Never leave many-to-many mappings for the agent to infer.
 | All command types present (connectivity / pre-condition + lint or format + exec or smoke test) | **BLOCKING** if only 1 type present on a runnable-artifact task | Block plan approval; require the planner to emit all three command types per `templates/task-file.md` §Per-File-Type Commands |
 | Verification Commands omitted (pure-doc / decision-only / research task) | INFO if `<!-- VERIFICATION: not-applicable (reason) -->` comment present in Notes for Agent | Pass (intentional omission); flag as ERROR if comment absent but task produces no runnable artifact (planner forgot the escape hatch) |
 
-**Scope of BLOCKING enforcement:** The BLOCKING severity applies ONLY to tasks that touch code, tests, or schemas (i.e., tasks whose Expected Output or Execution Steps create or modify files with extensions in the `templates/task-file.md` §Per-File-Type Commands table — `.py` / `.ipynb` / `.sql` / `.cs` / `.cshtml` / `.ts` / `.tsx` / `.{ext}` and equivalents). For purely documentary tasks (markdown edits, decision-only Opus tasks, research-and-report Sonnet tasks), Verification Commands MAY be omitted entirely — but the omission MUST be marked with a `<!-- VERIFICATION: not-applicable (reason) -->` HTML comment so the reviewer can confirm the choice was intentional rather than an oversight. The `handlers/plan.md` Step 8e (Populate Verification Commands) populates the section for runnable-artifact tasks; the `references/error-pattern-catalog.md` Error Pattern Catalog rows 34/35/36 enforce this at review time.
+**One allowed unresolved token:** `{plugin_root}` is the one token a task file may leave unresolved in a Verification Command. The orchestrator resolves it at dispatch from `config.yaml`. Every other `{placeholder}` in a Verification Command stays a finding.
+
+**Scope of BLOCKING enforcement:** The BLOCKING severity applies ONLY to tasks that touch code, tests, or schemas (i.e., tasks whose Expected Output or Execution Steps create or modify files with extensions in the `templates/task-file.md` §Per-File-Type Commands table — `.py` / `.ipynb` / `.sql` / `.cs` / `.cshtml` / `.ts` / `.tsx` / `.{ext}` and equivalents). For purely documentary tasks (markdown edits, decision-only Opus tasks, research-and-report Sonnet tasks), Verification Commands MAY be omitted entirely — but the omission MUST be marked with a `<!-- VERIFICATION: not-applicable (reason) -->` HTML comment so the reviewer can confirm the choice was intentional rather than an oversight. The `handlers/plan-Part-3-VerifyConfirmAndReview.md` Step 8e (Populate Verification Commands) populates the section for runnable-artifact tasks; the `references/error-pattern-catalog.md` Error Pattern Catalog rows 34/35/36 enforce this at review time.
 
 > [!constraint] BLOCKING Severity Discipline
 > WRONG — Verification Commands enforcement left at WARNING, allowing plans to ship with blank `{cmd_before_1}` / `{cmd_after_1}` placeholders:
@@ -220,21 +223,21 @@ A contract stated as prose and a worked example stated as a table are two instru
 Task file Required Context sections and Execution Steps are subject to the rules in [`task-content-fidelity.md`](task-content-fidelity.md). The critical fidelity rules for task file authoring are:
 
 **§9.A Required Context Fidelity (summary — see full rules in task-content-fidelity.md):**
-- §9.A.1: Update Required Context when project file structure changes
-- §9.A.2: No `~?` placeholders — token estimates MUST be concrete integers
-- §9.A.3: Derive tokens from measured bytes ÷ the content-class bytes-per-token ratio (Claude 5 family: dense markdown ~2.6, prose ~2.9, code ~2.7, cleared notebook ~2.3, raw JSON ~2.0; conservative text default 2.6 when unsure, notebook/json auto-detected by extension) — never from a line count
-- §9.A.4: Re-glob live file counts before authoring (counts >1 hour old are stale)
-- §9.A.5: Budget 1.5-2× for multi-source consolidation tasks (dedup overhead)
-- §9.A.6: Use generator-script pattern for tasks walking ≥100 files
-- §9.A.7: Declare per-artifact shape (token budget, topic) for multi-artifact outputs
+- `task-content-fidelity.md` §9.A.1: Update Required Context when project file structure changes
+- `task-content-fidelity.md` §9.A.2: No `~?` placeholders — token estimates MUST be concrete integers
+- `task-content-fidelity.md` §9.A.3: Derive tokens from measured bytes ÷ the content-class bytes-per-token ratio (Claude 5 family: dense markdown ~2.6, prose ~2.9, code ~2.7, cleared notebook ~2.3, raw JSON ~2.0; conservative text default 2.6 when unsure, notebook/json auto-detected by extension) — never from a line count
+- `task-content-fidelity.md` §9.A.4: Re-glob live file counts before authoring (counts >1 hour old are stale)
+- `task-content-fidelity.md` §9.A.5: Budget 1.5-2× for multi-source consolidation tasks (dedup overhead)
+- `task-content-fidelity.md` §9.A.6: Use generator-script pattern for tasks walking ≥100 files
+- `task-content-fidelity.md` §9.A.7: Declare per-artifact shape (token budget, topic) for multi-artifact outputs
 
-**§9.B Verify-Before-Cite (summary — see full rules in task-content-fidelity.md):**
-- §9.B.2: Reconcile field/column/parameter names against live source (DDL, function signatures) — use `{long_form_identifier}` vs `{abbreviated_identifier}` pair to illustrate drift
-- §9.B.5: SQL column names MUST be verified against pinned schema before encoding in task brief
-- §9.B.7: USED-helper enumeration: when copying helpers, enumerate USED and NOT-USED explicitly
+**§9.B Verify-Before-Cite (summary — see full rules in verify-before-cite.md):**
+- `verify-before-cite.md` §9.B.2: Reconcile field/column/parameter names against live source (DDL, function signatures) — use `{long_form_identifier}` vs `{abbreviated_identifier}` pair to illustrate drift
+- `verify-before-cite.md` §9.B.5: SQL column names MUST be verified against pinned schema before encoding in task brief
+- `verify-before-cite.md` §9.B.7: USED-helper enumeration: when copying helpers, enumerate USED and NOT-USED explicitly
 - Schema Pin: at planning time MUST be reconciled against deployed-tier schema at execution time (see `schema-pin-requirement.md` §3)
 - §9.B.2 (extended): Env vars, function signatures, and config keys verified against live source (extends `verify-before-cite.md` §9.B.2 identifier reconciliation)
-- §9.B.8: MERGE/upsert task briefs MUST include Field Mapping subsection (Source Field | DDL Column | Type Cast | Default)
+- `verify-before-cite.md` §9.B.8: MERGE/upsert task briefs MUST include Field Mapping subsection (Source Field | DDL Column | Type Cast | Default)
 
 **Cross-sprint dependency mirroring:**
 

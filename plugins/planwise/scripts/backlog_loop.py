@@ -10,11 +10,19 @@ contract (questions, per-iteration steps, the marker line) lives in
 Subcommands, each printing short human lines and then ONE final line that is a
 single-line JSON object:
 
-  --init     build the queue from the open backlog and write a new run file
+  --init     build the queue from the open backlog and write a new run file;
+             with --dry-run, print the same report and write nothing
   --next     pop the next still-selectable item and make it `current`
   --mark     record a phase, or the closing outcome, for an item. A SKIPPED
              outcome restores the item's pre-loop status; with --decision it
-             also writes a `## Loop Decision Needed` section into the item file
+             also writes one `### Q{n}.` block under `## Open Questions` in
+             the item file (`backlog_questions.append_question`); a retry in
+             the same run writes nothing. With
+             --needs-plan it marks the item `needs_plan: true`. A COMPLETE
+             outcome with --resolution-file appends the close record to the
+             item file, and records an unattended close only when the run
+             never marked the item acting or verifying. --refined, alone, records the refine outcome;
+             --check with --exit, alone, records one verify command's result
   --boundary print the marker line the hooks module watches for
   --end      close the run and print the cross-run summary
   --status   print one run's record, or list every run
@@ -37,8 +45,16 @@ from pathlib import Path
 # Import shared helpers from the sibling scripts
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
+from backlog_questions import (
+    QUESTION_APPENDED,
+    QuestionError,
+    append_question,
+    check_question_target,
+    validate_question_text,
+)
 from config_loader import load_config
 from constants import HOLD_STATUSES, OPEN_STATUSES
+from item_shape import _reads_true
 from markdown_parser import normalize_id
 from parse_backlog import (
     FilterCriteria,
@@ -47,21 +63,36 @@ from parse_backlog import (
     _read_backlog_items,
     build_blocked_by_map,
     collect_archived_closed_ids,
+    duplicate_row_ids,
+    duplicate_row_ids_message,
     filter_items,
     parse_dependencies_table,
 )
-from reconcile_common import (
-    read_text_preserving_newlines,
-    write_text_preserving_newlines,
+from reconcile_common import read_text_preserving_newlines
+from scoped_rules import (
+    RULE_SCOPES_KEY,
+    VERDICT_PLACEMENT,
+    fence_left_open,
+    load_rule_scopes,
+    loop_sections,
 )
 from score_backlog import (
     _read_hub_family_items,
+    compute_item_shape,
     compute_route_signals,
     get_first_file_path,
     load_scored_items,
     read_item_frontmatter,
 )
-from update_backlog import sync_yaml_status
+from update_backlog import (
+    RESOLUTION_HEADING,
+    ResolutionFileError,
+    _find_items_by_id,
+    append_resolution_section,
+    read_resolution_file,
+    set_frontmatter_key,
+    sync_yaml_status,
+)
 
 MARKER_FORMAT = "BACKLOG LOOP: run={run} done={done} remaining={remaining} state={state}"
 
@@ -76,8 +107,21 @@ PHASES = ("selected", "acting", "verifying")
 OUTCOMES = ("COMPLETE", "NOT_STARTED", "SKIPPED")
 EXCLUDED_REASON = "plans deferred in loop mode"
 NO_LONGER_SELECTABLE = "no-longer-selectable"
+NO_ELIGIBLE = "No eligible items for the loop."
 DECISION_HEADING = "## Loop Decision Needed"
-USER_INPUT_NOTE = "USER INPUT NEEDED: see the Loop Decision Needed section in the item file"
+REFINE_OUTCOMES = ("REFINED", "QUESTIONS", "ALREADY_MET", "DECOMPOSE", "NEEDS_PLAN")
+# An unrefined default-branch Route C item past the --refine-max cap.
+NEEDS_REFINE_REASON = "needs refine"
+NEEDS_PLAN_NOTE = "marked for a planning session"
+NEEDS_PLAN_REASON = NEEDS_PLAN_NOTE
+OPEN_QUESTIONS_REASON = "open questions unanswered"
+OPEN_QUESTIONS_NOTE = "open-questions-unanswered"
+# The item still carries a legacy `## Loop Decision Needed` section.
+DECISION_PENDING_REASON = "decision pending"
+DECISION_PENDING_HINT = "decision pending: run scripts/backlog_questions.py --fold, then --answer each question"
+# The item's scoped-rule verdict is `placement`: a human decides where a file goes.
+PLACEMENT_REASON = "placement"
+USER_INPUT_NOTE = "USER INPUT NEEDED: see ## Open Questions in the item file"
 ACTIONS = ("init", "next", "mark", "boundary", "end")
 
 
@@ -220,6 +264,17 @@ def hub_family_rows(config: dict) -> list[dict]:
     return rows
 
 
+def refuse_repeated_row_ids(rows: list[dict]) -> None:
+    """Refuse an index that repeats a row id, the way `parse_backlog.py` does.
+
+    Call it before anything keys `rows` by id. A repeated id would otherwise
+    queue twice and let the last copy's Blocks cell replace the first's.
+    """
+    duplicates = duplicate_row_ids(rows)
+    if duplicates:
+        raise LoopExit(EXIT_USAGE, duplicate_row_ids_message(duplicates))
+
+
 def still_selectable(config: dict, rows_by_norm: dict, item_id: str) -> bool:
     """Re-read the item file now; True while it is open and not on hold."""
     row = rows_by_norm.get(normalize_id(item_id))
@@ -249,37 +304,16 @@ def item_status_of(config: dict, rows_by_norm: dict, item_id: str) -> tuple[Path
     return path, str(frontmatter.get("status") or row["status"]).strip().upper()
 
 
-def append_decision_section(path: Path, run_id: str, text: str) -> bool:
-    """Append the dated `## Loop Decision Needed` section; False when this run already did.
+def marked_needs_plan(frontmatter: dict) -> bool:
+    """True when the item's frontmatter carries `needs_plan` true.
 
-    The run-id tag makes a repeated `--mark` for the same run a no-op, so a
-    retry after a crash never stacks a second copy of the section.
+    The shared truthy reader decides, so `yes`, `on` and `y` read as true
+    here exactly as they do in the route; a quoted value is unquoted first.
     """
-    raw = read_text_preserving_newlines(path)
-    tag = f"<!-- loop-decision run={run_id} -->"
-    if tag in raw:
-        return False
-    eol = "\r\n" if "\r\n" in raw else "\n"
-    body = text.strip().replace("\r\n", "\n").replace("\n", eol)
-    section = eol.join([
-        "",
-        DECISION_HEADING,
-        "",
-        tag,
-        "> [!gate] User input needed",
-        (
-            f"> Loop run {run_id}, {datetime.now().astimezone().date().isoformat()}. "
-            "The loop skipped this item without working it. "
-            "Answer the question below, then triage it again."
-        ),
-        "",
-        body,
-        "",
-    ])
-    if not raw.endswith(("\n", "\r")):
-        raw += eol
-    write_text_preserving_newlines(path, raw + section)
-    return True
+    value = frontmatter.get("needs_plan")
+    if isinstance(value, str):
+        value = value.strip().strip("\"'")
+    return _reads_true(value)
 
 
 def score_of(scores: dict, item_id: str) -> int:
@@ -309,26 +343,72 @@ def summary_lines(run: dict, config: dict) -> list[str]:
             order.append(key)
     lines = [
         f"Loop summary for run {run.get('run_id')}",
-        "| ID | Feature | Route | Outcome |",
-        "|----|---------|-------|---------|",
+        "| ID | Feature | Route | Outcome | Refine |",
+        "|----|---------|-------|---------|--------|",
     ]
     for item_id in order:
         rec = run["items"].get(item_id)
         info = meta.get(item_id, {})
         feature = info.get("feature") or ""
+        refine = ((rec or {}).get("refine") or {}).get("outcome") or "-"
         if rec is None:
             route, outcome = info.get("route_at_init") or "-", "NOT_REACHED"
         else:
-            route = rec.get("route") or rec.get("route_at_init") or "-"
+            # An item marked for a planning session has no loop route, so its
+            # null route shows instead of the route it was queued under.
+            fallback = "-" if rec.get("needs_plan") else rec.get("route_at_init") or "-"
+            route = rec.get("route") or fallback
             outcome = rec.get("outcome") or "OPEN"
-        lines.append(f"| {item_id} | {feature} | {route} | {outcome} |")
-    if run["excluded"]:
-        lines.append(f"Excluded ({EXCLUDED_REASON}):")
-        for entry in run["excluded"]:
-            lines.append(f"  {entry['id']} route {entry['route']}  {entry.get('feature') or ''}".rstrip())
+        lines.append(f"| {item_id} | {feature} | {route} | {outcome} | {refine} |")
+    skipped: dict[str, list[str]] = {}
+    for item_id in order:
+        rec = run["items"].get(item_id) or {}
+        if rec.get("outcome") == "SKIPPED":
+            skipped.setdefault(rec.get("note") or "no note", []).append(item_id)
+    if skipped:
+        lines.append("Skipped (by reason):")
+        for note, ids in skipped.items():
+            lines.append(f"  {note}:")
+            lines.extend(f"    {item_id}" for item_id in ids)
+    checked = [(key, rec["checks"]) for key, rec in run["items"].items() if rec.get("checks")]
+    if checked:
+        lines.append("Checks:")
+        for key, checks in checked:
+            failed = [check for check in checks if check["exit"] != 0]
+            lines.append(f"  {key}: {len(checks) - len(failed)}/{len(checks)} passed")
+            lines.extend(f"    exit {check['exit']}: {check['command']}" for check in failed)
+    # One header per exclusion reason, in first-seen order. A run file from
+    # before reasons were split carries the strong-signal reason on every entry.
+    groups: dict[str, list[dict]] = {}
+    for entry in run["excluded"]:
+        groups.setdefault(entry.get("reason") or EXCLUDED_REASON, []).append(entry)
+    for reason, entries in groups.items():
+        lines.append(f"Excluded ({reason}):")
+        for entry in entries:
+            lines.append(f"  {entry['id']} route {entry['route'] or '-'}  {entry.get('feature') or ''}".rstrip())
+    needs_plan = [key for key, rec in run["items"].items() if rec.get("needs_plan")]
+    if needs_plan:
+        lines.append("Marked for a planning session:")
+        lines.extend(f"  {key}" for key in needs_plan)
+    unattended = [key for key, rec in run["items"].items() if rec.get("unattended_close")]
+    if unattended:
+        lines.append(f"Closed unattended (criteria already met; see {RESOLUTION_HEADING}):")
+        lines.extend(f"  {key}" for key in unattended)
+    refined: dict[str, list[str]] = {}
+    for key, rec in run["items"].items():
+        if rec.get("refine"):
+            refined.setdefault(rec["refine"]["outcome"], []).append(key)
+    if refined:
+        lines.append("Refine outcomes:")
+        lines.extend(
+            f"  {outcome}: {', '.join(refined[outcome])}" for outcome in REFINE_OUTCOMES if outcome in refined
+        )
+    if refined.get("QUESTIONS"):
+        lines.append("Open questions written (answer in each item's ## Open Questions):")
+        lines.extend(f"  {key}" for key in refined["QUESTIONS"])
     needs_input = [key for key, rec in run["items"].items() if rec.get("user_input_needed")]
     if needs_input:
-        lines.append("User input needed (see the Loop Decision Needed section in each item file):")
+        lines.append("User input needed (see the ### Q block under ## Open Questions in each item file):")
         lines.extend(f"  {key}" for key in needs_input)
     lessons = [(key, rec["lessons"]) for key, rec in run["items"].items() if rec.get("lessons")]
     if lessons:
@@ -360,13 +440,21 @@ def cmd_init(args, config: dict) -> int:
         raise LoopExit(EXIT_USAGE, "--mode n requires --n with a number of 1 or more")
     if args.mode == "specific" and not (args.items or "").strip():
         raise LoopExit(EXIT_USAGE, "--mode specific requires --items")
+    if args.refine_max < 0:
+        raise LoopExit(EXIT_USAGE, "--refine-max takes a number of 0 or more")
+
+    # Refuse a repeated row id before the rows are scored or keyed by id, and
+    # before any run file is written.
+    hub_rows = hub_family_rows(config)
+    refuse_repeated_row_ids(hub_rows)
 
     items, frontmatters, scores, _open_ids = load_scored_items(config)
     if not items:
         raise LoopExit(EXIT_USAGE, "No items found in backlog index.")
+    refuse_repeated_row_ids(items)
 
     # The scored rows carry no `blocks`; join it from parse_backlog's own reader.
-    blocks_by_norm = {normalize_id(row["id"]): row.get("blocks", []) for row in hub_family_rows(config)}
+    blocks_by_norm = {normalize_id(row["id"]): row.get("blocks", []) for row in hub_rows}
     for item in items:
         item["blocks"] = list(blocks_by_norm.get(normalize_id(item["id"]), []))
     try:
@@ -382,26 +470,81 @@ def cmd_init(args, config: dict) -> int:
     )
     selectable, held = filter_items(items, criteria, blocked_by)
 
-    eligible: list[tuple[dict, dict]] = []
-    excluded: list[dict] = []
+    def by_score(pair: tuple) -> tuple:
+        return (-score_of(scores, pair[0]["id"]), pair[0]["id"])
+
+    # Load the rule scopes once for the whole run; every item's route reads them.
+    config = {**config, RULE_SCOPES_KEY: load_rule_scopes(config["_project_root"])}
+
+    # First pass, in index order: the reasons that hold whatever the cap.
+    verdicts: list[tuple[dict, dict | None, str | None]] = []
     for item in selectable:
-        signals = compute_route_signals(item, frontmatters.get(item["id"], {}))
-        if signals["route"] in ("A", "B"):
-            eligible.append((item, signals))
+        frontmatter = frontmatters.get(item["id"], {})
+        if marked_needs_plan(frontmatter):
+            # An item marked for a planning session is never queued, so the
+            # loop does not pick it up again on every run. No route is computed.
+            verdicts.append((item, None, NEEDS_PLAN_REASON))
+            continue
+        # Read-only pre-flight, in this order: a legacy decision section still
+        # waiting for an answer, then a placement verdict. Neither is written.
+        if loop_sections(frontmatter.get("_body") or ""):
+            verdicts.append((item, None, DECISION_PENDING_REASON))
+            continue
+        signals = compute_route_signals(item, frontmatter, config)
+        shape = signals["shape"]
+        if (signals["scoped_rules"] or {}).get("verdict") == VERDICT_PLACEMENT:
+            reason = PLACEMENT_REASON
+        elif shape["open_questions"] == "unanswered":
+            reason = OPEN_QUESTIONS_REASON
+        elif signals["route"] == "C" and shape["shape_ok"]:
+            # A refined item that fails the shape gate is refined again below.
+            reason = EXCLUDED_REASON
         else:
-            excluded.append({
-                "id": item["id"],
-                "route": signals["route"],
-                "large_scope": signals["large_scope"],
-                "reason": EXCLUDED_REASON,
-                "feature": item["feature"],
-            })
-    eligible.sort(key=lambda pair: (-score_of(scores, pair[0]["id"]), pair[0]["id"]))
+            reason = None
+        verdicts.append((item, signals, reason))
+
+    # Refining is opt-in: --mode specific refines every named unrefined item,
+    # otherwise the --refine-max highest-scored unrefined items are refined.
+    # A refined item whose shape gate fails counts as unrefined here.
+    unrefined = sorted(
+        ((item, signals) for item, signals, reason in verdicts
+         if reason is None and not signals["shape"]["shape_ok"]),
+        key=by_score,
+    )
+    if args.mode == "specific":
+        named = {normalize_id(raw.strip()) for raw in args.items.split(",") if raw.strip()}
+        refine_ids = {item["id"] for item, _signals in unrefined if normalize_id(item["id"]) in named}
+    else:
+        refine_ids = {item["id"] for item, _signals in unrefined[: args.refine_max]}
+
+    eligible: list[tuple[dict, dict, str]] = []
+    excluded: list[dict] = []
+    for item, signals, reason in verdicts:
+        if reason is None:
+            if item["id"] in refine_ids:
+                eligible.append((item, signals, "refine"))
+                continue
+            if signals["route"] in ("A", "B"):
+                eligible.append((item, signals, "run"))
+                continue
+            # Past the cap, an unrefined Route C item keeps its old exclusion:
+            # a strong scope signal defers it to a planning session, and the
+            # conservative default branch means it needs refining first.
+            reason = EXCLUDED_REASON if signals["large_scope"] else NEEDS_REFINE_REASON
+        excluded.append({
+            "id": item["id"],
+            "route": signals["route"] if signals else None,
+            "large_scope": bool(signals and signals["large_scope"]),
+            "reason": reason,
+            "feature": item["feature"],
+            "refined": bool(signals and signals["shape"]["refined"]),
+        })
+    eligible.sort(key=by_score)
 
     warnings: list[str] = []
     if args.mode == "specific":
         by_norm = {normalize_id(pair[0]["id"]): pair for pair in eligible}
-        excluded_norm = {normalize_id(e["id"]) for e in excluded}
+        excluded_reason = {normalize_id(e["id"]): e["reason"] for e in excluded}
         held_norm = {normalize_id(h["id"]) for h in held}
         known_norm = {normalize_id(i["id"]) for i in items}
         queue_pairs: list[tuple[dict, dict]] = []
@@ -415,8 +558,15 @@ def cmd_init(args, config: dict) -> int:
             if key in by_norm:
                 queue_pairs.append(by_norm[key])
                 continue
-            if key in excluded_norm:
-                why = "route C is deferred in loop mode"
+            if key in excluded_reason:
+                # A named unrefined item is always refined, so only a reason
+                # that holds whatever the cap can drop it here.
+                if excluded_reason[key] in (
+                    NEEDS_PLAN_REASON, DECISION_PENDING_REASON, PLACEMENT_REASON, OPEN_QUESTIONS_REASON
+                ):
+                    why = excluded_reason[key]
+                else:
+                    why = "route C is deferred in loop mode"
             elif key in held_norm:
                 why = "blocked or on hold"
             elif key in known_norm:
@@ -424,18 +574,16 @@ def cmd_init(args, config: dict) -> int:
             else:
                 why = "not in the backlog index"
             warnings.append(f"warning: item {raw} dropped: {why}")
+        if any(line.endswith(f": {DECISION_PENDING_REASON}") for line in warnings):
+            warnings.append(DECISION_PENDING_HINT)
     else:
         queue_pairs = list(eligible)
         if args.mode == "n":
             queue_pairs = queue_pairs[: args.n]
-
-    if not queue_pairs:
-        raise LoopExit(EXIT_USAGE, "No eligible items for the loop.", warnings=warnings)
-
-    created = now_iso()
-    runs_dir = runs_dir_of(config)
-    runs_dir.mkdir(parents=True, exist_ok=True)
-    run_id, path = allocate_run_path(runs_dir)
+    # In --mode specific the hint rides in the warnings; otherwise it follows the report.
+    pending_hint = (
+        args.mode != "specific" and any(entry["reason"] == DECISION_PENDING_REASON for entry in excluded)
+    )
 
     queue = [pair[0]["id"] for pair in queue_pairs]
     queue_meta = {
@@ -443,9 +591,58 @@ def cmd_init(args, config: dict) -> int:
             "route_at_init": pair[1]["route"],
             "score": score_of(scores, pair[0]["id"]),
             "feature": pair[0]["feature"],
+            "refined_at_init": pair[1]["shape"]["refined"],
+            "disposition_at_init": pair[2],
         }
         for pair in queue_pairs
     }
+    report = ["Queue:"]
+    for position, item_id in enumerate(queue, start=1):
+        info = queue_meta[item_id]
+        report.append(
+            f"  {position}. {item_id}  score {info['score']}  route {info['route_at_init']}  "
+            f"{info['disposition_at_init']}  {info['feature']}"
+        )
+    if excluded:
+        report.append("Excluded:")
+        for entry in excluded:
+            scope = " (large scope)" if entry["large_scope"] else ""
+            report.append(f"  {entry['id']}  route {entry['route'] or '-'}  {entry['reason']}{scope}")
+    if pending_hint:
+        report.append(DECISION_PENDING_HINT)
+    report.extend(warnings)
+    result = {
+        "queue": [
+            {
+                "id": i,
+                "score": queue_meta[i]["score"],
+                "route_at_init": queue_meta[i]["route_at_init"],
+                "disposition": queue_meta[i]["disposition_at_init"],
+            }
+            for i in queue
+        ],
+        "excluded": excluded,
+        "warnings": warnings,
+    }
+    counts = f"mode={args.mode} queue={len(queue)} excluded={len(excluded)}"
+    if not queue:
+        if not args.dry_run:
+            raise LoopExit(EXIT_USAGE, NO_ELIGIBLE, warnings=warnings)
+        # A dry run still shows why nothing queued, then exits as the real run would.
+        emit(
+            [f"Loop dry run: {counts} (no run file written)", *report, NO_ELIGIBLE],
+            {"dry_run": True, "error": NO_ELIGIBLE, **result},
+        )
+        return EXIT_USAGE
+    if args.dry_run:
+        # The guard sits before the runs directory and the run file are made.
+        emit([f"Loop dry run: {counts} (no run file written)", *report], {"dry_run": True, **result})
+        return EXIT_OK
+
+    created = now_iso()
+    runs_dir = runs_dir_of(config)
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    run_id, path = allocate_run_path(runs_dir)
     run = {
         "schema_version": SCHEMA_VERSION,
         "run_id": run_id,
@@ -459,6 +656,7 @@ def cmd_init(args, config: dict) -> int:
             "status": args.status or None,
         },
         "no_check": bool(args.no_check),
+        "refine_max": args.refine_max,
         "excluded": excluded,
         "queue": queue,
         "queue_meta": queue_meta,
@@ -478,25 +676,7 @@ def cmd_init(args, config: dict) -> int:
         path.unlink(missing_ok=True)
         raise
 
-    lines = [f"Loop run {run_id}: mode={args.mode} queue={len(queue)} excluded={len(excluded)}", "Queue:"]
-    for position, item_id in enumerate(queue, start=1):
-        info = queue_meta[item_id]
-        lines.append(
-            f"  {position}. {item_id}  score {info['score']}  route {info['route_at_init']}  {info['feature']}"
-        )
-    if excluded:
-        lines.append("Excluded:")
-        for entry in excluded:
-            scope = " (large scope)" if entry["large_scope"] else ""
-            lines.append(f"  {entry['id']}  route {entry['route']}  {entry['reason']}{scope}")
-    lines.extend(warnings)
-    emit(lines, {
-        "run": run_id,
-        "state": state_text(path),
-        "queue": [{"id": i, "score": queue_meta[i]["score"], "route_at_init": queue_meta[i]["route_at_init"]} for i in queue],
-        "excluded": excluded,
-        "warnings": warnings,
-    })
+    emit([f"Loop run {run_id}: {counts}", *report], {"run": run_id, "state": state_text(path), **result})
     return EXIT_OK
 
 
@@ -532,13 +712,28 @@ def cmd_next(args, config: dict) -> int:
 
     rows_by_norm: dict | None = None
     skipped: list[str] = []
+    skip_notes: list[str] = []
     changed = False
     popped: str | None = None
+    refined = False
+    disposition = "run"
+
+    def skip(item_id: str, record: dict, note: str) -> None:
+        record.update(phase="closed", outcome="SKIPPED", started=None, closed=now_iso(), note=note)
+        run["items"][item_id] = record
+        # Keep `current` on a closed item, so `--boundary` can still end a
+        # run whose queue was skipped to exhaustion.
+        run["current"] = item_id
+        add_history(run, "mark", item_id, f"outcome=SKIPPED {note}")
+        skipped.append(item_id)
+        skip_notes.append(f"Skipped {item_id}: {note}")
+
     while run["queue"]:
         item_id = run["queue"].pop(0)
         changed = True
         if rows_by_norm is None:
             rows = _read_hub_family_items(config["_index_path"], config["_backlog_dir"])
+            refuse_repeated_row_ids(rows)
             rows_by_norm = {normalize_id(row["id"]): row for row in rows}
         info = run.get("queue_meta", {}).get(item_id, {})
         now = now_iso()
@@ -553,17 +748,20 @@ def cmd_next(args, config: dict) -> int:
             "note": None,
         }
         if not still_selectable(config, rows_by_norm, item_id):
-            record.update(phase="closed", outcome="SKIPPED", started=None, closed=now, note=NO_LONGER_SELECTABLE)
-            run["items"][item_id] = record
-            # Keep `current` on a closed item, so `--boundary` can still end a
-            # run whose queue was skipped to exhaustion.
-            run["current"] = item_id
-            add_history(run, "mark", item_id, f"outcome=SKIPPED {NO_LONGER_SELECTABLE}")
-            skipped.append(item_id)
+            skip(item_id, record, NO_LONGER_SELECTABLE)
             continue
         # The status before this loop touched the item, so a documented skip can
         # hand the item back the way it was found.
-        record["pre_status"] = item_status_of(config, rows_by_norm, item_id)[1] or None
+        item_path, status_now = item_status_of(config, rows_by_norm, item_id)
+        # The refine state is read from the live file, not from init.
+        shape = compute_item_shape(read_item_frontmatter(item_path) if item_path else {})
+        if shape["open_questions"] == "unanswered":
+            skip(item_id, record, OPEN_QUESTIONS_NOTE)
+            continue
+        refined = shape["refined"]
+        # A refined item whose shape gate fails keeps its init disposition.
+        disposition = "run" if shape["shape_ok"] else info.get("disposition_at_init") or "run"
+        record["pre_status"] = status_now or None
         run["items"][item_id] = record
         run["current"] = item_id
         add_history(run, "next", item_id, f"remaining={len(run['queue'])}")
@@ -573,7 +771,7 @@ def cmd_next(args, config: dict) -> int:
     if changed:
         save_run(path, run)
     remaining = len(run["queue"])
-    lines = [f"Skipped {item_id}: {NO_LONGER_SELECTABLE}" for item_id in skipped]
+    lines = list(skip_notes)
     if popped is None:
         lines.append("No items left in the queue.")
         emit(lines, {"next": None, "remaining": 0, **base_payload, "skipped": skipped})
@@ -581,7 +779,7 @@ def cmd_next(args, config: dict) -> int:
     info = run.get("queue_meta", {}).get(popped, {})
     lines.append(
         f"Next: {popped}  {info.get('feature') or ''}  (route {info.get('route_at_init')}, "
-        f"score {info.get('score')}); {remaining} remaining"
+        f"score {info.get('score')}, {disposition}); {remaining} remaining"
     )
     emit(lines, {
         "next": popped,
@@ -589,6 +787,8 @@ def cmd_next(args, config: dict) -> int:
         **base_payload,
         "route_at_init": info.get("route_at_init"),
         "score": info.get("score"),
+        "refined": refined,
+        "disposition": disposition,
         "pre_status": run["items"][popped].get("pre_status"),
         "skipped": skipped,
     })
@@ -625,26 +825,134 @@ def mark_lessons(args, config: dict) -> int:
     return EXIT_OK
 
 
-def cmd_mark(args, config: dict) -> int:
-    if not args.id:
-        raise LoopExit(EXIT_USAGE, "--mark requires --id")
-    if args.lessons is not None:
-        return mark_lessons(args, config)
-    if bool(args.phase) == bool(args.outcome):
-        raise LoopExit(EXIT_USAGE, "--mark requires exactly one of --phase, --outcome or --lessons")
-    if args.phase and (args.route or args.note or args.decision):
-        raise LoopExit(EXIT_USAGE, "--route, --note and --decision apply to --outcome only")
-    if args.decision is not None and args.outcome != "SKIPPED":
-        raise LoopExit(EXIT_USAGE, "--decision applies to --outcome SKIPPED only")
-    if args.decision is not None and not args.decision.strip():
-        raise LoopExit(EXIT_USAGE, "--decision needs the question, the options and the evidence")
+def mark_check(args, config: dict) -> int:
+    """Record one verify command's exit code for an item into its `checks` list.
+
+    Stands alone like `--lessons`, so no other mark flag is silently dropped.
+    Written under its own `check` history event, so it never changes which
+    event `--boundary` reads as the newest mark for the item.
+    """
+    others = (args.phase, args.outcome, args.lessons, args.refined, args.decision, args.note,
+              args.route, args.sub_items, args.resolution_file)
+    if any(value is not None for value in others) or args.needs_plan:
+        raise LoopExit(EXIT_USAGE, "--check stands alone: give no --phase, --outcome, --lessons, --refined, "
+                                   "--decision, --note, --route, --needs-plan, --sub-items or --resolution-file")
+    if args.exit is None:
+        raise LoopExit(EXIT_USAGE, "--check needs --exit with the command's exit code")
+    path = resolve_run_path(config, args.run)
+    run = load_run(path)
+    refuse_if_ended(run, {"run": path.stem, "state": state_text(path)})
+    key = resolve_item_key(run, args.id)
+    check = {"command": args.check, "exit": args.exit, "at": now_iso()}
+    run["items"][key].setdefault("checks", []).append(check)
+    add_history(run, "check", key, f"exit={args.exit}")
+    save_run(path, run)
+    emit([f"Recorded check for {key}: exit {args.exit}"], {
+        "run": path.stem,
+        "id": key,
+        "check": check,
+        "state": state_text(path),
+    })
+    return EXIT_OK
+
+
+def mark_refined(args, config: dict) -> int:
+    """Record the refine step's outcome for an item, with its sub-items for DECOMPOSE.
+
+    Written under its own history event, so it never changes which event
+    `--boundary` reads as the newest mark for the item.
+    """
+    if args.phase or args.outcome or args.route or args.note or args.decision is not None:
+        raise LoopExit(EXIT_USAGE, "--refined stands alone: give no --phase, --outcome, --route, --note or --decision")
+    sub_items = [part.strip() for part in (args.sub_items or "").split(",") if part.strip()]
+    if args.refined == "DECOMPOSE" and not sub_items:
+        raise LoopExit(EXIT_USAGE, "--refined DECOMPOSE needs --sub-items with at least one item id")
+    if args.refined != "DECOMPOSE" and args.sub_items is not None:
+        raise LoopExit(EXIT_USAGE, "--sub-items applies to --refined DECOMPOSE only")
     path = resolve_run_path(config, args.run)
     run = load_run(path)
     refuse_if_ended(run, {"run": path.stem, "state": state_text(path)})
     key = resolve_item_key(run, args.id)
     record = run["items"][key]
+    record["refine"] = {"outcome": args.refined, "at": now_iso(), "sub_items": sub_items}
+    detail = args.refined + (f" sub_items={','.join(sub_items)}" if sub_items else "")
+    add_history(run, "refine", key, detail)
+    save_run(path, run)
+    emit([f"Recorded refine outcome for {key}: {detail}"], {
+        "run": path.stem,
+        "id": key,
+        "refine": record["refine"],
+        "state": state_text(path),
+    })
+    return EXIT_OK
+
+
+def cmd_mark(args, config: dict) -> int:
+    if not args.id:
+        raise LoopExit(EXIT_USAGE, "--mark requires --id")
+    if args.check is not None:
+        return mark_check(args, config)
+    if args.exit is not None:
+        raise LoopExit(EXIT_USAGE, "--exit applies to --check only")
+    # These guards run before the --refined and --lessons branches, so no
+    # flag combined with either is ever silently dropped.
+    if args.refined is not None and (
+        args.lessons is not None or args.needs_plan or args.resolution_file is not None
+    ):
+        raise LoopExit(EXIT_USAGE, "--refined stands alone: give no --lessons, --needs-plan or --resolution-file")
+    if args.sub_items is not None and args.refined is None:
+        raise LoopExit(EXIT_USAGE, "--sub-items applies to --refined DECOMPOSE only")
+    if args.lessons is not None and (args.needs_plan or args.resolution_file is not None):
+        raise LoopExit(EXIT_USAGE, "--lessons stands alone: give no --needs-plan or --resolution-file")
+    if args.decision is not None:
+        try:
+            validate_question_text(args.decision)
+        except QuestionError as exc:
+            raise LoopExit(EXIT_USAGE, str(exc))
+    if args.needs_plan and args.outcome != "SKIPPED":
+        raise LoopExit(EXIT_USAGE, "--needs-plan applies to --outcome SKIPPED only")
+    if args.resolution_file is not None and args.outcome != "COMPLETE":
+        raise LoopExit(EXIT_USAGE, "--resolution-file applies to --outcome COMPLETE only")
+    resolution_text = None
+    if args.resolution_file is not None:
+        # The one shared reader; a missing, unreadable or empty file is a usage error.
+        try:
+            resolution_text = read_resolution_file(args.resolution_file)
+        except ResolutionFileError as exc:
+            raise LoopExit(EXIT_USAGE, str(exc))
+    if args.refined is not None:
+        return mark_refined(args, config)
+    if args.lessons is not None:
+        return mark_lessons(args, config)
+    if bool(args.phase) == bool(args.outcome):
+        raise LoopExit(EXIT_USAGE, "--mark requires exactly one of --phase, --outcome, --lessons or --refined")
+    if args.phase and (args.route or args.note or args.decision):
+        raise LoopExit(EXIT_USAGE, "--route, --note and --decision apply to --outcome only")
+    if args.decision is not None and args.outcome != "SKIPPED":
+        raise LoopExit(EXIT_USAGE, "--decision applies to --outcome SKIPPED only")
+    path = resolve_run_path(config, args.run)
+    run = load_run(path)
+    refuse_if_ended(run, {"run": path.stem, "state": state_text(path)})
+    key = resolve_item_key(run, args.id)
+    record = run["items"][key]
+    resolution_path: Path | None = None
+    if resolution_text is not None:
+        # Both directories: the handler flips the status first, so the item
+        # file usually sits in Archive/ by now.
+        matches = _find_items_by_id(
+            config["_backlog_dir"], config["_archive_dir"], config["_index_path"], key
+        )
+        if len(matches) != 1:
+            raise LoopExit(
+                EXIT_USAGE,
+                f"--resolution-file needs exactly one item file for {key}; found {len(matches)}",
+            )
+        resolution_path = matches[0][0]
     restored: str | None = None
-    decision_written = False
+    decision_outcome: str | None = None
+    needs_plan_written = False
+    resolution_written = False
+    resolution_outcome: str | None = None
     if args.phase:
         record["phase"] = args.phase
         add_history(run, "mark", key, f"phase={args.phase}")
@@ -653,40 +961,98 @@ def cmd_mark(args, config: dict) -> int:
             # A skip hands the item back the way the loop found it. A documented
             # skip also writes the question into the item file, so the next
             # interactive run finds it.
-            rows_by_norm = {
-                normalize_id(row["id"]): row
-                for row in _read_hub_family_items(config["_index_path"], config["_backlog_dir"])
-            }
+            skip_rows = _read_hub_family_items(config["_index_path"], config["_backlog_dir"])
+            refuse_repeated_row_ids(skip_rows)
+            rows_by_norm = {normalize_id(row["id"]): row for row in skip_rows}
             item_path, status_now = item_status_of(config, rows_by_norm, key)
             if args.decision is not None and item_path is None:
                 raise LoopExit(EXIT_USAGE, f"--decision could not find the item file for {key}")
+            if args.needs_plan and item_path is None:
+                raise LoopExit(EXIT_USAGE, f"--needs-plan could not find the item file for {key}")
+            if args.decision is not None and fence_left_open(
+                read_text_preserving_newlines(item_path).replace("\r\n", "\n")
+            ):
+                # A block written after an unclosed fence would sit inside
+                # it, where no reader sees it. Refuse before any write.
+                raise LoopExit(
+                    EXIT_USAGE,
+                    f"--decision refused: the item file for {key} opens a fenced block it never "
+                    "closes, so a new block would be hidden inside it. Close the fence first.",
+                )
+            if args.decision is not None:
+                # Every file-level refusal of append_question, before any write.
+                try:
+                    check_question_target(item_path)
+                except QuestionError as exc:
+                    raise LoopExit(EXIT_USAGE, f"--decision refused: {exc}")
             if item_path is not None:
                 pre_status = record.get("pre_status")
                 loop_set_it = bool(pre_status) and pre_status != "IN_PROGRESS" and status_now == "IN_PROGRESS"
                 if loop_set_it and sync_yaml_status(item_path, pre_status).outcome == "changed":
                     restored = pre_status
+                if args.needs_plan:
+                    outcome = set_frontmatter_key(item_path, "needs_plan", "true").outcome
+                    if outcome in ("absent_file", "no_frontmatter"):
+                        raise LoopExit(
+                            EXIT_USAGE,
+                            f"--needs-plan could not write needs_plan into the item file for {key} ({outcome})",
+                        )
+                    needs_plan_written = outcome in ("changed", "unchanged")
                 if args.decision is not None:
-                    decision_written = append_decision_section(item_path, path.stem, args.decision)
+                    try:
+                        decision_outcome = append_question(item_path, path.stem, args.decision)
+                    except QuestionError as exc:
+                        raise LoopExit(EXIT_USAGE, f"--decision refused: {exc}")
             if args.decision is not None:
                 record["user_input_needed"] = True
+            if args.needs_plan:
+                record["needs_plan"] = True
+        if resolution_path is not None:
+            resolution_outcome = append_resolution_section(resolution_path, resolution_text).outcome
+            if resolution_outcome == "absent_file":
+                raise LoopExit(EXIT_USAGE, f"--resolution-file could not find the item file for {key}")
+            # The run's history decides the label, not the flag: an item this
+            # run marked acting or verifying was worked, so it is a fix.
+            if not item_was_worked(run, key):
+                record["unattended_close"] = True
+            resolution_written = resolution_outcome in ("appended", "closed_block")
+            record["resolution_written"] = resolution_written
         now = now_iso()
         record["phase"] = "closed"
         record["outcome"] = args.outcome
         record["closed"] = now
         if args.route:
             record["route"] = args.route
+        elif args.needs_plan:
+            # An item re-assessed for a planning session has no loop route;
+            # any route an earlier mark recorded is cleared.
+            record["route"] = None
+        else:
+            # The route the item was queued under.
+            record["route"] = record.get("route_at_init")
         if args.note:
             record["note"] = args.note
         elif args.decision is not None:
             record["note"] = USER_INPUT_NOTE
+        elif args.needs_plan:
+            record["note"] = NEEDS_PLAN_NOTE
         add_history(run, "mark", key, f"outcome={args.outcome}")
     save_run(path, run)
     what = f"phase={args.phase}" if args.phase else f"outcome={args.outcome}"
     lines = [f"Marked {key}: {what}"]
     if restored:
         lines.append(f"Restored {key} status to {restored}. Regenerate the backlog index.")
+    # A same-run retry wrote nothing, so it reports false.
+    decision_written = decision_outcome == QUESTION_APPENDED
     if decision_written:
-        lines.append(f"Wrote the {DECISION_HEADING} section into the item file.")
+        lines.append("Wrote a ### Q block under ## Open Questions in the item file.")
+    if needs_plan_written:
+        lines.append(f"Marked {key} needs_plan: true in the item file. Regenerate the backlog index.")
+    if resolution_outcome is not None:
+        lines.append({
+            "appended": "Resolution: appended",
+            "closed_block": "Resolution: section present, dated close block appended",
+        }.get(resolution_outcome, "Resolution: section already present, left unchanged"))
     emit(lines, {
         "run": path.stem,
         "id": key,
@@ -694,9 +1060,20 @@ def cmd_mark(args, config: dict) -> int:
         "outcome": record["outcome"],
         "restored_status": restored,
         "decision_written": decision_written,
+        "needs_plan_written": needs_plan_written,
+        "resolution_written": resolution_written,
         "state": state_text(path),
     })
     return EXIT_OK
+
+
+def item_was_worked(run: dict, item_id: str) -> bool:
+    """True when this run marked the item acting or verifying."""
+    worked = {f"phase={phase}" for phase in ("acting", "verifying")}
+    return any(
+        event.get("id") == item_id and event.get("event") == "mark" and event.get("detail") in worked
+        for event in run["history"]
+    )
 
 
 def boundary_recorded(run: dict, item_id: str) -> bool:
@@ -836,7 +1213,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--id", default=None)
     parser.add_argument("--phase", choices=list(PHASES), default=None)
     parser.add_argument("--outcome", choices=list(OUTCOMES), default=None)
-    parser.add_argument("--route", choices=["A", "B"], default=None)
+    parser.add_argument(
+        "--route", choices=["A", "B"], default=None,
+        help="With --mark --outcome: the route worked. Defaults to the item's route_at_init; "
+             "with --needs-plan there is no default and the route stays null.",
+    )
     parser.add_argument("--note", default=None)
     parser.add_argument(
         "--lessons", default=None,
@@ -845,8 +1226,39 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--decision", default=None,
         help="With --mark --outcome SKIPPED: the question, options and evidence to write "
-             "into the item file as a Loop Decision Needed section.",
+             "into the item file as a ### Q block under ## Open Questions.",
     )
+    parser.add_argument(
+        "--needs-plan", action="store_true", dest="needs_plan",
+        help="With --mark --outcome SKIPPED: write needs_plan: true into the item file "
+             "and record the item for a planning session.",
+    )
+    parser.add_argument(
+        "--resolution-file", type=Path, default=None, dest="resolution_file",
+        help=f"With --mark --outcome COMPLETE: a file whose text is appended under {RESOLUTION_HEADING} "
+             "in the item file; when the section exists, a dated '### Closed {date}' block is "
+             "appended below it. The close counts as unattended only when the run never marked "
+             "the item acting or verifying",
+    )
+    parser.add_argument(
+        "--refine-max", type=int, default=0, dest="refine_max",
+        help="With --init: refine at most N unrefined items, highest score first (default 0). "
+             "--mode specific refines every named unrefined item.",
+    )
+    parser.add_argument(
+        "--refined", choices=list(REFINE_OUTCOMES), default=None,
+        help="With --mark, alone: record the refine step's outcome for the item.",
+    )
+    parser.add_argument(
+        "--sub-items", default=None, dest="sub_items",
+        help="With --mark --refined DECOMPOSE: comma-separated ids of the sub-items filed.",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", dest="dry_run",
+        help="With --init: print the queue and the exclusions; write no run file.",
+    )
+    parser.add_argument("--check", default=None, help="With --mark, alone: a verify command that ran.")
+    parser.add_argument("--exit", type=int, default=None, help="With --mark --check: its exit code.")
     return parser
 
 
@@ -870,6 +1282,8 @@ def main(argv: list[str] | None = None) -> int:
                 EXIT_USAGE,
                 "give exactly one of --init, --next, --mark, --boundary, --end, --status",
             )
+        if args.dry_run and actions[0] != "init":
+            raise LoopExit(EXIT_USAGE, "--dry-run applies to --init only")
         try:
             config = load_config(Path(__file__), config_path=args.config)
         except FileNotFoundError as exc:

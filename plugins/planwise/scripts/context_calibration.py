@@ -388,8 +388,9 @@ def capture_context(plugin_root, cwd) -> str | None:
 # WHAT THIS COUNTS, and why it is not the whole mandated set
 # ----------------------------------------------------------
 # Counted:     the skill body (injected with the skill), the handler body (read
-#              by the router), and that handler's own "always load" references
-#              (read because the handler body instructs it).
+#              by the router) and its `<name>-Part-N-<topic>.md` Parts, and the
+#              "always load" references the handler or a Part declares (read
+#              because the handler body instructs it), each counted once.
 # NOT counted: the base-context references the skill links under "Pre-injected
 #              with this skill".
 #
@@ -422,6 +423,9 @@ _ALWAYS_LOAD_RE = re.compile(
     r"\*\*[^*]*references \(always load\):\*\*(.*?)(?:\n\*\*|\n---)", re.DOTALL
 )
 _REF_TOKEN_RE = re.compile(r"`?references/([A-Za-z0-9._-]+\.md)`?")
+# A split handler's Part: `<name>-Part-<N>-<topic>.md`. The topic after N is
+# required, so `<name>-Part-2.md` stays a handler of its own.
+_HANDLER_PART_RE = re.compile(r"^(?P<parent>.+?)-Part-(?P<n>\d+)-.+\.md$")
 
 
 def _file_extent(path) -> tuple:
@@ -430,12 +434,27 @@ def _file_extent(path) -> tuple:
     Lines are newline counts, matching `wc -l` — the same convention the
     published floor tables were measured with.
     """
+    lines, size, _text = _read_handler(path)
+    return lines, size
+
+
+def _read_handler(path) -> tuple:
+    """Return `(lines, bytes, text)` for one file from a single read.
+
+    An absent file yields `(0, 0, "")`. A file that is not valid UTF-8 keeps
+    its measured lines and bytes and yields empty text, so it declares no
+    always-load references rather than aborting the floor.
+    """
     try:
         with open(path, "rb") as handle:
             data = handle.read()
     except OSError:
-        return 0, 0
-    return data.count(b"\n"), len(data)
+        return 0, 0, ""
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        text = ""
+    return data.count(b"\n"), len(data), text
 
 
 def always_load_references(handler_text: str) -> list:
@@ -468,10 +487,18 @@ def derive_structural_floor(plugin_root) -> dict:
           "skill": {"lines": int, "bytes": int},
           "subcommands": {
               "<name>": {"lines": int, "bytes": int, "tokens": int,
-                         "always_load": [str, ...]},
+                         "always_load": [str, ...],
+                         "includes_parts": [str, ...]},
               ...
           },
         }
+
+    A split handler's Parts (`handlers/<name>-Part-N-<topic>.md`) fold into
+    `<name>`: their lines and bytes add to the parent, the skill counts once,
+    an always-load reference listed by the parent and a Part counts once, and
+    each Part's name lands in the `includes_parts` list, ordered by N (empty
+    for an unsplit handler). A folded Part gets no key of its own. A Part with no
+    `<name>.md` parent, or a file off the name pattern, keeps its own key.
 
     Every figure is labelled with the tree it came from: dev-tree and
     installed-tree line counts differ, so a floor figure without its tree label
@@ -503,17 +530,34 @@ def derive_structural_floor(plugin_root) -> dict:
     except OSError:
         return empty
 
+    # Fold each Part into its parent handler when the parent file exists.
+    present = set(handler_files)
+    parts_of = {}
+    for name in handler_files:
+        match = _HANDLER_PART_RE.match(name)
+        if match and f"{match.group('parent')}.md" in present:
+            parts_of.setdefault(match.group("parent") + ".md", []).append(
+                (int(match.group("n")), name)
+            )
+    folded = {part for parts in parts_of.values() for _n, part in parts}
+
     subcommands = {}
     for name in handler_files:
-        handler_path = os.path.join(handlers_dir, name)
-        handler_lines, handler_bytes = _file_extent(handler_path)
-        try:
-            with open(handler_path, "r", encoding="utf-8") as handle:
-                handler_text = handle.read()
-        except OSError:
-            handler_text = ""
+        if name in folded:
+            continue
+        # Parts in numeric order, so Part-10 follows Part-2.
+        members = [name] + [part for _n, part in sorted(parts_of.get(name, []))]
+        handler_lines = handler_bytes = 0
+        refs = []
+        for member in members:
+            m_lines, m_bytes, member_text = _read_handler(
+                os.path.join(handlers_dir, member)
+            )
+            handler_lines += m_lines
+            handler_bytes += m_bytes
+            refs.extend(always_load_references(member_text))
+        refs = list(dict.fromkeys(refs))
 
-        refs = always_load_references(handler_text)
         ref_lines = ref_bytes = 0
         for ref in refs:
             r_lines, r_bytes = _file_extent(os.path.join(references_dir, ref))
@@ -527,6 +571,7 @@ def derive_structural_floor(plugin_root) -> dict:
             "bytes": total_bytes,
             "tokens": round(total_bytes / STRUCTURAL_FLOOR_BYTES_PER_TOKEN),
             "always_load": refs,
+            "includes_parts": [part[:-3] for part in members[1:]],
         }
 
     empty["subcommands"] = subcommands
@@ -540,6 +585,8 @@ def _format_floor(floor: dict) -> str:
     round-trips under PyYAML and stays on one line for the targeted regex
     write-back. Emits per-subcommand token figures plus the tree label, so a
     stored floor can never be read without knowing which tree produced it.
+    `includes_parts` is not rendered: no reader of the stored line consumes
+    it, and the folded parent key already carries the Parts' tokens.
     """
     subs = (floor or {}).get("subcommands") or {}
     if not subs:
@@ -669,7 +716,10 @@ def calibrate(
     from the capture (see `derive_structural_floor`), so it is populated on the
     fallback path too — a failed capture says nothing about how much instruction
     text an invocation carries. It excludes the base-context references, which
-    per-Read transcript attribution shows do not load.
+    per-Read transcript attribution shows do not load. Its `subcommands` map
+    holds one entry per handler, each `{"lines", "bytes", "tokens",
+    "always_load", "includes_parts"}`, with a split handler's Parts folded into
+    the parent and named in `includes_parts`.
     """
     capture_fn = capture if capture is not None else capture_context
 

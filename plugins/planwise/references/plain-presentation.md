@@ -1,5 +1,6 @@
 ---
 description: Presentation conventions for the tables, lists, headings, and code in every answer and document you write.
+consult-when: Changing the shipped presentation style rule — tables, lists, headings, code blocks. Installed global under `style.plain_presentation`
 ---
 
 # Presentation (always on)

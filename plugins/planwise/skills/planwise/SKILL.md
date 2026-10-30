@@ -28,7 +28,7 @@ The injected line above also prints a `planwise: …` version notice when the co
 | Subcommand | Handler |
 |-----------|---------|
 | `init` | Read [handlers/init.md](../../handlers/init.md) |
-| `plan` | Read [handlers/plan.md](../../handlers/plan.md) |
+| `plan` | Read [handlers/plan.md](../../handlers/plan.md). Its Config Gate reads the injected `<!-- planwise:plan:begin -->` block first |
 | `review` | Read [handlers/review.md](../../handlers/review.md) |
 | `run` | Read [handlers/run.md](../../handlers/run.md) |
 | `upgrade` | Follow [Upgrade](#upgrade) below (the preflight card, the handler is its fallback) |
@@ -92,8 +92,9 @@ Available subcommands:
   doctor --prune-upgrade-leftovers  Delete past-upgrade backups and caches flagged prunable (writer; opt-in)
   doctor --create-feedback-dir Create the missing feedback drafts directory (writer; opt-in)
   token-saver on|off|status    Toggle Token Saver mode anytime (--plan to override one plan)
-  backlog [item-id] [--loop-resume <run-id>]  Triage backlog items; capture follow-up BLIs from resolution outputs
+  backlog [item-id] [--loop-resume <run-id>] [--answer]  Triage backlog items; capture follow-up BLIs from resolution outputs
                                --loop-resume re-enters a one-item-per-session loop (needs the plugin's hooks module)
+                               --answer asks you each open question an item carries and records your answer
   list [--active] [--no-check] List all plans with status
   lessons [search-terms]       Search lessons learned
   lessons capture              Capture a lesson mid-session
@@ -130,7 +131,7 @@ ARGUMENTS: $ARGUMENTS
 
 ## Base Context
 
-**Pre-injected with this skill** — apply to every subcommand (mirrored by each handler's **Base references** note):
+**Linked from this skill, not loaded by it** — these apply to every subcommand. Read one when a step cites it:
 
 - [Markdown conventions](../../references/markdown-conventions.md)
 - [Callout conventions](../../references/callout-conventions.md)
@@ -139,26 +140,6 @@ ARGUMENTS: $ARGUMENTS
 - [Native tool use](../../references/native-tool-use.md) — dedicated file tools (Read/Grep/Glob/Edit/Write) over shell equivalents for file-tree reads, searches, and edits; scoped, not a blanket shell prohibition
 - [Feedback drafting](../../references/feedback-drafting.md) — draft a local, never-sent planwise feedback file at a high-signal moment; honour feedback.drafts; never announce
 
-**Loaded on demand, NOT pre-injected** — each is pulled in by the handler that needs it (see that handler's *Required References* list for the trigger), or auto-injected as a path-scoped rule on matching `.claude/**` edits. Key references (not exhaustive — handlers own the full set):
+**Loaded on demand, NOT pre-injected** — every other reference is pulled in by the handler that needs it (see that handler's *Required References* list for the trigger), or auto-injected as a path-scoped rule on matching `.claude/**` edits. To find the one that governs the work in front of you, Read the index of every on-demand reference, one row per family:
 
-- [Scaffolding hygiene](../../references/scaffolding-hygiene.md) — §1–§12, what the scaffold emits
-- [Scaffolding hygiene — Part 2: derivation and parallelism](../../references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md) — §13–§19, what the scaffold must compute before it closes
-- [Discovery and exit criteria](../../references/discovery-and-exit-criteria.md)
-- [Exit-criteria fidelity](../../references/exit-criteria-fidelity.md)
-- [Exit-criteria fidelity, Part 2 — a decision rewrites the criteria that depend on it](../../references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md)
-- [Execution-time binding rules](../../references/execution-time-binding-rules.md)
-- [EI fidelity](../../references/ei-fidelity.md)
-- [EI citation and token reconciliation](../../references/ei-citation-and-token-reconciliation.md)
-- [EI completeness](../../references/ei-completeness.md)
-- [EI source-promise integrity](../../references/ei-source-promise-integrity.md)
-- [Schema pin requirement](../../references/schema-pin-requirement.md)
-- [Task content fidelity](../../references/task-content-fidelity.md)
-- [Verify-before-cite](../../references/verify-before-cite.md)
-- [Verification gates](../../references/verification-gates.md)
-- [Measurement discipline](../../references/measurement-discipline.md)
-- [Measurement discipline, Part 3 — recorded delta and pinned count](../../references/measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md)
-- [Verify against shipped artifact](../../references/verify-against-shipped-artifact.md)
-- [Verify discovery-phase consolidation](../../references/verify-discovery-consolidation.md)
-- [Cross-repo fix-task discipline](../../references/verify-cross-repo-fix-discipline.md)
-- [Backlog-item citation freshness](../../references/verify-backlog-citation-freshness.md)
-- [Artifact self-containment](../../references/artifact-self-containment.md)
+[Reference library](../../references/00-Reference-Library.md)

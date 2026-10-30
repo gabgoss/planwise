@@ -1,5 +1,6 @@
 ---
 description: 19 project-specific callout types for semantic markup in markdown files — syntax, usage rules, and decision matrix
+consult-when: Writing `> [!type]` callouts — the 19 callout types, syntax, when to use which
 paths: .claude/rules/**, .claude/skills/**, .claude/hooks/**, .claude/agents/**, Docs/**
 ---
 

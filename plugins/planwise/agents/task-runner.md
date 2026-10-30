@@ -21,7 +21,7 @@ maxTurns: 50
 > Task-runner writes output files and updates recovery state — it MUST be launched in foreground mode. Background subagents auto-deny Write/Edit/Bash permissions not pre-approved at launch, and `bypassPermissions` does NOT override this gate. The agent will complete but produce no files.
 >
 > WRONG: `Agent(subagent_type: "planwise:task-runner", run_in_background: true, ...)`
-> CORRECT: `Agent(subagent_type: "planwise:task-runner", ...)` (foreground is the default)
+> CORRECT: `Agent(subagent_type: "planwise:task-runner", run_in_background: false, ...)`
 
 ## 1. READ — Load Task Context
 
@@ -41,6 +41,7 @@ maxTurns: 50
 
 Never report a verification as environmentally impossible without first confirming you invoked it with the project's interpreter. If a verification cannot run, your report must state the exact command you ran and the exact error — never a summary judgement about the environment.
 
+- When a Verification Command holds the literal `{plugin_root}`, substitute the spawn prompt's `Plugin root:` value. When a command instead holds a literal versioned plugin-cache path, run it with the path's version directory replaced by the spawn prompt's `Plugin root:` value, and report the mismatch in `ISSUES`.
 - Run every command that takes longer than about a minute (a full test suite, a build, a migration) in the foreground, with a timeout up to the harness maximum. Never start it as a background job and end your turn waiting on it. A backgrounded job's completion does not wake you, and the orchestrator cannot see it.
 
 1. Follow Execution Steps in the exact order listed
@@ -198,7 +199,7 @@ In parallel mode you share the Recovery file with sibling runners dispatched in 
 > Full contract, derivation, and the over-tight failure mode: `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.28. The status block re-enters the orchestrator's own context window whole on return — it is bounded so that does not accumulate:
 > - **No re-quoted file content** — cite `OUTPUT_FILES` by path + `LINES_PRODUCED`, never paste an edited file's body into the block.
 > - **No restated task text** — `TASK_ID` is the reference; never re-explain the brief.
-> - **18-line ceiling on the whole block** — derived from enumerating what central reconciliation consumes (status, task id, route/flags, output files, lines produced, verify results, key findings, issues) and capping each field at its worst case; see §1.28 for the per-field table. The ceiling is a floor-preserving cap, not a target to shrink toward — it never cuts a field reconciliation needs.
+> - **18-line ceiling on the whole block** — derived from enumerating what central reconciliation consumes (status, task id, route/flags, output files, lines produced, verify results, key findings, issues) and capping each field at its worst case; see `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.28 for the per-field table. The ceiling is a floor-preserving cap, not a target to shrink toward — it never cuts a field reconciliation needs.
 > - **Bulk output routed to files** — anything a field cannot carry within its allocation goes to the session `Outputs/` folder; name the path in the block instead of inlining the content.
 
 > [!constraint] No Sneaky Recovery Writes in Parallel Mode

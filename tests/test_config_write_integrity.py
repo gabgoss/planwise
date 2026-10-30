@@ -35,6 +35,8 @@ isolated temp tree and none read or mutate the live project's config.
 Run with:  python -m pytest tests/test_config_write_integrity.py -q
 """
 
+import contextlib
+import io
 import shutil
 import sys
 import tempfile
@@ -130,6 +132,7 @@ context:
   token_saver_orchestrator_advisory: measured
   token_saver_session_checkpoint: {window: 400000, turns: 194}
   run_layer_stop: off
+  plan_authoring: inline
   verified_cli_version: "2.1.263"
   verified_cli_version_measured_on: "2026-09-07"
 
@@ -627,6 +630,80 @@ class TestDoctorConfigParseCheck(_ConfigFixtureBase):
 
     def test_doctor_skips_the_check_when_no_config_exists(self):
         self.assertIsNone(ip._doctor_config_parse_check(self.cfg))
+
+    def test_doctor_lists_project_path_keys_that_are_not_set(self):
+        self.write_config('project:\n  name: "Fixture"\n  lessons_dir: LessonsLearned\n')
+        check = ip._doctor_config_parse_check(self.cfg)
+
+        self.assertEqual(check["state"], "ok", "a missing path key is an advisory, not a failure")
+        self.assertEqual(
+            check["missing_project_keys"],
+            ["planwise_root", "plans_dir", "backlog_dir", "feedback_dir"],
+        )
+        for key in check["missing_project_keys"]:
+            self.assertIn(f"project.{key}", check["report"])
+        self.assertIn("/planwise upgrade", check["report"])
+
+    def test_doctor_counts_a_null_empty_or_non_string_path_key_as_not_set(self):
+        self.write_config(
+            "project:\n"
+            "  planwise_root: planwise\n"
+            "  plans_dir:\n"
+            '  backlog_dir: ""\n'
+            "  feedback_dir: 7\n"
+        )
+        check = ip._doctor_config_parse_check(self.cfg)
+
+        self.assertEqual(check["missing_project_keys"], ["plans_dir", "backlog_dir", "feedback_dir"])
+
+    def test_doctor_is_silent_about_path_keys_when_all_are_set(self):
+        self.write_config(
+            "project:\n"
+            "  planwise_root: planwise\n"
+            "  plans_dir: Plans\n"
+            "  backlog_dir: Backlog\n"
+            "  feedback_dir: Feedback\n"
+        )
+        check = ip._doctor_config_parse_check(self.cfg)
+
+        self.assertEqual(check["missing_project_keys"], [])
+        self.assertEqual(check["report"], "Config parse check\n  config.yaml parses cleanly")
+
+    def test_doctor_does_not_flag_lessons_dir_or_archive_dir(self):
+        self.write_config(
+            "project:\n"
+            "  planwise_root: planwise\n"
+            "  plans_dir: Plans\n"
+            "  backlog_dir: Backlog\n"
+            "  feedback_dir: Feedback\n"
+        )
+        check = ip._doctor_config_parse_check(self.cfg)
+
+        self.assertNotIn("lessons_dir", check["report"])
+        self.assertNotIn("archive_dir", check["report"])
+
+    def test_doctor_reports_every_path_key_when_project_is_not_a_mapping(self):
+        self.write_config("project: just-a-string\n")
+        check = ip._doctor_config_parse_check(self.cfg)
+
+        self.assertEqual(
+            check["missing_project_keys"],
+            ["planwise_root", "plans_dir", "backlog_dir", "feedback_dir"],
+        )
+
+    def test_the_advisory_prints_through_the_doctor_entry_point_before_the_gate_stops_it(self):
+        """The check runs before the version-gate early return, so a drifted
+        install still hears about missing path keys."""
+        self.write_config('plugin_version: "0.0.1"\nproject:\n  name: "Fixture"\n')
+        buf = io.StringIO()
+
+        with contextlib.redirect_stdout(buf):
+            code = ip._run_doctor(self.cfg)
+
+        out = buf.getvalue()
+        self.assertEqual(code, 0)
+        self.assertIn("Version drift", out)
+        self.assertIn("project.backlog_dir", out)
 
     def test_version_gate_stays_green_on_a_bricked_config(self):
         """The regression this stage exists for: the gate cannot see the break."""

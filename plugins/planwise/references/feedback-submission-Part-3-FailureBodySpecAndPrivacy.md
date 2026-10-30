@@ -1,5 +1,6 @@
 ---
 description: Feedback submission engine, Part 3 — the fallback posture on any gate or post failure, the Auto Mode deviation, the issue body spec, the privacy contract and the placeholder reference for all three parts. Split out of feedback-submission.md when that file neared the Read-tool token gate.
+consult-when: A feedback gate or post fails, a handler runs feedback submission under Auto Mode, or an issue body is being built — the fallback posture, the Auto Mode deviation, the issue body spec, the privacy contract, and the placeholder reference for all three parts
 ---
 
 # Feedback Submission Engine, Part 3 — Fallback, Body Spec and Privacy

@@ -58,7 +58,7 @@ Use this template when generating the session summary at session closeout, writt
 
 ---
 
-## Context Notes for Next Session
+## Context Notes
 
 - {Any important context that should carry forward}
 - {Dependencies or blockers for next session}
@@ -121,6 +121,16 @@ The `Propagated To` column MUST name the destination file (task / orchestration 
 ## Lessons Learned
 
 {Bullet list of LL-{NNN} entries created this session, OR the literal text "No lessons captured this session." if none captured.}
+
+---
+
+## Plan-Specific Sections <!-- OPTIONAL -->
+
+Write any section that no heading above covers here, as an `###` H3. Never add it as a new `##` H2 elsewhere in this file, and draft one `idea` feedback draft for each new H3 heading (see `references/feedback-drafting.md`).
+
+### {Section Heading}
+
+{content}
 ```
 
 ---

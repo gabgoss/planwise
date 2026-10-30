@@ -1,5 +1,6 @@
 ---
 description: A Sprint exit-gate verdict reflects the gate-defining step's status, never a step-count percentage, and the Verification Commands presence checks for the section, the per-file-type table, notebooks, lint and database pre-checks (§3, Reviewer Checks 013, 014, 034, 035 and 036); the operational rules for smoke reports, the Before/After block check, and the Recovery-versus-task-spec drift practice at closeout (§4, Reviewer Check 015).
+consult-when: Writing a Sprint Overview status, a smoke report or a closeout Recovery file, or reviewing a task's Verification Commands — the gate is the gate, never a step-count percentage, and the presence checks (§3, Checks 013, 014, 034, 035, 036); smoke-report rules and the Before/After block (§4, Check 015)
 paths: {planwise_root}/{plans_dir}/**
 ---
 
@@ -39,10 +40,7 @@ paths: {planwise_root}/{plans_dir}/**
 > ```
 
 > [!constraint] Sprint Overview rows MUST encode gate state, not session-count fraction
-> WRONG — Master Plan row that flips to ✅ COMPLETE because the session count finished, even though the smoke verdict is FAIL.
-> ```markdown
-> | Sprint-01 | Threading + IPC | ✅ COMPLETE | 5 / 5 sessions |
-> ```
+> A Master Plan row that flips to ✅ COMPLETE because every session finished, while the smoke verdict is FAIL, misstates the Sprint.
 > CORRECT — the row state reflects the exit-gate's verdict, not the session count.
 > ```markdown
 > | Sprint-01 | Threading + IPC | ⚠️ COMPLETE (verdict PARTIAL — round-trip gate FAIL, {backlog-id}) | 5 / 5 sessions |
@@ -67,65 +65,35 @@ paths: {planwise_root}/{plans_dir}/**
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
 - **What:** Tasks touching code/tests/schemas MUST include `## Verification Commands` section using placeholder vocabulary.
 - **Detection:** Open task; grep `^## Verification Commands` heading. If task touches `{code, test, schema, migration, notebook}` AND section absent → BLOCKER.
-- **Finding template:**
-```
-[BLOCKER] Task Verification Commands section missing
-File: {task file path} | Location: Expected after Execution Steps
-Issue: Task touches {code|tests|schemas} but lacks Verification Commands
-Fix: Append ## Verification Commands per templates/task-file.md | Confidence: HIGH
-```
+- **Script:** `scripts/lint_task_file_structure.py` rule `verification-section` reports `BLOCKER: [verification-section] Reviewer Check 013: …` on the Output line. Fix: append the section per `templates/task-file.md`.
 
 #### Reviewer Check 014 — Per-File-Type Verification Table Populated
 
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | EXTEND
 - **What:** Verification Commands section MUST include per-file-type table with placeholder command rows (`{lint-cmd}`, `{format-cmd}`, `{test-cmd}`, `{exec-cmd}`).
 - **Detection:** Open Verification Commands section; count rows matching `{[a-z-]+-cmd}`. Zero → BLOCKER.
-- **Finding template:**
-```
-[BLOCKER] Per-file-type Verification Commands table not populated
-File: {task file path} | Location: Verification Commands section
-Issue: Table has no placeholder-command rows
-Fix: Add rows per templates/task-file.md Per-File-Type Commands | Confidence: MEDIUM
-```
+- **Script:** `scripts/lint_task_file_structure.py` rule `verification-section` reports `BLOCKER: [verification-section] Reviewer Check 014: …` when the section holds no `{...-cmd}` row and no concrete command, or a template slot left unfilled. Fix: add rows per `templates/task-file.md`.
 
 #### Reviewer Check 034 — Verification Commands Notebook Execution Present
 
 - **Severity / Role / Type:** ERROR | Task Reviewer | NEW
 - **What:** Tasks producing/modifying `{notebook-file}` artifacts MUST include `{exec-cmd}` in Verification Commands.
 - **Detection:** Grep Expected Output for notebook artifacts; grep Verification Commands for `{exec-cmd}`. Notebook output + `{exec-cmd}` absent → ERROR.
-- **Finding template:**
-```
-[ERROR] Notebook execution verification missing
-File: {task file path} | Location: Verification Commands section
-Issue: Task produces notebook artifact but lacks {exec-cmd}
-Fix: Add {exec-cmd} row per templates/task-file.md Per-File-Type Commands | Confidence: HIGH
-```
+- **Script:** `scripts/lint_task_file_structure.py` rule `per-type-commands` reports `ERROR: [per-type-commands] Reviewer Check 034: …`. Fix: add an `{exec-cmd}` row per `templates/task-file.md`.
 
 #### Reviewer Check 035 — Verification Commands Lint/Format Present
 
 - **Severity / Role / Type:** ERROR | Task Reviewer | NEW
 - **What:** Tasks producing/modifying code files MUST include `{lint-cmd}` AND `{format-cmd}` in Verification Commands per-file-type table.
 - **Detection:** Code-producing output + missing `{lint-cmd}` OR `{format-cmd}` in Verification Commands → ERROR.
-- **Finding template:**
-```
-[ERROR] Lint/format verification commands missing
-File: {task file path} | Location: Verification Commands section
-Issue: Code-producing task lacks {lint-cmd}/{format-cmd}
-Fix: Add per-file-type rows per templates/task-file.md | Confidence: HIGH
-```
+- **Script:** `scripts/lint_task_file_structure.py` rule `per-type-commands` reports `ERROR: [per-type-commands] Reviewer Check 035: …`. A section with concrete commands and no placeholder table owes a lint command only. Fix: add rows per `templates/task-file.md`.
 
 #### Reviewer Check 036 — Verification Commands DB Pre-Check Position
 
 - **Severity / Role / Type:** WARNING | Task Reviewer | NEW
 - **What:** DB-write tasks MUST include `{connectivity-check-cmd}` in `> [!verify]` "Before" block (not "After").
 - **Detection:** Locate `> [!verify]` callout; check `{connectivity-check-cmd}` position. Misplaced or absent → WARNING.
-- **Finding template:**
-```
-[WARNING] DB connectivity pre-check missing or misplaced
-File: {task file path} | Location: > [!verify] Before/After block
-Issue: {connectivity-check-cmd} absent OR placed in After block
-Fix: Move to Before block per references/callout-conventions.md > [!verify] | Confidence: MEDIUM
-```
+- **Script:** `scripts/lint_task_file_structure.py` rule `per-type-commands` reports `WARNING: [per-type-commands] Reviewer Check 036: …`. Fix: move the check to the Before block per `references/callout-conventions.md`.
 
 ## 4. Operational Rules for Smoke Reports
 
@@ -141,13 +109,7 @@ Fix: Move to Before block per references/callout-conventions.md > [!verify] | Co
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
 - **What:** Task files producing executable artifacts MUST include `> [!verify]` callout with Before/After bash commands.
 - **Detection:** Grep `> \[!verify\]` callout (multiline). Task Expected Output declares runnable artifact (notebook, script, binary) AND callout absent → BLOCKER.
-- **Finding template:**
-```
-[BLOCKER] Verification > [!verify] Before/After block missing
-File: {task file path} | Location: Verification Commands section
-Issue: Task produces runnable artifact but lacks verify callout
-Fix: Add > [!verify] callout per references/callout-conventions.md | Confidence: MEDIUM
-```
+- **Script:** `scripts/lint_task_file_structure.py` rule `verify-callout` reports `BLOCKER: [verify-callout] Reviewer Check 015: …` when the callout or one of its `**Before` and `**After` lines is missing. Fix: add the callout per `references/callout-conventions.md`.
 
 ---
 

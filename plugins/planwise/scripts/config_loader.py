@@ -39,6 +39,19 @@ DEFAULT_PLAN_STATUSES = (
     "CLOSED",
 )
 
+# The folder `load_config` uses for each `project.<key>` directory when the
+# key is absent, null or empty. This table is the one place those fallbacks
+# live: the loader reads it, and the upgrade backfill writes the same values
+# into a config that lacks the key, so the backfill changes no behavior.
+# `lessons_dir` and `archive_dir` are deliberately absent: an absent
+# `lessons_dir` means the lessons stages are skipped, and an absent
+# `archive_dir` derives from `backlog_dir`.
+PROJECT_DIR_DEFAULTS = {
+    "plans_dir": "Plans",
+    "backlog_dir": "Backlog",
+    "feedback_dir": "Feedback",
+}
+
 
 # Every planwise config.yaml opens with a top-level `project:` mapping (the
 # first block config.yaml.template renders). It is the discriminator the
@@ -154,29 +167,22 @@ def write_config_checked(config_path, text: str) -> None:
         ) from exc
 
 
-def find_context_block(lines: list[str]) -> tuple[int, int, str] | None:
-    """Locate the top-level `context:` block in a list of YAML lines.
+def find_top_level_block(lines: list[str], key: str) -> tuple[int, int, str] | None:
+    """Locate the top-level `key:` block (a header line with no inline value) in YAML lines.
 
     Returns (header_index, block_end_exclusive, subkey_indent) where:
-      * header_index is the index of the `context:` line,
+      * header_index is the index of the `key:` line,
       * block_end_exclusive is the index of the first line AFTER the block
         (the next top-level key, or len(lines) at EOF),
       * subkey_indent is the leading whitespace string used for the block's
         sub-keys (taken from the first indented member, or "  " if none).
 
-    Returns None when no top-level `context:` block exists.
-
-    This is the shared LOCATE half of the config.yaml `context:`-block text
-    surgery: every writer that targets the block — the additive,
-    skip-if-present sub-key merge and the replace-or-append splice below —
-    locates it this same way, so this is their one shared home. Callers that
-    need the SPLICE half (replace-or-append) use splice_context_block(); a
-    caller that instead must never overwrite an existing sub-key locates the
-    block here and keeps its own skip-if-present loop local.
+    Returns None when no such block exists, which includes a block written as
+    an inline flow mapping (`key: {a: 1}`).
     """
     header_idx = None
     for i, line in enumerate(lines):
-        if re.match(r"^context:\s*$", line):
+        if re.match(rf"^{re.escape(key)}:\s*$", line):
             header_idx = i
             break
     if header_idx is None:
@@ -211,6 +217,20 @@ def find_context_block(lines: list[str]) -> tuple[int, int, str] | None:
             break
 
     return header_idx, end, subkey_indent
+
+
+def find_context_block(lines: list[str]) -> tuple[int, int, str] | None:
+    """Locate the top-level `context:` block; see find_top_level_block().
+
+    This is the shared LOCATE half of the config.yaml `context:`-block text
+    surgery: every writer that targets the block — the additive,
+    skip-if-present sub-key merge and the replace-or-append splice below —
+    locates it this same way, so this is their one shared home. Callers that
+    need the SPLICE half (replace-or-append) use splice_context_block(); a
+    caller that instead must never overwrite an existing sub-key locates the
+    block here and keeps its own skip-if-present loop local.
+    """
+    return find_top_level_block(lines, "context")
 
 
 def _block_value_end(text: str, line_end: int, key_indent: int) -> int:
@@ -614,7 +634,7 @@ def load_config(script_path: Path | None = None, *, config_path: Path | None = N
 
     # A directory key that is null, empty or not a string falls back to its
     # default, the way `resolve_index_dir` reads the same keys.
-    backlog_rel = _nonempty_str(project.get("backlog_dir")) or "Backlog"
+    backlog_rel = _nonempty_str(project.get("backlog_dir")) or PROJECT_DIR_DEFAULTS["backlog_dir"]
     config["_backlog_dir"] = planwise_root / backlog_rel
     config["_archive_dir"] = planwise_root / (_nonempty_str(project.get("archive_dir")) or f"{backlog_rel}/Archive")
     config["_index_path"] = config["_backlog_dir"] / resolve_index_name(config, "backlog")
@@ -628,7 +648,7 @@ def load_config(script_path: Path | None = None, *, config_path: Path | None = N
         config["_plugin_root"] = fallback
 
     # Resolve plans path
-    plans_rel = _nonempty_str(project.get("plans_dir")) or "Plans"
+    plans_rel = _nonempty_str(project.get("plans_dir")) or PROJECT_DIR_DEFAULTS["plans_dir"]
     config["_plans_dir"] = planwise_root / plans_rel
     config["_plans_index"] = config["_plans_dir"] / resolve_index_name(config, "plans")
 
@@ -659,7 +679,7 @@ def load_config(script_path: Path | None = None, *, config_path: Path | None = N
         config["_lessons_index"] = None
 
     # Resolve feedback path
-    feedback_rel = _nonempty_str(project.get("feedback_dir")) or "Feedback"
+    feedback_rel = _nonempty_str(project.get("feedback_dir")) or PROJECT_DIR_DEFAULTS["feedback_dir"]
     config["_feedback_dir"] = planwise_root / feedback_rel
 
     return config
@@ -896,6 +916,7 @@ def get_effective_token_saver_config(config: dict, plan_override=None) -> dict:
 
 _TOKEN_SAVER_ADVISORY_VALUES = ("measured", "off")
 _RUN_LAYER_STOP_VALUES = frozenset({"off", "on"})
+_PLAN_AUTHORING_VALUES = frozenset({"inline", "delegated"})
 
 
 def _as_int_default(value, default: int) -> int:
@@ -935,7 +956,8 @@ def _as_int_subkey_dict(value, default: dict, keys: tuple) -> dict:
 def get_token_saver_extension_config(config: dict) -> dict:
     """Extract the Token Saver extension keys, with defaults.
 
-    These six `context.token_saver_*` keys are additive to the six
+    These seven `context:` keys (five `token_saver_*` keys plus
+    `run_layer_stop` and `plan_authoring`) are additive to the six
     `get_token_saver_config` already reads. They live in their own accessor
     rather than being folded into that function, because that function's
     docstring and existing callers assume exactly the original six-key
@@ -966,6 +988,12 @@ def get_token_saver_extension_config(config: dict) -> dict:
         value falls back to "off". off = the shipped loop; on = the run
         handler stops at each dependency layer's Recovery reconcile instead
         of continuing to the next layer)
+      * plan_authoring                      -> "inline"
+        (enum "inline" | "delegated"; no boolean mapping, because neither
+        word is a YAML boolean; any other value -- another string, a bool,
+        an int, None -- falls back to "inline". inline = the plan handler
+        writes every task body itself; delegated = the plan handler
+        dispatches planwise:plan-author once per session to write them)
     """
     context = config.get("context", {})
     if not isinstance(context, dict):
@@ -988,6 +1016,12 @@ def get_token_saver_extension_config(config: dict) -> dict:
     else:
         run_layer_stop = "off"
 
+    plan_authoring = context.get("plan_authoring", "inline")
+    if isinstance(plan_authoring, str) and plan_authoring.strip().lower() in _PLAN_AUTHORING_VALUES:
+        plan_authoring = plan_authoring.strip().lower()
+    else:
+        plan_authoring = "inline"
+
     return {
         "token_saver_injection_ceiling": _as_int_default(
             context.get("token_saver_injection_ceiling"), 40000
@@ -1007,4 +1041,5 @@ def get_token_saver_extension_config(config: dict) -> dict:
             ("window", "turns"),
         ),
         "run_layer_stop": run_layer_stop,
+        "plan_authoring": plan_authoring,
     }

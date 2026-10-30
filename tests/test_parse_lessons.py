@@ -14,6 +14,8 @@ itself.
 Run with:  python -m pytest tests/test_parse_lessons.py -q
 """
 
+import contextlib
+import io
 import shutil
 import sys
 import tempfile
@@ -24,6 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 import config_loader
+import parse_lessons
 from parse_lessons import (
     collect_all_known_ids,
     compute_next_id,
@@ -294,6 +297,57 @@ class TestDuplicates(_ParseLessonsFixtureBase):
 
         result = compute_next_id(self.config)
         self.assertEqual(result["next_id"], "LL-011")
+
+
+class TestDuplicateRowIdCli(_ParseLessonsFixtureBase):
+    """The CLI names a repeated row id and exits non-zero. Both copies stay
+    in the parsed rows, so no copy wins silently. The rows come from the
+    module's own `_row` builder."""
+
+    def _run_main(self) -> tuple[int, str, str]:
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = parse_lessons.main()
+        return code, out.getvalue(), err.getvalue()
+
+    def test_repeated_row_id_in_legacy_table_is_named_and_exits_non_zero(self):
+        self.write_legacy_index(_row(b"LL-010", 10) + _row(b"LL-011", 11) + _row(b"**LL-010**", 99))
+        code, out, _ = self._run_main()
+        self.assertEqual(code, 1)
+        self.assertIn("Duplicate row ids in the index:", out)
+        self.assertIn("LL-010", out)
+        self.assertNotIn("LL-011", out)
+        parsed = parse_index(self.config)
+        self.assertEqual([row.cells[1] for row in parsed.rows if row.id == 10],
+                         ["Fixture lesson 10", "Fixture lesson 99"])
+
+    def test_repeated_row_id_across_generated_files_exits_non_zero(self):
+        self.write_generated_family(
+            hub_rows=_row(b"LL-101", 101),
+            leaf_range=(102, 102),
+            leaf_rows=_row(b"LL-102", 102),
+            shard_range=(101, 200),
+            shard_rows=_row(b"LL-101", 101),
+        )
+        code, out, _ = self._run_main()
+        self.assertEqual(code, 1)
+        self.assertIn("LL-101", out)
+        self.assertNotIn("LL-102", out)
+
+    def test_next_id_mode_also_exits_non_zero_and_names_the_id_on_stderr(self):
+        self.write_legacy_index(_row(b"LL-010", 10) + _row(b"LL-010", 10))
+        sys.argv = [*sys.argv, "--next-id"]
+        code, out, err = self._run_main()
+        self.assertEqual(code, 1)
+        self.assertEqual(out.strip(), "LL-011")
+        self.assertIn("LL-010", err)
+
+    def test_unique_row_ids_exit_zero(self):
+        # Positive control: the same fixture shape without the repeat.
+        self.write_legacy_index(_row(b"LL-010", 10) + _row(b"LL-011", 11))
+        code, out, _ = self._run_main()
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "No duplicate lesson ids found.")
 
 
 class TestNextIdSourceIsolation(_ParseLessonsFixtureBase):

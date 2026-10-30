@@ -1,10 +1,11 @@
 ---
 description: Required Context fidelity — measured estimates, freshness across file splits, bytes-per-token ratios, the Token Saver large-file ladder, and giving a copy or quote task every source it quotes from — for planwise task files
+consult-when: Checking Required Context fidelity in a task file — measured estimates, freshness, large-file ladder, and a copy or quote task's brief lists every quote source in Required Context (§9.A.16)
 ---
 
 # Task Content Fidelity
 
-**Purpose:** Required Context fidelity rules (§9.A) for task files — measured estimates that stay fresh across file splits, bytes-per-token ratios, and the Token Saver large-file classification ladder. Extends [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) §9 (Task File Template) with the §9.A subsection; extracted into this sibling file to keep both rule files comfortably within a single Read call. Verify-before-cite discipline (§9.B) is the split sibling [verify-before-cite.md](verify-before-cite.md).
+**Purpose:** Required Context fidelity rules (§9.A) for task files — measured estimates that stay fresh across file splits, bytes-per-token ratios, and the Token Saver large-file classification ladder. Extends [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) §9 (Task File Template) with the §9.A subsection; extracted into this sibling file to keep both rule files comfortably within a single Read call. Verify-before-cite discipline is the split sibling [verify-before-cite.md](verify-before-cite.md) (§9.B).
 
 **Companion files:** [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) (Task File Template, Orchestration linkage, completion tracking), [verify-before-cite.md](verify-before-cite.md) (§9.B Verify-Before-Cite — split sibling: lesson IDs, schema files, field names, facade re-exports, upsert helper design).
 
@@ -316,7 +317,7 @@ Fix: Declare split per references/task-content-fidelity.md §9.A.7 | Confidence:
 
 ### 9.A.8 Token Saver Large-File Ladder
 
-This subsection is the **per-task-file enforcement anchor** the `handlers/plan.md` Step 8c scan (and its Scaffolding Step 5 mirror) implement and that `/planwise review` checks against. It documents the graduated warning ladder, the threshold-derivation formulas, the three FIXED Read-tool gates the ladder folds in, and the `reason=cost|read` distinction. Active only when `context.token_saver: true`; when false, the §9.A token-estimation rules above stand alone.
+This subsection is the **per-task-file enforcement anchor** the `handlers/plan-Part-2-GatherAndGenerate.md` Step 8c scan (and its Scaffolding Step 5 mirror) implement and that `/planwise review` checks against. It documents the graduated warning ladder, the threshold-derivation formulas, the three FIXED Read-tool gates the ladder folds in, and the `reason=cost|read` distinction. Active only when `context.token_saver: true`; when false, the §9.A token-estimation rules above stand alone.
 
 > [!constraint] Every Required Context file MUST be classified against the folded cost + read ladder when Token Saver is on
 > When `context.token_saver: true`, each task's Required Context file MUST be classified by `token_saver.classify_file(path, model, projected_added_bytes, thresholds)`, which returns `{level, reason}` where `level = max(cost_level, read_level)`. A file the same task will modify MUST be classified on `current + projected delta` (pass `projected_added_bytes` — estimate it as projected added lines × that file's observed average bytes/line) so a file that *will* cross a gate post-edit is flagged pre-emptively — not after the runner overflows mid-task.
@@ -599,7 +600,7 @@ Fix: Re-run the row-grain sweep per references/task-content-fidelity.md §9.A.14
 
 ### 9.A.15 The large-file scan is run, not reproduced by hand
 
-The per-file ladder above has a shipped driver. `handlers/plan.md` Step 8c invokes it:
+The per-file ladder above has a shipped driver. `handlers/plan-Part-2-GatherAndGenerate.md` Step 8c invokes it:
 
 ```bash
 python "{plugin_root}/scripts/token_saver.py" --scan --plan {plan_path} --config {config}

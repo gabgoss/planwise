@@ -9,13 +9,21 @@ Re-exported unchanged by the `generate_lessons_index` facade.
 
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from generate_backlog_index import _list_disk_generated_files
 from lessons_index_schema import COL_STATUS, COL_TITLE, COLUMN_COUNT, HEADER_CELLS
-from parse_lessons import LESSON_ROW_RE, format_id, parse_generated_table, parse_index
+from markdown_parser import split_row_cells
+from parse_lessons import (
+    LESSON_ROW_RE,
+    format_id,
+    generated_table_tail,
+    parse_generated_table,
+    parse_index,
+)
 from reconcile_common import read_text_preserving_newlines
 
 # --------------------------------------------------------------------------
@@ -77,7 +85,11 @@ def _counter_floor(index_path: Path, derived_next: int) -> int:
 #                            a header cell, a continuation backlink)
 #                            differs from the fresh render -- row-level
 #                            classes keep precedence, because a row's own
-#                            line is excluded from this comparison entirely
+#                            line is excluded from this comparison entirely.
+#                            Also one finding per pipe-led line below the
+#                            table that the fresh render lacks there, with
+#                            id `{file}:{line}` and the LL id when its first
+#                            cell carries one, so no row hides below a heading
 #   misplaced-row            a row sits in a different generated file      1
 #                            than the fresh render puts it in, naming the
 #                            id and both files
@@ -124,6 +136,33 @@ def _wrapper_text(content: str) -> str:
         and not line.startswith("Generated:")
         and not _COUNTER_LINE_RE.match(line)
     )
+
+
+def _rows_below_table(disk_content: str, fresh_content: str, rel_path: str) -> list:
+    """One `stale-wrapper` finding per pipe-led line below the table in
+    `disk_content` that the fresh render does not carry below its own
+    table. The fresh hub carries the `## Shards` directory there, so the
+    two tails are matched as a multiset and only the surplus is reported.
+    Each finding's id is `{rel_path}:{line}`, and its detail names the cell
+    count and, when the first cell parses, the LL id.
+    """
+    expected = Counter(stripped for _line_no, stripped in generated_table_tail(fresh_content))
+    findings = []
+    for line_no, stripped in generated_table_tail(disk_content):
+        if expected[stripped] > 0:
+            expected[stripped] -= 1
+            continue
+        id_match = LESSON_ROW_RE.match(stripped)
+        id_part = f", id {format_id(int(id_match.group(1)))}" if id_match else ""
+        findings.append({
+            "class": "stale-wrapper", "id": f"{rel_path}:{line_no}",
+            "detail": (
+                f"a table row ({len(split_row_cells(stripped))} cells{id_part}) "
+                f"at line {line_no} sits below the end of the table, where "
+                "--check does not compare rows; the fresh render has no such line there"
+            ),
+        })
+    return findings
 
 
 def _check_lessons_drift(
@@ -264,6 +303,9 @@ def _check_lessons_drift(
                     "directory, a header cell, or a backlink) differs from "
                     "the fresh render",
                 })
+            findings.extend(_rows_below_table(
+                disk_content_by_path[abs_path], entry["content"], entry["path"],
+            ))
 
     disk_by_id: dict = {}
     disk_file_by_id: dict = {}

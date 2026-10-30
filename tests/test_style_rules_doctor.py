@@ -674,8 +674,17 @@ class TestFormatStyleReport(unittest.TestCase):
         self.assertEqual(sr.format_style_report([missing, off])[-1], summary.format(0))
 
     def test_summary_counts_every_loading_copy_at_its_own_size(self):
-        top = _write(self.project_root / ".claude" / "rules" / LANGUAGE, _shipped_lf(LANGUAGE) + b"x" * 301)
-        nested = _write(self.home / ".claude" / "rules" / "team" / LANGUAGE, _shipped_lf(LANGUAGE) + b"y" * 7)
+        # Pick the padding from the shipped size, so per-copy rounding provably differs from total rounding.
+        base = len(_shipped_lf(LANGUAGE))
+        top_pad, nested_pad = next(
+            (a, b)
+            for a in range(300, 330)
+            for b in range(1, 30)
+            if sum(math.ceil(s / BYTES_PER_TOKEN) for s in (base + a, base + b, base))
+            != math.ceil((3 * base + a + b) / BYTES_PER_TOKEN)
+        )
+        top = _write(self.project_root / ".claude" / "rules" / LANGUAGE, _shipped_lf(LANGUAGE) + b"x" * top_pad)
+        nested = _write(self.home / ".claude" / "rules" / "team" / LANGUAGE, _shipped_lf(LANGUAGE) + b"y" * nested_pad)
         managed = _write(_project_managed(self, LANGUAGE), _shipped_lf(LANGUAGE))
         sizes = [len(p.read_bytes()) for p in (top, nested, managed)]
         per_copy = sum(math.ceil(size / BYTES_PER_TOKEN) for size in sizes)

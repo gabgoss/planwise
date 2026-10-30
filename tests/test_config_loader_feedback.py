@@ -349,6 +349,94 @@ class TestFeedbackDirCreationAndBackfill(unittest.TestCase):
             self.assertTrue((legacy_dir / "draft.md").exists())
             self.assertEqual((legacy_dir / "draft.md").read_text(encoding="utf-8"), "hi")
 
+    # -- config shapes with no `lessons_dir:` line (a supported opt-out) --------------
+
+    # `project:` holds no `lessons_dir`, and another top-level block follows it.
+    _NO_LESSONS_DIR = (
+        'project:\n  name: "TestProject"\n  plans_dir: Plans\n'
+        '  backlog_dir: Backlog\n'
+        '\n# trailing comment\n'
+        'context:\n  window: 200000\n'
+    )
+
+    def _backfill_fixture(self, tmp: str, config_text: str, legacy: bool):
+        """Build planwise/config.yaml (and optionally a non-empty feedback-drafts/) under tmp."""
+        project_root = Path(tmp)
+        planwise_dir = project_root / "planwise"
+        planwise_dir.mkdir()
+        legacy_dir = planwise_dir / "feedback-drafts"
+        if legacy:
+            legacy_dir.mkdir()
+            (legacy_dir / "draft.md").write_text("hi", encoding="utf-8")
+        config_path = planwise_dir / "config.yaml"
+        config_path.write_bytes(config_text.encode("utf-8"))
+        return self._make_cfg(project_root), config_path, legacy_dir
+
+    @unittest.skipUnless(ip.HAS_YAML, "requires PyYAML to parse/write the config")
+    def test_backfill_without_lessons_dir_writes_legacy_value_and_notice_is_true(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg, config_path, legacy_dir = self._backfill_fixture(tmp, self._NO_LESSONS_DIR, True)
+
+            notice = ip._backfill_feedback_dir(cfg, config_path)
+
+            self.assertIsNotNone(notice, "the key was written, so the re-point notice is true")
+            parsed = ip.yaml.safe_load(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(parsed["project"]["feedback_dir"], "feedback-drafts")
+            # The key landed inside project:, not after the following top-level block.
+            self.assertEqual(parsed["context"], {"window": 200000})
+            self.assertNotIn("feedback_dir", parsed["context"])
+            # Never-moves guarantee.
+            self.assertEqual((legacy_dir / "draft.md").read_text(encoding="utf-8"), "hi")
+
+    @unittest.skipUnless(ip.HAS_YAML, "requires PyYAML to parse/write the config")
+    def test_backfill_without_lessons_dir_defaults_to_Feedback_without_legacy_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg, config_path, _legacy_dir = self._backfill_fixture(tmp, self._NO_LESSONS_DIR, False)
+
+            notice = ip._backfill_feedback_dir(cfg, config_path)
+
+            self.assertIsNone(notice)
+            self.assertIn('  feedback_dir: "Feedback"\n', config_path.read_text(encoding="utf-8"))
+            parsed = ip.yaml.safe_load(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(parsed["project"]["feedback_dir"], "Feedback")
+
+    @unittest.skipUnless(ip.HAS_YAML, "requires PyYAML to parse/write the config")
+    def test_backfill_leaves_config_with_existing_feedback_dir_byte_identical(self):
+        shapes = {
+            "with lessons_dir": (
+                'project:\n  name: "T"\n  lessons_dir: LessonsLearned\n  feedback_dir: Custom\n'
+            ),
+            "without lessons_dir": 'project:\n  name: "T"\n  feedback_dir: "Custom"\n',
+            "empty value": 'project:\n  name: "T"\n  feedback_dir: ""\n',
+        }
+        for label, config_text in shapes.items():
+            for legacy in (True, False):
+                with self.subTest(shape=label, legacy=legacy), tempfile.TemporaryDirectory() as tmp:
+                    cfg, config_path, _ = self._backfill_fixture(tmp, config_text, legacy)
+                    before = config_path.read_bytes()
+
+                    notice = ip._backfill_feedback_dir(cfg, config_path)
+
+                    self.assertIsNone(notice)
+                    self.assertEqual(config_path.read_bytes(), before)
+
+    @unittest.skipUnless(ip.HAS_YAML, "requires PyYAML to parse/write the config")
+    def test_backfill_with_no_multiline_project_block_returns_none_and_writes_nothing(self):
+        shapes = {
+            "inline flow mapping": 'project: {name: T, plans_dir: Plans}\ncontext:\n  window: 1\n',
+            "no project key": 'context:\n  window: 1\n',
+        }
+        for label, config_text in shapes.items():
+            for legacy in (True, False):
+                with self.subTest(shape=label, legacy=legacy), tempfile.TemporaryDirectory() as tmp:
+                    cfg, config_path, _ = self._backfill_fixture(tmp, config_text, legacy)
+                    before = config_path.read_bytes()
+
+                    notice = ip._backfill_feedback_dir(cfg, config_path)
+
+                    self.assertIsNone(notice, "no write happened, so no notice may be returned")
+                    self.assertEqual(config_path.read_bytes(), before)
+
 
 class TestGeneratedConfigNoUnsubstitutedPlaceholder(unittest.TestCase):
     """Regression test for the scope-expansion defect found and fixed

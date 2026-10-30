@@ -602,6 +602,56 @@ class TestMalformedRowFailsLoudly(unittest.TestCase):
             parse_backlog_table(content)
 
 
+class TestDuplicateRowIdFailsLoudly(_ParseBacklogFixtureBase):
+    """A repeated row id is an anomaly the CLI names on stderr, with a
+    non-zero exit and no item output -- never a silent last-copy-wins read.
+
+    Each fixture row comes from the module's own `_row` builder. The two
+    copies differ in Status, so either file order would let a keyed read
+    silently keep one of them.
+    """
+
+    def _run_cli(self) -> tuple[object, str, str]:
+        """Run main() on the plain path; return (exit code, stdout, stderr)."""
+        saved_argv = sys.argv
+        sys.argv = ["parse_backlog", "--config", str(self.config_path)]
+        out, err = io.StringIO(), io.StringIO()
+        code = 0
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                parse_backlog.main()
+        except SystemExit as exc:
+            code = exc.code
+        finally:
+            sys.argv = saved_argv
+        return code, out.getvalue(), err.getvalue()
+
+    def test_repeated_id_is_named_and_exits_non_zero_in_either_order(self):
+        clean = _row("007", status="NOT_STARTED")
+        corrupt = _row("007", status="COMPLETE")
+        for label, rows in (
+            ("clean first", clean + _row("008") + corrupt),
+            ("corrupt first", corrupt + _row("008") + clean),
+            ("identical copies", clean + _row("008") + clean),
+        ):
+            with self.subTest(order=label):
+                self.write_index(rows)
+                code, out, err = self._run_cli()
+                self.assertNotIn(code, (0, None))
+                self.assertIn("duplicate row id", err)
+                self.assertIn("007", err)
+                self.assertNotIn("008", err)
+                self.assertNotIn("JSON:", out)
+
+    def test_unique_ids_still_exit_zero_and_print_items(self):
+        # Positive control: the same fixture without the repeat stays silent.
+        self.write_index(_row("007") + _row("008"))
+        code, out, err = self._run_cli()
+        self.assertIn(code, (0, None))
+        self.assertNotIn("duplicate row id", err)
+        self.assertIn("JSON:", out)
+
+
 class TestHubShardResolution(unittest.TestCase):
     """`resolve_closed_item_shard` -- the pure `shard_for`-based guess, and
     the reported (never silent) fallback scan when that guess misses."""

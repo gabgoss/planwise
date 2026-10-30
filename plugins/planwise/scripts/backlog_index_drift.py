@@ -5,6 +5,7 @@ Re-exported unchanged by the `generate_backlog_index` facade.
 """
 
 import sys
+from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -48,7 +49,7 @@ def _read_disk_table(content: str) -> tuple:
     `Generated:` line above the table nor the `## Shards` directory below
     it is ever mistaken for an item row.
 
-    Returns `(rows_by_id, anomalies, duplicate_ids, truncated)`. `rows_by_id`
+    Returns `(rows_by_id, anomalies, duplicate_ids, truncated, below_table)`. `rows_by_id`
     maps item id -> its COLUMN_COUNT-length cell list, for every id that
     appeared EXACTLY once; a repeated id is excluded from `rows_by_id`
     entirely -- never last-wins, never silently healed -- and named instead
@@ -57,11 +58,18 @@ def _read_disk_table(content: str) -> tuple:
     quarantined by a duplicate anomaly" rather than misreading its absence
     from `rows_by_id` as an ordinary missing row.
 
-    `truncated` maps item id -> the 1-indexed stop line, for an id whose
-    row is found LATER in `content` -- a blank line, a heading, or any
-    other non-row line split one table into two, and the walk never
-    reached what comes after. Empty when the table ends legitimately
-    (nothing row-shaped follows the stopping line).
+    `truncated` maps item id -> `(stop_line, row_line)`, both 1-indexed,
+    for an id whose full-width row is found LATER in `content` -- a blank
+    line, a heading, or any other non-row line split one table into two,
+    and the walk never reached what comes after. Empty when the table ends
+    legitimately (nothing row-shaped follows the stopping line).
+
+    `below_table` lists every pipe-led line after the stop line, whatever
+    its cell count, as `(line_no, stripped_line, cells)` with a 1-indexed
+    `line_no`. A generated hub legitimately carries one such table (the
+    `## Shards` directory), so a caller compares this list against the
+    same list from the fresh render rather than treating every entry as
+    drift.
     """
     rows_by_id: dict = {}
     anomalies: list = []
@@ -107,24 +115,27 @@ def _read_disk_table(content: str) -> tuple:
         rows_by_id[item_id] = cells
 
     truncated: dict = {}
+    below_table: list = []
     if stop_index is not None and header_seen:
-        for later_line in lines[stop_index + 1:]:
+        for later_idx in range(stop_index + 1, len(lines)):
+            later_line = lines[later_idx]
             later_stripped = later_line.strip()
             if not later_stripped.startswith("|"):
                 continue
             later_cells = split_row_cells(later_line)
+            below_table.append((later_idx + 1, later_stripped, later_cells))
             if len(later_cells) != COLUMN_COUNT:
                 continue
             later_id = later_cells[COL_ID]
             if later_id not in rows_by_id and later_id not in duplicate_ids:
-                truncated.setdefault(later_id, stop_index + 1)
+                truncated.setdefault(later_id, (stop_index + 1, later_idx + 1))
 
     for item_id in sorted(duplicate_ids):
         anomalies.append(
             f"duplicate row for id {item_id}: the same id appears more than "
             "once in this table -- neither copy is trusted"
         )
-    return rows_by_id, anomalies, duplicate_ids, truncated
+    return rows_by_id, anomalies, duplicate_ids, truncated, below_table
 
 def _is_numeric_score(value: str) -> bool:
     """True for a Score cell that parses as an integer -- what every OPEN
@@ -178,17 +189,28 @@ def _check_drift(
     carries only one clean-looking row for the id, so no single
     `_read_disk_table` call ever sees the collision, and the old
     last-wins-across-files assignment into `disk_by_id` read it clean).
+
+    A pipe-led line below the end of a file's table is drift when the
+    fresh render of that file has no matching line there, whatever the
+    line's cell count. Each such line is reported once with its own line
+    number: under the item id when it is a split full-width row of a known
+    item, otherwise under the file. A short row below a heading therefore
+    cannot hide outside the walked region.
     """
     known_ids = {item["id"] for item in items}
     open_ids = {item["id"] for item in items if is_open_item(item)}
 
     fresh_by_id: dict = {}
     fresh_file_by_id: dict = {}
+    fresh_below_by_path: dict = {}  # resolved path -> Counter of below-table lines
     for entry in report["files"]:
-        rows, _errs, _dup, _trunc = _read_disk_table(entry["content"])
+        rows, _errs, _dup, _trunc, below = _read_disk_table(entry["content"])
         for item_id, cells in rows.items():
             fresh_by_id[item_id] = cells
             fresh_file_by_id[item_id] = entry["path"]
+        fresh_below_by_path[(backlog_dir / entry["path"]).resolve()] = Counter(
+            stripped for _line_no, stripped, _cells in below
+        )
 
     fresh_paths = {(backlog_dir / entry["path"]).resolve() for entry in report["files"]}
     disk_files = _list_disk_generated_files(backlog_dir, archive_dir, naming)
@@ -197,7 +219,8 @@ def _check_drift(
     disk_by_id: dict = {}
     disk_file_by_id: dict = {}
     disk_files_seen: dict = {}  # id -> [rel_path, ...], every file it appeared in
-    disk_truncated_by_id: dict = {}  # id -> line a split row was found past
+    disk_truncated_by_id: dict = {}  # id -> (stop line, row line, file) of a split row
+    extra_below: list = []  # (file, line, cell count) of below-table rows the fresh render lacks
     quarantined_ids: set = set()  # duplicate ids -- already anomaly-reported below
     drift: list = []
     anomaly: list = []
@@ -235,12 +258,22 @@ def _check_drift(
                             "but that file does not exist"
                         ),
                     })
-        rows, errs, dup_ids, trunc = _read_disk_table(content)
+        rows, errs, dup_ids, trunc, below = _read_disk_table(content)
         for err in errs:
             anomaly.append({"id": rel, "reason": err})
         quarantined_ids |= dup_ids
-        for trunc_id, trunc_line in trunc.items():
-            disk_truncated_by_id.setdefault(trunc_id, trunc_line)
+        for trunc_id, (stop_line, row_line) in trunc.items():
+            disk_truncated_by_id.setdefault(trunc_id, (stop_line, row_line, rel))
+        # A pipe-led line below the table is drift unless the fresh render
+        # carries the same line there (the `## Shards` directory does).
+        # Matched as a multiset, so a second copy of a legitimate line is
+        # still reported.
+        expected_below = Counter(fresh_below_by_path.get(path.resolve(), Counter()))
+        for line_no, stripped, cells in below:
+            if expected_below[stripped] > 0:
+                expected_below[stripped] -= 1
+                continue
+            extra_below.append((rel, line_no, len(cells)))
         for item_id, cells in rows.items():
             disk_files_seen.setdefault(item_id, []).append(rel)
             disk_by_id[item_id] = cells
@@ -312,16 +345,31 @@ def _check_drift(
             })
 
     missing_ids = known_ids - disk_by_id.keys() - quarantined_ids
+    reported_below: set = set()  # (file, line) already named by a missing-id entry
     for item_id in sorted(missing_ids, key=int):
-        trunc_line = disk_truncated_by_id.get(item_id)
-        if trunc_line is not None:
+        trunc_entry = disk_truncated_by_id.get(item_id)
+        if trunc_entry is not None:
+            stop_line, row_line, trunc_rel = trunc_entry
             reason = (
-                f"table truncated at line {trunc_line} by a non-row line; "
-                f"row for id {item_id} may exist after the split"
+                f"table truncated at line {stop_line} by a non-row line; "
+                f"row for id {item_id} may exist after the split (at line {row_line})"
             )
+            reported_below.add((trunc_rel, row_line))
         else:
             reason = f"no on-disk row yet (would be added to {fresh_file_by_id[item_id]})"
         drift.append({"id": item_id, "reason": reason})
+
+    for rel, line_no, cell_count in extra_below:
+        if (rel, line_no) in reported_below:
+            continue
+        drift.append({
+            "id": rel,
+            "reason": (
+                f"a {cell_count}-cell table row at line {line_no} sits below the "
+                "end of the table, where --check does not compare rows; the "
+                "fresh render has no such line there"
+            ),
+        })
 
     return {"drift": drift, "anomaly": anomaly, "stale_score": stale_score}
 

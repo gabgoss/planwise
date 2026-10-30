@@ -1905,6 +1905,14 @@ CHECK_REGISTRY.extend(
     ]
 )
 
+from lint_gate_checks_commands import CHECKS as _COMMAND_CHECKS
+
+CHECK_REGISTRY.extend(_COMMAND_CHECKS)
+
+from lint_gate_checks_plan import CHECKS as _PLAN_CHECKS
+
+CHECK_REGISTRY.extend(_PLAN_CHECKS)
+
 
 # ---------------------------------------------------------------------------
 # CLI

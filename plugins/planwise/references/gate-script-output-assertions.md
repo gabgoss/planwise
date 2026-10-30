@@ -1,5 +1,6 @@
 ---
 description: A decision-row gate asserts the reason's value, because a fallback reason is a FAIL even when the resulting action matches the expected one, and an arm whose expected action equals the fallback action needs a positive proof of evaluation (§19); and an exit-code gate is derived from the script's return paths, never from design prose, gating on exit code plus status field plus coverage count together (§23).
+consult-when: Grading a decision log's rows, or a gate interprets a script's exit code — assert the reason's value because a fallback reason is a FAIL (§19), derive an exit-code gate from the script's return paths and gate on code plus status plus coverage (§23)
 paths: {planwise_root}/{plans_dir}/**
 ---
 

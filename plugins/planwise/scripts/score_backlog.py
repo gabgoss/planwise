@@ -42,20 +42,41 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 from config_loader import get_scoring_weights, load_config
 from constants import OPEN_STATUSES
-from frontmatter_parser import parse_frontmatter_map, split_frontmatter_block
+
+# The frontmatter readers live in `item_frontmatter` and are re-exported here for existing importers.
+from item_frontmatter import (
+    _strip_inline_comment,  # noqa: F401 -- re-exported for callers of score_backlog
+    _text_level_scoring_fields,  # noqa: F401 -- re-exported for callers of score_backlog
+    read_item_frontmatter,
+)
+
+# The item-shape reading lives in `item_shape`, and this module re-exports
+# its names, so `score_backlog.compute_item_shape` and the rest still
+# resolve for callers and tests.
+from item_shape import (
+    _ANSWER_LINE_RE,  # noqa: F401 -- re-exported for callers of score_backlog
+    _H2_RE,
+    _QUESTION_HEADING_RE,  # noqa: F401 -- re-exported for callers of score_backlog
+    REFINED_SECTION_HEADINGS,
+    _blank_fenced_blocks,
+    _longest_numbered_run,
+    _section_spans,
+    compute_item_shape,
+    read_item_sections,  # noqa: F401 -- re-exported for callers of score_backlog
+)
 from markdown_parser import (
     normalize_id,
     parse_markdown_table,
     warn_on_unparsed_rows,
 )
-from scoped_rules import scoped_rules_block, strip_loop_sections
-
-# Try yaml import; fall back to regex extraction if unavailable
-try:
-    import yaml
-    HAS_YAML = True
-except ImportError:
-    HAS_YAML = False
+from scoped_rules import (
+    LOOP_WRITTEN_HEADINGS,
+    SIGNAL_EXCLUDED_HEADINGS,
+    scoped_rules_block,
+    section_line_count,
+    strip_loop_sections,
+    strip_sections,
+)
 
 
 def _score_row_processor(cells: list[str], line_number: int, header_info: dict) -> dict | None:
@@ -169,154 +190,6 @@ def _read_hub_family_items(index_path: Path, backlog_dir: Path) -> list[dict]:
             continue
         items.extend(parse_index_table(file_content))
     return items
-
-
-def _strip_quotes(text: str) -> str:
-    """Strip one layer of matching quote characters, if present."""
-    if len(text) >= 2 and text[0] == text[-1] and text[0] in ("'", '"'):
-        return text[1:-1]
-    return text
-
-
-_LIST_ITEM_RE = re.compile(r"^-\s*(.+)$")
-
-# A trailing ` #...`/`\t#...` YAML inline comment, matched per line. Applied
-# only to `id`, `created`, and `blocks` (`_strip_inline_comment`'s callers) --
-# these three never legitimately contain a `#`, so stripping it unconditionally
-# before any further parsing is safe and needs no quoting-aware lookahead.
-_TRAILING_COMMENT_RE = re.compile(r"[ \t]+#.*$")
-
-
-def _strip_inline_comment(raw: str) -> str:
-    """Strip a trailing YAML inline comment from each line of `raw`.
-
-    `parse_frontmatter_map` hands back the key's raw value text verbatim,
-    comment included -- unlike `yaml.safe_load`, which strips a YAML comment
-    at the tokenizer level regardless of position. Without this, a value
-    like ``blocks: [007, 009]  # two`` overlays the octal-safe text-level
-    read with ``['007', '009]  # two']`` (the comment swallowed into the
-    last list entry), and ``created: 2026-01-15  # filed`` overlays a
-    correctly-YAML-parsed date with a string `date.fromisoformat` cannot
-    parse, silently zeroing the age factor. Applied line-by-line so a
-    block-form multi-line value (each ``- id`` on its own line) strips a
-    per-line comment without disturbing sibling lines.
-    """
-    return "\n".join(_TRAILING_COMMENT_RE.sub("", line) for line in raw.split("\n"))
-
-
-def _parse_blocks_field(raw: str) -> list:
-    """Parse a `blocks:`-shaped value into a list of id strings, as written.
-
-    Handles the flow form (`blocks: [007, 009]`) and the block form spread
-    over indented `- ` lines — `parse_frontmatter_map` hands back either
-    shape as the key's raw, un-typed value text. Entries are kept exactly as
-    authored (no re-padding); scoring and routing already normalize on
-    comparison.
-    """
-    text = raw.strip()
-    if not text or text == "[]":
-        return []
-    if text.startswith("["):
-        inner = text.strip("[]\n ")
-        if not inner:
-            return []
-        return [_strip_quotes(part.strip()) for part in inner.split(",") if part.strip()]
-    items = []
-    for line in text.split("\n"):
-        line = line.strip()
-        match = _LIST_ITEM_RE.match(line)
-        if match:
-            items.append(_strip_quotes(match.group(1).strip()))
-    return items
-
-
-def _text_level_scoring_fields(raw: str) -> dict:
-    """Extract `id`, `created`, and `blocks` from frontmatter text directly,
-    bypassing YAML's implicit type resolvers.
-
-    `yaml.safe_load` turns an unquoted zero-padded, all-octal-digit `id:`
-    like "061" into the int 49 (YAML 1.1 reads a leading-zero digit string as
-    octal), and turns a numeric `blocks:` entry the same way. Reading these
-    three fields at the text level via the shared `parse_frontmatter_map` —
-    the same primitive `generate_backlog_index.py` already uses for exactly
-    this reason — keeps them exactly as the author wrote them. Returns {}
-    when `parse_frontmatter_map` cannot attribute the text to any key at all
-    (structurally unparseable); a key simply absent from the frontmatter is
-    just absent from the result, not an error.
-    """
-    fm_map = parse_frontmatter_map(raw)
-    if fm_map is None:
-        return {}
-    fields: dict = {}
-    if "id" in fm_map:
-        candidate = _strip_quotes(_strip_inline_comment(fm_map["id"]).strip())
-        if candidate:
-            fields["id"] = candidate
-    if "created" in fm_map:
-        candidate = _strip_quotes(_strip_inline_comment(fm_map["created"]).strip())
-        if candidate:
-            fields["created"] = candidate
-    if "blocks" in fm_map:
-        fields["blocks"] = _parse_blocks_field(_strip_inline_comment(fm_map["blocks"]))
-    return fields
-
-
-def read_item_frontmatter(filepath: Path) -> dict:
-    """Read YAML frontmatter from an item file. Returns dict or empty dict.
-
-    The split is the shared `frontmatter_parser` primitive; only the file I/O
-    and the typed-value parse are this function's own. Absence of any kind —
-    a missing file, no frontmatter block, an unterminated one, or a block YAML
-    cannot parse — is reported the same way, as an empty dict, because every
-    caller here reads scoring inputs off the result and must not have to
-    distinguish "no data" from "bad data" mid-scoring.
-
-    `id`, `created`, and `blocks` are overlaid from `_text_level_scoring_fields`
-    after the YAML load (or read directly from it when no YAML is available),
-    since `yaml.safe_load` mistypes exactly those three — see
-    `_text_level_scoring_fields`'s docstring. The overlay costs no second file
-    read: `raw` is the same frontmatter text already split out below.
-
-    The item body is retained from this same read and returned under `_body`
-    — the whole file is already loaded here and the body was previously
-    thrown away. `_line_count` (the whole file's newline count, `wc -l`
-    semantics) rides along for the same reason. `--route` consumes both;
-    nothing else does.
-    """
-    if not filepath.exists():
-        return {}
-    content = filepath.read_text(encoding="utf-8")
-    parts = split_frontmatter_block(content)
-    if parts is None:
-        return {}
-    raw, body = parts
-
-    if HAS_YAML:
-        try:
-            fm = yaml.safe_load(raw) or {}
-        except yaml.YAMLError:
-            return {}
-        if not isinstance(fm, dict):
-            # A frontmatter block that is a bare scalar or a list (e.g. a
-            # stray "- one\n- two") parses without error but isn't a
-            # mapping -- `.update()` on it would raise AttributeError and
-            # abort the whole scoring run for one malformed file, against
-            # this function's own "reported the same way, as an empty
-            # dict" contract.
-            return {}
-        fm.update(_text_level_scoring_fields(raw))
-    else:
-        # The fallback reads only the scoring keys `created`/`blocks` — never
-        # `id`, which nothing in this no-YAML path has ever read.
-        fm = {
-            key: value
-            for key, value in _text_level_scoring_fields(raw).items()
-            if key != "id"
-        }
-
-    fm["_body"] = body
-    fm["_line_count"] = content.count("\n")
-    return fm
 
 
 def count_archived_by_abbrev(archive_dir: Path) -> dict[str, int]:
@@ -640,8 +513,11 @@ COUNTED_SECTION_HEADING = "Proposed Solution"
 SHORT_ITEM_LINES = 50
 # "6+ sub-items or ## headings" -> SUB_ITEMS >= 6
 SUB_ITEMS_THRESHOLD = 6
+# "2 <= STEP_COUNT <= 5" -> Route B. A refined item reaches Route B from one
+# `## Resolution` step up to the same cap.
+ROUTE_B_MIN_STEPS = 2
+ROUTE_B_MAX_STEPS = 5
 
-_H2_RE = re.compile(r"^## ")
 # The `##` section names of the backlog item template. Every filled-in item
 # carries them, so they describe the item's layout and say nothing about its
 # scope: they are excluded from the sub-item count. The match is exact and
@@ -655,8 +531,7 @@ TEMPLATE_SECTION_HEADINGS: tuple[str, ...] = (
     "Files Touched",
     "Notes",
     "Loop Decision Needed",  # loop-written; the loop's skip section (see LOOP_WRITTEN_HEADINGS in scoped_rules)
-)
-_NUMBERED_RE = re.compile(r"^(\d+)\.\s")
+) + REFINED_SECTION_HEADINGS
 _FILE_PATH_RE = re.compile(
     r"[\w./\\-]+\.(?:py|js|ts|tsx|jsx|cs|java|go|rs|rb|sh|ps1|sql|ya?ml|json|toml|ini|html|css|c|cpp|h|md)\b"
 )
@@ -746,30 +621,6 @@ def _has_positive_scope_bound(text: str) -> bool:
 _EVIDENCE_DATE_RE = re.compile(r"\b(?:verified|recorded|measured)\s+(\d{4}-\d{2}-\d{2})\b", re.IGNORECASE)
 
 
-def _blank_fenced_blocks(body: str) -> str:
-    """Return `body` with every fenced code block's lines blanked out.
-
-    Line positions are preserved (each stripped line becomes an empty
-    string) so a line number reported from the result still points into the
-    original body. A heading, numbered step, or keyword quoted inside a
-    template block, a pseudocode fence, or a WRONG/CORRECT exemplar is text
-    the item *shows*, not a property the item *has*; counting it would
-    classify an item by the examples it carries. The clear-fix evidence
-    patterns deliberately read the un-blanked body instead: an
-    `old_string`/`new_string` pair or a diff lives inside a fence by
-    convention.
-    """
-    out: list[str] = []
-    in_fence = False
-    for line in body.split("\n"):
-        if line.lstrip().startswith(("```", "~~~")):
-            in_fence = not in_fence
-            out.append("")
-            continue
-        out.append("" if in_fence else line)
-    return "\n".join(out)
-
-
 def _keyword_hits(text: str, terms: tuple[str, ...]) -> list[dict]:
     """Every case-insensitive occurrence of any term, with the line it sits
     on. The line is reported because a hit is a candidate, not a verdict: an
@@ -840,32 +691,6 @@ def _architectural_hits(text: str) -> tuple[list[dict], list[dict]]:
     return hits, ignored
 
 
-def _longest_numbered_run(text: str) -> tuple[int, int]:
-    """(total top-level numbered items, longest consecutively-numbered run).
-
-    A run continues while each numbered line's number is exactly one more
-    than the previous numbered line's, whatever sits between them (nested
-    bullets, prose, blank lines). The longest run is the closest mechanical
-    reading of "discrete steps". It also feeds SUB_ITEMS, because a list is a
-    run: two lists of 2 and 4 are not 6 parts of the work. The total stays
-    in the report as `numbered_items`.
-    """
-    total = 0
-    longest = 0
-    run = 0
-    previous: int | None = None
-    for line in text.split("\n"):
-        match = _NUMBERED_RE.match(line)
-        if not match:
-            continue
-        number = int(match.group(1))
-        total += 1
-        run = run + 1 if previous is not None and number == previous + 1 else 1
-        previous = number
-        longest = max(longest, run)
-    return total, longest
-
-
 def _coerce_date(value) -> date | None:
     """A frontmatter date as `date`, whether YAML typed it or left it a
     string; None when absent or unparseable."""
@@ -895,21 +720,38 @@ def decide_route(
     has_multi_sprint: bool,
     sub_items: int,
     step_count: int,
+    *,
+    refined: bool = False,
+    shape_ok: bool = False,
+    needs_plan: bool = False,
 ) -> tuple[str, bool, str]:
     """The handler's Decision Logic, reproduced without modification.
 
     Returns (route, large_scope, branch). `large_scope` is only meaningful
-    when the route is C: True means the strong-signal ELIF branch fired,
-    False means C was reached only as the conservative default. Any
-    divergence between this function and the handler's pseudocode is a
-    defect here, never a design choice.
+    when the route is C: True means a marked-for-planning item or the
+    strong-signal branch, False means C was reached through a failed shape
+    gate or the conservative default. Any divergence between this function
+    and the handler's pseudocode is a defect here, never a design choice.
+
+    The seven branches run in order: `needs_plan`; today's Route A; the
+    strong signals; a refined item whose shape gate passed with 1 to
+    `ROUTE_B_MAX_STEPS` steps; any other refined item; 2 to
+    `ROUTE_B_MAX_STEPS` steps; the default. A refined item with six or
+    more steps meets the strong-signal branch first (`SUB_ITEMS >= 6`). A
+    short refined item routes A, because a short file sets HAS_CLEAR_FIX.
     """
+    if needs_plan:
+        return "C", True, "NEEDS_PLAN: true (marked for a planning session)"
     if has_clear_fix and not (is_architectural or has_multi_sprint or sub_items >= SUB_ITEMS_THRESHOLD):
         return "A", False, "HAS_CLEAR_FIX AND NOT (IS_ARCHITECTURAL OR HAS_MULTI_SPRINT OR SUB_ITEMS >= 6)"
     if has_multi_sprint or is_architectural or sub_items >= SUB_ITEMS_THRESHOLD:
         return "C", True, "HAS_MULTI_SPRINT OR IS_ARCHITECTURAL OR (SUB_ITEMS >= 6)"
-    if 2 <= step_count <= 5:
-        return "B", False, "2 <= STEP_COUNT <= 5"
+    if refined and shape_ok and 1 <= step_count <= ROUTE_B_MAX_STEPS:
+        return "B", False, f"REFINED: 1 <= STEP_COUNT <= {ROUTE_B_MAX_STEPS} from ## Resolution"
+    if refined:
+        return "C", False, "REFINED but shape gate failed (see shape block)"
+    if ROUTE_B_MIN_STEPS <= step_count <= ROUTE_B_MAX_STEPS:
+        return "B", False, f"{ROUTE_B_MIN_STEPS} <= STEP_COUNT <= {ROUTE_B_MAX_STEPS}"
     return "C", False, "ELSE (conservative default)"
 
 
@@ -921,6 +763,10 @@ def judgment_routes(
     step_count: int,
     is_short: bool,
     clear_fix_evidence: bool,
+    *,
+    refined: bool = False,
+    shape_ok: bool = False,
+    needs_plan: bool = False,
 ) -> tuple[set[str], list[str]]:
     """(routes a reader's judgment could reach, the signals that judgment turns on).
 
@@ -933,7 +779,8 @@ def judgment_routes(
     mechanical. The returned set holds the route of every combination of
     those judgments, the script's own route included. The signals that no
     reader judgment can move (abbrev, line count, file count, sub-item
-    count, step count) are held fixed.
+    count, step count) are held fixed, and so are `refined`, `shape_ok`
+    and `needs_plan`, which every combination passes to `decide_route`.
     """
     adjustable = [
         name
@@ -953,6 +800,9 @@ def judgment_routes(
             has_multi_sprint and "HAS_MULTI_SPRINT" not in rejected,
             sub_items,
             step_count,
+            refined=refined,
+            shape_ok=shape_ok,
+            needs_plan=needs_plan,
         )
         routes.add(route)
     return routes, adjustable
@@ -1027,43 +877,87 @@ def compute_route_signals(item: dict, frontmatter: dict, config: dict | None = N
     *sufficient* is a judgment this function does not make and the report
     says so.
 
-    Loop-written sections (`## Loop Decision Needed`) are removed from the
-    body before any signal is read, so a skip the backlog loop records never
-    moves the item's route, headings, steps or effective line count.
-    `line_count` stays the whole file's count; `is_short` reads
-    `line_count_effective`, which excludes the `loop_lines` removed.
+    Loop-written sections (`## Loop Decision Needed`) and `## Open Questions`
+    (`SIGNAL_EXCLUDED_HEADINGS`) are removed from the body before any signal
+    is read, so a skip the backlog loop records or a question the item still
+    asks never moves the item's route, headings, steps or effective line
+    count. `line_count` stays the whole file's count; `is_short` reads
+    `line_count_effective`, which excludes the `excluded_lines` removed.
+    Those include the blank-line separators a removed run takes with it.
+    `loop_lines` counts only the lines inside the loop-written sections,
+    heading to end (`scoped_rules.section_line_count`). A blank line outside
+    them is never a loop line, even when the strip removes it.
 
     Keyword and structure signals read the body with fenced blocks blanked
     (see `_blank_fenced_blocks`); the clear-fix patterns read it whole.
 
+    The result carries the `shape` block (`compute_item_shape`), read from
+    the body with only the loop sections removed. A refined item takes
+    `step_count` from its `## Resolution` steps only, and `step_count_source`
+    names which text the count came from. When its shape gate also passes
+    (`shape_ok`), its multi-sprint and architectural hits, H2 count and
+    sub-items read `## Resolution` only, too. A refined item whose shape
+    gate fails reads them from the whole body, as an unrefined item does,
+    so a large-scope signal anywhere in it still blocks Route A.
+
     With `config`, the result carries the `scoped_rules` block
-    (`scoped_rules_block` over the raw body, which strips the loop sections
-    itself); without it, `scoped_rules` is None and no file is read.
+    (`scoped_rules_block` over the raw body, which strips the
+    `SIGNAL_EXCLUDED_HEADINGS` sections itself, `## Open Questions`
+    included); without it, `scoped_rules` is None and no file is read.
     """
     raw_body = frontmatter.get("_body") or ""
-    body, loop_lines = strip_loop_sections(raw_body)
+    loop_body, _ = strip_loop_sections(raw_body)
+    loop_lines = section_line_count(raw_body, LOOP_WRITTEN_HEADINGS)
+    body, excluded_lines = strip_sections(raw_body, SIGNAL_EXCLUDED_HEADINGS)
     body_available = "_body" in frontmatter
     structural = _blank_fenced_blocks(body)
     line_count = frontmatter.get("_line_count")
-    line_count_effective = None if line_count is None else line_count - loop_lines
+    line_count_effective = None if line_count is None else line_count - excluded_lines
 
     abbrev = _resolve_abbrev(item, frontmatter)
     is_bug = abbrev == "BUG"
     is_short = line_count_effective is not None and line_count_effective < SHORT_ITEM_LINES
     file_paths = sorted(set(_FILE_PATH_RE.findall(body)))
 
-    multi_sprint_hits = _keyword_hits(structural, MULTI_SPRINT_TERMS)
-    architectural_hits, architectural_ignored = _architectural_hits(structural)
+    # The shape gate reads `## Open Questions`, so it gets the body with only
+    # the loop sections removed.
+    shape = compute_item_shape(frontmatter, body=loop_body, blanked=_blank_fenced_blocks(loop_body))
+    # A refined item whose shape gate passes reads its large-scope signals
+    # from its `## Resolution` section only. The other lines are blanked, so
+    # a hit's line number counts lines of the body with the
+    # `SIGNAL_EXCLUDED_HEADINGS` sections removed, as for any other item.
+    # A refined item whose gate fails reads the whole body.
+    signal_text = structural
+    if shape["refined"] and shape["shape_ok"]:
+        resolution = _section_spans(structural).get("Resolution", (0, 0))
+        signal_text = "\n".join(
+            line if resolution[0] <= index < resolution[1] else ""
+            for index, line in enumerate(structural.split("\n"))
+        )
+
+    multi_sprint_hits = _keyword_hits(signal_text, MULTI_SPRINT_TERMS)
+    architectural_hits, architectural_ignored = _architectural_hits(signal_text)
     has_multi_sprint = bool(multi_sprint_hits)
     is_architectural = bool(architectural_hits)
 
     h2_count = sum(
         1
-        for line in structural.split("\n")
+        for line in signal_text.split("\n")
         if _H2_RE.match(line) and line[3:].rstrip() not in TEMPLATE_SECTION_HEADINGS
     )
-    numbered_items, step_count = _longest_numbered_run(structural)
-    sub_items = max(h2_count, step_count)
+    numbered_items, body_step_count = _longest_numbered_run(signal_text)
+    sub_items = max(h2_count, body_step_count)
+    # A refined item's steps are its `## Resolution` steps; any other item
+    # reads the body's longest run, as before.
+    if shape["refined"]:
+        step_count, step_count_source = shape["resolution_steps"], "## Resolution"
+    else:
+        step_count, step_count_source = body_step_count, "body"
+    route_flags = {
+        "refined": shape["refined"],
+        "shape_ok": shape["shape_ok"],
+        "needs_plan": shape["needs_plan"],
+    }
 
     file_count = int(item.get("file_count", 0) or 0)
 
@@ -1086,7 +980,7 @@ def compute_route_signals(item: dict, frontmatter: dict, config: dict | None = N
     has_clear_fix = is_short or clear_fix["evidence_present"]
 
     route, large_scope, branch = decide_route(
-        has_clear_fix, is_architectural, has_multi_sprint, sub_items, step_count
+        has_clear_fix, is_architectural, has_multi_sprint, sub_items, step_count, **route_flags
     )
     hint = reconcile_route_hint(
         frontmatter,
@@ -1094,7 +988,7 @@ def compute_route_signals(item: dict, frontmatter: dict, config: dict | None = N
         _latest_evidence_date(body),
         judgment_routes(
             has_clear_fix, is_architectural, has_multi_sprint, sub_items, step_count,
-            is_short, clear_fix["evidence_present"],
+            is_short, clear_fix["evidence_present"], **route_flags,
         ),
     )
 
@@ -1105,6 +999,7 @@ def compute_route_signals(item: dict, frontmatter: dict, config: dict | None = N
         "is_bug": is_bug,
         "line_count": line_count,
         "loop_lines": loop_lines,
+        "excluded_lines": excluded_lines,
         "line_count_effective": line_count_effective,
         "is_short": is_short,
         "file_paths": file_paths,
@@ -1117,6 +1012,8 @@ def compute_route_signals(item: dict, frontmatter: dict, config: dict | None = N
         "numbered_items": numbered_items,
         "sub_items": sub_items,
         "step_count": step_count,
+        "step_count_source": step_count_source,
+        "shape": shape,
         "file_count": file_count,
         "has_multiple_files": file_count >= 2,
         "clear_fix": clear_fix,
@@ -1149,6 +1046,8 @@ ROUTE_LEGEND = (
     "  hint = the item's route_hint frontmatter, compared but never adopted; undecided = the hint names a route "
     "a reader's judgment of the candidate signals could reach.\n"
     "  rules = scoped_rules verdict: i = inject the matched rules, p = placement decision needed, - = none.\n"
+    "  ref = the item's refined frontmatter (y/n); a refined item's steps come from ## Resolution, and "
+    "--id N prints its shape gate.\n"
     "The scoped-rule gate is computed here (rules column); the pivot check and the other pre-routing gates "
     "are judgment, and this report does not run them."
 )
@@ -1176,7 +1075,8 @@ def format_route_line(signals: dict, score: int) -> str:
         f"clear={'y' if signals['has_clear_fix'] else 'n'} "
         f"ms={len(signals['multi_sprint_hits'])} arch={len(signals['architectural_hits'])} "
         f"ign={len(signals['architectural_ignored'])} "
-        f"h2={signals['h2_count']} steps={signals['step_count']} files={signals['file_count']} "
+        f"h2={signals['h2_count']} steps={signals['step_count']} "
+        f"ref={'y' if signals['shape']['refined'] else 'n'} files={signals['file_count']} "
         f"rules={rules} "
         f"| hint {hint_text}"
     )
@@ -1199,6 +1099,23 @@ def _format_scoped_rules(block: dict | None) -> list[str]:
     return lines
 
 
+def _format_shape(shape: dict) -> list[str]:
+    """The three shape-block lines of the `--route --id N` detail."""
+    yes_no = lambda flag: "yes" if flag else "no"
+    if not shape["refined"]:
+        gate = "n/a"
+    elif shape["shape_ok"]:
+        gate = "PASS"
+    else:
+        gate = f"FAIL -- missing: {'; '.join(shape['missing'])}"
+    return [
+        f"  refined/needs_plan: {yes_no(shape['refined'])} / {yes_no(shape['needs_plan'])}",
+        f"  shape gate: {gate}",
+        (f"  resolution_steps/verification/open_questions: {shape['resolution_steps']} / "
+         f"{yes_no(shape['has_verification'])} / {shape['open_questions']}"),
+    ]
+
+
 def format_route_detail(signals: dict, score: int) -> str:
     """The full signal vector for one item (`--route --id N`)."""
     yes_no = lambda flag: "yes" if flag else "no"
@@ -1208,12 +1125,14 @@ def format_route_detail(signals: dict, score: int) -> str:
         f"  branch:            {signals['branch']}",
         f"  abbrev/is_bug:     {signals['abbrev']} / {yes_no(signals['is_bug'])}",
         (f"  line_count/short:  {signals['line_count']} / {yes_no(signals['is_short'])}"
-         f"  (< {SHORT_ITEM_LINES}; {signals['loop_lines']} loop-written lines excluded)"),
+         f"  (< {SHORT_ITEM_LINES}; {signals['excluded_lines']} loop-written and open-question lines excluded)"),
         f"  file_paths:        {len(signals['file_paths'])}",
         (f"  h2 / numbered:     {signals['h2_count']} / {signals['numbered_items']}"
          f"  -> SUB_ITEMS {signals['sub_items']} (>= {SUB_ITEMS_THRESHOLD}: "
          f"{yes_no(signals['sub_items'] >= SUB_ITEMS_THRESHOLD)})"),
-        f"  step_count:        {signals['step_count']}  (longest consecutive numbered list)",
+        (f"  step_count:        {signals['step_count']}  (longest consecutive numbered list; "
+         f"source: {signals['step_count_source']})"),
+        *_format_shape(signals["shape"]),
         f"  file_count:        {signals['file_count']}  (multiple: {yes_no(signals['has_multiple_files'])})",
         f"  HAS_CLEAR_FIX:     {yes_no(signals['has_clear_fix'])}  -- {signals['has_clear_fix_note']}",
         (f"    line_anchor={yes_no(signals['clear_fix']['line_anchor'])} "

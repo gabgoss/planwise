@@ -1,5 +1,6 @@
 ---
 description: A finding is scoped to the sample it was taken from, the project it was measured in, and the corpus that was searched — and the sentence that states it has to carry that boundary. Covers why one dispatch is an anecdote and how to sample without cherry-picking, why a hypothesis about a consuming project cannot be settled in the tool's own repository, why "the record does not capture X" is true only of the shelf that was swept, and the three sentence forms that keep the boundary attached. Consult when measuring model or harness behaviour, testing a hypothesis whose magnitude lives outside the tool, or accepting an evidence-gap statement. Also covers why a column that reads the same value before the first boundary measures the floor every session pays, and must be baselined before arms are compared on it.
+consult-when: Measuring model or harness behaviour, testing a hypothesis whose magnitude lives in a consuming project, or accepting "the record does not capture X" — declare n per cell, classify the hypothesis, enumerate the record-keeping layers, write the boundary into the sentence, and baseline a column that reads the same before the first boundary because it measures the floor every session pays, and scope a negative to the invocation that produced it and read an under-run cost as a broken chain (§6)
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Measurement Scope and Sample — Write the Boundary Into the Sentence
@@ -11,6 +12,8 @@ paths: {planwise_root}/{plans_dir}/**
 What makes the class dangerous is that the underlying work was good in all three cases. The sweeps were thorough, the reasoning was sound, the numbers were right. The defect enters at the moment a *finding* becomes a *verdict*, which is a sentence-level event that no verification gate is watching. And each of the three then licensed a downstream decision: a matrix design, a closed line of inquiry, a remediation aimed at the wrong problem.
 
 One neighbouring rule owns a corollary this file generalises. [`dispatch-boundary-evidence.md`](dispatch-boundary-evidence.md) §1 requires three or more observations on any surface a plan intends to call deterministic. §1 below is the general form: why one observation is never a baseline, and how to sample without cherry-picking.
+
+A task that builds or operates the measurement harness itself reads [`harness-instrument-integrity.md`](harness-instrument-integrity.md): validate the instrument against live artifacts, couple every duplicated fact, and route every terminal state.
 
 ## Table of Contents
 

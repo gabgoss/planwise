@@ -27,6 +27,8 @@ HOOK_LITERALS = [
     ("continue to Phase 9", 1),
     ("(one, in loop mode)", 2),
     ("where C is not selectable", 1),
+    ("--needs-plan", 1),
+    ("§ Refine step", 1),
 ]
 
 
@@ -54,12 +56,21 @@ class BacklogLoopHandlerTests(unittest.TestCase):
                     f"hook literal {literal!r} is missing from backlog.md",
                 )
 
+    def test_phase_2_refine_hook_present(self):
+        self.assertIn("run Part 2 § Refine step before Phase 3", _read(BACKLOG_HANDLER))
+
     def test_phase_1_to_2_slice_unchanged_claims(self):
         text = _read(BACKLOG_HANDLER)
         span = _span_between(text, "## Phase 1: FETCH", "## Phase 2: SELECT")
         for needle in ("hand-authored index", "/planwise upgrade", "STOP"):
             with self.subTest(needle=needle):
                 self.assertIn(needle, span)
+
+    def test_step_seven_reads_the_scoped_rules_block_and_runs_no_shell_grep(self):
+        text = _read(BACKLOG_HANDLER)
+        # The scoped-rule check names the route block twice and no longer greps rule frontmatter.
+        self.assertGreaterEqual(text.count("scoped_rules"), 2)
+        self.assertNotIn('grep -rn "paths:"', text)
 
     def test_part_2_carries_questions_and_marker_shape(self):
         text = _read(LOOP_PART2)

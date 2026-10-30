@@ -1,5 +1,6 @@
 ---
 description: Token budget management, and the read-gate canonical — Read-Tool Hard Limits, reading discipline, and Large-File Read Tactics — for session planning
+consult-when: Managing token budget during a planning session — Read-Tool hard limits, large-file tactics
 ---
 
 # Session Context Budget
@@ -345,7 +346,7 @@ Figures are labelled by the tree they were measured on — **dev** (the tree the
 >
 > Measured three ways, across two CLI versions: zero Read calls against any base-context reference, and the H1 title string of each of those files appears **zero times** in the transcripts. A zero-runtime-tool-call subcommand measured **6.2K tokens** of `messages` against a **24.7K** prediction that assumed the base context loaded.
 >
-> **What actually loads per invocation:** the skill body, the handler body, and the handler's own *always load* references. Budget those. Do not budget the linked base context, and do not store it as a calibrated input — `scripts/context_calibration.py`'s `derive_structural_floor()` excludes it for this reason.
+> **What actually loads per invocation:** the skill body, the handler body, and the handler's own *always load* references (`derive_structural_floor()` also counts its `-Part-N-` files as a full-run ceiling, and whether a Part loads in a given mode is not measured). Budget those. Do not budget the linked base context, and do not store it as a calibrated input — `scripts/context_calibration.py`'s `derive_structural_floor()` excludes it for this reason.
 
 **Superseded: the conditional-loading opportunity.** An earlier note estimated 10–20K per invocation recoverable by making unreachable references conditional. That saving is **not available, because it is not being spent** — the set costs zero per invocation today. The live set measures 1,215 lines / 67,418 bytes (≈22.5K tokens), which is what it *would* cost if the "pre-injected" claim were true. The open question is therefore the opposite one: decide per reference whether it *should* load, then make the wiring match the claim. Any such change is still a per-reference reachability pass, never a blanket one — the failure mode is a handler silently losing a convention it depended on, and that failure is already live rather than hypothetical.
 
@@ -420,7 +421,7 @@ Three criteria, in priority order — **whichever comes first binds**:
 
 The binding targets are the **WARN thresholds**, deliberately below the hard caps, so a compliant file never even triggers a warning. When the reading model is unknown, use the most-restrictive ratio (2.6 bytes/token).
 
-**Multi-Part Output Convention:**
+#### Multi-Part Output Convention
 
 Any artifact (task output, specification, consolidated context) may span multiple files:
 
@@ -437,6 +438,52 @@ Each part MUST:
 - Cross-reference other parts where needed
 
 **Not limited to one file.** Tasks produce full-detail outputs. If a task needs 3 files to capture the full specification, that is correct — do NOT compress detail away to dodge a split.
+
+#### Page-Cap Procedure
+
+**Purpose:** What to do when a shipped markdown file reaches the read warn. Detect the file, file an item for it, choose a disposition, and split only as the last resort.
+
+1. **Detection.**
+   - In plugin development, the budget test `tests/test_shipped_markdown_budget.py` scans the shipped tree. It fails when a file reaches Warn or worse without an allowlist entry, and it lists each unlisted file.
+   - Pytest hides the output of a passing test. Run the budget test with `-s` to print the full worklist even when it passes.
+   - In a consumer project, the doctor stage `Consumer Read-Gate Scan` names each Warn or Critical file. It also reports whether a backlog item names that file.
+2. **Filing.** File one backlog item per file with `/planwise backlog`. Title it `` Refactor `<file>` below the read warn ``. The item records the disposition chosen at step 3.
+3. **Disposition, in this order.** Stop at the first one that brings the file under the warn.
+   1. **Compress.** Keep the rule plus one WRONG/CORRECT example, and cut the rest.
+   2. **Promote to code.** Move the check into a script or a test. The prose then becomes a pointer to that check.
+   3. **Merge.** Move the content into a sibling reference that has room for it.
+   4. **Split, last.** Split only when the first three cannot bring the file under the warn.
+
+   A consumer can compress, promote and merge by hand. After each edit, check the section citations with the shipped `scripts/check_section_citations.py`. Only plugin development can split.
+4. **Split, when still needed (plugin development).** The split tool and the reference-library generator are development tools in the plugin repository. They do not ship. Run these five steps in order:
+   1. Run the split tool, `tools/split_reference.py`, with `--apply`. Without `--apply` the run is a dry run and writes nothing.
+   2. Run the shipped `scripts/check_section_citations.py`. It must exit 0.
+   3. Rerun the reference-library generator, `tools/gen_reference_library.py`.
+   4. Run the reachability test, `tests/test_reviewer_reference_reachability.py`. It must pass.
+   5. Run the full test suite. It must pass.
+
+   The split tool prints a level for each file it touches: OK, WARN or OVER. `--apply` refuses when the source remainder or the new Part measures WARN or worse. It refuses any other touched file only when that file's level rises. A citer that only gains a repointed citation at an unchanged level is reported, not refused. `--allow-warn` waives the refusal for one run, for a WARN result and an OVER result alike. The report then lists every waived file.
+
+This procedure covers the writer's side. For reading a file that is already over a gate, use [Page Large Files — Do Not Trust One Read](#reading-discipline-with-read-gates-binding) and Step 1 of [Large-File Read Tactics](#large-file-read-tactics).
+
+#### Size Targets Are Stated in Bytes
+
+**Purpose:** Keep a size target from carrying an expired bytes-per-token ratio.
+
+- Write a size target in a brief, task file or plan in bytes. Or name the `measure_files.py` `--model` and the plugin version that produced each token figure.
+- A bare token figure carries the ratio that was current when it was written. The ratio changes between plugin versions, so a stale figure can sit above the ceiling while the gate reports OK. Read the ratio from the installed tool, never from prose.
+- Re-measure one landed artifact with the installed tool before the next dispatch. If the ratio differs from the one a target used, restate every token-denominated target.
+- Add a split index up front when a Part's estimate sits within 20% of the ceiling under the installed tool.
+
+> [!constraint] State the Target in Bytes, With the Tool Reading Beside It
+> WRONG — a bare token figure:
+> ```
+> Target: 17,500 Sonnet tokens
+> ```
+> CORRECT — bytes first, with the tool and version that produced the token figure:
+> ```
+> Target: 52,000 bytes (measure_files.py --model sonnet, plugin 9.9.9: ~17,500 tokens)
+> ```
 
 ### File Size Limits — Generated Artifacts (BINDING)
 

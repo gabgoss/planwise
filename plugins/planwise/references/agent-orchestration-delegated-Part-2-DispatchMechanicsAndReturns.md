@@ -1,5 +1,6 @@
 ---
 description: DELEGATED dispatch discipline, Part 2 of 3. This file holds §1.14–§1.22, dispatch mechanics and post-return handling, including gating a runner's sweep table on its control rows (§1.16.5) and the idle-while-waiting-on-a-background-command stall (§1.17.1, §1.17.3). Part 1 of 3 is agent-orchestration-delegated.md.
+consult-when: Dispatching a task-runner or handling its return in a DELEGATED session — orchestrator-only review commands, build ordering, recomputing a delegated verdict from primary evidence, dispatch failure modes, model-tier gating, gating a runner's sweep table on its control rows, and the idle wait on a background command
 ---
 
 # DELEGATED Dispatch Discipline — Part 2: Dispatch Mechanics and Returns
@@ -41,6 +42,7 @@ A DELEGATED task-runner does an INLINE self-review — it applies the review len
 > ```
 > Agent(
 >   subagent_type: "planwise:task-runner",
+>   run_in_background: false,
 >   prompt: "...implement X; build; then run /simplify"
 > )
 > # task-runner: "Unknown subcommand: simplify" — it cannot spawn the review agents.
@@ -49,6 +51,7 @@ A DELEGATED task-runner does an INLINE self-review — it applies the review len
 > ```
 > Agent(
 >   subagent_type: "planwise:task-runner",
+>   run_in_background: false,
 >   prompt: "...implement X; apply the review lenses INLINE yourself — do NOT invoke /simplify or /code-review, you cannot spawn the review agents"
 > )
 > # orchestrator, after task-runner returns: Skill(code-review) (or /simplify) on the diff.
@@ -468,10 +471,11 @@ Governs whether a DELEGATED task-runner launches in foreground or background.
 >   prompt: "Execute task 01..."
 > )
 > ```
-> CORRECT: Launch task-runner in foreground (default) — background is only safe for read-only agents:
+> CORRECT: Ask for the foreground by name — background is only safe for read-only agents:
 > ```
 > Agent(
 >   subagent_type: "planwise:task-runner",
+>   run_in_background: false,
 >   prompt: "Execute task 01..."
 > )
 > ```

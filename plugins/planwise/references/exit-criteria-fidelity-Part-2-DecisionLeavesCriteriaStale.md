@@ -1,5 +1,6 @@
 ---
 description: Exit-criteria fidelity continued — a decision that leaves a known failure in a verifier's input set rewrites every criterion pinned to that verifier's exit code at the moment of the decision, and a flag that changes how a gate is read names and supersedes the criterion's wording (§16.13), and a size or rate constant is derived from the headline criterion while every closeout reports against the criterion, not the constant (§16.14), and an append-only record numbered from its newest end rewrites every existing identifier on each append (§16.15). Split out of exit-criteria-fidelity.md when that file neared the Read-tool token gate.
+consult-when: A go/no-go or fallback decision leaves a known failing input under a verifier, or a criterion reads "`<verifier>` exits 0" — enumerate every pinned criterion with `Grep` at the decision, rewrite each to a scoped this-run clause, and route a flag that names and supersedes the old wording, a plan states a margin or ratio target beside a size constant — derive the constant from the headline and report each closeout against the headline, and a newest-first numbered record renumbers every entry on each append, so key entries by date or number from the oldest end
 ---
 
 # Exit-Criteria Fidelity, Part 2 — A Decision Rewrites the Criteria That Depend on It

@@ -4,6 +4,7 @@ within-budget no-op and idempotence cases. Fixtures live under tmp_path,
 never under plugins/planwise/, and are written as bytes."""
 import json
 import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -414,6 +415,129 @@ def test_failed_resplit_write_is_reported_after_the_backup(tmp_path, monkeypatch
     report = _migrate(cfg)
     assert report.state == "write_failed" and "simulated staging failure" in report.detail
     assert report.backed_up and _snapshot(backlog) == before
+
+
+def _restore_case(tmp_path):
+    changed, created, same = tmp_path / "changed.md", tmp_path / "created.md", tmp_path / "same.md"
+    changed.write_bytes(b"half written\r\n")
+    created.write_bytes(b"made by the failed run\n")
+    same.write_bytes(b"untouched\n")
+    pre = {changed: b"pre-run bytes\r\nline two\r\n", created: None, same: b"untouched\n"}
+    report = bm.BacklogMigrationReport(state="write_failed", index_path=None, backup_dir=tmp_path / "backups")
+    return changed, created, same, pre, report
+
+
+def test_restore_rewrites_changed_deletes_created_and_skips_unchanged(tmp_path):
+    changed, created, same, pre, report = _restore_case(tmp_path)
+    same_mtime = same.stat().st_mtime_ns
+    bm._write_failed(report, pre, "fix it")
+    assert changed.read_bytes() == b"pre-run bytes\r\nline two\r\n"
+    assert not created.exists()
+    assert same.read_bytes() == b"untouched\n" and same.stat().st_mtime_ns == same_mtime
+    assert "the tree was restored" in report.detail
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["changed.md", "same.md"]
+
+
+def test_restore_never_truncates_the_live_file_when_the_replace_fails(tmp_path, monkeypatch):
+    changed, created, _same, pre, report = _restore_case(tmp_path)
+
+    def refuse(src, dst):
+        raise OSError("simulated kill before the replace")
+    monkeypatch.setattr(os, "replace", refuse)
+    bm._write_failed(report, pre, "fix it")
+    assert changed.read_bytes() == b"half written\r\n"
+    assert "restore failed" in report.detail and str(report.backup_dir) in report.detail
+    assert str(report.backup_dir) in report.fix
+    assert not created.exists()  # the failed first path does not stop the delete after it
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["changed.md", "same.md"]
+
+
+def test_one_failed_restore_does_not_stop_the_rest(tmp_path, monkeypatch):
+    changed, created, _same, pre, report = _restore_case(tmp_path)
+    other = tmp_path / "other.md"
+    other.write_bytes(b"half written too\n")
+    pre[other] = b"other pre-run bytes\n"
+    real = bm._write_atomic
+
+    def fail_first(path, data):
+        if path == changed:
+            raise OSError("simulated failure on the first file")
+        real(path, data)
+    monkeypatch.setattr(bm, "_write_atomic", fail_first)
+    bm._write_failed(report, pre, "fix it")
+    assert changed.read_bytes() == b"half written\r\n"
+    assert other.read_bytes() == b"other pre-run bytes\n" and not created.exists()
+    assert "restore failed" in report.detail and "simulated failure on the first file" in report.detail
+    assert str(report.backup_dir) in report.detail and str(report.backup_dir) in report.fix
+
+
+def test_failed_replace_removes_the_temp_file_of_a_read_only_target(tmp_path, monkeypatch):
+    target = tmp_path / "ro.md"
+    target.write_bytes(b"live")
+    os.chmod(target, stat.S_IREAD)  # copymode makes the temp file read-only too
+
+    def refuse(src, dst):
+        raise OSError("simulated replace failure")
+    monkeypatch.setattr(os, "replace", refuse)
+    try:
+        with pytest.raises(OSError):
+            bm._write_atomic(target, b"restored")
+        assert [p.name for p in tmp_path.iterdir()] == ["ro.md"] and target.read_bytes() == b"live"
+    finally:
+        os.chmod(target, stat.S_IWRITE)
+
+
+def test_replace_is_retried_on_permission_error_then_succeeds(tmp_path, monkeypatch):
+    target = tmp_path / "held.md"
+    target.write_bytes(b"live")
+    real, calls, pauses = os.replace, [], []
+
+    def flaky(src, dst):
+        calls.append(dst)
+        if len(calls) < 3:
+            raise PermissionError("simulated: another process holds the target open")
+        real(src, dst)
+    monkeypatch.setattr(os, "replace", flaky)
+    monkeypatch.setattr(bm.time, "sleep", pauses.append)
+    bm._write_atomic(target, b"restored")
+    assert target.read_bytes() == b"restored" and len(calls) == 3 and len(pauses) == 2
+    assert [p.name for p in tmp_path.iterdir()] == ["held.md"]
+
+
+def test_replace_retry_is_bounded_and_never_writes_in_place(tmp_path, monkeypatch):
+    target = tmp_path / "held.md"
+    target.write_bytes(b"live")
+    calls, pauses = [], []
+
+    def always(src, dst):
+        calls.append(dst)
+        raise PermissionError("simulated: another process holds the target open")
+    monkeypatch.setattr(os, "replace", always)
+    monkeypatch.setattr(bm.time, "sleep", pauses.append)
+    with pytest.raises(PermissionError):
+        bm._write_atomic(target, b"restored")
+    assert len(calls) == bm.REPLACE_ATTEMPTS and len(pauses) == bm.REPLACE_ATTEMPTS - 1
+    assert target.read_bytes() == b"live" and [p.name for p in tmp_path.iterdir()] == ["held.md"]
+
+
+def test_write_atomic_fsyncs_the_file_and_tolerates_an_unsyncable_directory(tmp_path, monkeypatch):
+    target = tmp_path / "f.md"
+    target.write_bytes(b"live")
+    synced = []
+    real_fsync, real_open = os.fsync, os.open
+    monkeypatch.setattr(os, "fsync", lambda fd: synced.append(fd) or real_fsync(fd))
+    bm._write_atomic(target, b"restored")
+    assert target.read_bytes() == b"restored" and len(synced) >= 1
+    if os.name != "nt":
+        assert len(synced) == 2  # the temp file, then the directory entry
+
+    def no_directory_open(path, flags, *args, **kwargs):
+        if os.path.isdir(path):
+            raise PermissionError("simulated: a directory cannot be opened")
+        return real_open(path, flags, *args, **kwargs)
+    monkeypatch.setattr(os, "open", no_directory_open)
+    bm._write_atomic(target, b"restored again")
+    assert target.read_bytes() == b"restored again"
 
 
 @pytest.mark.parametrize("state,headline", [

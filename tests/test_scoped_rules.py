@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 from scoped_rules import (
     INJECT_CONTENT_MAX_BYTES,
     LOOP_WRITTEN_HEADINGS,
+    SIGNAL_EXCLUDED_HEADINGS,
     expand_braces,
     extract_destinations,
     glob_to_regex,
@@ -22,6 +23,7 @@ from scoped_rules import (
     scoped_rules_block,
     split_paths_value,
     strip_loop_sections,
+    strip_sections,
 )
 
 BEHAVIOUR_RULE = ".claude/rules/behaviour-rule.md"
@@ -228,6 +230,16 @@ class TestGlob(unittest.TestCase):
 
 class TestDestinations(_ScratchProject):
 
+    def test_preloaded_scopes_in_config_are_used_instead_of_a_reload(self):
+        self.write_rule("behaviour-rule.md", 'paths: "src/**"')
+        self.touch("src/edit.py")
+        body = self.table(("src/edit.py", "EDIT"))
+        self.assertEqual(scoped_rules_block("001", body, self.config())["rules_scanned"], 1)
+        preloaded = {**self.config(), "_rule_scopes": []}
+        block = scoped_rules_block("001", body, preloaded)
+        self.assertEqual(block["rules_scanned"], 0)
+        self.assertEqual(block["rules_to_inject"], [])
+
     def test_table_rows_win_and_read_rows_are_listed_unclassified(self):
         self.write_rule("behaviour-rule.md", 'paths: "src/**"')
         self.touch("src/edit.py")
@@ -318,17 +330,102 @@ class TestDestinations(_ScratchProject):
         self.assertEqual([d.path for d in dests], ["src/keep.py", "src/after_fence.py", "src/next.py"])
         tail = "Cites `src/keep.py`.\n\n## Loop Decision Needed\n\nWrote `src/loop.py`."
         stripped, removed = strip_loop_sections(tail)
-        self.assertEqual(removed, 3)
-        self.assertEqual(stripped, "Cites `src/keep.py`.\n")
+        # A section that ends the body also takes the blank line before it.
+        self.assertEqual(removed, 4)
+        self.assertEqual(stripped, "Cites `src/keep.py`.")
         self.assertEqual(strip_loop_sections("no loop text"), ("no loop text", 0))
-        # The count is the section's real line count; a final newline adds no line.
+        # The count is the section's real line count plus the blank line before
+        # a final section; a final newline adds no line.
         section = "\n".join(["## Loop Decision Needed"] + [f"line {i}" for i in range(1, 10)])
-        self.assertEqual(strip_loop_sections("Intro.\n\n" + section + "\n"), ("Intro.\n", 10))
-        self.assertEqual(strip_loop_sections("Intro.\n\n" + section), ("Intro.\n", 10))
+        self.assertEqual(strip_loop_sections("Intro.\n\n" + section + "\n"), ("Intro.", 11))
+        self.assertEqual(strip_loop_sections("Intro.\n\n" + section), ("Intro.", 11))
         self.assertEqual(
             strip_loop_sections("Intro.\n\n" + section + "\n## Notes\n\nTail.\n"),
             ("Intro.\n\n## Notes\n\nTail.\n", 10),
         )
+
+    def test_effective_count_is_the_same_for_a_legacy_section_and_its_folded_block(self):
+        # The effective count is the item's line count with the section never
+        # written, whether the section ends the body or sits before a heading.
+        head = "# Item\n\n## Problem\n\nText.\n\n"
+        related = "## Related\n\n- link\n\n---\n\n*Created: 2026-01-01*\n"
+        legacy = (
+            "\n## Loop Decision Needed\n\n<!-- loop-decision run=1 -->\n"
+            "> [!gate] User input needed\n> Loop run 1.\n\nQuestion?\n"
+        )
+        folded = "## Open Questions\n\n### Q1. Loop decision (run 1)\n<!-- loop-decision run=1 -->\nQuestion?\n\nAnswer:\n\n"
+        shapes = {
+            "pristine": head + related,
+            "legacy after the footer": head + related + legacy,
+            "folded before Related": head + folded + related,
+            "folded at the end": head + related.split("---")[0] + folded.rstrip("\n") + "\n",
+            "legacy at the end": head + related.split("---")[0] + legacy.lstrip("\n"),
+        }
+        pristine_lines = shapes["pristine"].count("\n")
+        no_footer_lines = (head + related.split("---")[0]).rstrip("\n").count("\n") + 1
+        for name, body in shapes.items():
+            stripped, removed = strip_sections(body, SIGNAL_EXCLUDED_HEADINGS)
+            expected = no_footer_lines if name.endswith("at the end") else pristine_lines
+            with self.subTest(shape=name):
+                self.assertEqual(body.count("\n") - removed, expected)
+                self.assertNotIn("Question?", stripped)
+
+    def test_effective_count_is_the_same_with_a_stripped_section_before_the_final_run(self):
+        # Each body pairs with the item that never had its excluded sections.
+        # The final run takes every blank line back to the last kept text, so
+        # an earlier stripped section changes neither the count nor the text.
+        loop, end = "## Loop Decision Needed", "<!-- loop-decision-end -->"
+        bounded = f"{loop}\nq\n{end}\n"
+        shapes = {
+            "marker-bounded then legacy": ("Intro.\n\n" + bounded + f"\n{loop}\nlegacy\n", "Intro.\n"),
+            "Open Questions then legacy": (f"Intro.\n\n## Open Questions\nq\n\n{loop}\nlegacy\n", "Intro.\n"),
+            "two runs, no blank between": ("Intro.\n\n" + bounded + bounded, "Intro.\n"),
+            "two runs, one blank between": ("Intro.\n\n" + bounded + "\n" + bounded, "Intro.\n"),
+            "two runs, two blanks between": ("Intro.\n\n" + bounded + "\n\n" + bounded, "Intro.\n"),
+            "two runs, no blank before either": ("Intro.\n" + bounded + "\n" + bounded, "Intro.\n"),
+            "mid-body run plus a final run": (
+                f"Intro.\n\n## Open Questions\nq\n\n## Notes\nn\n\n{loop}\nlegacy\n",
+                "Intro.\n\n## Notes\nn\n",
+            ),
+            "mid-body run plus a final run after two blanks": (
+                f"Intro.\n\n## Open Questions\nq\n\n## Notes\nn\n\n\n{loop}\nlegacy\n",
+                "Intro.\n\n## Notes\nn\n",
+            ),
+        }
+        for name, (body, never_written) in shapes.items():
+            stripped, removed = strip_sections(body, SIGNAL_EXCLUDED_HEADINGS)
+            with self.subTest(shape=name):
+                self.assertEqual(body.count("\n") - removed, never_written.count("\n"))
+                # A final run also takes the newline that ended the last kept line.
+                self.assertEqual(stripped, never_written[:-1])
+
+    def test_effective_count_is_the_same_whatever_the_blank_lines_around_a_section(self):
+        # A removed run also takes the blank-line separator it owns, so the
+        # kept text joins with one separator, as the never-written item does.
+        loop, end = "## Loop Decision Needed", "<!-- loop-decision-end -->"
+        bounded, legacy = f"{loop}\nq\n{end}\n", f"{loop}\nq\n"
+        notes = "\n## Notes\nn\n"
+        # Each shape: (body, never-written item, kept text).
+        shapes = {
+            "marker-bounded mid-body, blank lines on both sides": (
+                "Intro.\n\n" + bounded + notes, "Intro.\n\n## Notes\nn\n", "Intro.\n\n## Notes\nn\n"),
+            "marker-bounded, then trailing blank lines": ("Intro.\n\n" + bounded + "\n\n", "Intro.\n", "Intro."),
+            "legacy mid-body, blank lines on both sides": (
+                "Intro.\n\n" + legacy + notes, "Intro.\n\n## Notes\nn\n", "Intro.\n\n## Notes\nn\n"),
+            "legacy, then trailing blank lines": ("Intro.\n\n" + legacy + "\n\n", "Intro.\n", "Intro."),
+            "two marker-bounded runs mid-body": (
+                "Intro.\n\n" + bounded + "\n" + bounded + notes, "Intro.\n\n## Notes\nn\n", "Intro.\n\n## Notes\nn\n"),
+            "marker-bounded run that opens the body": (bounded + "\nText.\n", "Text.\n", "Text.\n"),
+            "no blank before, the blank after stays": (
+                "Intro.\n" + bounded + notes, "Intro.\n\n## Notes\nn\n", "Intro.\n\n## Notes\nn\n"),
+            "blank before, no blank after": (
+                "Intro.\n\n" + bounded + notes.lstrip("\n"), "Intro.\n\n## Notes\nn\n", "Intro.\n\n## Notes\nn\n"),
+        }
+        for name, (body, never_written, kept) in shapes.items():
+            stripped, removed = strip_sections(body, SIGNAL_EXCLUDED_HEADINGS)
+            with self.subTest(shape=name):
+                self.assertEqual(body.count("\n") - removed, never_written.count("\n"))
+                self.assertEqual(stripped, kept)
 
     def test_absolute_paths_relativize_or_drop(self):
         outside = Path(tempfile.mkdtemp(prefix="scoped_rules_outside_"))
@@ -344,6 +441,22 @@ class TestDestinations(_ScratchProject):
             swapped = inside_abs[0].swapcase() + inside_abs[1:]
             dests, _, _ = extract_destinations(f"Edit `{swapped}`.", self.root)
             self.assertEqual([d.path for d in dests], ["src/abs.py"])
+
+    def test_path_only_under_open_questions_is_not_a_destination(self):
+        self.write_rule("behaviour-rule.md", 'paths: "src/**"')
+        self.touch("src/kept.py")
+        self.touch("src/asked.py")
+        body = (
+            "# Item\n\n## Resolution\n\n1. Edit `src/kept.py`.\n\n"
+            "## Open Questions\n\n### Q1. Should `src/asked.py` change too?\n\nAnswer:\n\n"
+            "---\n\n*Created: 2026-01-01*\n"
+        )
+        block = scoped_rules_block("001", body, self.config())
+        self.assertEqual([d["path"] for d in block["destinations"]], ["src/kept.py"])
+        # Control: the same path under another heading is a destination.
+        moved = body.replace("## Open Questions", "## Notes")
+        block = scoped_rules_block("001", moved, self.config())
+        self.assertEqual([d["path"] for d in block["destinations"]], ["src/kept.py", "src/asked.py"])
 
 
 # ---------------------------------------------------------------------------

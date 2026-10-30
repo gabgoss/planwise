@@ -1,5 +1,6 @@
 ---
 description: Schema Pin requirement and construction recipe for task files referencing DB tables — required structure, grep recipe, post-migration reconciliation, and review-time verification
+consult-when: A task's Required Context references a DB table — Schema Pin structure, grep recipe
 ---
 
 # Schema Pin Requirement

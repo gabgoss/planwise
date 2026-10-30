@@ -50,11 +50,11 @@ Use `AskUserQuestion` to collect:
 
 ## Discovery Step 2: Validate and Design
 
-1. **Validate abbreviation:** 2-4 characters, unique (check `{plans_dir}` for existing). Follow the [Abbreviation Validation Protocol](plan.md#abbreviation-length-validation) — never silently truncate or adjust
+1. **Validate abbreviation:** 2-4 characters, unique (check `{plans_dir}` for existing). Follow the [Abbreviation Validation Protocol](plan-Part-2-GatherAndGenerate.md#abbreviation-length-validation) — never silently truncate or adjust
 2. **Inventory source files:** List all source files with measured KiB and token costs (`python "{plugin_root}/scripts/measure_files.py" {files...} --md`)
 3. **Confirm context exceeds 100K:** Sum total source tokens. If < 100K, recommend Standard plan instead
 4. **Group sources by domain/topic:** Each group becomes a discovery sprint or session focus area
-5. **Define expected Consolidated Context Parts:** One part per execution scope (each part < 22K measured tokens), with anticipated `Scope:` values
+5. **Define expected Consolidated Context Parts:** One part per execution scope (each part < 22K measured tokens), with anticipated `Scope:` values. State the target in bytes beside the token figure, and add a split index when the estimate is within 20% of the ceiling.
 
 ## Discovery Step 3: Create Folder Structure
 
@@ -115,7 +115,7 @@ The most critical part of the Discovery plan. The final task(s) must produce Con
 - A `What This Enables` section describing what downstream work this context supports
 - Cross-references to other parts where topics overlap
 - Full substantive detail — consolidation means organize and deduplicate, NOT summarize
-- < 22K measured tokens per part (verify with `measure_files.py`); use multiple parts as needed
+- < 22K measured tokens per part (verify with `measure_files.py`); use multiple parts as needed. State the target in bytes beside the token figure, and add a split index when the estimate is within 20% of the ceiling.
 
 **Task file for a consolidation task should specify:**
 - **Objective:** "Consolidate findings from {sources} into Consolidated Context Part(s) for {scope}"
@@ -138,7 +138,7 @@ Standard checklist applies, plus:
 [ ] Final task(s) produce Consolidated Context Parts in Meta-{Abbrev}/Outputs/
 [ ] Expected Consolidated Context Parts are defined with Scope values
 [ ] Source files are listed by reference in Master Plan
-[ ] Each Consolidated Context Part target is < 22K measured tokens (measure_files.py — OK on all three gates)
+[ ] Each Consolidated Context Part target is < 22K measured tokens (measure_files.py — OK on all three gates). State the target in bytes beside the token figure, and add a split index when the estimate is within 20% of the ceiling.
 [ ] Plans index regenerated (generate_plans_index.py --write; no hand-written row)
 ```
 
@@ -169,7 +169,7 @@ META-PLAN CREATED: {PlanName} (Discovery Phase)
 3. After Discovery completes, scaffold the Execution Plan with `/planwise plan --scaffold`
 ```
 
-After the confirmation, proceed to [handlers/plan.md Step 10: Plan Review Gate](plan.md#step-10-plan-review-gate).
+After the confirmation, proceed to [handlers/plan-Part-3-VerifyConfirmAndReview.md Step 10: Plan Review Gate](plan-Part-3-VerifyConfirmAndReview.md#step-10-plan-review-gate).
 
 ---
 

@@ -1,5 +1,6 @@
 ---
 description: Conventions for authoring .claude/rules/ files — frontmatter, path scoping, and pre-authoring scan workflow — plus the writer-or-gate rule for any artifact sentence that states a format, cap or threshold (§7)
+consult-when: Authoring `.claude/rules/*.md` — frontmatter and path-scoping conventions, and (§7, for any reference, template, agent or handler sentence) a format, cap or threshold needs a writer that emits it or a gate that rejects the wrong form, never prose alone
 ---
 
 # Rule Authoring Conventions

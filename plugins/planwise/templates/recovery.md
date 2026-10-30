@@ -134,6 +134,16 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Recovery.md`.
 | Step | Task ID |
 |------|---------|
 | - | - |
+
+---
+
+## Plan-Specific Sections <!-- OPTIONAL -->
+
+Write any section that no heading above covers here, as an `###` H3. Never add it as a new `##` H2 elsewhere in this file, and draft one `idea` feedback draft for each new H3 heading (see `references/feedback-drafting.md`).
+
+### {Section Heading}
+
+{content}
 ```
 
 ---

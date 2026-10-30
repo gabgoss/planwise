@@ -74,14 +74,22 @@ def _destructively_removable(v) -> bool:
     return is_safe_to_remove(v) and not (getattr(v, "notes", "") or "")
 
 
+# The single `consult-when:` line, with its newline, anywhere in a frontmatter
+# block. The key is index metadata for the generated reference library, not rule
+# content, so a copy installed before the key existed is not a customization.
+_CONSULT_WHEN_LINE_RE = re.compile(r"^consult-when:.*$\n?", re.MULTILINE)
+
+
 def normalize_rule_for_diff(content: str) -> str:
-    """Return the rule body with the `paths:` frontmatter key removed.
+    """Return the rule body with the `paths:` and `consult-when:` keys removed.
 
     Per-project install rewrites the `paths:` line via update_frontmatter().
-    To detect whether the installed body matches the shipped body, we strip
-    that single key from BOTH sides before comparing. Everything else in the
-    frontmatter and the body content must match exactly for the file to be
-    considered "unmodified by user."
+    The `consult-when:` line is reference-library index metadata, which an
+    installed copy written before the key shipped does not carry. To detect
+    whether the installed body matches the shipped body, we strip those two
+    keys from BOTH sides before comparing. Everything else in the frontmatter
+    and the body content must match exactly for the file to be considered
+    "unmodified by user."
 
     Uses a pure regex line-strip (no YAML round-trip) so the shipped
     reference's placeholder paths value (which contains literal curly
@@ -97,6 +105,8 @@ def normalize_rule_for_diff(content: str) -> str:
     editing either.)
     """
     cleaned_frontmatter, body = _split_frontmatter_fallback(content)
+    if cleaned_frontmatter:
+        cleaned_frontmatter = _CONSULT_WHEN_LINE_RE.sub("", cleaned_frontmatter, count=1).rstrip()
     if not cleaned_frontmatter:
         return body
     return f"---\n{cleaned_frontmatter}\n---\n{body}"

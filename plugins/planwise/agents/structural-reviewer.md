@@ -102,7 +102,7 @@ Issue: Master Plan declares {N_declared_sprints} sprints and {N_declared_session
        disk has {N_disk_sprints} Sprint Plans and {N_disk_sessions} session folders;
        {N_deferred} declared deferred. Missing and undeclared: {names}
 Fix: Author the missing sprints/sessions, or declare them under `## Deferred Authoring`
-     with a trigger apiece, per handlers/plan.md Deferred Authoring | Confidence: HIGH
+     with a trigger apiece, per handlers/plan-Part-3-VerifyConfirmAndReview.md Deferred Authoring | Confidence: HIGH
 ```
 
 ### Check S02 — Per-Session Outputs/ with .gitkeep
@@ -125,8 +125,8 @@ Fix: Create Outputs/.gitkeep per references/scaffolding-hygiene.md §5 | Confide
 - **Severity:** ERROR
 - **Source:** `references/scaffolding-hygiene.md` §6
 - **Type:** NEW
-- **What:** Each sequential sprint's first-session Orchestration where sprint number > 01 MUST carry an explicit `**Prerequisite:**` line at the top naming the prior sprint's completion. §6 binds the Orchestration, because that is the file the executor opens; a Sprint Plan `## Prerequisites` bullet is not what §6 requires and does not satisfy this check on its own.
-- **Detection:** For each `Sprint-NN-*/Session-01-*/{Abbrev}-SNN-01-Orchestration.md` where NN > 01, `Grep` for `\*\*Prerequisite:\*\*.*COMPLETE`. Either form passes: the §6 form `**Prerequisite:** Sprint {NN-1} session COMPLETE — …` or a session-ID form `**Prerequisite:** {Abbrev}-S{NN-1}-{YY} COMPLETE (…)`. Absent → ERROR. Do NOT run this `Grep` over the Sprint Plan: a plan whose Sprint Plan reads `- Sprint-{NN-1} COMPLETE: …` while its Orchestration carries the line is compliant, and a plan whose Sprint Plan carries it but whose Orchestration does not is the defect §6 describes.
+- **What:** Each sequential sprint's first-session Orchestration where sprint number > 01 MUST carry an explicit `**Prerequisite:**` line at the top naming the prior sprint's completion. `references/scaffolding-hygiene.md` §6 binds the Orchestration, because that is the file the executor opens; a Sprint Plan `## Prerequisites` bullet is not what §6 requires and does not satisfy this check on its own.
+- **Detection:** For each `Sprint-NN-*/Session-01-*/{Abbrev}-SNN-01-Orchestration.md` where NN > 01, `Grep` for `\*\*Prerequisite:\*\*.*COMPLETE`. Either form passes: the `references/scaffolding-hygiene.md` §6 form `**Prerequisite:** Sprint {NN-1} session COMPLETE — …` or a session-ID form `**Prerequisite:** {Abbrev}-S{NN-1}-{YY} COMPLETE (…)`. Absent → ERROR. Do NOT run this `Grep` over the Sprint Plan: a plan whose Sprint Plan reads `- Sprint-{NN-1} COMPLETE: …` while its Orchestration carries the line is compliant, and a plan whose Sprint Plan carries it but whose Orchestration does not is the defect §6 describes.
 - **Finding template:**
 ```
 [ERROR] Sequential-sprint prerequisite declaration missing

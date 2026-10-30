@@ -1,5 +1,6 @@
 ---
 description: Verify-before-cite discipline (lesson IDs, schema files, field names, facade re-exports, upsert helper design, examples-repo version pinning, helper enumeration, field-mapping tables, tiered-fetch tactics, splitting an exemplar comparison into shape rows judged against the exemplar and data rows judged against the live source, and tracing each hazard a guard names to a mechanism in code before the guard is retired) for planwise task files and DELEGATED dispatch prompts
+consult-when: A task brief cites a lesson ID, schema file, or field name — open and skim it before citing, split an exemplar comparison into shape rows and data rows, trace each hazard before retiring a guard
 ---
 
 # Verify-Before-Cite
@@ -435,7 +436,7 @@ Fix: Verify per references/verify-before-cite.md §9.B.14 | Confidence: HIGH
 > any plan artifact) MUST be gated so the produced file lands OK on all three
 > Read gates — under 22,000 measured tokens (the reading model's ratio), under
 > 240 KiB, under 2,000 lines. Verify with `measure_files.py`; if the projected
-> output exceeds the token budget, pre-split per §9.A.7.
+> output exceeds the token budget, pre-split per `task-content-fidelity.md` §9.A.7.
 >
 > WRONG — consume a data model with no field map; emit an output nobody measured:
 > ```markdown

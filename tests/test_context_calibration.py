@@ -774,7 +774,9 @@ class TestStructuralFloor(unittest.TestCase):
     """derive_structural_floor() derives the per-subcommand floor from a tree.
 
     The floor counts the skill body + handler body + that handler's own
-    "always load" references, and EXCLUDES the base-context references the
+    "always load" references. A split handler's `<name>-Part-N-<topic>.md`
+    files fold into `<name>`, and an always-load reference that the parent and
+    a Part both list counts once. The floor EXCLUDES the base-context references the
     skill merely links — per-Read transcript attribution shows those never
     load, so counting them would store ~22.5K tok/invocation of phantom cost
     into a live budget input.
@@ -946,6 +948,214 @@ class TestStructuralFloor(unittest.TestCase):
             "The structural floor must be written through the checked writer",
         )
         self.assertNotIn("\n", seen["token_saver_structural_floor"])
+
+    # -- Part fold: `handlers/<name>-Part-N-<topic>.md` folds into `<name>` --
+
+    _ALWAYS_LOAD_A = (
+        b"# run\n\n**Run-specific references (always load):**\n"
+        b"1. Read `references/a.md`\n\n---\n"
+    )
+
+    def _split_tree(self, handlers, references=()):
+        """Build a byte-exact plugin tree from `{file name: bytes}` handlers.
+
+        Bytes are written with `write_bytes`, so no newline translation moves
+        the hand-folded figures. The skill is 38 bytes over 4 lines.
+        """
+        import tempfile
+
+        root = Path(tempfile.mkdtemp())
+        (root / "skills" / "planwise").mkdir(parents=True)
+        (root / "handlers").mkdir()
+        (root / "references").mkdir()
+        (root / "skills" / "planwise" / "SKILL.md").write_bytes(
+            b"a\nb\nc\n" + b"d" * 31 + b"\n"
+        )
+        for name, body in handlers.items():
+            (root / "handlers" / name).write_bytes(body)
+        for name, body in references:
+            (root / "references" / name).write_bytes(body)
+        self.addCleanup(shutil.rmtree, root, True)
+        return root
+
+    def _run_router(self):
+        """The 122-byte `run.md` router that always-loads `references/a.md`."""
+        body = self._ALWAYS_LOAD_A
+        return body + b"#" * (121 - len(body)) + b"\n"
+
+    def test_fold_includes_parts_and_tokens_on_fixture(self):
+        """Parts fold into the parent: one key, summed bytes, the skill once."""
+        ts = _engine()
+        router = self._run_router()
+        part = b"p\n" * 1300
+        self.assertEqual(len(router), 122)
+        root = self._split_tree(
+            {
+                "run.md": router,
+                "run-Part-2-Dispatch.md": part,
+                "run-Part-3-Closeout.md": part,
+            },
+            [("a.md", b"r\n" * 1300)],
+        )
+        subs = ts.derive_structural_floor(root)["subcommands"]
+
+        self.assertEqual(sorted(subs), ["run"])
+        self.assertEqual([k for k in subs if "-Part-" in k], [])
+        run = subs["run"]
+        self.assertEqual(
+            run["includes_parts"], ["run-Part-2-Dispatch", "run-Part-3-Closeout"]
+        )
+        # Hand-folded: skill 38 + router 122 + a.md 2,600 + two Parts of 2,600.
+        self.assertEqual(run["bytes"], 38 + 122 + 2600 + 2600 + 2600)
+        self.assertEqual(run["tokens"], 3062)
+        self.assertEqual(
+            run["lines"], 4 + router.count(b"\n") + 1300 + 1300 + 1300
+        )
+        self.assertEqual(run["always_load"], ["a.md"])
+
+    def test_fold_misnamed_sibling_stays_own_key(self):
+        """The fold keys on the name pattern alone: a mis-named file is its own key."""
+        ts = _engine()
+        part = b"p\n" * 1300
+        root = self._split_tree(
+            {
+                "run.md": self._run_router(),
+                "run-Part-2-Dispatch.md": part,
+                "run-PartThree-Closeout.md": part,
+                # No topic after N: outside the pattern, so not a Part.
+                "run-Part-4.md": part,
+            },
+            [("a.md", b"r\n" * 1300)],
+        )
+        subs = ts.derive_structural_floor(root)["subcommands"]
+
+        self.assertIn("run-PartThree-Closeout", subs)
+        self.assertIn("run-Part-4", subs)
+        self.assertEqual(subs["run"]["includes_parts"], ["run-Part-2-Dispatch"])
+        # Parent excludes both mis-named files: 2,760 + 2,600 = 5,360 bytes.
+        self.assertEqual(subs["run"]["bytes"], 5360)
+        self.assertEqual(subs["run"]["tokens"], 2062)
+        self.assertEqual(subs["run-PartThree-Closeout"]["includes_parts"], [])
+
+    def test_fold_counts_shared_always_load_once(self):
+        """A reference listed by both parent and Part counts once."""
+        ts = _engine()
+        part = (
+            b"**Run-specific references (always load):**\n"
+            b"1. Read `references/a.md`\n2. Read `references/b.md`\n\n---\n"
+        )
+        router = self._run_router()
+        a_body = b"r\n" * 1300
+        b_body = b"q\n" * 50
+        root = self._split_tree(
+            {"run.md": router, "run-Part-2-Dispatch.md": part},
+            [("a.md", a_body), ("b.md", b_body)],
+        )
+        run = ts.derive_structural_floor(root)["subcommands"]["run"]
+
+        self.assertEqual(run["always_load"], ["a.md", "b.md"])
+        self.assertEqual(
+            run["bytes"], 38 + len(router) + len(part) + len(a_body) + len(b_body)
+        )
+        self.assertEqual(run["includes_parts"], ["run-Part-2-Dispatch"])
+
+    def test_fold_orphan_sibling_keeps_own_key(self):
+        """A Part with no parent file keeps its own key and folds nothing."""
+        ts = _engine()
+        root = self._split_tree(
+            {"run.md": self._run_router(), "ghost-Part-2-Topic.md": b"g\n" * 10},
+            [("a.md", b"r\n" * 1300)],
+        )
+        subs = ts.derive_structural_floor(root)["subcommands"]
+
+        self.assertEqual(sorted(subs), ["ghost-Part-2-Topic", "run"])
+        self.assertEqual(subs["ghost-Part-2-Topic"]["includes_parts"], [])
+        self.assertEqual(subs["ghost-Part-2-Topic"]["bytes"], 38 + 20)
+        self.assertEqual(subs["run"]["includes_parts"], [])
+
+    def test_fold_orders_parts_by_number(self):
+        """Part-10 follows Part-2: the order is numeric, not string order."""
+        ts = _engine()
+        root = self._split_tree(
+            {
+                "run.md": self._run_router(),
+                "run-Part-2-X.md": b"x\n",
+                "run-Part-10-Y.md": b"y\n",
+            },
+            [("a.md", b"r\n" * 1300)],
+        )
+        run = ts.derive_structural_floor(root)["subcommands"]["run"]
+        self.assertEqual(run["includes_parts"], ["run-Part-2-X", "run-Part-10-Y"])
+
+    def test_fold_non_utf8_part_degrades(self):
+        """A Part with a stray 0x92 byte is measured, not raised out of the floor."""
+        ts = _engine()
+        router = self._run_router()
+        bad = b"**Run-specific references (always load):**\n1. Read `references/b.md`\n\x92\n---\n"
+        root = self._split_tree(
+            {"run.md": router, "run-Part-2-Dispatch.md": bad},
+            [("a.md", b"r\n" * 1300), ("b.md", b"q\n" * 50)],
+        )
+        run = ts.derive_structural_floor(root)["subcommands"]["run"]
+        self.assertEqual(run["includes_parts"], ["run-Part-2-Dispatch"])
+        # Lines and bytes still count; the undecodable text declares no reference.
+        self.assertEqual(run["bytes"], 38 + len(router) + 2600 + len(bad))
+        self.assertEqual(run["always_load"], ["a.md"])
+        result = ts.calibrate(plugin_root=root, capture=lambda *_a, **_k: None)
+        self.assertIn("run", result["token_saver_structural_floor"]["subcommands"])
+
+    def test_fold_real_tree_keys_and_parts(self):
+        """The shipped tree: no `-Part-` key, every Part listed under its parent.
+
+        The expected Part sets come from the `handlers/` listing, so a later
+        split re-derives them. The one literal is `backlog-Part-2-LoopMode`,
+        which the plan's success criterion pins by name. Conservation: each
+        parent's folded bytes exceed its router-only bytes by exactly the
+        on-disk size of its Parts plus any always-load reference only a Part
+        adds.
+        """
+        ts = _engine()
+        plugin = Path(__file__).resolve().parent.parent / "plugins" / "planwise"
+        handlers = plugin / "handlers"
+        files = sorted(p.name for p in handlers.glob("*.md"))
+        part_re = re.compile(r"^(.+?)-Part-(\d+)-.+\.md$")
+        numbered = {}
+        for name in files:
+            m = part_re.match(name)
+            if m and f"{m.group(1)}.md" in files:
+                numbered.setdefault(m.group(1), []).append((int(m.group(2)), name[:-3]))
+        expected = {k: [p for _n, p in sorted(v)] for k, v in numbered.items()}
+        part_count = sum(len(v) for v in expected.values())
+
+        floor = ts.derive_structural_floor(plugin)
+        subs = floor["subcommands"]
+        self.assertTrue(subs, "the real tree must yield subcommands")
+        self.assertEqual([k for k in subs if "-Part-" in k], [])
+        self.assertEqual(len(subs), len(files) - part_count)
+        self.assertEqual(subs["backlog"]["includes_parts"],
+            ["backlog-Part-2-LoopMode", "backlog-Part-3-Answers"],
+        )
+        for parent in ("backlog", "doctor", "upgrade", "plan", "run"):
+            self.assertEqual(
+                subs[parent]["includes_parts"], expected.get(parent, []), parent
+            )
+
+        skill_bytes = floor["skill"]["bytes"]
+        references = plugin / "references"
+        for parent, parts in sorted(expected.items()):
+            router_text = (handlers / f"{parent}.md").read_text(encoding="utf-8")
+            router_refs = ts.always_load_references(router_text)
+            router_only = (
+                skill_bytes
+                + (handlers / f"{parent}.md").stat().st_size
+                + sum((references / r).stat().st_size for r in router_refs)
+            )
+            part_bytes = sum((handlers / f"{p}.md").stat().st_size for p in parts)
+            added_refs = [r for r in subs[parent]["always_load"] if r not in router_refs]
+            added_bytes = sum((references / r).stat().st_size for r in added_refs)
+            delta = subs[parent]["bytes"] - router_only
+            print(f"conservation {parent}: delta={delta} parts+added_refs={part_bytes + added_bytes}")
+            self.assertEqual(delta, part_bytes + added_bytes, parent)
 
 
 if __name__ == "__main__":

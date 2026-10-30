@@ -1,5 +1,6 @@
 ---
 description: A `git diff` gate names a recorded tree state or it measures the whole working tree — record `$..._BASE` before the first edit behind an empty status over the write paths (§8.1), scope every gate to it (§8.2), path-scope with `-- <paths>` and never with an output filter (§8.3), record a series base once at the first sprint (§8.4), give a scope rule a positive test rather than a list of forbidden directories (§8.5), and treat a base as a statement about one moment that a commit inside the gate's paths invalidates (§8.6); Reviewer Check 077. This file is the definition site for `$..._BASE`.
+consult-when: Writing, reviewing or running any gate built on `git diff` — the definition site for `$..._BASE`, record it before the first edit (§8.1), scope every gate to it (§8.2), path-scope with `-- <paths>` (§8.3), a series base once (§8.4), a positive scope test (§8.5), a base is one moment (§8.6), Check 077
 paths: {planwise_root}/{plans_dir}/**
 ---
 
@@ -56,16 +57,20 @@ The precondition is scoped with `--` to **this sprint's write paths**, not to th
 ✅ COMPLETE — Verdict PASS, 7/7 tasks. `{ABBREV}_S{NN}_BASE=5b53607`
 ```
 
+`scripts/lint_verification_gates.py` registers Check 29 (`scripts/lint_gate_checks_plan.py`), which flags a `git diff` against a base that the sprint's first repo-touching task does not pin behind an empty-status precondition, or that no Recovery file records.
+
 ### 8.2 Scope every gate to the recorded base
 
 > [!constraint] Every diff-scoped gate names the recorded base — `git diff $BASE -- <paths>`
 > Never a bare `git diff`, never `git diff --name-only` with no operand, and never `git diff HEAD`. `HEAD` is not a synonym for the base: it moves with every commit the session makes, so a gate written against it measures the delta since the *last commit*, not since the sprint began. A session that commits mid-way silently erases all of its own earlier work from every later gate — the gates go green because the evidence left the diff, not because the defect left the tree.
 
+`scripts/lint_verification_gates.py` registers Check 21 (`scripts/lint_gate_checks_commands.py`), which flags a `git diff` in Verification Commands or Success Criteria with no `$..._BASE` operand or no `--` path scope.
+
 ### 8.3 Path-scope with `-- <paths>`, not with an output filter
 
-`-- <paths>` restricts the tree git **inspects**. A downstream filter only hides part of what git already inspected and reported, and the difference is exactly the parallel-safety property a scope gate needs. `git diff --name-only | grep '<dir>/'` walks the whole repository, so a sibling sprint's concurrent work under `<dir>` enters the result and is attributed here; under `git diff --name-only $BASE -- <paths>` that work was never in the input at all — invisible by construction.
+`-- <paths>` restricts the tree git **inspects**. A downstream filter only hides part of what git already inspected and reported. `git diff --name-only | grep '<dir>/'` walks the whole repository, so a sibling sprint's concurrent work under `<dir>` enters the result and is attributed here. The filter form also matches **text**, not paths. `--` matches paths.
 
-The filter form fails a second way: it matches **text**, not paths. A pattern for a directory name also matches any file whose *name* contains that string elsewhere in the tree, and misses the same directory reached under a different spelling. `--` matches paths.
+Check 21 (§8.2) flags a diff that is scoped by an output filter instead of `--`.
 
 ### 8.4 A multi-sprint series records a series base once, at the first sprint
 
@@ -76,18 +81,13 @@ A plan whose sprints each pin their own base can gate each sprint's delta but ha
 >
 > Re-minting a series base that already includes an independent sprint's commits silently narrows the whole-series sweep to the remaining delta: that sprint's added lines are never in the input, so the final cross-check is blind to them while every per-sprint gate still reports green. The failure surfaces at release, in the one gate meant to be the backstop.
 
+Check 29 (§8.1) also covers the series base: a diff against a base name that no task pins and no Recovery file records is a finding.
+
 ### 8.5 A scope rule gets a positive test, not a list of forbidden directories
 
-A scope rule states where a sprint **may** write. Testing it by enumerating the places it may not write permits every directory nobody thought to forbid — including directories that did not exist when the gate was authored. Assert the allowed set instead and require the complement to be empty:
+A scope rule states where a sprint **may** write. Testing it by enumerating the places it may not write permits every directory nobody thought to forbid — including directories that did not exist when the gate was authored. Assert the allowed set instead and require the complement to be empty. Only that form can fail for a reason nobody anticipated. A file-count gate asserts `wc -l` equals exactly N over a `--`-scoped diff.
 
-```bash
-# WRONG — enumerates the forbidden set; anything unlisted passes silently:
-git -C <repo> diff --name-only $BASE -- <root> | grep -E '^<forbidden dir>/'      # expect empty
-# CORRECT — asserts the allowed set; anything unlisted FAILS:
-git -C <repo> diff --name-only $BASE -- <root> | grep -vE '^(<allowed dir A>|<allowed dir B>)/'   # expect empty
-```
-
-The two commands are the same length and read almost identically. Only the second one can fail for a reason nobody anticipated, which is the only kind of failure a scope gate exists to catch.
+`scripts/lint_verification_gates.py` registers Check 21 (`scripts/lint_gate_checks_commands.py`), which flags each unpinned shape below. Choosing the allowed set over a forbidden list stays a review judgment (Reviewer Check 077, step 5).
 
 > [!constraint] The three canonical unpinned shapes, and their baseline-scoped rewrites
 > WRONG — none of the three names a tree state; all three read the entire working tree:
@@ -102,11 +102,7 @@ The two commands are the same length and read almost identically. Only the secon
 > git -C <repo> diff --name-only $BASE -- <root> | grep -vE '^(<allowed dir>)/'           # expect empty
 > git -C <repo> diff --name-only $BASE -- <paths> | wc -l                                 # expect exactly N
 > ```
-> **Both failure directions live on the WRONG side, and they are not the same defect.**
-> - **False FAIL** — pre-existing uncommitted work counts against the sprint. The file-count form reports more files than N, and the sprint is marked over-scope for edits it never made; the directory-filter form fires on a parallel sprint's legitimate work. The cost is a halted session and a re-litigated scope, paid every time the tree is not pristine.
-> - **False PASS / misattribution** — the leak-pattern form scans added lines the sprint never wrote, so a forbidden token belonging to nobody in the plan is reported as this sprint's leak, and a real leak is credited to whichever sprint happens to be running. Nothing in the output distinguishes the two, and the empty case — the one everybody reads as "clean" — is where the misattribution is completely invisible.
->
-> The rewrite is mechanical, so there is no case for the WRONG forms: an unpinned gate is not a cheaper gate, it is a gate whose result does not mean what the report says it means.
+> The WRONG forms fail in both directions named in §8: the file-count and directory-filter forms false-FAIL on work the sprint never made, and the leak-pattern form misattributes added lines. The rewrite is mechanical.
 
 #### Reviewer Check 077 — Diff-Scoped Gate Not Baseline-Pinned
 
@@ -118,6 +114,7 @@ The two commands are the same length and read almost identically. Only the secon
   3. Open that first repo-touching task and confirm it pins the base **before its first edit**, behind a clean-scope precondition (`git status --porcelain -- <write paths>` MUST be empty, else HALT), and records name + value in Recovery Key Findings. Pinned after an edit, or not recorded → ERROR.
   4. On a multi-sprint plan, confirm a `{ABBREV}_SERIES_BASE` is recorded once at the first sprint and **adopted verbatim** by later sprints. A later sprint that re-derives it from its own HEAD → ERROR.
   5. Inspect any scope gate that enumerates forbidden directories rather than asserting the allowed set; the enumerating form permits every directory nobody listed → ERROR.
+- **Enforced by:** `scripts/lint_verification_gates.py` registers Check 21 (`scripts/lint_gate_checks_commands.py`) for steps 2(a) and 2(b), and Check 29 (`scripts/lint_gate_checks_plan.py`) for steps 2(c) and 3. Step 3's order inside one file, step 4 and step 5 stay review steps.
 - **Finding template:**
 ```
 [ERROR] Diff-scoped gate not baseline-pinned

@@ -1,5 +1,6 @@
 ---
 description: Family index for verification-task authoring — which short gate-* reference governs a match pattern, a verdict, an absence check, a pre-edit baseline, an input set, an anchor's outcome set, a command's semantics, or a gate pinned before its subject exists; carries the §7 authoring checklist and the map from this file's former section numbers to the topic files that now hold them.
+consult-when: Finding which gate reference governs a verification task — the family index: a read-when table over the eight `gate-*` topic files it indexes, the §7 authoring checklist, and the map from this file's former section numbers to the topic file that now holds each one
 paths: {planwise_root}/{plans_dir}/**
 ---
 

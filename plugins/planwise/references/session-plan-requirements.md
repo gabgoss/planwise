@@ -1,5 +1,6 @@
 ---
 description: Required file specifications per plan level and the DELEGATED-trigger canonical (Execution Strategy)
+consult-when: Checking required files per plan level and the DELEGATED-trigger canonical
 ---
 
 # Session Plan Requirements

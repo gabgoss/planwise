@@ -1,5 +1,6 @@
 ---
 description: An absence-grep criterion scrubs its token from every surface including the gate's own prose and legend (§8.1), a consistency check asserts against the right population rather than a conditional set against an observed union (§8.2), and a file that encodes one fact in two representations is updated in both on every mutation and verified against the file (§8.3).
+consult-when: Writing a `grep -c TOKEN == 0` criterion, a subset consistency check, or a status flip over a file that states one fact twice — scrub the token everywhere (§8.1), assert against the right population (§8.2), update both representations (§8.3)
 paths: {planwise_root}/{plans_dir}/**
 ---
 
@@ -26,6 +27,8 @@ paths: {planwise_root}/{plans_dir}/**
 > A criterion of the form `grep -c 'TOKEN' {file} == 0` proves absence of a TOKEN-class item. Satisfying it requires the literal token to appear nowhere — not merely absent from data cells. It must be scrubbed from the classification legend, count-block labels, section headers, descriptive prose, and any self-referential mention of the grep itself. Replace with a synonym. Grep is case-sensitive, so lowercase variants are safe; run the exact anchor command yourself before declaring the criterion met.
 >
 > Observed false-FAIL: the criterion's own grep returned 8 against a file with zero unresolved data cells — every hit was the legend, the label, and the criterion's own description.
+
+An absence criterion also false-fails when it counts the artifact that enacts the absence, which must name its target: see [exit-criteria-fidelity.md](exit-criteria-fidelity.md) §16.9.1, "The Enactor Cause — Exclude the Artifact That Enacts the Absence".
 
 ### 8.2 Assert against the right population
 

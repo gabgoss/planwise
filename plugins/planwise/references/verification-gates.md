@@ -1,5 +1,6 @@
 ---
 description: Family index for verification gates — which short gate-* reference governs a cross-process or build-versus-deploy boundary, a Sprint exit verdict, a diff-scoped gate's recorded base, the instrument's proof obligations, change- versus state-detecting shapes, or a run sheet's control; carries the reserved section numbers (§9 relocated, §12 a pointer), the `$..._BASE` definition pointer, and the map from this file's former section numbers to the topic files that now hold them.
+consult-when: Finding which gate reference governs a boundary, a verdict, a diff base, an instrument or a battery — the family index: a read-when table over the six `gate-*` topic files it indexes, the reserved §9 and §12 pointers, the `$..._BASE` definition pointer, and the map from this file's former section numbers to the topic file that now holds each one
 paths: {planwise_root}/{plans_dir}/**
 ---
 
@@ -34,11 +35,17 @@ paths: {planwise_root}/{plans_dir}/**
 
 Two numbers stay reserved here so citations to them keep resolving.
 
-**§9 Empirical Verification Discipline** — relocated to [measurement-discipline.md](measurement-discipline.md) §8 (wc-l line-count authority over Read-output line numbers, broad-gate authority over an audit's file enumeration, headline-metric reconciliation, doctrinal-claim surface sweeps, markdown-field normalization on both read and write, idempotency-safe append/author, gate-input-set verification before trusting a predicate, and post-behavior-change surface sweeps).
+### 9. Empirical Verification Discipline
 
-**§12 Reachability Gates — a Definition Is Not a Caller.** Every gate in the topic files above measures **presence**; none measures whether production ever reaches the thing. The reachability gate — assert a **caller** that supplies the activating argument, not a definition; quote a production call site per behaviour-adding deliverable in the closing-sweep ledger; classify a runner's "dormant until a follow-up wires it" return as PARTIAL, never COMPLETE — lives in its own reference: [verify-caller-before-complete.md](verify-caller-before-complete.md). The body is not restated here.
+Relocated to [measurement-discipline.md](measurement-discipline.md) §8 (wc-l line-count authority over Read-output line numbers, broad-gate authority over an audit's file enumeration, headline-metric reconciliation, doctrinal-claim surface sweeps, markdown-field normalization on both read and write, idempotency-safe append/author, gate-input-set verification before trusting a predicate, and post-behavior-change surface sweeps).
 
-**`$..._BASE`** is defined in [gate-diff-baseline-pinning.md](gate-diff-baseline-pinning.md) §8. A citation of "`verification-gates.md` §8 as the definition site" resolves there.
+### 12. Reachability Gates — a Definition Is Not a Caller
+
+Every gate in the topic files above measures **presence**; none measures whether production ever reaches the thing. The reachability gate — assert a **caller** that supplies the activating argument, not a definition; quote a production call site per behaviour-adding deliverable in the closing-sweep ledger; classify a runner's "dormant until a follow-up wires it" return as PARTIAL, never COMPLETE — lives in its own reference: [verify-caller-before-complete.md](verify-caller-before-complete.md). The body is not restated here.
+
+### The `$..._BASE` Pointer
+
+`$..._BASE` is defined in [gate-diff-baseline-pinning.md](gate-diff-baseline-pinning.md) §8. A citation of "`verification-gates.md` §8 as the definition site" resolves there.
 
 ---
 

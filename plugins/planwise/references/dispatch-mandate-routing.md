@@ -1,5 +1,6 @@
 ---
 description: A promise with no gate step is a preference, and an artifact its consumer cannot reach was not delivered. Covers the numbered gate step every pre-action constraint requires, why the mandate-to-gate gap is invisible and emphasis is not the fix, gates that always or never fire, the three obligations that make a repair reachable by its consumer, why a repair is uniquely exposed, and the count-mismatch tell at closeout. Consult while writing a mandate into an orchestration's prose, flag block or Binding Constraints, while authoring a pre-dispatch gate, and whenever a session produces an artifact outside its planned task list.
+consult-when: Writing a mandate into an orchestration's prose, flag block or Binding Constraints, authoring a pre-dispatch gate, or producing an artifact outside the planned task list — every mandate gets a numbered gate step stating the passing observation, a gate must be able to both fail and pass, and a repair reaches its consumer only by explicit path, a stated precedence rule, and updated counts
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Dispatch Mandate Routing — A Promise With No Gate Is a Preference; An Unrouted Artifact Is Invisible

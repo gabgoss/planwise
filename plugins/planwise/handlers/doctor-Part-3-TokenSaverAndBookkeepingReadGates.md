@@ -130,4 +130,19 @@ The script prints this stage (banner: planwise doctor — bookkeeping index read
 
 ---
 
+## Consumer Read-Gate and Section-Citation Checks
+
+> [!constraint] Read-Only — Always Runs, After the Version Gate
+> These two stages are independent of Token Saver and run on every `/planwise doctor` whose version-state gate reports `ok`. They only READ the project and the installed plugin, then print a report. They write nothing and never change doctor's exit status.
+
+### Stage 24: Consumer Read-Gate Scan
+
+The script prints this stage (banner: planwise doctor — consumer read-gate scan). Pass it through verbatim. It scans `.claude/rules/`, `.claude/agents/`, `.claude/skills/` and the files of each in-progress plan. It skips the machine-managed copies under `.claude/rules/planwise/` and any `Outputs/` or `Reviews/` directory of a plan. It classifies each file against the Read-tool limits and prints only the files at Warn or Critical, each with its reason, path and token estimate. The reason is always `read`, because the stage classifies with no model. For each printed file it says whether an open backlog item already names the file in its title. A closed item and an item under `Archive/` do not count. When two scanned files share a name, the stage matches and files by the project-relative path. When no item names the file, it prints the filing command and the page-cap procedure that carries the remedy. Offer to run that command only if the user asks. The stage runs whether or not `context.token_saver` is on.
+
+### Stage 25: Consumer Section-Citation Check
+
+The script prints this stage (banner: planwise doctor — consumer section-citation check). Pass it through verbatim. It resolves each `§` citation in the project's own `.claude/rules/` against the installed plugin's `references/`. It reports only citations whose target is a plugin file, and counts the citations of project files in its summary line. It prints each dangling citation, each citation whose target file does not resolve, and each citation whose section moved to another file of the same family, as an upgrade leftover. A moved section prints with the file that now holds it. The stage skips the machine-managed copies under `.claude/rules/planwise/`. The report ends with one remedy line: edit the citing rule to the section that now holds the text, or run `/planwise upgrade` if the citing file is a stale installed copy. The stage runs whether or not `context.token_saver` is on.
+
+---
+
 *Cross-reference: [run.md](run.md) (Step 4.3 Update Plan Status), [`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md §1.19`](../references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) (Model-Floor Bridge), [`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md §1.20`](../references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) (1M-Exception Dispatch), [upgrade.md](upgrade.md) (post-upgrade over-scope advisory, Token Saver recalibration), [lint + token_saver engine in scripts/](../scripts/init_project.py), [reconcile_plans.py](../scripts/reconcile_plans.py) (plans index drift detect, shared with [list.md](list.md); its `--write` delegates to [generate_plans_index.py](../scripts/generate_plans_index.py)), [reconcile_backlog.py](../scripts/reconcile_backlog.py) (backlog index archival-drift detect/reconcile, shared with [backlog.md](backlog.md)), [generate_lessons_index.py](../scripts/generate_lessons_index.py) (lessons index generation and `--check` drift detect, sharing file-level anomaly detect/reconcile with [reconcile_lessons.py](../scripts/reconcile_lessons.py)).*

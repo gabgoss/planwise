@@ -368,6 +368,23 @@ class TestDuplicatePath(unittest.TestCase):
         content = table(row(path="P/"), row(abbrev="B", path="P/"), row(abbrev="C", path="P/"))
         self.assertEqual(parse_index_table(content).duplicates, [("P/", (3, 4, 5))])
 
+    def test_a_repeated_row_is_named_and_neither_copy_wins_in_either_order(self):
+        # The keyed-read case: one plan row repeated, the copies differing
+        # only in Status. A dict keyed by Path would keep whichever came last.
+        clean = row(abbrev="DUP", status="IN_PROGRESS", path="Dup/")
+        corrupt = row(abbrev="DUP", status="COMPLETE", path="Dup/")
+        for label, rows in (
+            ("clean first", (clean, row(abbrev="OK", path="Ok/"), corrupt)),
+            ("corrupt first", (corrupt, row(abbrev="OK", path="Ok/"), clean)),
+            ("identical copies", (clean, row(abbrev="OK", path="Ok/"), clean)),
+        ):
+            with self.subTest(order=label):
+                result = parse_index_table(table(*rows))
+                self.assertEqual(len(result.rows), 3)
+                self.assertEqual(result.duplicates, [("Dup/", (3, 5))])
+                kept = [r.status_raw for r in result.rows if r.path == "Dup/"]
+                self.assertEqual(kept, [rows[0].split("|")[3].strip(), rows[2].split("|")[3].strip()])
+
     def test_a_shared_abbrev_with_distinct_paths_is_not_a_duplicate(self):
         content = table(row(abbrev="PRV", path="Plan/Meta-PRV/"), row(abbrev="PRV", path="Plan/Exec-PRV/"))
         result = parse_index_table(content)

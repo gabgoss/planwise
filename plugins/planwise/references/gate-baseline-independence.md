@@ -1,5 +1,6 @@
 ---
 description: A gate that asserts a property of a diff — comment-only, no-logic-change, N-files-touched — measures nothing when its target is untracked, and reports the file's entire body as additions once `git add -N` registers it. Covers why an untracked target makes such a gate vacuous, why intent-to-add inverts it instead of repairing it, the recorded-baseline form that discriminates, why a baseline taken from version control outranks one the executor made, why a before/after audit's PRE must come from the generation being replaced rather than from the new tool already installed, and why a chained `grep -c` skips the clean case. Consult before writing or accepting any gate whose subject is a diff, or any audit that compares a before state with an after state.
+consult-when: Writing or accepting a gate that asserts a property of a diff (comment-only, no-logic-change, N-files-touched) — an untracked target makes it vacuous, `git add -N` inverts it, pin a baseline before the first edit and prefer one the executor did not make, and take a before/after audit's PRE from the generation being replaced, never from the new tool already installed
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Gate Baseline Independence — a Diff-Property Gate Needs a Baseline It Can Reach, and One It Did Not Make
@@ -10,7 +11,7 @@ paths: {planwise_root}/{plans_dir}/**
 
 `git diff` answers one question. It reports how the working tree differs from **the index**. An untracked file has no index entry, so the honest answer is *nothing*. A `grep -c`-shaped gate cannot tell that answer apart from *no violations found*. Both print `0`.
 
-This is the baseline half of a three-part problem. [`measurement-discipline.md`](measurement-discipline.md) §8.7 owns the **input set**, and [`gate-predicate-discrimination.md`](gate-predicate-discrimination.md) owns the **predicate**. This file owns the **base the diff is taken against**. §8.7's first remedy is to register new files with `git add -N`. That remedy is correct for a gate asking whether a forbidden pattern appears in added lines. §2 below states the gate class where it inverts.
+This is the baseline half of a three-part problem. [`measurement-discipline.md`](measurement-discipline.md) §8.7 owns the **input set**, and [`gate-predicate-discrimination.md`](gate-predicate-discrimination.md) owns the **predicate**. This file owns the **base the diff is taken against**. `measurement-discipline.md` §8.7's first remedy is to register new files with `git add -N`. That remedy is correct for a gate asking whether a forbidden pattern appears in added lines. §2 below states the gate class where it inverts.
 
 ## Table of Contents
 
@@ -25,20 +26,9 @@ This is the baseline half of a three-part problem. [`measurement-discipline.md`]
 
 ## 1. An Untracked Target Makes a Diff-Property Gate Vacuous
 
-A task annotated a 32-line hook script with comments and had to prove it changed no logic. The authored gate was:
+A file moved in the working tree and never committed defeats a diff-property gate at both paths. At the new path `git diff` has no index entry and emits nothing, so `grep -c` returns `0`. At the old path the diff is a pure deletion with zero `+` lines. Either way the gate passes without seeing the edit.
 
-```bash
-git diff -- <old-dir>/<hook>.ps1 | grep -cE '^\+[^+]' && \
-git diff -- <old-dir>/<hook>.ps1 | grep -E '^\+[^+]' | grep -vcE '^\+\s*#'
-# expect: N added lines, and 0 of them non-comment
-```
-
-Two facts about the target defeated it. The file had been **moved in the working tree and never committed**. It was deleted at `<old-dir>/` and recreated, untracked, at `.claude/hooks/`.
-
-- Against the **new** path, `git diff` has no index entry to compare against and emits nothing. `grep -c` returns `0`, then `0`. The gate passes having examined an empty stream.
-- Against the **old** path, the diff is a pure deletion. Every line is a `-` line and there are zero `+` lines. The gate again reports `0` added and `0` non-comment.
-
-Either way the gate reports success without ever seeing the edit. A gate in this state and a gate that never ran produce identical output.
+`scripts/lint_verification_gates.py` registers Check 18 (`scripts/lint_gate_checks_commands.py`), which flags a diff-property gate over a path the repo does not track.
 
 > [!constraint] Never gate a change to an untracked file with `git diff`
 > WRONG — empty by construction, and it passes without examining anything:
@@ -53,9 +43,9 @@ Either way the gate reports success without ever seeing the edit. A gate in this
 
 ## 2. `git add -N` Inverts a Diff-Property Gate Rather Than Repairing It
 
-Intent-to-add is the obvious repair, and it is the remedy [`measurement-discipline.md`](measurement-discipline.md) §8.7 states for the input-set problem. Registering the path does put it in the diff. For a **pattern-presence** gate that is the correct fix, because the question is whether a forbidden token appears anywhere in the change.
+Intent-to-add is the remedy [`measurement-discipline.md`](measurement-discipline.md) §8.7 states for the input-set problem. For a **pattern-presence** gate it is the correct fix. For a **diff-property** gate it is worse than the vacuous form. `git add -N` records the path against an **empty blob**, so every pre-existing line in the file renders as an addition.
 
-For a **diff-property** gate it is worse than the vacuous form. `git add -N` records the path against an **empty blob**, so every pre-existing line in the file renders as an addition.
+`scripts/lint_verification_gates.py` registers Check 19 (`scripts/lint_gate_checks_commands.py`), which flags a `git add -N` in front of a comment-only or no-logic diff gate on the same path.
 
 > [!constraint] `git add -N` repairs a pattern-presence gate and inverts a diff-property gate
 > WRONG — intent-to-add turns the file's own untouched logic into violations:
@@ -70,7 +60,7 @@ For a **diff-property** gate it is worse than the vacuous form. `git add -N` rec
 >
 > | Gate asks | Register with `add -N`? |
 > |---|---|
-> | Does a forbidden pattern appear in the change? | Yes — §8.7 remedy 1 applies |
+> | Does a forbidden pattern appear in the change? | Yes — `measurement-discipline.md` §8.7 remedy 1 applies |
 > | Is the change comment-only, logic-identical, or N lines? | No — it inverts. Use §3's recorded baseline |
 
 ---
@@ -143,6 +133,8 @@ A pre-dispatch read caught it. The PRE task was re-specified to capture three se
 
 `A && B`, where `A` is a `grep -c`, runs `B` only when `A` succeeds. `grep` exits non-zero when it matches nothing, so a count of `0` short-circuits the chain. That is exactly the clean case the gate was written to confirm.
 
+`scripts/lint_verification_gates.py` registers Check 20 (`scripts/lint_gate_checks_commands.py`), which flags a `grep -c` chained to a second command with `&&`.
+
 > [!constraint] Run each check as its own command
 > WRONG — the second assertion never executes on the input that matters:
 > ```bash
@@ -153,7 +145,7 @@ A pre-dispatch read caught it. The PRE task was re-specified to capture three se
 > diff "$SCRATCH/baseline" <path> | grep -c '^>'          # added lines
 > diff "$SCRATCH/baseline" <path> | grep '^>' | grep -vcE '^>\s*#'   # non-comment among them
 > ```
-> The same trap fires in any gate that chains counted checks with `&&`. A zero from an early link silently retires every link after it, and the report shows only the value that did print.
+> The same trap fires in any gate that chains counted checks with `&&`.
 
 ---
 

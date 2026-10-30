@@ -34,6 +34,8 @@ blocks: []
 | `route_hint` | enum | No | `A`, `B`, or `C` — the filing author's provisional triage route (Direct Fix / Task List / Session Planning) |
 | `route_evidence` | string | No | One line: why that route, from what the author verified live at filing time |
 | `route_dated` | date | No | ISO 8601 date the route was judged. A stored route is a dated claim about the repository and rots like any other claim; the date makes that staleness visible at triage |
+| `refined` | bool | No | `true` when the item carries a chosen `## Resolution` with numbered steps, a `## Verification` recipe and no open question. Written only by `backlog-author`. Absent reads `false` |
+| `needs_plan` | bool | No | `true` marks the item as needing a planning session. The loop never triages it |
 
 The three `route_*` fields are optional: an item without them is valid and scores normally, and triage derives its route from the live files exactly as it does for any item. When present they are a **recommendation, never a binding decision** — triage runs every one of its own gates regardless, and a hint that disagrees with the live signals, or whose `route_dated` predates the item's newest evidence, is data about drift, not an override.
 
@@ -52,7 +54,7 @@ The three `route_*` fields are optional: an item without them is valid and score
 
 ## Body Structure
 
-```markdown
+````markdown
 # BB-{ID}-{Domain}: {Title}
 
 **Priority:** {High|Medium|Low}
@@ -77,6 +79,24 @@ The three `route_*` fields are optional: an item without them is valid and score
 - [ ] {Criterion 1}
 - [ ] {Criterion 2}
 
+## Resolution
+
+{Approach: 2 to 4 sentences naming the one chosen solution.}
+
+1. `{path}` -- {the edit, in one sentence}
+2. `{path}` -- {the edit}
+
+## Verification
+
+```
+{command}
+# expect: {expected output}
+```
+
+## Open Questions
+
+None.
+
 ## Related
 
 - [{Related item}]({filename}.md) - {relationship description}
@@ -84,7 +104,7 @@ The three `route_*` fields are optional: an item without them is valid and score
 ---
 
 *Created: {YYYY-MM-DD}*
-```
+````
 
 ### Evidence Lines
 
@@ -115,23 +135,48 @@ When an item's scope is understood well enough at filing time, list the files it
 
 `Role` is one of `READ` (context only), `EDIT` (modified), or `CREATE` (does not exist yet). Measure an existing file's size with `scripts/measure_files.py`; a `CREATE` row carries a flagged estimate, never a blank cell. This is a filing-time estimate, not a generated roll-up, and may be revised as scope firms up.
 
-### Loop-written sections
+### Executable shape
 
-The backlog loop writes one section into an item it skips, and never more than one:
+An item is executable when `refined: true` stands in its frontmatter. That value requires four things:
+
+- A `## Resolution` section: an approach paragraph naming the one chosen solution, then column-0 numbered steps. Each step names the file and the edit.
+- A `## Verification` section: fenced commands, each followed by an `# expect:` line.
+- No `## Open Questions` section, or one that reads `None.` or is blank. An answered `### Q` block still fails the gate (`shape gate: FAIL -- missing: ## Open Questions must be empty`). `backlog-author` folds each answer into `## Resolution` and removes the block before it sets `refined: true`.
+- No other open question anywhere in the item.
+
+An unresolved question takes this block shape inside `## Open Questions`:
 
 ```markdown
-## Loop Decision Needed
+### Q1. {question}
 
+Options: (A) {first} (B) {second}
+Recommendation: {letter}. {why, one sentence}
+Answer:
+```
+
+A question counts as answered when its `Answer:` line carries text. `backlog-author` is the only writer of `refined`. No other agent, script or person sets it. The gate that rejects the wrong shape is `score_backlog.py --route --id`. It prints `shape gate: FAIL -- missing:` followed by the absent parts, and the loop does not treat the item as refined until the gate passes.
+
+### Loop-written sections
+
+The backlog loop writes one block under `## Open Questions` into an item it skips, and never more than one per run:
+
+```markdown
+### Q{n}. Loop decision (run YYYYMMDD-HHMMSS)
 <!-- loop-decision run=YYYYMMDD-HHMMSS -->
-> [!gate] User input needed
-> Loop run YYYYMMDD-HHMMSS, YYYY-MM-DD. The loop skipped this item without working it. Answer the question below, then triage it again.
-
 Question: {one question}
 Options: (A) {first} (B) {second}
 Evidence: {at most 3 lines}
+
+Answer:
 ```
 
-`backlog_loop.py --mark --decision` is the only writer; the text is capped at 1,200 characters, and a later run replaces the section rather than adding a second. The router ignores this section when it counts headings, steps and lines, so a skip never changes the item's route.
+`backlog_loop.py --mark --decision` is the only writer; the text is capped at 1,200 characters, and `{n}` is one more than the highest `### Q` number in the section. The router reads no `## Open Questions` text when it counts headings, steps and lines, so a skip never changes the item's route. Answer with `/planwise backlog --answer {item-id}`, or write text after the `Answer:` line.
+
+A legacy `## Loop Decision Needed` section is folded by `backlog_questions.py --fold`. Its heading is:
+
+```markdown
+## Loop Decision Needed
+```
 
 ---
 
@@ -142,5 +187,5 @@ Evidence: {at most 3 lines}
 - The `status` field lives in YAML frontmatter only. The body carries no separate status line, so there is nothing to fall out of sync
 - `blocks` in YAML lists numeric IDs: `blocks: [004, 007]`
 - Bug items carry `abbrev: BUG`. The scoring bonus keys on that field (rendered as the index `Domain` column), never on the title's wording
-- Optional sections: `## Dependencies` (free-form prose only — this section does not drive blocked-ness; the machine-parsed blocking relationship is the `blocks:` frontmatter field, see Gating Mechanism above), `## Implementation Notes`, `## Constraints`, `## Files Touched` (the item's own read/edit/create surface — see Files Touched above)
+- Optional sections: `## Dependencies` (free-form prose only — this section does not drive blocked-ness; the machine-parsed blocking relationship is the `blocks:` frontmatter field, see Gating Mechanism above), `## Implementation Notes`, `## Constraints`, `## Files Touched` (the item's own read/edit/create surface — see Files Touched above), `## Resolution`, `## Verification`, `## Open Questions` (the executable shape — see Executable shape above; the scoring script excludes all three from the sub-item count)
 - Footer `*Created: {date}*` should match the YAML `created` field

@@ -1,5 +1,6 @@
 ---
 description: A diff-pinned or sweep-based criterion records the spanned-file count and the untracked count beside its own verdict, because an empty result reads the same whether the predicate inspected the work or inspected nothing (§10.6); and a verbatim-literal proof extracts from the function body only, excludes by the exact token and not a bare word, and prints the compared-set size beside the difference count (§12).
+consult-when: A criterion is fed by a pinned diff or a sweep, or a proof compares string literals — record the spanned-file and untracked counts beside the verdict (§10.6), extract from the body and print the compared-set size (§12)
 paths: {planwise_root}/{plans_dir}/**
 ---
 

@@ -1,5 +1,6 @@
 ---
 description: Four-phase batch promotion workflow (Part 2 — Draft BBs, write files, BB structure, self-containment, decomposition, constraints). Loaded by /planwise lessons promote-batch.
+consult-when: Running `/planwise lessons promote-batch` Phases 3-4 — drafting BBs, writing files, self-containment grep
 ---
 
 # Lessons Promote-Batch Workflow — Part 2 (Draft and Write)
@@ -42,11 +43,11 @@ The prohibition above governs **this session** re-reading bodies it already hold
 >
 > WRONG — dispatch, and accept the drafted item without comparing what the agent read against what Phase 1 read. This inherits §5.1's mid-run-edit risk and drops the only mechanism that would catch it.
 >
-> CORRECT — dispatch **once per bucket**, passing lesson file **paths**; require the agent to return `SOURCE_PINS` (path, line count, first and last line per file read); compare each pin against this session's Phase 1 reading before accepting the draft. A divergence means the file changed mid-run — re-read it and re-draft that item rather than shipping a draft built on a stale or moved body.
+> CORRECT — dispatch **once per bucket**, passing lesson file **paths**; require the preflight, the creation process's first agent, to return `SOURCE_PINS` (path, line count, first and last line per file read); compare each pin against this session's Phase 1 reading before accepting the draft. A divergence means the file changed mid-run — re-read it and re-draft that item rather than shipping a draft built on a stale or moved body.
 
 Part-1 §3.4's full-body read is **unchanged and still BINDING** — grouping genuinely needs it, and it precedes any dispatch. What changes is only that Phase 3's drafting may happen in a spawned context instead of this one.
 
-Dispatch [`../agents/backlog-author.md`](../agents/backlog-author.md), one instance at a time. **Never dispatch two of these agents concurrently.** The id-allocation race is the only remaining reason: `--next-id` reads the generated index files, and those change only when `generate_backlog_index.py --write` runs at the end of a dispatch, so two concurrent dispatches can read the same next-free id and file two items under it. This guard can retire once id allocation stops depending on the regenerated index. Dispatch foreground-only — a background subagent silently auto-denies its own Write/Edit/Bash calls. Under `--dry-run`, skip the dispatch entirely; do not dispatch with a no-write flag.
+Dispatch the backlog creation process ([`backlog-creation-process.md`](backlog-creation-process.md) §3) once per bucket: [`../agents/backlog-preflight.md`](../agents/backlog-preflight.md) over the bucket's lesson paths, [`../agents/backlog-planner.md`](../agents/backlog-planner.md) for the one item the bucket becomes, and [`../agents/backlog-author.md`](../agents/backlog-author.md) once, one author instance at a time. **Never dispatch two of these agents concurrently.** The id-allocation race is the only remaining reason: `--next-id` reads the generated index files, and those change only when `generate_backlog_index.py --write` runs at the end of a dispatch, so two concurrent dispatches can read the same next-free id and file two items under it. This guard can retire once id allocation stops depending on the regenerated index. Dispatch foreground-only — a background subagent silently auto-denies its own Write/Edit/Bash calls. Under `--dry-run`, skip the dispatch entirely; do not dispatch with a no-write flag.
 
 Lesson capture (§6.5) is **not** delegated: the status flip, the archive move, and the lessons-index update stay with this session, and the agent never touches a lesson file.
 
