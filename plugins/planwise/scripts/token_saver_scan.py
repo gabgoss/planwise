@@ -173,11 +173,13 @@ def parse_required_context(text: str) -> list[dict]:
 def _clean_file_cell(cell: str) -> str:
     """Strip markdown decoration and any trailing section-span suffix."""
     raw = cell.replace("`", "").replace("**", "").strip()
+    # A dash ends the path. It runs first: the section split below would
+    # strip the space after `path — §X` and leave the dash on the path.
+    raw = re.split(r"\s+—\s|\s+--\s", raw)[0]
     # A span row cites `path §X–§Y (...)`; the path ends at the first section mark.
     raw = re.split(r"\s+§", raw)[0]
     # A line-span row cites `path lines a-b`; the path ends before `lines`.
     raw = re.split(r"\s+lines?\s+\d[\d,]*\s*[-–]\s*\d", raw)[0]
-    raw = re.split(r"\s+—\s|\s+--\s", raw)[0]
     return raw.strip().strip("<>").strip()
 
 

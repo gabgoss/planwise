@@ -84,6 +84,18 @@ class TestParsing(unittest.TestCase):
             tss._clean_file_cell("`a/b.md` §3–§7 (§7 runs to EOF)"), "a/b.md"
         )
 
+    def test_clean_file_cell_strips_dash_before_section_mark(self):
+        # A dash before a section mark ends the path too; the section split
+        # alone used to leave the dash on it, so the file scanned as missing.
+        for cell in (
+            "`some/path.md` — §19.1 (slice)",
+            "`some/path.md` -- §19.1",
+            "`some/path.md` §19.1",
+            "`some/path.md` — note",
+        ):
+            with self.subTest(cell=cell):
+                self.assertEqual(tss._clean_file_cell(cell), "some/path.md")
+
     def test_purpose_cell_with_escaped_pipe_does_not_shift_columns(self):
         # A Purpose cell may legitimately name a shell pipeline inline. A
         # naive `.split("|")` there would shift the row's own trailing

@@ -188,6 +188,10 @@ Plugin root:      {value of config.yaml plugin_root, read at dispatch}
 Output directory: {output-dir-absolute-path}
 
 ## HARD CONSTRAINTS (non-negotiable)
+Execute ONLY {task-id}. Do not start any other task in the session even if the
+Recovery file lists it as PENDING. Files you may write: {explicit list from the
+task file's Output}.
+
 1. Modify ONLY files listed in this task's Required Context — no other files
 2. Do NOT read files not listed in Required Context
 3. Do NOT spawn sub-agents or create teams

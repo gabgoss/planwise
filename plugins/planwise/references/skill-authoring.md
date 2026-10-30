@@ -219,7 +219,7 @@ Research $ARGUMENTS:
 > **Path-specific rules do NOT load in forked contexts.** Only the global rules active in the parent session are visible. If a forked skill needs domain-specific rule content, embed it in SKILL.md directly.
 
 > [!practice] MCP availability in forked context
-> MCP is available to foreground-executed forked skills when a server is configured. Confirmed empirically: a `context: fork` skill loaded a configured MCP server's tool schema via `ToolSearch` and the subsequent tool call round-tripped to the MCP layer and returned a real result. Forked skills share the full CC-CLI system prompt and the same 18-tool set as a general-purpose subagent, so MCP access matches. Background-forked MCP behavior was not exercised.
+> MCP is available to foreground-executed forked skills when a server is configured. Confirmed empirically: a `context: fork` skill loaded a configured MCP server's tool schema via `ToolSearch` and the subsequent tool call round-tripped to the MCP layer and returned a real result. Forked skills share the full CC-CLI system prompt with a general-purpose subagent. `agent-orchestration.md` §1 (Runtime Contexts) gives the measured tool count of each context. Background-forked MCP behavior was not exercised.
 
 ### Forked Skill vs Subagent — Comparison
 
@@ -228,7 +228,7 @@ Research $ARGUMENTS:
 | Skill with `context: fork` | Full CC CLI prompt | SKILL.md content | Skill tool |
 | Subagent with `skills:` field | Full CC CLI prompt | Claude's delegation message | Agent tool |
 
-Both receive the full CC system prompt and identical 18-tool sets. The distinction is invocation mechanism and task content source.
+Both receive the full CC system prompt. `agent-orchestration.md` §1 (Runtime Contexts) gives the measured tool count of each. The distinction is invocation mechanism and task content source.
 
 ---
 
