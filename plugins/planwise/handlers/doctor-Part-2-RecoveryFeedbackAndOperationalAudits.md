@@ -82,8 +82,9 @@ python "{plugin_root}/scripts/init_project.py" --prune-upgrade-leftovers --proje
 
 Before invoking it, ask one `AskUserQuestion` per PRESENT prunable class
 (*inert*, *safe-to-discard* — never per file), tagged
-`<!-- AUTO-MODE: convenience -->` with an inferred default of **skip-all**
-in unattended runs (state the inference inline) — the same per-class
+`<!-- AUTO-MODE: convenience -->` whose inferred default is the "Upgrade leftover
+prune question" row of `references/auto-mode-policy.md` § Inference Defaults
+(state the inference inline) — the same per-class
 confirm contract `handlers/upgrade-Part-3-BannerAndConflictResolution.md`
 Step 4.3 uses for its own cleanup
 offer. *action-required* and *review-then-discard* findings are never
@@ -265,7 +266,8 @@ adds the hint `review them with /planwise feedback --drafts, or post one with
 When `$ARGUMENTS` contains `--create-feedback-dir`, this is another doctor
 path that mutates (alongside `--prune-stale` and `--prune-upgrade-leftovers`
 above). Ask one `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->`,
-inferred default **skip** in unattended runs): "Create the missing feedback
+the inferred default is the "Feedback directory creation question" row of
+`references/auto-mode-policy.md` § Inference Defaults): "Create the missing feedback
 directory at `{feedback_dir_path}`?" On confirm, use **Bash** to create ONLY
 that single directory (`mkdir -p {feedback_dir_path}`) — the same
 Bash-for-directory-creation scope [init.md](init.md)'s Tool Usage Rules

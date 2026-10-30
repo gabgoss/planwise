@@ -199,5 +199,12 @@ Two rules follow, and a handler must satisfy both:
 | Feedback drafts posting opt-in (upgrade.md Step 1.6) | Unchanged. `feedback.enabled` is never set by inference. Posting stays opt-in. |
 | Feedback drafts level (init.md Step 1, and every `--auto-from` init) | `notify`, the template value. No `--feedback-drafts` flag is passed. The inference is logged, and `init_project.py` prints the value it read back on its `Feedback keys:` line. |
 | Feedback drafts posting opt-in (init.md Step 1, and every `--auto-from` init) | `false`, the template value. `feedback.enabled` is never set by inference, so no `--feedback-enabled` flag is passed. Posting stays opt-in. |
+| Transfer file delete question (upgrade-Part-3 Step 4.1 case C) | Skip. A transfer file may hold the only copy of a customization, so an unattended run never deletes one. Delete only on an explicit yes. |
+| Upgrade leftover prune question (upgrade-Part-3 Step 4.3, and doctor-Part-2 Stage 14b) | Skip every class. Deleting files is never inferred, and each class is asked on its own. Nothing under an unconfirmed class is touched. |
+| Settings grant normalization question (upgrade-Part-3 Step 4.4) | Report only. Print the report and the target value, and change no settings file. Rewriting `additionalDirectories` changes the user's file-access grants. |
+| GitHub CLI install question (upgrade-Part-3 Step 4.5) | No. Install nothing. An unattended run never invokes a package manager. |
+| Task-tools env var question (upgrade-Part-3 Step 4.6) | Report only. Print the report and change no settings file. An unattended run never rewrites `env`. |
+| Thrifty-sonic env var question (upgrade-Part-3 Step 4.7) | Add the key for a file classed `missing`. Report only for a file classed `wrong value` or `invalid JSON`. Adding an absent key to `env` removes nothing and sets the value the init writer sets for every new project. Replacing a value the user set is not additive, so it needs a yes. |
+| Feedback directory creation question (doctor-Part-2 Stage 17b) | Skip. Leave the directory absent and repeat the Stage 17 remedy line. |
 
 The only questions a loop run asks after setup are Q1, Q2, Q3 (in `specific` mode) and the HALT question for an item that died mid-work.
