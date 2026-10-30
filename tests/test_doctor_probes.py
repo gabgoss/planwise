@@ -132,6 +132,103 @@ def test_stage_16_feedback_disabled_prints_the_remedy(tmp_path):
     assert "feedback.enabled:  false" in out
     assert "feedback.enabled is false — /planwise feedback drafts locally and posts nothing" in out
     assert "Upstream posting: DRAFT-ONLY" in out
+    assert "absent" not in out
+    assert "is not set" not in out
+
+
+_ABSENT_LINE = "feedback.enabled:  absent (not set, read as false)"
+_ABSENT_REMEDY = "feedback.enabled is not set — an interactive /planwise feedback run offers to enable posting"
+_DISABLED_REMEDY = "feedback.enabled is false — /planwise feedback drafts locally and posts nothing"
+
+
+def test_stage_16_absent_key_without_a_feedback_block_prints_its_own_line_and_remedy(tmp_path):
+    out = _probe_stage_16(_project(tmp_path), on_path=True)
+    assert _ABSENT_LINE in out
+    assert f"{_ABSENT_REMEDY}, or set feedback.enabled: true in config.yaml" in out
+    assert _DISABLED_REMEDY not in out
+    assert "feedback.enabled:  false" not in out
+    assert "Upstream posting: DRAFT-ONLY" in out
+
+
+def test_stage_16_absent_key_inside_a_feedback_block_prints_its_own_line_and_remedy(tmp_path):
+    out = _probe_stage_16(_project(tmp_path, drafts="quiet"), on_path=True)
+    assert _ABSENT_LINE in out
+    assert _ABSENT_REMEDY in out
+    assert _DISABLED_REMEDY not in out
+    assert "feedback.drafts:   quiet" in out
+
+
+def test_stage_16_enabled_prints_neither_remedy(tmp_path):
+    out = _probe_stage_16(_project(tmp_path, feedback=True), on_path=True)
+    assert "feedback.enabled:  true" in out
+    assert _ABSENT_REMEDY not in out
+    assert _DISABLED_REMEDY not in out
+
+
+def test_stage_16_enabled_never_reads_the_raw_config(tmp_path):
+    config = _project(tmp_path, feedback=True)
+    with mock.patch.object(dp, "_posting_state", side_effect=AssertionError("read")) as probe:
+        _probe_stage_16(config, on_path=True)
+    probe.assert_not_called()
+
+
+def test_stage_16_absent_key_never_writes_config_yaml(tmp_path):
+    config = _project(tmp_path)
+    path = Path(config["_planwise_root"]) / "config.yaml"
+    before = path.read_bytes()
+    _probe_stage_16(config, on_path=True)
+    assert path.read_bytes() == before
+
+
+def _reload_with(config, text):
+    path = Path(config["_planwise_root"]) / "config.yaml"
+    path.write_text(text, encoding="utf-8")
+    return config_loader.load_config(config_path=path)
+
+
+def test_stage_16_a_feedback_key_that_is_not_a_block_keeps_the_disabled_remedy(tmp_path):
+    config = _reload_with(_project(tmp_path), "feedback: {enabled: false}\n")
+    out = _probe_stage_16(config, on_path=True)
+    assert "feedback.enabled:  false (could not tell an absent key from a set one: " in out
+    assert "block mapping" in out
+    assert _DISABLED_REMEDY in out
+    assert _ABSENT_REMEDY not in out
+
+
+def test_stage_16_a_helper_import_failure_costs_only_the_distinction(tmp_path):
+    # doctor_probes must not import the helper at module load.
+    assert "feedback_drafts" not in vars(dp)
+    with mock.patch.dict(sys.modules, {"feedback_drafts": None}):
+        out = _probe_stage_16(_project(tmp_path), on_path=True)
+    assert "feedback.enabled:  false (could not tell an absent key from a set one: " in out
+    assert _DISABLED_REMEDY in out
+    assert "gh resolvable:     yes" in out
+
+
+def test_stage_16_a_missing_config_file_costs_only_the_distinction(tmp_path):
+    config = _project(tmp_path)
+    (Path(config["_planwise_root"]) / "config.yaml").unlink()
+    out = _probe_stage_16(config, on_path=True)
+    assert "feedback.enabled:  false (could not tell an absent key from a set one: " in out
+    assert _DISABLED_REMEDY in out
+
+
+@pytest.mark.parametrize(
+    ("text", "line"),
+    [
+        ("feedback:\n  enabled: false\n", "feedback.enabled:  false"),
+        ("feedback:\n  enabled: no\n", "feedback.enabled:  false"),
+        ("feedback:\n  enabled:\n", _ABSENT_LINE),
+        ("feedback:\n  repo: gabgoss/planwise\n", _ABSENT_LINE),
+        ("project:\n  name: Fixture\n", _ABSENT_LINE),
+    ],
+)
+def test_stage_16_line_follows_the_engine_posting_state(tmp_path, text, line):
+    config = _reload_with(_project(tmp_path), text)
+    state = fd.read_posting_state(Path(config["_planwise_root"]) / "config.yaml")
+    out = _probe_stage_16(config, on_path=True)
+    assert line in out
+    assert (state == "absent") == (_ABSENT_LINE in out)
 
 
 def _gh_fake(broken=(), hang=()):

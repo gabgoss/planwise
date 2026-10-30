@@ -16,9 +16,10 @@ The one exception is Stage 17's queued-draft count: a queued draft expires a
 fixed number of days after it was created, so a later run over the same tree
 can print a lower count.
 
-Stage 17 imports the feedback-draft helper and the `.gitignore` helper when it
-runs, not when this module loads, so a helper that fails to import costs only
-its own line: the count or the ignore-line state.
+Stage 16 and Stage 17 import the feedback-draft helper, and Stage 17 also
+imports the `.gitignore` helper, when they run, not when this module loads, so
+a helper that fails to import costs only its own line: the absent-key
+distinction, the count or the ignore-line state.
 
 Stage 16 learns every fact about `gh` from one function, `_gh_environment()`.
 That function is the only place in this module that spawns a process, so a
@@ -51,6 +52,10 @@ _GH_TIMEOUT_SECONDS = 5
 _ABSENT_GH = {"path": None, "note": "", "version": "", "authenticated": False, "timed_out": False}
 
 _REMEDY_DISABLED = "feedback.enabled is false — /planwise feedback drafts locally and posts nothing"
+_REMEDY_ABSENT = (
+    "feedback.enabled is not set — an interactive /planwise feedback run offers to enable posting, "
+    "or set feedback.enabled: true in config.yaml"
+)
 _REMEDY_NO_GH = (
     "gh not found on PATH or at a known install location — install from "
     "https://cli.github.com/, or run /planwise upgrade to be offered the install"
@@ -177,9 +182,24 @@ def _gh_environment() -> dict:
     }
 
 
+def _posting_state(config: dict) -> tuple:
+    """`(state, reason)` for `feedback.enabled`: `enabled`, `disabled` or `absent` read through the feedback
+    engine's own `posting-state` predicate, so doctor and gate 1 agree. The state is None, with the reason,
+    when the check cannot run. The loader's boolean folds an absent key into false, which is why the raw
+    config.yaml is read here."""
+    try:
+        import feedback_drafts
+
+        return feedback_drafts.read_posting_state(Path(config["_planwise_root"]) / "config.yaml"), ""
+    except Exception as exc:  # noqa: BLE001 -- a failed read costs only the distinction, never the stage
+        return None, str(exc) or exc.__class__.__name__
+
+
 def _stage_16(config: dict) -> None:
     feedback = config_loader.get_feedback_config(config)
     enabled, drafts = feedback["enabled"], feedback["drafts"]
+    state, state_reason = (None, "") if enabled else _posting_state(config)
+    absent = state == "absent"
     env = _gh_environment()
     path, authenticated = env["path"], env["authenticated"]
     timed_out = env.get("timed_out", False)
@@ -191,12 +211,21 @@ def _stage_16(config: dict) -> None:
         where = "on PATH" if not env["note"] else f"at {path}"
         resolvable = f"yes — {where}  {env['version']}".rstrip()
         auth = "unknown — gh did not answer" if timed_out else ("yes" if authenticated else "no")
-    print(f"  feedback.enabled:  {'true' if enabled else 'false'}")
+    if enabled:
+        print("  feedback.enabled:  true")
+    elif absent:
+        print("  feedback.enabled:  absent (not set, read as false)")
+    elif state is None:
+        print(f"  feedback.enabled:  false (could not tell an absent key from a set one: {state_reason})")
+    else:
+        print("  feedback.enabled:  false")
     print(f"  feedback.drafts:   {drafts}")
     print(f"  gh resolvable:     {resolvable}")
     print(f"  gh authenticated:  {auth}")
     remedies = []
-    if not enabled:
+    if absent:
+        remedies.append(_REMEDY_ABSENT)
+    elif not enabled:
         remedies.append(_REMEDY_DISABLED)
     if path is None and not timed_out:
         remedies.append(_REMEDY_NO_GH)

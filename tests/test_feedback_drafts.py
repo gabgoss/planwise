@@ -718,6 +718,35 @@ def test_posting_state_refuses_a_feedback_key_that_is_not_a_block(tmp_path, caps
     assert config.read_bytes() == original
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        b"feedback:\n  enabled: true\n",
+        b"feedback:\n  enabled: false\n",
+        b"feedback:\n  repo: gabgoss/planwise\n",
+        b"feedback:\n  enabled:\n",
+        b"project:\n  name: demo\n",
+        b"",
+    ],
+)
+def test_read_posting_state_returns_the_word_the_command_prints(tmp_path, capsys, text):
+    config = tmp_path / "config.yaml"
+    config.write_bytes(text)
+    code, out, _err = run(["posting-state", "--config", str(config)], capsys)
+    assert code == 0
+    assert fd.read_posting_state(config) == out.strip()
+    assert config.read_bytes() == text
+
+
+def test_read_posting_state_raises_instead_of_guessing(tmp_path):
+    block = tmp_path / "config.yaml"
+    block.write_bytes(b"feedback: {enabled: true}\n")
+    with pytest.raises(ValueError, match="block mapping"):
+        fd.read_posting_state(block)
+    with pytest.raises(OSError):
+        fd.read_posting_state(tmp_path / "none.yaml")
+
+
 # ---------------------------------------------------------------- disable-drafts
 
 

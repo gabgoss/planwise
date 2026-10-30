@@ -245,7 +245,7 @@ probe). Pass it through verbatim. The script evaluates gates 1, 3 and 4 as
 The stage is advisory: draft-only is a supported configuration, not a fault.
 To install the GitHub CLI, the user runs `/planwise init` or `/planwise
 upgrade`. Doctor never installs it. The script also prints a `feedback.drafts:`
-line beside `feedback.enabled:`, with the value `notify`, `quiet` or `off`.
+line beside `feedback.enabled:`, with the value `notify`, `quiet` or `off`. The `feedback.enabled:` line reads `true`, `false` or `absent`: `absent` means config.yaml never sets the key, and it gets its own remedy row, "feedback.enabled is not set". An explicit `false` keeps the "feedback.enabled is false" row. The script reads the key through the feedback engine's `posting-state` predicate, so doctor and gate 1 agree. When that read fails, the line stays `false` and names the reason.
 
 ---
 

@@ -755,13 +755,23 @@ def _posting_state_text(text: str) -> str:
     return "absent" if old == "unset" else "disabled"
 
 
+def read_posting_state(config_path: Path) -> str:
+    """Return `enabled`, `disabled` or `absent` for the config file at `config_path`, writing nothing.
+
+    The one read behind the `posting-state` command, so a caller that reports the state (doctor) and the
+    engine's gate 1 share one predicate. Raises ValueError when the `feedback` key is not a block mapping
+    and OSError when the file cannot be read.
+    """
+    return _posting_state_text(_read(Path(config_path)))
+
+
 def cmd_posting_state(args: argparse.Namespace) -> int:
     config = Path(args.config)
     if not config.is_file():
         print(f"feedback_drafts: config.yaml not found at {config}", file=sys.stderr)
         return 1
     try:
-        state = _posting_state_text(_read(config))
+        state = read_posting_state(config)
     except ValueError as exc:
         print(f"feedback_drafts: {exc}", file=sys.stderr)
         return 1
