@@ -40,7 +40,8 @@ FEEDBACK_DRAFTS_QUESTION = (
 )
 FEEDBACK_ENABLED_QUESTION = (
     "Enable upstream posting (`feedback.enabled: true`)? Posting still needs `gh` installed and "
-    "authenticated, and every post asks you first. (Yes / No — keep drafts local, recommended)"
+    'authenticated, and every post asks you first. Options: "Yes (Recommended)" — set '
+    'feedback.enabled: true | "No" — keep drafts local'
 )
 COMPARATOR_LINE = ("Comparator verdicts: {returned}/{diverged} (late: {n} resumed, {m} recorded after the writer "
                    "ran; failed: {k} — inline primitive used)")

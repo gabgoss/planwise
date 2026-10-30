@@ -295,6 +295,20 @@ def test_feedback_questions_only_when_drafts_key_absent(tmp_path, capsys):
     assert "--feedback-drafts" not in run_line(card)  # the model adds the flags from the answers
 
 
+def test_feedback_posting_question_recommends_yes():
+    question = upgrade_preflight.FEEDBACK_ENABLED_QUESTION
+    assert '"Yes (Recommended)"' in question and '"No"' in question
+    assert question.index('"Yes (Recommended)"') < question.index('"No"')
+    assert "recommended" not in question.replace("(Recommended)", "")
+
+
+@pytest.mark.parametrize("handler", ["upgrade.md", "init.md"])
+def test_feedback_posting_question_handlers_carry_the_constant_verbatim(handler):
+    text = (Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "handlers" / handler).read_text(
+        encoding="utf-8")
+    assert upgrade_preflight.FEEDBACK_ENABLED_QUESTION in text
+
+
 def test_feedback_questions_merge_under_the_question_limit(tmp_path, capsys):
     root = ucp.make_project(tmp_path, name="merged", diverged=(), question=True)
     ucp.edit_config(root, *DROP_DRAFTS)

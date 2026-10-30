@@ -157,7 +157,7 @@ Use `AskUserQuestion` with two questions in one call:
 
 > "Claude may now save local feedback drafts while planwise runs. Nothing is posted without `/planwise feedback --drafts` and your approval. How loud should drafting be? (notify — one line per draft, recommended / quiet — write silently / off — never draft)"
 >
-> "Enable upstream posting (`feedback.enabled: true`)? Posting still needs `gh` installed and authenticated, and every post asks you first. (Yes / No — keep drafts local, recommended)"
+> "Enable upstream posting (`feedback.enabled: true`)? Posting still needs `gh` installed and authenticated, and every post asks you first. Options: "Yes (Recommended)" — set feedback.enabled: true | "No" — keep drafts local"
 
 Map the answers to flags: `notify`, `quiet` or `off` becomes `--feedback-drafts {value}`. `Yes` becomes `--feedback-enabled`. `No` adds no flag. In Auto Mode, ask nothing, pass neither flag, and log `Auto-Mode inference: feedback.drafts=notify, feedback.enabled=unchanged (reason: Inference Defaults rows)`.
 
