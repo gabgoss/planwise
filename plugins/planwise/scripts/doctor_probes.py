@@ -16,8 +16,9 @@ The one exception is Stage 17's queued-draft count: a queued draft expires a
 fixed number of days after it was created, so a later run over the same tree
 can print a lower count.
 
-Stage 17 imports the feedback-draft helper when it runs, not when this module
-loads, so a helper that fails to import costs only that one count.
+Stage 17 imports the feedback-draft helper and the `.gitignore` helper when it
+runs, not when this module loads, so a helper that fails to import costs only
+its own line: the count or the ignore-line state.
 
 Stage 16 learns every fact about `gh` from one function, `_gh_environment()`.
 That function is the only place in this module that spawns a process, so a
@@ -58,6 +59,16 @@ _REMEDY_NO_AUTH = "gh is installed but not authenticated — run: gh auth login"
 _QUEUED_LABEL = "model drafts queued:"
 _REMEDY_QUEUED = (
     "review them with /planwise feedback --drafts, or post one with /planwise feedback --post <draftId>"
+)
+_IGNORE_LABEL = "model-draft .gitignore line:"
+_IGNORE_STATES = {
+    "present": "present",
+    "absent": "absent",
+    "negated": "opted out — the line is negated with !",
+}
+_NOTE_POSTING_OFF = (
+    "Posting is off (feedback.enabled is false). Choosing Review and post sets it to true in "
+    "config.yaml before the post steps."
 )
 _REMEDY_TIMEOUT = (
     f"gh did not answer within {_GH_TIMEOUT_SECONDS} s, so the posting gate is unproven — re-run /planwise doctor"
@@ -220,6 +231,23 @@ def _queued_model_drafts(feedback_dir: Path) -> int:
     return feedback_drafts.count_queued(feedback_dir)
 
 
+def _draft_ignore_check(config: dict) -> tuple:
+    """The model-draft ignore line's state in the project `.gitignore`, as
+    `(state, line, gitignore_path)`. Read-only: `gitignore_entry.read_state`
+    shares its predicate with the writer that init and upgrade call, so doctor
+    and those two agree on what counts as present. The helper is imported
+    here, not at module load, so one that fails to import costs only this line."""
+    import gitignore_entry
+
+    planwise_root, project_root = Path(config["_planwise_root"]), Path(config["_project_root"])
+    line = gitignore_entry.model_draft_line(
+        planwise_root.relative_to(project_root).as_posix(),
+        Path(config["_feedback_dir"]).relative_to(planwise_root).as_posix(),
+    )
+    path = project_root / ".gitignore"
+    return gitignore_entry.read_state(path, line), line, path
+
+
 def _stage_17(config: dict) -> None:
     feedback_dir = Path(config["_feedback_dir"])
     exists = feedback_dir.is_dir()
@@ -229,18 +257,32 @@ def _stage_17(config: dict) -> None:
             queued = _queued_model_drafts(feedback_dir)
         except Exception as exc:  # noqa: BLE001 -- a failed count must not hide the presence lines
             count_failure = f" (the count failed: {exc})"
+    ignore, ignore_failure = None, ""
+    try:
+        ignore = _draft_ignore_check(config)
+    except Exception as exc:  # noqa: BLE001 -- a failed check must not hide the presence lines
+        ignore_failure = f" (the check failed: {exc})"
     print(f"  feedback directory:  {feedback_dir.as_posix()}")
     print(f"  exists:               {'yes' if exists else 'no'}")
     print(f"  {_QUEUED_LABEL} {'not checked' + count_failure if queued is None else queued}")
+    print(f"  {_IGNORE_LABEL} {_IGNORE_STATES[ignore[0]] if ignore else 'not checked' + ignore_failure}")
     print()
     if exists:
         print(f"Feedback directory: {feedback_dir.as_posix()} — present.")
         if queued:
             print(f"  {_REMEDY_QUEUED}")
-        return
-    print("  ! feedback directory is absent — the first draft written there will fail.")
-    print("      action: create it with /planwise doctor --create-feedback-dir,")
-    print("              or run /planwise init / /planwise upgrade (both create it)")
+            if not config_loader.get_feedback_config(config)["enabled"]:
+                print(f"  {_NOTE_POSTING_OFF}")
+    else:
+        print("  ! feedback directory is absent — the first draft written there will fail.")
+        print("      action: create it with /planwise doctor --create-feedback-dir,")
+        print("              or run /planwise init / /planwise upgrade (both create it)")
+    if ignore and ignore[0] == "absent":
+        print()
+        print("  ! .gitignore has no model-draft ignore line — queued model drafts can be committed.")
+        print("      action: run /planwise init or /planwise upgrade (both add it),")
+        print(f"              or add this line to {ignore[2].as_posix()}:")
+        print(f"              {ignore[1]}")
 
 
 # --------------------------------------------------------------------------
@@ -431,7 +473,12 @@ def run_probes(cfg) -> None:
     config, reason = _load_project_config(cfg)
     probes = (
         ("Feedback capability probe", _FEEDBACK_BANNER, _stage_16, ()),
-        ("Feedback directory presence check", _FEEDBACK_DIR_BANNER, _stage_17, (f"  {_QUEUED_LABEL} not checked",)),
+        (
+            "Feedback directory presence check",
+            _FEEDBACK_DIR_BANNER,
+            _stage_17,
+            (f"  {_QUEUED_LABEL} not checked", f"  {_IGNORE_LABEL} not checked"),
+        ),
         ("Capture self-containment scan", None, _step_7, ()),
         ("Bookkeeping index read-gate scan", _READ_GATE_BANNER, _step_8, ()),
     )

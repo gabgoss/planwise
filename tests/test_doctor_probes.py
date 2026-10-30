@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 import config_loader
 import doctor_probes as dp
 import feedback_drafts as fd
+import gitignore_entry as ge
 import init_project as ip
 
 WARN_BYTES = 60_000  # past the 22,000-token warn line, under the 25,000-token page cap
@@ -248,11 +249,11 @@ def _write_draft(directory, name, *, status="queued", drafted_by="model", age_da
     (directory / name).write_text(text, encoding="utf-8")
 
 
-def _queue_fixture(tmp_path, queued):
+def _queue_fixture(tmp_path, queued, *, feedback=None):
     """A feedback directory holding `queued` queued model drafts plus four
     files that must not count: a hand-written draft, a discarded model draft,
     a non-matching name and an expired-by-age model draft."""
-    config = _project(tmp_path)
+    config = _project(tmp_path, feedback=feedback)
     directory = Path(config["_feedback_dir"])
     directory.mkdir()
     for index in range(queued):
@@ -296,6 +297,7 @@ def test_stage_17_unreadable_config_is_not_checked(tmp_path):
     out = buf.getvalue()
     assert "model drafts queued: not checked" in out
     assert out.count("model drafts queued:") == 1  # only the Stage 17 row carries the line
+    assert "model-draft .gitignore line: not checked" in out
     assert "feedback --post" not in out
 
 
@@ -352,6 +354,164 @@ def test_stage_17_count_matches_the_helper_list_at_the_expiry_boundary(tmp_path)
     listed = [item for item in json.loads(buf.getvalue()) if item["status"] == "queued"]
     assert [item["path"] for item in listed] == ["2026-01-01-draft-bug-at-limit.md"]
     assert f"model drafts queued: {len(listed)}" in out
+
+
+# --- Stage 17: the model-draft .gitignore line -------------------------------
+
+_IGNORE_ROW = "model-draft .gitignore line:"
+_IGNORE_REMEDY = "! .gitignore has no model-draft ignore line"
+
+
+def _gitignore(config):
+    return Path(config["_project_root"]) / ".gitignore"
+
+
+def _expected_ignore_line(config):
+    """The line init writes, built from the fixture's own layout: the project
+    root holds `planwise/`, and the feedback directory sits inside it."""
+    return ge.model_draft_line("planwise", Path(config["_feedback_dir"]).name)
+
+
+def test_stage_17_reports_an_absent_ignore_line_and_names_the_fix(tmp_path):
+    config = _project(tmp_path)
+    out = _run(dp._stage_17, config)
+    assert f"{_IGNORE_ROW} absent" in out
+    assert _IGNORE_REMEDY in out
+    assert "/planwise init or /planwise upgrade (both add it)" in out
+    assert _expected_ignore_line(config) in out
+
+
+def test_stage_17_reports_a_present_ignore_line_without_a_remedy(tmp_path):
+    config = _project(tmp_path)
+    _gitignore(config).write_bytes(b"dist/\r\n" + _expected_ignore_line(config).encode() + b"  \r\n")
+    out = _run(dp._stage_17, config)
+    assert f"{_IGNORE_ROW} present" in out
+    assert _IGNORE_REMEDY not in out
+
+
+def test_stage_17_reports_a_negated_ignore_line_as_an_opt_out(tmp_path):
+    config = _project(tmp_path)
+    _gitignore(config).write_bytes(b"!" + _expected_ignore_line(config).encode() + b"\n")
+    out = _run(dp._stage_17, config)
+    assert f"{_IGNORE_ROW} opted out" in out
+    assert _IGNORE_REMEDY not in out
+
+
+def test_stage_17_ignore_check_never_writes(tmp_path):
+    config = _project(tmp_path)
+    project_root = Path(config["_project_root"])
+    before = _tree_bytes(project_root)
+    _run(dp._stage_17, config)
+    assert not _gitignore(config).exists()  # a missing file stays missing
+    assert _tree_bytes(project_root) == before
+    original = b"dist/\n*.log"  # no trailing newline: a writer would append one
+    _gitignore(config).write_bytes(original)
+    _run(dp._stage_17, config)
+    assert _gitignore(config).read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"",
+        b"dist/\n",
+        b"{line}\n",
+        b"{line}  \r\n",
+        b"!{line}\n",
+        b"{line}\n!{line}\n",
+        b"!{line}\n{line}\n",
+        b"{line}-extra\n",
+        b"# {line}\n",
+    ],
+)
+def test_stage_17_and_the_writer_agree_on_what_counts_as_present(tmp_path, content):
+    config = _project(tmp_path)
+    line = _expected_ignore_line(config)
+    data = content.replace(b"{line}", line.encode())
+    _gitignore(config).write_bytes(data)
+    out = _run(dp._stage_17, config)
+    twin = tmp_path / "twin.gitignore"
+    twin.write_bytes(data)
+    would_write = ge.ensure_line(twin, line)
+    assert (f"{_IGNORE_ROW} absent" in out) == would_write
+    assert (_IGNORE_REMEDY in out) == would_write
+
+
+def test_stage_17_an_unreadable_gitignore_keeps_the_other_lines(tmp_path):
+    config = _queue_fixture(tmp_path, 2)
+    _gitignore(config).mkdir()  # reading a directory as a file raises
+    out = _run(dp._stage_17, config)
+    assert f"{_IGNORE_ROW} not checked (the check failed:" in out
+    assert _IGNORE_REMEDY not in out
+    assert "exists:               yes" in out
+    assert "model drafts queued: 2" in out
+
+
+def test_stage_17_a_gitignore_helper_import_failure_stays_inside_stage_17(tmp_path):
+    # doctor_probes must not import the helper at module load.
+    assert "gitignore_entry" not in vars(dp)
+    config = _queue_fixture(tmp_path, 1)
+    with mock.patch.dict(sys.modules, {"gitignore_entry": None}):
+        out = _run(dp._stage_17, config)
+    assert f"{_IGNORE_ROW} not checked (the check failed:" in out
+    assert "model drafts queued: 1" in out
+
+
+def test_stage_17_an_inexpressible_feedback_dir_is_not_checked(tmp_path):
+    config = _project(tmp_path)
+    config["_feedback_dir"] = Path(config["_planwise_root"]) / "Feed[back]"  # a glob character
+    out = _run(dp._stage_17, config)
+    assert f"{_IGNORE_ROW} not checked (the check failed:" in out
+    assert _IGNORE_REMEDY not in out
+
+
+# --- Stage 17: the posting-off note ------------------------------------------
+
+_POSTING_OFF = "Posting is off (feedback.enabled is false)"
+
+
+def test_stage_17_prints_the_posting_off_note_when_drafts_queue_and_posting_is_off(tmp_path):
+    out = _run(dp._stage_17, _queue_fixture(tmp_path, 3, feedback=False))
+    assert _REMEDY_HINT in out
+    assert _POSTING_OFF in out
+    assert "Choosing Review and post sets it to true in config.yaml" in out
+
+
+def test_stage_17_prints_the_posting_off_note_when_the_key_is_absent(tmp_path):
+    # An absent key reads as false, the loader's default.
+    assert _POSTING_OFF in _run(dp._stage_17, _queue_fixture(tmp_path, 1))
+
+
+def test_stage_17_omits_the_posting_off_note_when_posting_is_on(tmp_path):
+    out = _run(dp._stage_17, _queue_fixture(tmp_path, 3, feedback=True))
+    assert _REMEDY_HINT in out
+    assert _POSTING_OFF not in out
+
+
+def test_stage_17_omits_the_posting_off_note_when_nothing_is_queued(tmp_path):
+    out = _run(dp._stage_17, _queue_fixture(tmp_path, 0, feedback=False))
+    assert "model drafts queued: 0" in out
+    assert _POSTING_OFF not in out
+
+
+def test_stage_17_omits_the_posting_off_note_when_the_count_failed(tmp_path):
+    config = _queue_fixture(tmp_path, 1, feedback=False)
+    with mock.patch.object(fd, "count_queued", side_effect=OSError("draft unreadable")):
+        out = _run(dp._stage_17, config)
+    assert _POSTING_OFF not in out
+
+
+def test_stage_17_omits_the_posting_off_note_when_the_directory_is_absent(tmp_path):
+    out = _run(dp._stage_17, _project(tmp_path, feedback=False))
+    assert _POSTING_OFF not in out
+
+
+def test_stage_17_posting_off_note_does_not_write(tmp_path):
+    config = _queue_fixture(tmp_path, 2, feedback=False)
+    config_file = Path(config["_planwise_root"]) / "config.yaml"
+    before = config_file.read_bytes()
+    _run(dp._stage_17, config)
+    assert config_file.read_bytes() == before  # the note describes the change and makes none
 
 
 # --- Step 7 -----------------------------------------------------------------

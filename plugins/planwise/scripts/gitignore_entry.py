@@ -59,6 +59,36 @@ def _dominant_eol(data: bytes) -> bytes:
     return b"\r\n" if crlf > bare_lf else b"\n"
 
 
+def line_state(data: bytes, line: str) -> str:
+    """Classify `data` against `line` as "present", "negated" or "absent".
+
+    The one predicate behind `ensure_line` and the read-only `read_state`, so
+    the writer and any checker agree on what counts as present. A line matches
+    ignoring trailing whitespace. When the data holds both the line and its
+    `!<line>` negation, the later one decides, as it does in git.
+    """
+    wanted = line.rstrip().encode("utf-8")
+    negated = b"!" + wanted
+    state = "absent"
+    for existing in data.split(b"\n"):
+        stripped = existing.rstrip()
+        if stripped == wanted:
+            state = "present"
+        elif stripped == negated:
+            state = "negated"
+    return state
+
+
+def read_state(gitignore_path: Path, line: str) -> str:
+    """Return `line_state` for the file at `gitignore_path` and write nothing.
+
+    A missing file reads as "absent", the state `ensure_line` would create it from.
+    """
+    if not gitignore_path.exists():
+        return "absent"
+    return line_state(gitignore_path.read_bytes(), line)
+
+
 def ensure_line(gitignore_path: Path, line: str) -> bool:
     """Make sure `line` is present in the file at `gitignore_path`.
 
@@ -73,11 +103,8 @@ def ensure_line(gitignore_path: Path, line: str) -> bool:
         return True
 
     data = gitignore_path.read_bytes()
-    negated = b"!" + wanted
-    for existing in data.split(b"\n"):
-        stripped = existing.rstrip()
-        if stripped == wanted or stripped == negated:
-            return False
+    if line_state(data, line) != "absent":
+        return False
 
     eol = _dominant_eol(data)
     prefix = b"" if (not data or data.endswith(b"\n")) else eol

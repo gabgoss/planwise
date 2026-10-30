@@ -259,7 +259,7 @@ user opts in with the separate writer `/planwise doctor --create-feedback-dir`
 read-only `model drafts queued: {n}` line, or `model drafts queued: not checked`
 when the directory is absent, the config cannot be read, or the count fails (it then names the reason). When `n` is above 0 it
 adds the hint `review them with /planwise feedback --drafts, or post one with
-/planwise feedback --post <draftId>`.
+/planwise feedback --post <draftId>`. When `n` is above 0 and `feedback.enabled` is false, it adds a posting-off note: Choosing Review and post sets the key to true in `config.yaml` first. It also prints a read-only `model-draft .gitignore line:` row: `present`, `absent`, `opted out` (the line is negated) or `not checked` with the reason. On `absent`, the remedy is `/planwise init`, `/planwise upgrade` or the printed line added by hand. Doctor never edits `.gitignore`.
 
 ### Stage 17b: `--create-feedback-dir` (opt-in writer)
 
