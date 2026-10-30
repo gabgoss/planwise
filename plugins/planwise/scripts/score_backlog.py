@@ -555,6 +555,16 @@ _BEFORE_AFTER_RE = re.compile(
     r"|\breplace\b[^\n]{0,120}\bwith\b",
     re.IGNORECASE,
 )
+# -- a symbol named in prose: a backticked function call (`name()`), a snake_case
+#    name, a CamelCase name or an UPPER_SNAKE constant. A file name carries a dot
+#    and never matches. It reads the body with fenced blocks blanked, so the code
+#    quoted in a fence does not name itself.
+_NAMED_SYMBOL_RE = re.compile(
+    r"`(?:_*[A-Za-z][A-Za-z0-9_]*\(\)"
+    r"|_*[a-z][a-z0-9]*(?:_[a-z0-9]+)+"
+    r"|_*[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+"
+    r"|[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+)`"
+)
 # -- an imperative amend verb opening a sentence or list item ("Amend the two
 #    sentences ..."), followed within 240 characters, and not past a heading,
 #    by the new text in double quotes (12+ characters). A line anchor does not
@@ -764,6 +774,7 @@ def judgment_routes(
     is_short: bool,
     clear_fix_evidence: bool,
     *,
+    clear_fix_candidate: bool = False,
     refined: bool = False,
     shape_ok: bool = False,
     needs_plan: bool = False,
@@ -772,32 +783,42 @@ def judgment_routes(
 
     Three signals are candidates the script reports and a reader classifies:
     `IS_ARCHITECTURAL` and `HAS_MULTI_SPRINT` (each a keyword hit that may
-    quote a name or a table), and the sufficiency half of `HAS_CLEAR_FIX`
-    (the evidence shapes are present, but whether they are enough is the
-    reader's call). Each can be judged absent only when the script found it
-    present. A short file's `HAS_CLEAR_FIX` is a line count, so it is
+    quote a name or a table), and `HAS_CLEAR_FIX`. The first two can be
+    judged absent only when the script found them present.
+
+    `HAS_CLEAR_FIX` is judged in either direction. When the script found
+    its evidence shapes present, the reader decides whether they are enough
+    and may judge the signal absent. When the script found them absent
+    (`clear_fix_candidate`: the item quotes the current code in a fence and
+    names a symbol, so the fix may be exact in prose the patterns do not
+    read), the reader may judge the signal present, and the set can reach
+    route A. That second class is reported as `HAS_CLEAR_FIX (judged
+    present)`. A short file's `HAS_CLEAR_FIX` is a line count, so it is
     mechanical. The returned set holds the route of every combination of
     those judgments, the script's own route included. The signals that no
     reader judgment can move (abbrev, line count, file count, sub-item
     count, step count) are held fixed, and so are `refined`, `shape_ok`
     and `needs_plan`, which every combination passes to `decide_route`.
     """
+    judged_absent = has_clear_fix and clear_fix_evidence and not is_short
+    judged_present = clear_fix_candidate and not has_clear_fix
     adjustable = [
         name
         for name, present in (
             ("IS_ARCHITECTURAL", is_architectural),
             ("HAS_MULTI_SPRINT", has_multi_sprint),
-            ("HAS_CLEAR_FIX", has_clear_fix and clear_fix_evidence and not is_short),
+            ("HAS_CLEAR_FIX", judged_absent),
+            ("HAS_CLEAR_FIX (judged present)", judged_present),
         )
         if present
     ]
     routes: set[str] = set()
     for mask in range(1 << len(adjustable)):
-        rejected = {name for i, name in enumerate(adjustable) if mask & (1 << i)}
+        flipped = {name for i, name in enumerate(adjustable) if mask & (1 << i)}
         route, _large, _branch = decide_route(
-            has_clear_fix and "HAS_CLEAR_FIX" not in rejected,
-            is_architectural and "IS_ARCHITECTURAL" not in rejected,
-            has_multi_sprint and "HAS_MULTI_SPRINT" not in rejected,
+            has_clear_fix != bool(flipped & {"HAS_CLEAR_FIX", "HAS_CLEAR_FIX (judged present)"}),
+            is_architectural and "IS_ARCHITECTURAL" not in flipped,
+            has_multi_sprint and "HAS_MULTI_SPRINT" not in flipped,
             sub_items,
             step_count,
             refined=refined,
@@ -978,6 +999,12 @@ def compute_route_signals(item: dict, frontmatter: dict, config: dict | None = N
         and clear_fix["scope_bound"]
     )
     has_clear_fix = is_short or clear_fix["evidence_present"]
+    # The fix may be exact in prose the patterns do not read: the item quotes
+    # the current code in a fence and names a symbol. The script reports it as
+    # a candidate and leaves the call to the reader. It never moves the route.
+    clear_fix_candidate = (
+        not has_clear_fix and structural != body and bool(_NAMED_SYMBOL_RE.search(structural))
+    )
 
     route, large_scope, branch = decide_route(
         has_clear_fix, is_architectural, has_multi_sprint, sub_items, step_count, **route_flags
@@ -988,7 +1015,8 @@ def compute_route_signals(item: dict, frontmatter: dict, config: dict | None = N
         _latest_evidence_date(body),
         judgment_routes(
             has_clear_fix, is_architectural, has_multi_sprint, sub_items, step_count,
-            is_short, clear_fix["evidence_present"], **route_flags,
+            is_short, clear_fix["evidence_present"],
+            clear_fix_candidate=clear_fix_candidate, **route_flags,
         ),
     )
 
@@ -1018,6 +1046,7 @@ def compute_route_signals(item: dict, frontmatter: dict, config: dict | None = N
         "has_multiple_files": file_count >= 2,
         "clear_fix": clear_fix,
         "has_clear_fix": has_clear_fix,
+        "clear_fix_candidate": clear_fix_candidate,
         "has_clear_fix_note": (
             "mechanical half only: a short file, or an edit location (line anchor, "
             "exact edit string, or whole-file copy) + a before/after + a scope bound "
@@ -1116,6 +1145,12 @@ def _format_shape(shape: dict) -> list[str]:
     ]
 
 
+CLEAR_FIX_CANDIDATE_NOTE = (
+    "    candidate: the item quotes the current code in a fence and names a symbol; "
+    "a reader may judge the fix present"
+)
+
+
 def format_route_detail(signals: dict, score: int) -> str:
     """The full signal vector for one item (`--route --id N`)."""
     yes_no = lambda flag: "yes" if flag else "no"
@@ -1139,6 +1174,7 @@ def format_route_detail(signals: dict, score: int) -> str:
          f"edit_target={yes_no(signals['clear_fix']['edit_target'])} "
          f"before_after={yes_no(signals['clear_fix']['before_after'])} "
          f"scope_bound={yes_no(signals['clear_fix']['scope_bound'])}"),
+        *([CLEAR_FIX_CANDIDATE_NOTE] if signals.get("clear_fix_candidate") else []),
         f"  HAS_MULTI_SPRINT:  {yes_no(signals['has_multi_sprint'])}  ({len(signals['multi_sprint_hits'])} hit(s))",
     ]
     lines.extend(f"    L{h['line']} [{h['term']}] {h['text']}" for h in signals["multi_sprint_hits"])
