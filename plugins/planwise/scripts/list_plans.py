@@ -178,7 +178,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--active", action="store_true", help="Show only the six active-status plans.")
     parser.add_argument("--no-check", action="store_true", help="Skip the drift banner.")
     try:
-        args, _ = parser.parse_known_args(argv)
+        args = parser.parse_args(argv)
         lines = _build(args)
     except (Exception, SystemExit) as exc:  # noqa: BLE001 - one marker line and exit 0; SystemExit covers argparse errors
         lines = [f"{MARKER} {type(exc).__name__}: {exc}"]

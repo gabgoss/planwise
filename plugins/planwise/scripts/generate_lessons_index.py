@@ -585,7 +585,7 @@ def main() -> int:
         "The existing --dry-run/--check/--write/--json/--replace-legacy "
         "flags apply to it exactly as they do to the index.",
     )
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args()
 
     config = load_config(Path(__file__))
     lessons_dir = config["_lessons_dir"]

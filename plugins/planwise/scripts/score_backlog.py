@@ -1239,7 +1239,7 @@ def main():
     parser.add_argument("--config", type=str, default=None,
                         help="Path to config.yaml; overrides default config search and scoring thresholds.")
 
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args()
 
     if args.json and not args.route:
         print("Error: --json is only meaningful with --route.", file=sys.stderr)

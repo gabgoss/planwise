@@ -405,9 +405,9 @@ def main() -> int:
         action="store_true",
         help="Additionally write a JSON temp file and print its path.",
     )
-    # `--config` is declared for `--help` and so an explicit `--config <path>` does not
-    # trip `parse_known_args`; `load_config` reads it back out of `sys.argv` itself.
-    args, _ = parser.parse_known_args()
+    # `--config` is declared so `parse_args` accepts it; `load_config` reads it back out
+    # of `sys.argv` itself.
+    args = parser.parse_args()
 
     config = load_config(Path(__file__))
     index_path = plans_index_path(config)

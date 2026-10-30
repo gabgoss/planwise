@@ -661,6 +661,7 @@ def _run_body_status_cli() -> None:
         format_report=_format_body_status_report,
         json_prefix="reconcile-backlog-body-status-",
         write_message=lambda n: f"Stripped {n} body status line(s).",
+        mode_flags=("--body-status",),
     )
 
     # Same reasoning as the archival failure check in main(): the shared
@@ -698,10 +699,10 @@ def main():
     _last_body_status_failures = []
 
     # Mode switch, pre-parsed on its own so the shared scaffold stays
-    # unchanged. `allow_abbrev=False`: only the exact flag selects the mode,
-    # so an abbreviation that used to be ignored still is. A form the
-    # pre-parser rejects (such as `--body-status=1`) never exits here: it
-    # falls through to the default mode, which ignores it as it always has.
+    # unchanged. `allow_abbrev=False`: only the exact flag selects the mode.
+    # A form the pre-parser rejects (such as `--body-status=1`) never exits
+    # here: it falls through to the default mode, whose main parse then
+    # refuses it as an unrecognized argument.
     mode_parser = _TolerantModeParser(add_help=False, allow_abbrev=False)
     mode_parser.add_argument("--body-status", action="store_true")
     try:

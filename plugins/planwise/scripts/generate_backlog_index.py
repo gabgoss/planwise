@@ -560,7 +560,7 @@ def main() -> int:
             "--check or the default report mode."
         ),
     )
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args()
 
     config = load_config(Path(__file__))
     backlog_dir = config["_backlog_dir"]

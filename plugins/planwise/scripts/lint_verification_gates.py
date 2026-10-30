@@ -1983,7 +1983,7 @@ def _run_cli() -> None:
         action="store_true",
         help="Disable the read-only executor; only the static checks run",
     )
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args()
 
     plan_root = Path(args.plan_root)
     if not plan_root.exists():

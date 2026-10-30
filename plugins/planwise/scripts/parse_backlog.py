@@ -598,6 +598,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Parse the backlog index and output filtered items."
     )
+    parser.add_argument("--config", type=str, default=None, help="Path to config.yaml; overrides default config search.")
     parser.add_argument("--status", help="Filter by status (e.g., NOT_STARTED, IN_PROGRESS)")
     parser.add_argument("--priority", help="Filter by priority (e.g., High, Medium, Low)")
     parser.add_argument("--abbrev", help="Filter by abbreviation")
@@ -607,7 +608,7 @@ def main():
     parser.add_argument("--sort", choices=["score", "id"], default="score", help="Sort order (default: score descending)")
     parser.add_argument("--next-id", action="store_true", help="Print the next available BLI ID (NNN form, zero-padded) and exit.")
 
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args()
 
     # Load config
     config = load_config(Path(__file__))

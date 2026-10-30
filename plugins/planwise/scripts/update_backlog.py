@@ -892,6 +892,12 @@ def main():
     parser = argparse.ArgumentParser(
         description="Update a backlog item's status in the index markdown."
     )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Path to config.yaml; overrides default config search.",
+    )
     parser.add_argument("--id", required=True, help="Item ID (e.g., 003)")
     parser.add_argument(
         "--status",
@@ -941,7 +947,7 @@ def main():
         ),
     )
 
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args()
 
     if args.mark_needs_plan:
         if args.status or args.create or args.resolution_file is not None:

@@ -1091,17 +1091,18 @@ class TestBomWithoutFrontmatter(_BodyStatusFixtureBase):
 
 
 class TestMalformedModeFlag(_BodyStatusFixtureBase):
-    """Test 31: a malformed flag passes through, exactly as before the mode existed."""
+    """Test 31: a malformed mode flag is refused, never run as the default mode."""
 
-    def test_31_body_status_with_a_value_falls_through_to_the_default_mode(self):
+    def test_31_body_status_with_a_value_is_refused_not_run_as_the_default_mode(self):
         self.put("F1")
         self.put("F2")
 
-        out = self.run_main("--body-status=1")  # must not exit 2
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as raised:
+            self.run_main("--body-status=1")
 
-        self.assertEqual(
-            out, "No archival drift detected. Every closed backlog item file is in Archive/.\n"
-        )
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("unrecognized arguments: --body-status=1", err.getvalue())
 
 
 class TestEachCloseRuleAlone(_BodyStatusFixtureBase):

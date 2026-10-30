@@ -496,7 +496,7 @@ def main() -> int:
     parser.add_argument("--config", type=str, required=True, help="Path to config.yaml.")
     parser.add_argument("--next-id", action="store_true", help="Print the true next lesson id and exit.")
     parser.add_argument("--json", action="store_true", help="Additionally write a JSON report and print its path.")
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args()
 
     config = load_config(Path(__file__))
     lessons_dir = config.get("_lessons_dir")
