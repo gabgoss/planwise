@@ -410,12 +410,12 @@ After each task completes (DIRECT or DELEGATED, sequential):
    - Mark task COMPLETE with timestamp
    - Add key findings to "Key Findings" section (re-file a bullet naming another session's file as a `Cross-Task Coordination Flags` row before the next dispatch)
    - Add files modified to "Files Modified" section
-   - Add Change Log entry: date, step number, status, notes
+   - Add Change Log entry: date, step number, status, notes, and the runner id and round kind (`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17.7)
    - Update "Current Step" to next task number
    - User-gate `ROUTE/FLAGS`: log `GATE_PENDING: {value}` before any commit, push, or question
 2. **(Track B) Task list** -- update status: `TaskUpdate(taskId: "{id}", status: "completed")`
 3. **Verify output** -- confirm expected output files were written (if applicable), then measure them: `python "{plugin_root}/scripts/measure_files.py" {output files...}` -- compare against the task's declared output token budget (>20% deviation is a review signal per `references/agent-orchestration-delegated.md` §1.4), and any runner-read generated artifact reporting WARN/OVER is split per the Multi-Part convention before the task is accepted
-4. **Verify structure** -- if the task's Expected Output declared required headings or table-column headers, grep the produced file for every one of them; on a miss, re-dispatch the same runner with a single corrective instruction rather than accepting and reconciling downstream
+4. **Verify structure** -- if the task's Expected Output declared required headings or table-column headers, grep the produced file for every one of them; on a miss, resume the same runner with a single corrective instruction rather than accepting and reconciling downstream, unless it is past the size ceiling in `agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17.7 (then dispatch a fresh runner per that section)
 5. **Resolve gated conditional branches** -- when a gating task completes, resolve every conditional branch it was gating. Runs at post-task reconciliation, not at scaffold time -- the measurement does not exist at scaffold time, which is why the branch was written conditionally. Procedure: (1) re-read the completed task's output against every downstream task file that declared it as a dependency; (2) grep those task files for conditional language:
    ```bash
    grep -nEi "if the probe|expect .* if|unless|otherwise|print rather than assert|if .* found" {session_dir}/*-Task-*.md
@@ -428,13 +428,13 @@ After each task completes (DIRECT or DELEGATED, sequential):
 After a **parallel batch** of 3+ task-runners returns:
 
 1. Parse the status block each runner delivered by `SendMessage` (schema: `TASK_STATUS / TASK_ID / OUTPUT_FILES / LINES_PRODUCED / KEY_FINDINGS / ISSUES`)
-2. **On a missing block, name the tool AND the recipient in the re-request.** A generic re-request — "reply with your status block" — reproduces the original failure, because it leaves the channel unnamed a second time. Send the runner: `Deliver your status block now by calling the SendMessage tool with to="main". Plain-text output does not reach me.` Acceptance does not wait on this: run the on-disk deliverable gate (`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17.4) meanwhile, which confirms COMPLETE independently of the block. The recovered block then supplies KEY_FINDINGS for the reconciliation below (`references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.29.1).
+2. **On a missing block, name the tool AND the recipient in the re-request.** This resumes the same runner for the same unit of work, so check it against the size ceiling in `agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17.7 first. A generic re-request — "reply with your status block" — reproduces the original failure, because it leaves the channel unnamed a second time. Send the runner: `Deliver your status block now by calling the SendMessage tool with to="main". Plain-text output does not reach me.` Acceptance does not wait on this: run the on-disk deliverable gate (`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17.4) meanwhile, which confirms COMPLETE independently of the block. The recovered block then supplies KEY_FINDINGS for the reconciliation below (`references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.29.1).
 3. Verify referenced OUTPUT_FILES exist on disk for every COMPLETE row
 4. **Recovery file** -- write ONCE for the entire batch:
    - One Step Completion row per task in the batch, all with the reconciliation timestamp
    - Append every runner's KEY_FINDINGS to the "Key Findings" section (same re-file screen; a `FLAG:` bullet is a flag row)
    - Append every runner's OUTPUT_FILES to the "Files Modified" section
-   - One Change Log row per task (or one batch row noting the parallel group)
+   - One Change Log row per task (or one batch row noting the parallel group), each naming the runner id and round kind (`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17.7)
    - Update "Current Step" to the next dependency layer
    - Log `GATE_PENDING` for any planned stop (as above)
 5. **(Track B) Task list** -- mark every batch task `completed`
@@ -468,7 +468,7 @@ After a **parallel batch** of 3+ task-runners returns:
 1. **Do NOT re-dispatch yet.** Re-dispatching onto a live runner puts two writers on one task's declared output set (rationale: `agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.30, cited in step 2).
 2. **Run the liveness check** in `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.30: sample the runner's own transcript twice, a minute apart. A last-entry timestamp seconds old means alive. Minutes old **with no line growth across both samples** is a genuine stall. Do not substitute an agent listing or a disk inventory: neither shows whether a writer is still attached (§1.30 gives the measurement).
 3. **Alive** → wait, or steer the existing runner with a message (`agent-orchestration-delegated.md` §1.7, §1.10). Do not replace it, and do not write to anything it owns (`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.26).
-4. **Stalled** → resume the SAME agent per `agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17, never a fresh one.
+4. **Stalled** → resume the SAME agent per `agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17, never a fresh one, while the runner is inside the size ceiling in §1.17.7. Past the ceiling, or for a new round of work, dispatch a fresh runner per §1.17.7.
 5. **Genuinely dead** → re-dispatch, and put two things in the replacement's brief: an inventory of what the dead runner left on disk marked **UNVERIFIED**, and the frozen-snapshot self-check from `agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.30 (compare the inventory against live modification times before the first write, and HOLD if anything moved).
 6. Record which branch fired in Recovery, with the measurement that settled it — not the conclusion alone.
 

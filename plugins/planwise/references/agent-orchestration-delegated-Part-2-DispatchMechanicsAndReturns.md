@@ -287,7 +287,7 @@ This is distinct from the two voice+tree failure modes above: those announce the
 - A collection / parse check where applicable (the produced file parses; the test file collects).
 - Confirm the Recovery step row for the task flipped to its completed state.
 
-On any miss, resume the SAME agent to finish (never re-dispatch a fresh one), then re-run the checks before accepting.
+On any miss, resume the SAME agent to finish (never re-dispatch a fresh one while the runner is inside the §1.17.7 size ceiling), then re-run the checks before accepting.
 
 ### 1.17.5 Name a write-by turn in the spawn prompt, and size the brief by its proof count
 
@@ -368,6 +368,8 @@ The same rule gave a different action in three real recurrences:
 > - **A new round gets a fresh runner with a short brief.** The brief names the findings file, the ledgers of earlier rounds, the pinned hashes of the files in scope, and a frozen-snapshot self-check. The on-disk artifacts carry what the new runner needs. The old transcript does not.
 > - **Resume only for the same unit of work.** That means a stall, a missing status block, or a single corrective instruction on the deliverable the runner just produced.
 > - **Stop an over-grown runner.** If a runner is mid-edit and over-grown, stop it. Take an inventory of the tree: what is edited, what is untouched, and the current lint errors. Then dispatch a fresh runner with the partial work marked UNVERIFIED and a frozen-snapshot self-check.
+> - **Check the runner's size before any resume.** Estimate its accumulated context: the original dispatch budget plus every round already resumed into it. Past the ceiling, dispatch a fresh runner with the lean brief above instead of resuming, even to finish the original task. The starting ceiling is the lower of 2x the task's declared budget and 200,000 tokens. It is a chosen operating default to measure and revise, not a derived value and not a statistical boundary. One measured runner resumed across four rounds reached roughly 750,000 tokens against a first-round budget of roughly 48,000.
+> - **Record the runner for every round.** Each Recovery Change Log row for a task names the runner id that handled the round and the round's kind: original dispatch, stall resume, single corrective, new round, or replacement. A reader then sees runner reuse without reading the Recovery prose.
 
 WRONG — one runner carried across rounds:
 
