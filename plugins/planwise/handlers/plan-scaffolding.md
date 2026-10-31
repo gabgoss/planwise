@@ -54,6 +54,39 @@ Map each Consolidated Context part to a sprint. Each part's `Scope:` and `What T
 
 **Global Source Map:** If using global numbering for source specs (recommended for multi-sprint plans), add a Global Source Map table to the Master Plan. This table assigns each spec output a global number and shows which sprints use it. See the [scaffolding master plan template](../templates/scaffolding-master-plan.md) for the table format.
 
+## Scaffolding Step 3.5: Choose Inline or Fan-Out
+
+This step decides whether Steps 4 and 5 run in this session (inline) or dispatch the three scaffolding agents (fan-out). Apply it once, after Step 3 settles the decomposition and before Step 4's Write CONFIRM.
+
+**The rule.** Fan out when `inline_estimate > practical_session_limit`, where `inline_estimate = 2 × S_src`.
+
+| Input | Value | Source |
+|---|---|---|
+| `S_src` | summed Tier 1-3 source tokens over every sprint | `python "{plugin_root}/scripts/measure_files.py" {every Tier 1-3 file}`, never a byte count or a guess |
+| factor 2 | each source is read once and written back as Execution Input plus Deferred log | Step 4.5: retention ≥ 95 % passes, so reads plus writes are at least 1.95 × `S_src`, rounded to 2 |
+| `practical_session_limit` | 400,000 on a 1M window, 100,000 on a 200K window | `references/session-context-budget.md` §5. Read the window from `config.yaml` `context.context_window`, never a hard-coded number |
+
+**The number.** On a 1M window the pass fans out when `S_src` exceeds **200,000 tokens** (400,000 / 2). On a 200K window it fans out when `S_src` exceeds **50,000 tokens** (100,000 / 2).
+
+**The estimate is a floor.** `2 × S_src` omits the plan files the pass writes and the templates it reads. A pass just under the threshold can still exceed the limit, so record the floor, never a claim that the pass fits.
+
+**Per-agent fit.** Each extractor must also fit its own window: `2 × S_src(sprint) + 54,000 < context_window`, with `context_window` read from `config.yaml` as above. So one sprint's sources stay under `(context_window - 54,000) / 2` tokens: 473,000 on a 1M window, 73,000 on a 200K window. Split a sprint over that bound here, before any dispatch.
+
+**Print the verdict.** Write this line into Step 4's Scaffolding Write Confirmation block. The gate is that block's user confirmation, which shows the line beside the file count:
+
+```
+FAN_OUT: S_src=<n> inline_estimate=<2n> limit=<practical_session_limit> -> fan-out | inline
+```
+
+**At or below the threshold, stay inline.** Inline scaffolding stays fully supported. Steps 4 and 5 run in this session as their inline paths state, and no agent is dispatched. An inline pass that authors 2 or more sprints still runs the deviation gate itself at Step 9b, after the Step 7 confirmation block (see Step 7).
+
+**Above the threshold, fix the fan-out inputs here.** The agents copy these facts and never derive them, so the decomposition records them before Step 4:
+
+- Each sprint's `ei_sections` rows `§{n} | {Topic} | {task ids} | {Spec #N list}`. Number `{n}` from 1 to `{N}` in the order the sprint's tasks first use them.
+- Each sprint's `source_map` rows `Spec #{N} | {filename} | T{1,2,3} | {absolute path}`. Add its `deferred_targets` rows `{sprint id} | {sprint name}` for every other sprint.
+- Each sprint's `write_set` rows `Path | Task`, and the `cross_sprint_markers` rows `Path | Writers | Region | Disposition`. Step 5's write-set rules govern both.
+- The pass-level task-output `naming_scheme`, for example `task ordinal`.
+
 ## Scaffolding Step 4: Create Execution Inputs
 
 **Write CONFIRM (before the first plan file):** Before writing any plan file (Master Plan, Execution Input, Sprint Plan, Orchestration, Recovery, task file, `Outputs/`), output this block and wait for approval. No mode waives it, Auto Mode included.
@@ -65,13 +98,18 @@ Map each Consolidated Context part to a sprint. Each part's `Scope:` and `What T
 > Expected outputs: 1 Master Plan + N Execution Inputs + M Sprint Plans
 > Per-sprint session count: Sprint-{XX}: K1 sessions, Sprint-{YY}: K2 sessions, ...
 > Total file count: F files (Σ session-folder × per-session file count + Master Plan + EIs + Sprint Plans)
+> FAN_OUT: S_src=<n> inline_estimate=<2n> limit=<practical_session_limit> -> fan-out | inline
 > Next Action: Write {first file path}
 > ```
 
 <!-- AUTO-MODE: critical -->
 Use `AskUserQuestion`: "Write these {F} plan files?"
 
-For EACH sprint, produce an **Execution Input** file -- a sprint-scoped extraction of the Consolidated Context parts. Use the [execution-input.md](../templates/execution-input.md) template.
+Then follow the path Step 3.5 chose. This CONFIRM comes first on both paths, and no file is written before it.
+
+### Inline Path: Extract in This Session
+
+Runs when Step 3.5 printed `inline`. For EACH sprint, produce an **Execution Input** file -- a sprint-scoped extraction of the Consolidated Context parts. Use the [execution-input.md](../templates/execution-input.md) template.
 
 **Process:**
 1. Identify which Consolidated Context parts feed this sprint (from Step 3 mapping)
@@ -89,6 +127,86 @@ For EACH sprint, produce an **Execution Input** file -- a sprint-scoped extracti
 **Cross-sprint content handling:**
 - **Cross-sprint reference parts** (e.g., DesignDecisions with `Scope: Cross-sprint reference`): Extract relevant portions into each sprint's EI
 - **Sprint-scoped sources with cross-relevant sections**: If Sprint 02 needs content from a source primarily assigned to Sprint 01, list that source in the EI's `Extracted from:` header like any other source. The Global Source Map in the Master Plan tracks which sources are shared
+
+### Fan-Out Path: Dispatch the Scaffolding Agents
+
+Runs when Step 3.5 printed `fan-out`. Steps 4 and 5 then run in this order. This session makes every dispatch, because a spawned agent has no Agent tool.
+
+1. **Spec, lint, render.** Write the metadata spec with each task's EI citations as `kind` `"span"` rows: `path` is the sprint's `{Abbrev}-S{XX}-Execution-Input.md`, and `span` is the fixed id, for example `"§3"`. A task reading several sections carries one row per id, never a range. Run `lint-spec`, then `render`, as Step 5's spec paragraph describes. On this path the render comes before any Execution Input, because `render` refuses a non-empty `--out` and the extractors write into the rendered sprint folders.
+2. **Extractor layer.** Dispatch one `planwise:ei-extractor` per sprint, all in one message. Then apply the extractor gate below.
+3. **Scaffolder layer.** Dispatch one `planwise:sprint-scaffolder` per sprint, all in one message, after the WHOLE extractor layer passes its gate. An extractor can defer content to another sprint, so every deferral must be visible before any scaffolder cites a section. Then apply the scaffolder gate.
+4. **Master Plan.** Replace the rendered Master Plan with ONE whole-file `Write` from the scaffolding master plan template, as Step 5 states. Write the Sprint Dependencies ordering edges or `MUST NOT run concurrently` rows and the Computed Write-Set Intersection table into it.
+5. **Harmonizer.** Dispatch one `planwise:scaffold-harmonizer` for the pass, after the Master Plan Write, so its gate grades the final `**Total Sessions:**` line. This dispatch is the fan-out path's Step 9b (see Step 7).
+
+The scaffolders fill the rendered Sprint Plans, Orchestrations, Recovery files and task files. The extractor body carries every inline-path rule above: verbatim extraction, the three binding checks, the split rule, the Cross-References table and the Deferred / Out-of-Scope Log.
+
+**Dispatch shape.** Every dispatch passes `run_in_background: false`. An omitted flag runs the agent in the background, which silently denies its writes, so never set the flag to `true`. The `prompt` passes only the fields the agent's `## Inputs` table names: ids, absolute paths, the section-id map and the shared-file markers. It never passes a template heading or a rule, because the agent body carries both.
+
+```
+Agent(
+  subagent_type: "planwise:ei-extractor",
+  description: "Extract {Abbrev}-S{XX} Execution Input",
+  run_in_background: false,
+  prompt: "plugin_root: {plugin_root}
+           abbrev: {Abbrev}
+           sprint_id: S{XX}
+           sprint_folder: {abs path}
+           meta_root: {abs Meta-{Abbrev}/}
+           source_map: {rows}
+           ei_sections: {rows}
+           deferred_targets: {rows}
+           spec_path: {abs path}"
+)
+Agent(
+  subagent_type: "planwise:sprint-scaffolder",
+  description: "Fill {Abbrev}-S{XX} plan files",
+  run_in_background: false,
+  prompt: "plugin_root: {plugin_root}
+           planwise_root: {abs path}
+           abbrev: {Abbrev}
+           sprint_id: S{XX}
+           sprint_folder: {abs path}
+           spec_path: {abs path}
+           ei_paths: {extractor OUTPUT_FILES minus the Deferred log}
+           ei_section_map: {extractor EI_SECTION_MAP, verbatim}
+           write_set: {rows}
+           cross_sprint_markers: {rows}
+           naming_scheme: {scheme}
+           lessons_dir: {abs path}"
+)
+Agent(
+  subagent_type: "planwise:scaffold-harmonizer",
+  description: "Harmonize {Abbrev} scaffold",
+  run_in_background: false,
+  prompt: "plugin_root: {plugin_root}
+           abbrev: {Abbrev}
+           plan_root: {abs Exec-{Abbrev}/}
+           sprint_ids: {S{XX} list}"
+)
+```
+
+Act on each status block by the field names its agent file defines. Never ask an agent for another block shape. A re-dispatch re-runs only that sprint's agent, and the layer barrier holds until it returns.
+
+**Extractor gate** (fields from `agents/ei-extractor.md`):
+
+- `COMPLETE`: diff the `EI_SECTION_MAP` ids against the sprint's `ei_sections`, and dispatch again on a missing or extra id. Record a `RETENTION_PCT` from 80 to 95 as a warning, and each `EMPTY_SECTIONS` id as a gap, for the Step 7 block. Decide for each gap whether its task still needs the section.
+- `PARTIAL`: `RETENTION_PCT` is below 80, or the turn budget ran out. Dispatch again for the same sprint.
+- `BLOCKED`: a missing path or a missing Tier 1 row means restore the input or correct `source_map`, then dispatch again. A revised authority or a scope choice goes to the user through `AskUserQuestion`, and the answer goes into the next dispatch's prompt.
+
+**Scaffolder gate** (fields from `agents/sprint-scaffolder.md`):
+
+- `COMPLETE`: reject any block whose `FILL_REMAINING` or `STRAY_H2` is above 0, and dispatch that sprint again. Then confirm that each `cross_sprint_markers` row appears in every involved Sprint Plan. Record `SPAN_ROWS_REPOINTED` for the Step 7 block.
+- `PARTIAL`: dispatch again for the same sprint.
+- `BLOCKED`: restore a missing input, then dispatch again. Write an absent rendered file from its template, because `render` never writes into a non-empty folder. An `ei_section_map` id that does not resolve means re-dispatch that sprint's extractor first. A user-only choice goes to the user, and the answer goes into the next dispatch's prompt.
+
+**Harmonizer gate** (fields from `agents/scaffold-harmonizer.md`). The verdict comes from `scripts/scaffold_deviations.py`, so accept `COMPLETE` only when `DEVIATIONS_AFTER` reads `A=0 B=0 C=0`, `STRAY_H2` is 0 and `FILL_REMAINING` is 0.
+
+- `COMPLETE`: copy `DEVIATIONS_BEFORE`, `DEVIATIONS_AFTER` and `EDITS_APPLIED` into the Step 7 block.
+- `PARTIAL`: a deviation survived three gate runs, or the turn budget ran out. Repair the content or re-dispatch that sprint's scaffolder, then dispatch the harmonizer again.
+- `BLOCKED`: a missing `plan_root`, an absent gate script or a gate exit 2 means correct the path, the install or the template, then dispatch again. A `CLASS_C` line means create `Scaffold-{Abbrev}/` (Step 2 owns it), then dispatch again.
+- A mixed output-naming scheme in `ISSUES` is yours to decide. The harmonizer renames no file, so make the renames and their citation sweep yourself.
+
+**Stalled re-dispatch.** If a re-dispatch returns `PARTIAL` and its `OUTPUT_FILES` lists no file the previous dispatch did not, stop re-dispatching that agent. Finish its remaining work inline under the inline path's rules, and note it in the Step 7 block.
 
 ## Scaffolding Step 4.5: Multi-Tier Discovery Extraction
 
@@ -158,7 +276,9 @@ Use the [scaffolding master plan template](../templates/scaffolding-master-plan.
 
 Use standard templates for all other files (sprint plans, orchestrations, recovery, task files).
 
-**Spec, render, fill (mirrors standard [Steps 4-7](plan-Part-2-GatherAndGenerate.md#steps-4-7-generate-files)) when `Exec-{Abbrev}/` holds no file yet.** Write ONE metadata-only spec, run `python -B "{plugin_root}/scripts/scaffold_plan.py" lint-spec --spec {spec}`, then `python -B "{plugin_root}/scripts/scaffold_plan.py" render --spec {spec} --out {plans_dir}/{PlanName}/Exec-{Abbrev}`, and fill every FILL marker, exactly as Steps 4-7 describe. Cite each Execution Input section as a `kind` `"span"` row (`path` = the EI file, `span` = its section range), never as a hand-filled row after the render. The renderer reads the standard templates only, so it renders a standard Master Plan. Replace that file with ONE whole-file `Write` from the scaffolding master plan template. `render` refuses an `--out` folder that is not empty (exit 2) and never overwrites a plan file. Step 4 normally writes the Execution Inputs into the sprint folders first, so on that order write each file from its template as above. Do the same when the script is absent or exits non-zero.
+**Which path applies each rule in this step.** Every rule below governs the plan files on both paths. On the inline path this session applies all of them. On the fan-out path the sprint scaffolder's body carries the lessons search, the Execution Input citations, the measure-once rule, the Sprint Plan status, the Write-Set table, the cross-sprint markers, the stray-H2 rule and the Sprint Signoff. This session keeps the rest: the spec and render, the write-set intersection, the convention register, the roster-change surfaces, any `.gitkeep` a scaffolder reports missing, the Token Saver scan and both censuses. It runs the spec and render at Step 4's item 1, and applies the others after the scaffolder gate and before the Master Plan Write.
+
+**Spec, render, fill (mirrors standard [Steps 4-7](plan-Part-2-GatherAndGenerate.md#steps-4-7-generate-files)) when `Exec-{Abbrev}/` holds no file yet.** Write ONE metadata-only spec, run `python -B "{plugin_root}/scripts/scaffold_plan.py" lint-spec --spec {spec}`, then `python -B "{plugin_root}/scripts/scaffold_plan.py" render --spec {spec} --out {plans_dir}/{PlanName}/Exec-{Abbrev}`, and fill every FILL marker, exactly as Steps 4-7 describe. Cite each Execution Input section as a `kind` `"span"` row (`path` = the EI file, `span` = one fixed `§{n}` id), never as a hand-filled row after the render. A task reading several sections carries one row per id, never a range. This holds on both paths, as the fan-out path's item 1 states. The renderer reads the standard templates only, so it renders a standard Master Plan. Replace that file with ONE whole-file `Write` from the scaffolding master plan template. `render` refuses an `--out` folder that is not empty (exit 2) and never overwrites a plan file. On the inline path, Step 4 normally writes the Execution Inputs into the sprint folders first, so on that order write each file from its template as above. Do the same when the script is absent or exits non-zero. On the fan-out path, Step 4's item 1 runs this render before any Execution Input exists, and the scaffolders fill the rendered files. The scaffolders need a rendered skeleton, so when the script is absent or the render fails there, fix the spec and render again, or run the pass on the inline path.
 
 Whichever path writes the files, repairs follow standard [Step 8](plan-Part-2-GatherAndGenerate.md#step-8-generate-task-files)'s whole-file Write rule. An unanticipated section follows the Steps 4-7 rule: an `###` H3 under `## Plan-Specific Sections`, never a new H2, with one `idea` drafted through `mcp__planwise__draft_feedback` per new H3 heading text (none with drafts `off`). Run `python -B "{plugin_root}/scripts/scaffold_plan.py" check-headings {plans_dir}/{PlanName}/Exec-{Abbrev}` before Step 6, and move each stray H2 it lists under the catch-all.
 
@@ -209,8 +329,16 @@ See `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §13.4 f
 
 **Sprint-signoff scaffold (multi-session sprints):** For each sprint with multi-session work, add a sprint-signoff scaffold using the [sprint-signoff.md](../templates/sprint-signoff.md) template per `references/exit-criteria-fidelity.md` §16.3. Place the signoff file at `{plans_dir}/{PlanName}/Sprint-{XX}-{Name}/Sprint-Signoff.md`. The signoff quotes the sprint's EI exit-criteria verbatim — one row per criterion, one mechanical anchor per row — giving a multi-session sprint a single closeout checkpoint before it is marked COMPLETE. Single-session sprints MAY omit it.
 
-> [!constraint] Agent Prompts Must Include Exact Headers
-> Subagents start with fresh context (no inherited file reads). Saying "follow the template" forces a subagent to discover and read the template — an extra hop that may be skipped or interpreted loosely.
+> [!constraint] Exact Headers Reach Every File-Generation Agent Through One Carrier
+> Subagents start with fresh context (no inherited file reads). Saying "follow the template" forces a subagent to discover and read the template — an extra hop that may be skipped or interpreted loosely. So the exact headers reach the agent through exactly one carrier.
+>
+> **Fan-out path: the agent body is the carrier.** `agents/sprint-scaffolder.md` § Mandated Headers holds every mandated heading and formatting line for the Sprint Plan, Orchestration, Recovery and task files. `agents/ei-extractor.md` holds the Execution Input headers. A `planwise:` spawn prompt MUST NOT repeat them, because a second copy drifts from the body. It passes the agent's `## Inputs` fields only.
+>
+> WRONG (fan-out): `prompt: "sprint_id: S{XX} ... Use these exact section headers in order: ## Session Objective, ..."`
+>
+> CORRECT (fan-out): `prompt: "sprint_id: S{XX} ... ei_section_map: ... cross_sprint_markers: ..."`, with no heading in it.
+>
+> **Inline path, and any agent this plugin does not ship: the prompt is the carrier.** No agent body holds the headers, so the prompt MUST include them.
 >
 > WRONG: `"Follow the orchestration template to generate the orchestration file."`
 >
@@ -224,7 +352,7 @@ See `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §13.4 f
 > Include the **Mode:** line in Execution Strategy."
 > ```
 >
-> This applies to ALL file-generation agent prompts during scaffolding: sprint plans, orchestrations, task files.
+> On the inline path this applies to ALL file-generation agent prompts during scaffolding: sprint plans, orchestrations, task files.
 >
 > When a file keeps an OPTIONAL section, name it in its template position too. For an Orchestration that is `## Pre-Known Cross-Task Coordination Flags` after `## Task Files`, and `## Plan-Specific Sections` as the last H2, which holds unanticipated sections as H3s.
 
@@ -266,11 +394,26 @@ SCAFFOLDED FROM: Meta-{Abbrev} Discovery Phase
 Parts consumed: {N} Consolidated Context parts
 Execution Inputs created: {N} (one per sprint)
 Sprints created: {N}
+Scaffolding path: {inline | fan-out} ({FAN_OUT line from Step 3.5})
+Retention warnings (80-95 %): {sprint and RETENTION_PCT list, or none}
+Empty EI sections: {sprint and §{n} list, or none}
+Span rows repointed: {count, or n/a on the inline path}
+Deviations: {fan-out: before A=<n> B=<n> C=<n> -> after A=<n> B=<n> C=<n> | inline: pending, Step 9b runs the gate}
 ```
+
+On the fan-out path the harmonizer's `DEVIATIONS_BEFORE` and `DEVIATIONS_AFTER` exist before this block, so copy them. On the inline path the gate has not run yet, so print `pending` and never a total.
 
 For a complete scaffolding example, see [sample-scaffolding-output.md](../examples/sample-scaffolding-output.md).
 
 After the scaffolding confirmation, run [handlers/plan-Part-3-VerifyConfirmAndReview.md Step 9a: Emit the Cross-Sprint File-Touch Declarations](plan-Part-3-VerifyConfirmAndReview.md#step-9a-emit-the-cross-sprint-file-touch-declarations) and then [Step 9b: Post-Pass Harmonization](plan-Part-3-VerifyConfirmAndReview.md#step-9b-post-pass-harmonization) — a `--scaffold` pass authors 2+ sprints by construction, so both steps always apply here — and then proceed to [handlers/plan-Part-3-VerifyConfirmAndReview.md Step 10: Plan Review Gate](plan-Part-3-VerifyConfirmAndReview.md#step-10-plan-review-gate).
+
+**Step 9b on each path.** On the fan-out path, Step 9b is the `planwise:scaffold-harmonizer` dispatch in Step 4's fan-out sequence, and its gate is `scripts/scaffold_deviations.py`. That dispatch already ran after the Master Plan Write, so here run the gate once and confirm its total line equals the harmonizer's `DEVIATIONS_AFTER`. The scaffolder gate already checked each cross-sprint marker row, and Step 9a still runs. On the inline path, run the same gate yourself at Step 9b, after the Step 7 block, and print its `deviations:` total line when it returns:
+
+```
+python -B "{plugin_root}/scripts/scaffold_deviations.py" check {plans_dir}/{PlanName}/Exec-{Abbrev}
+```
+
+The gate prints one `CLASS_A`, `CLASS_B` or `CLASS_C` line per deviation, then a final `deviations: A=<n> B=<n> C=<n>` line. Exit 0 means clean, and exit 1 means deviations were found. Exit 2 means the path is missing or not a folder, a template is unreadable (`ERROR: template unreadable`), or a plan file is unreadable or not UTF-8 (`ERROR: cannot read plan file <path>`). Class A grades only the `##` headings that the orchestration, sprint plan and task-file templates mark with a bare `<!-- REQUIRED -->`. It never grades a Master Plan or a Recovery file. On both paths you sweep the headings it does not grade with `Grep`, as Step 9b's Class A row states.
 
 ---
 

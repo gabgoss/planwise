@@ -189,7 +189,7 @@ Each status applies in one case:
 |---|---|---|
 | `plan_root` is missing | `BLOCKED`, naming the path | Corrects the path, then dispatches again |
 | The gate script is absent | `BLOCKED`, naming the path | Supplies the script, then dispatches again |
-| The gate exits 2 | `BLOCKED`, the gate message in `ISSUES` | Fixes the path or template error, then dispatches again |
+| The gate exits 2 | `BLOCKED`, the gate message in `ISSUES` | Fixes the path, template or plan-file error the message names, then dispatches again |
 | Class C is reported | `BLOCKED`, the `CLASS_C` line in `ISSUES`, Class A and B still repaired | Creates `Scaffold-{Abbrev}/`, then dispatches again |
 | A deviation survives three gate runs | `PARTIAL`, each deviation in `ISSUES` | Repairs the content, or re-dispatches the sprint's scaffolder |
 | The work would exceed `maxTurns` | `PARTIAL`, the files edited so far | Dispatches again for the same pass |

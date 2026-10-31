@@ -284,7 +284,9 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 >    and harmonizes what they surface: section headers restored to the
 >    template's wording, optional formatting lines restored, and the pass's
 >    output-naming scheme applied to every sprint in the pass. The mechanics
->    live at `handlers/plan-Part-3-VerifyConfirmAndReview.md` Step 9b. The cost asymmetry is the whole
+>    live at `handlers/plan-Part-3-VerifyConfirmAndReview.md` Step 9b. There,
+>    `scripts/scaffold_deviations.py` runs the sweeps, and on a fan-out pass the
+>    `planwise:scaffold-harmonizer` agent runs it and harmonizes the result. The cost asymmetry is the whole
 >    argument — at authoring time a rename has no consumers, while after the
 >    fact the same rename is an edit sweep through every citing task file
 >    across every sprint.

@@ -180,7 +180,8 @@ Fix: Reconcile per references/session-plan-requirements.md §8 | Confidence: HIG
 
 **Scaffolding Session MUST Have:**
 - Orchestration listing which spec parts map to which sprints
-- One task per sprint to scaffold (agent creates Execution Input + all plan files for that sprint)
+- Two dispatches per sprint to scaffold: one `planwise:ei-extractor` writes that sprint's Execution Input, then one `planwise:sprint-scaffolder` writes all plan files for that sprint
+- One `planwise:scaffold-harmonizer` pass after every sprint is scaffolded, which runs `scripts/scaffold_deviations.py` over the `Exec-{Abbrev}/` folder and harmonizes the deviations it reports
 - Recovery file tracking which sprints have been scaffolded
 
 **Output:** A fully populated `Exec-{Abbrev}/` folder with Execution Inputs, sprint plans, sessions, and task files ready to run.

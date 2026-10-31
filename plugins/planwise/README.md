@@ -607,7 +607,7 @@ planwise is built entirely on markdown files and Python scripts — no databases
 
 ### Custom agents
 
-planwise uses ten specialized AI agents behind the scenes:
+planwise uses thirteen specialized AI agents behind the scenes:
 
 | Agent | What it does |
 |-------|-------------|
@@ -621,6 +621,9 @@ planwise uses ten specialized AI agents behind the scenes:
 | **backlog-planner** | Designs the solution for one backlog item: approach, numbered steps, verification, or the questions only the user can answer; never authors a session plan |
 | **backlog-author** | Files or rewrites backlog items from the planner's designs, writes the executable sections and the `refined` flag, and regenerates the index |
 | **plan-author** | Fills one plan session's rendered task files from the metadata spec and the plan-notes state file when plan authoring is delegated; stops with the open questions when any remain |
+| **ei-extractor** | Extracts one sprint's Execution Input and its Deferred / Out-of-Scope Log from the Meta-plan's discovery sources when `/planwise plan --scaffold` fans out, copying content verbatim and reporting measured retention |
+| **sprint-scaffolder** | Fills one sprint's rendered plan files (Sprint Plan, Orchestration and Recovery files, task files, Sprint Signoff) from the metadata spec and the sprint's Execution Input; returns BLOCKED on a missing input and never executes the plan |
+| **scaffold-harmonizer** | Runs once after every sprint is filled, restores template wording for each deviation the gate reports until it reports zero, and reports everything else to the caller |
 
 You don't need to interact with these directly — they're called automatically when you use `/planwise plan`, `/planwise review`, `/planwise run`, `/planwise backlog`, `/planwise lessons`, `/planwise upgrade`, and `/planwise harvest`. Agents run straight from the plugin (invoked as `planwise:<name>`); nothing is copied into your project.
 
@@ -674,7 +677,7 @@ planwise/                           # Plugin root
     plugin.json                     # Plugin identity
   skills/planwise/SKILL.md          # The /planwise command router
   handlers/                         # 12 subcommand handlers across 22 files (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, feedback, harvest; help is served inline by the skill router)
-  agents/                           # 10 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
+  agents/                           # 13 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
   references/                       # Knowledge base documents (4 installed as path-scoped rules + 2 installed as global style rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
   templates/                        # Markdown templates
   manifests/                        # Artifact manifest and agent history

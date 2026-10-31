@@ -173,9 +173,17 @@ Sweep this pass's own output for all three classes, then harmonize what surfaces
 
 | Class | Sweep | Harmonize to |
 |-------|-------|--------------|
-| **A — section-header drift** | `Grep` each template-mandated `##` / `###` heading across every Orchestration, Sprint Plan and task file this pass authored. A heading whose hit count is below the file count is missing from the remainder | The template's exact wording, restored in every file that dropped it |
-| **B — optional formatting lines omitted** | `Grep` the same file set for the template's non-structural lines — the `**Total Estimated:**` line after the Session Task List, the `**Mode:**` line in Execution Strategy | The line restored wherever it is absent |
+| **A — section-header drift** | The gate grades each `##` heading the orchestration, sprint plan and task-file templates mark with a bare `<!-- REQUIRED -->`. `Grep` the rest across every Orchestration, Sprint Plan and task file this pass authored: each conditional `##` heading in the files where its condition holds (for example `## Dispatch Layers` in a DELEGATED Orchestration), and each template `###` heading. A heading whose hit count is below that file count is missing from the remainder | The template's exact wording, restored in every file that dropped it |
+| **B — optional formatting lines omitted** | The gate reports each missing formatting line, counted outside code fences: `**Total Estimated:**` and `**Mode:**` in an Orchestration, and `**Total Sessions:**` in a Master Plan | The line restored wherever it is absent |
 | **C — `Scaffold-{Abbrev}/` absent** | `Glob` for `Exec-{Abbrev}/` first: absent ⇒ the plan is still at Discovery and this class does not apply. Present ⇒ `Glob` for `Scaffold-{Abbrev}/` | The folder created, per `scaffolding-hygiene.md` §8 Class C |
+
+**A script runs the Class B and Class C sweeps and the graded part of Class A.** On the fan-out path, the orchestrator dispatches `planwise:scaffold-harmonizer` (`handlers/plan-scaffolding.md` Step 4, Fan-Out Path). The harmonizer runs the gate below and harmonizes what it reports. On the inline path, the orchestrator runs the same command itself:
+
+```
+python -B "{plugin_root}/scripts/scaffold_deviations.py" check {exec_dir}
+```
+
+`{exec_dir}` is the plan's `Exec-{Abbrev}/` folder for a scaffold pass. For a standard pass, which has no `Exec-` folder, it is the plan's own folder, `{plans_dir}/{PlanName}/`. The gate grades Class C only when the folder is named `Exec-{Abbrev}`, so a standard pass always reports `C=0`. The gate prints one `CLASS_A`, `CLASS_B` or `CLASS_C` line per deviation, then a final `deviations: A=<n> B=<n> C=<n>` line. Exit 0 means clean, and exit 1 means deviations were found. Exit 2 means the path is missing or not a folder, a template is unreadable (`ERROR: template unreadable`), or a plan file is unreadable or not UTF-8 (`ERROR: cannot read plan file <path>`). The gate does not grade the conditional `##` headings or the `###` headings, so the orchestrator runs the Class A row's `Grep` sweep for them on both paths. Step 9's confirmation block records the gate's `deviations:` total line and the result of that `Grep` sweep.
 
 > [!constraint] The Output-Naming Scheme Is a Pass-Level Decision, Not a Per-Sprint One
 > Task-output filenames may number by **task** ordinal or by **session** ordinal. Either is fine. Mixing the two across sprints in one pass is not.
