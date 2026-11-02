@@ -505,7 +505,10 @@ def cmd_init(args, config: dict) -> int:
 
     # Refining is opt-in: --mode specific refines every named unrefined item,
     # otherwise the --refine-max highest-scored unrefined items are refined.
-    # A refined item whose shape gate fails counts as unrefined here.
+    # A refined item whose shape gate fails counts as unrefined here. One
+    # case sits outside the cap: an item whose open questions are all
+    # answered is always refined, so the answers are folded into
+    # `## Resolution` before anything runs it.
     unrefined = sorted(
         ((item, signals) for item, signals, reason in verdicts
          if reason is None and not signals["shape"]["shape_ok"]),
@@ -515,7 +518,12 @@ def cmd_init(args, config: dict) -> int:
         named = {normalize_id(raw.strip()) for raw in args.items.split(",") if raw.strip()}
         refine_ids = {item["id"] for item, _signals in unrefined if normalize_id(item["id"]) in named}
     else:
-        refine_ids = {item["id"] for item, _signals in unrefined[: args.refine_max]}
+        answered_ids = {
+            item["id"] for item, signals in unrefined
+            if signals["shape"]["open_questions"] == "answered"
+        }
+        remaining = [item for item, _signals in unrefined if item["id"] not in answered_ids]
+        refine_ids = answered_ids | {item["id"] for item in remaining[: args.refine_max]}
 
     eligible: list[tuple[dict, dict, str]] = []
     excluded: list[dict] = []

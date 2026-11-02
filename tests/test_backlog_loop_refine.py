@@ -2,8 +2,9 @@
 """Tests for the loop's refine step in backlog_loop.py.
 
   * `--init` decides each item's disposition: `refine` for an unrefined item
-    inside the `--refine-max` cap or named by `--mode specific`, `run` for a
-    refined item and for an unrefined Route A or B item past the cap. A
+    inside the `--refine-max` cap or named by `--mode specific`, and for an
+    item whose `## Open Questions` are all answered, whatever the cap; `run`
+    for a refined item and for an unrefined Route A or B item past the cap. A
     refined Route C item, a `needs_plan` item and an item with unanswered
     `## Open Questions` are excluded with their own reasons.
   * `--next` reads the live file: it reports `refined` and `disposition`, and
@@ -131,6 +132,33 @@ class TestRefine(_LoopFixtureBase):
         self.write_text("008", answered)
 
         payload = self.init(*CAPPED)
+
+        self.assertEqual(self.queued(payload)["008"], "refine")
+        self.assertNotIn("008", {e["id"] for e in payload["excluded"]})
+
+    def test_init_queues_answered_open_questions_outside_the_cap(self):
+        """An all-answered item is `refine` at cap 0 in modes all and n, and
+        it does not consume the cap; a strong Route C signal does not exclude it."""
+        answered = item_text("008", "NOT_STARTED", "questions").replace("Answer:", "Answer: A, the reader.")
+        self.write_text("008", answered)
+
+        for argv in (("--mode", "all"), ("--mode", "n", "--n", "10")):
+            with self.subTest(argv=argv):
+                payload = self.init(*argv)
+
+                self.assertEqual(self.queued(payload)["008"], "refine")
+                self.assertNotIn("008", {e["id"] for e in payload["excluded"]})
+
+        capped_one = self.init("--mode", "all", "--refine-max", "1")
+        queued = self.queued(capped_one)
+        self.assertEqual((queued["008"], queued["001"]), ("refine", "refine"))
+
+        large = answered.replace(
+            "A small, well-bounded change to one helper.",
+            f"A small, well-bounded change to one helper.\n\n{MULTI}",
+        )
+        self.write_text("008", large)
+        payload = self.init("--mode", "all")
 
         self.assertEqual(self.queued(payload)["008"], "refine")
         self.assertNotIn("008", {e["id"] for e in payload["excluded"]})

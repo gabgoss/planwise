@@ -10,6 +10,7 @@
 - `--status IN_PROGRESS` — filter by status
 - `--no-check` — skip both Phase 1 item-file audits, archival drift and body status lines (fast triage)
 - `--loop-resume <run-id>` — re-enter a loop run after the hooks module compacts the session; skips the loop questions and processes exactly one item
+- `--refine-max N` — loop runs only: refine up to N unrefined items, highest score first, before they run (default 0); forwarded to `backlog_loop.py --init`, see `handlers/backlog-Part-2-LoopMode.md` § Eligibility
 - `--answer [item-id]` — answer open questions; see `handlers/backlog-Part-3-Answers.md`
 
 Loop mode is offered by Q1 on every interactive no-args run.
