@@ -1,6 +1,6 @@
 ---
 description: When to use the dedicated file tools (Read/Grep/Glob/Edit/Write) versus the shell, and the closed list of file-operation verbs a scoped doctrine forbids.
-consult-when: Choosing native file tools vs. the shell — the closed list of forbidden file-op verbs, `Grep` alternation as a bare pipe, and (§ Glob Pattern Anchoring) a `Glob` call with an in-project `path` leads its pattern with `**/`, because a folder-led pattern anchors at the project root and matches nothing, with the control in the same shape
+consult-when: Choosing native file tools vs. the shell — the closed list of forbidden file-op verbs, `Grep` alternation as a bare pipe, and (§ Glob Pattern Anchoring) a `Glob` call with an in-project `path` leads its pattern with `**/`, because a folder-led pattern anchors at the project root and matches nothing, with the control in the same shape; and (§ Shell Commands an Artifact Emits) the Legitimate / Template / Substitution test, where a shell search verb baked into an emitted string (a Verification Commands row, an exemplar, a gate fence) is repointed to the native tool call
 ---
 
 # Native Tool Use
@@ -185,6 +185,75 @@ below have no tool equivalent and stay in the shell:
 A read that happens mid-pipeline, consuming another command's output rather
 than a file tree directly, is likewise legitimate: the object being searched
 is a stream of command output, not a file on disk.
+
+---
+
+## Shell Commands an Artifact Emits
+
+The sections above classify an act an agent performs now. A second kind of
+statement runs nothing. It writes a command string into an artifact that later
+agents copy: a Verification Commands row in a task file, a WRONG/CORRECT
+exemplar, a gate fence quoted verbatim, or a rule that mandates what a task
+file must contain. `/planwise lessons promote` and `/planwise backlog` write
+such strings into a project's own `.claude/` tree, and task files carry
+Verification Commands rows. A shell search verb in one of those strings does
+more damage than one search. Every artifact built from it inherits the shape.
+
+Apply this three-step test, in order, to every sentence that tells a reader or
+an agent to run a shell command against files:
+
+| Step | Test | Class |
+|---|---|---|
+| 1 | Is the command's input something other than a file tree: git output, a database, an interpreter, a running process, or the filesystem's own metadata? | **Legitimate**, exempt. The named binary does not matter: a search verb run on `git diff` output reads git's output, not a file. See [Where the Shell Is Correct](#where-the-shell-is-correct). |
+| 2 | Otherwise, is the statement's product a command string emitted into a generated artifact: a Verification Commands row, an exemplar, a gate fence future agents copy, or a rule that mandates what a task file contains? | **Template**. It fires when the emitted string carries a shell search or traversal verb (`grep`, `cat`, `sed -n`, `find`, `cd`, or an equivalent file-tree read verb) and a dedicated tool covers the same act. Its reach is the shape it propagates, not the one search it performs. |
+| 3 | Otherwise, the statement tells an agent to run the command now, against files, to find or read content. | **Substitution**. It fires when **Read**, **Grep**, **Glob** or **Edit** covers the act exactly. |
+
+The check fires on Substitution and on Template with a shell search verb. It
+stays silent on Legitimate.
+
+**Repoint, don't soften.** When the check fires, rewrite the instruction to
+name the dedicated tool call before the change lands: **Read** (with
+`offset`/`limit` for a range), **Grep**, **Glob**, or **Edit**/**Write**. Do not
+soften the wording to "consider using Grep instead". Replace the shell
+invocation with the concrete tool call the artifact should teach or perform.
+
+**The shell-invocation doctrine is never a target.** A constraint that requires
+Verification Commands to be explicit, runnable shell invocations is Legitimate.
+So are the build, test and lint commands those invocations contain, because
+those runs have no dedicated-tool equivalent. What a self-containment or
+promotion check forbids is vague prose such as "run lint and tests", not the
+shell invocation itself.
+
+### A Substitution-Class Instruction
+
+The runner is told to search files now, and a dedicated tool covers the act.
+
+> [!constraint] A Substitution-class instruction in a task template
+> WRONG — the template tells the runner to shell out to search files it could search with the Grep tool directly:
+> ```markdown
+> To find the failing assertion, run:
+> grep -rn "{symptom}" src/
+> ```
+> CORRECT — repointed to the dedicated tool that covers the same act exactly:
+> ```markdown
+> To find the failing assertion, use the Grep tool with pattern "{symptom}"
+> over `src/`.
+> ```
+
+### A Template-Class Exemplar
+
+The string is emitted into an artifact, and every artifact built from it copies
+the shape.
+
+> [!constraint] A Template-class exemplar carrying a shell verb
+> WRONG — a Verification Commands row's exemplar comment teaches the shell shape, which every task file built from the template then copies verbatim:
+> ```markdown
+> # e.g., grep current row count
+> ```
+> CORRECT — the exemplar names the dedicated tool, so every task file the template produces inherits the correct instruction:
+> ```markdown
+> # e.g., Grep for the current row count
+> ```
 
 ---
 

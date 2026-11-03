@@ -259,7 +259,10 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 >    textually different headers (e.g., `## Execution Plan` vs `## Task List`).
 > 2. **Class B — Optional formatting lines omitted.** Bold totals, divider
 >    rules, and other lines present in the templates but not structurally
->    required (e.g., `**Total Estimated:** ~50K`).
+>    required (e.g., `**Total Estimated:** ~50K`). Class B also covers the
+>    `- [ ] **{Label}**` items of the Orchestration template's
+>    `## Post-Session Checklist`. An item whose label is reworded counts as
+>    missing, and a checked box still counts as present.
 > 3. **Class C — Scaffold folder absent when scaffolding is done inline.**
 >    `Scaffold-{Abbrev}/` folder missing because scaffolding ran inline rather
 >    than in a dedicated session. **Phase-gated — grade this class only past
@@ -278,8 +281,8 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 > Mitigation hooks, in the order they run:
 >
 > 1. **The scaffolder sweeps its own output — this is the first line of
->    defence.** After a pass that authors 2+ sprints, or that fans out to 2+
->    scaffolding subagents, and BEFORE handing the plan to `/planwise review`,
+>    defence.** After every scaffold pass, including a single-sprint pass, and
+>    BEFORE handing the plan to `/planwise review`,
 >    the scaffolder runs the three class sweeps over the files it just wrote
 >    and harmonizes what they surface: section headers restored to the
 >    template's wording, optional formatting lines restored, and the pass's

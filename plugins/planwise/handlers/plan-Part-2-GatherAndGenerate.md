@@ -210,20 +210,17 @@ After creating task files, update the Orchestration file's Task Files table with
 > ```
 > Never apply the whole-file Write to a file listed under a Sprint Plan's `## Cross-Sprint File Touches`, because a whole-file write discards a co-writer's change. Repair that file with targeted `Edit` calls. The rule's acceptance counts two figures, each with its basis: repair tool uses (each `Edit` or `Write` call) and distinct requests (each model response, which can carry several tool calls). Several `Edit` calls can share one request, so a whole-file Write can save tool uses and no requests.
 
-### Step 8b: Add Lessons Reference to Post-Session Checklist
+### Step 8b: Keep the Template's Lessons Item in the Post-Session Checklist
 
-Each Orchestration file created MUST include this item in its post-session checklist:
+The orchestration template is the one source of the lessons item. Each Orchestration file keeps this line from [orchestration.md](../templates/orchestration.md) verbatim in its `## Post-Session Checklist`:
 
 ```
-[ ] Document lessons learned in {lessons_dir}/LL-{NNN}-{Domain}-{Name}.md
-    - Get next NNN from `parse_lessons.py --config {config} --next-id`
-    - Use the lesson file template from templates/lesson.md
-    - Required frontmatter: id, title, date, source (session ID), category, severity,
-      language, technology, domain, status, applied-as
-    - Run the generator; append the changelog entry
+- [ ] **Capture lessons** — ask "Were any lessons learned?" If yes, create lesson file and run the generator
 ```
 
-Where `{lessons_dir}` comes from `config.yaml`.
+Do not reword the line, and do not add a second lessons item. A plan review grades any other wording as template drift.
+
+The next lesson id, the lesson file template and the required frontmatter are run-time detail. They live in [run.md](run.md) § Step 4.2: Lesson Capture, which the runner follows when it reaches this checklist item.
 
 ### Step 8c: Validate Token Estimates (Bottom-Up)
 

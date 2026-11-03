@@ -216,6 +216,25 @@ def test_class_b_line_only_inside_a_fence_is_missing(bad_copy):
     assert any(ln.startswith("CLASS_B ") and ln.endswith('missing "**Total Estimated:**"') for ln in lines)
 
 
+def test_reworded_checklist_item_is_class_b(bad_copy):
+    # The Step 8b wording a handler once wrote in place of the template's lessons item.
+    path = one(bad_copy, "*-Orchestration.md")
+    text = path.read_bytes().decode("utf-8")
+    old = next(ln for ln in text.split("\n") if ln.startswith("- [ ] **Capture lessons**"))
+    edit(path, old, "- [ ] **Document lessons learned** — record any lessons from this session")
+    code, lines = check(bad_copy)
+    assert code == 1
+    assert totals(lines) == (0, 1, 0)
+    assert lines[0].startswith("CLASS_B ") and lines[0].endswith('missing "- [ ] **Capture lessons**"')
+
+
+def test_checked_checklist_item_is_present(bad_copy):
+    path = one(bad_copy, "*-Orchestration.md")
+    edit(path, "- [ ] **Capture lessons**", "- [x] **Capture lessons**")
+    code, lines = check(bad_copy)
+    assert (code, lines) == (0, ["deviations: A=0 B=0 C=0"])
+
+
 def test_undecodable_plan_file_names_the_file_not_the_template(bad_copy):
     path = one(bad_copy, "*-Orchestration.md")
     path.write_bytes(path.read_bytes() + b"\n\xff\xfe\n")

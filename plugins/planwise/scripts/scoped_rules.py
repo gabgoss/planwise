@@ -17,17 +17,22 @@ matched against every rule's globs, and the item gets one of three verdicts:
   under a content tree (`.claude/rules|agents|skills|commands/`), and no
   promoted lesson owns the item, so a human decides where the file belongs.
 
-This is a library with no CLI. It reads files and never writes them. The
-backlog router imports this module, and this module imports nothing from the
-router. This module owns the fence scanner (`fence_flags`) that the loop
+The module is mostly a library. Its one CLI, `--destinations`, checks a
+list of proposed destination paths with no backlog item, for a plan task
+that names where its files will live (`match_destinations`). It reads files
+and never writes them. The backlog router imports this module, and this
+module imports nothing from the router. This module owns the fence scanner (`fence_flags`) that the loop
 writers share, so they agree on which lines are fenced.
 """
 
+import argparse
 import re
+import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 from frontmatter_parser import parse_frontmatter_map, split_frontmatter_block
 from markdown_parser import normalize_id, split_row_cells_code_aware
 
@@ -747,3 +752,53 @@ def scoped_rules_block(item_id: str, body: str, config: dict) -> dict[str, Any]:
         "inject_form": inject_form,
         "truncated": truncated,
     }
+
+
+def match_destinations(destinations: list[str], project_root: Path,
+                       read: tuple[str, ...] = ()) -> list[tuple[str, list[str]]]:
+    """Match proposed destination paths against every path-scoped rule's globs.
+
+    Each destination is made project-relative as an item's destinations are
+    (an absolute path outside `project_root` is kept as given and matches no
+    rule). Returns `(destination, unread_rules)` pairs in input order, where
+    `unread_rules` lists the rel path of every rule whose glob fires and that
+    `read` does not name.
+    """
+    project_root = Path(project_root)
+    scopes = load_rule_scopes(project_root)
+    done = {r.replace("\\", "/") for r in read}
+    out: list[tuple[str, list[str]]] = []
+    for raw in destinations:
+        rel = _normalize_path(raw.replace("\\", "/"), project_root)
+        fired = [s.rel for s in scopes if s.matches(rel)] if rel else []
+        out.append((raw, [r for r in fired if r not in done]))
+    return out
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI: print each unread rule whose glob fires on a destination; exit 1 when any does."""
+    parser = argparse.ArgumentParser(
+        description="List the path-scoped rules whose paths: glob fires on proposed destinations.")
+    parser.add_argument("--project-root", required=True, help="the project holding .claude/rules/")
+    parser.add_argument("--destinations", nargs="+", required=True, help="proposed destination paths")
+    parser.add_argument("--read", nargs="*", default=[],
+                        help="rule paths (relative to the project root) already read")
+    args = parser.parse_args(argv)
+    root = Path(args.project_root)
+    if not root.is_dir():
+        sys.stdout.buffer.write(f"error: --project-root {root.as_posix()} is not a directory\n".encode())
+        return 2
+    rows = match_destinations(args.destinations, root, tuple(args.read))
+    lines: list[str] = []
+    for dest, rules in rows:
+        lines.extend(f"{dest}: {rule}" for rule in rules)
+        if not rules:
+            lines.append(f"{dest}: none")
+    fired = sum(len(rules) for _, rules in rows)
+    lines.append(f"rules scanned: {len(load_rule_scopes(root))}; unread matches: {fired}")
+    sys.stdout.buffer.write(("\n".join(lines) + "\n").encode("utf-8"))
+    return 1 if fired else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

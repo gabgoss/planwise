@@ -1913,6 +1913,10 @@ from lint_gate_checks_plan import CHECKS as _PLAN_CHECKS
 
 CHECK_REGISTRY.extend(_PLAN_CHECKS)
 
+from lint_gate_checks_verify import CHECKS as _VERIFY_CHECKS
+
+CHECK_REGISTRY.extend(_VERIFY_CHECKS)
+
 
 # ---------------------------------------------------------------------------
 # CLI

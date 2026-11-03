@@ -101,7 +101,7 @@ The gate names three deviation classes. Each has its own repair.
 | Class | What it is | Repair |
 |---|---|---|
 | A — section-header drift | A template-mandated `##` or `###` heading is missing or reworded in an Orchestration, Sprint Plan or task file (for example `## Task List` where the template says `## Session Task List`) | Restore the template's exact wording in every file that dropped it |
-| B — optional formatting line omitted | A non-structural template line is absent: `**Total Estimated:**` and `**Mode:**` in an Orchestration, `**Total Sessions:**` in the Master Plan | Restore the line wherever it is absent |
+| B — optional formatting line omitted | A non-structural template line is absent: `**Total Estimated:**` and `**Mode:**` in an Orchestration, `**Total Sessions:**` in the Master Plan, or a `- [ ] **{Label}**` item of the Orchestration template's `## Post-Session Checklist` (a reworded label counts as absent) | Restore the line wherever it is absent. Restore a Post-Session Checklist item with the template's wording, and replace any reworded copy rather than keeping both |
 | C — scaffold folder absent | `Scaffold-{Abbrev}/` is missing beside `Exec-{Abbrev}/` | Report it. Never repair it |
 
 Class C is phase-gated. `Exec-{Abbrev}/` present means the plan is past Discovery, so grade the class. `Exec-{Abbrev}/` absent means the plan is still at Discovery and the class does not apply. Do not read the Master Plan's `**Phase:**` field instead, because it keeps its Meta-Plan value after the execution plan exists.

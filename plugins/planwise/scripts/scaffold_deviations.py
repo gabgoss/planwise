@@ -17,7 +17,7 @@ Command (run with `python -B`):
 Output lines, one per deviation, then one total line that is always last:
 
     CLASS_A <file> missing "<template heading>"
-    CLASS_B <file> missing "<template line prefix>"
+    CLASS_B <file> missing "<template line prefix or checklist item>"
     CLASS_C <PATH parent> missing Scaffold-{Abbrev}/
     deviations: A=<n> B=<n> C=<n>
 
@@ -28,8 +28,12 @@ Classes:
        orchestration, sprint and task files are graded. A Master Plan is never
        graded here, because a scaffolded one is written from a different template.
        A marker with a condition (`REQUIRED for DELEGATED mode`) is not graded.
-    B  A required formatting line is absent: `**Total Estimated:**` and `**Mode:**`
-       in an Orchestration, `**Total Sessions:**` in a Master Plan.
+    B  A required template line is absent: `**Total Estimated:**` and `**Mode:**`
+       in an Orchestration, `**Total Sessions:**` in a Master Plan, and each
+       `- [ ] **{Label}**` item of the Orchestration template's
+       `## Post-Session Checklist` section. A checklist item counts as present
+       with its box empty or checked (`- [x]`), and only its bold label is
+       compared, so a reworded label is reported as missing.
     C  PATH is an `Exec-{Abbrev}` folder and its parent holds no `Scaffold-{Abbrev}/`.
        For any other folder name Class C is not graded and the total prints C=0.
 
@@ -62,11 +66,19 @@ REQUIRED_MARKER = re.compile(r"<!--\s*REQUIRED\s*-->\s*$")
 #   orchestration -> templates/orchestration.md `**Total Estimated:** ~{XX}K tokens`
 #   orchestration -> templates/orchestration.md `**Mode:** {DIRECT | DELEGATED}`
 #   master        -> templates/master-plan.md and templates/scaffolding-master-plan.md `**Total Sessions:**`
+# Class B also grades the checklist items of one template section, per CLASS_B_CHECKLISTS:
+#   orchestration -> templates/orchestration.md `## Post-Session Checklist`, every `- [ ] **{Label}**` line
+# The labels are read from that section only, because the template carries other
+# `- [ ] **...**` lines in other sections.
 CLASS_B_LINES = (
     ("orchestration", "Total Estimated"),
     ("orchestration", "Mode"),
     ("master", "Total Sessions"),
 )
+CLASS_B_CHECKLISTS = (
+    ("orchestration", "Post-Session Checklist"),
+)
+CHECKLIST_ITEM_RE = re.compile(r"^- \[ \] \*\*(.+?)\*\*")
 EXEC_RE = re.compile(r"^Exec-(.+)$")
 
 
@@ -84,8 +96,25 @@ def required_headings(templates_dir):
     return out
 
 
+def checklist_labels(templates_dir, kind, section):
+    """The `- [ ] **{Label}**` labels of one `## {section}` section of the kind's template."""
+    _pre, secs = sp.split_sections(template_body(templates_dir, kind))
+    sec = next((s for s in secs if sp.norm_heading(s[0]) == f"## {section}"), None)
+    if sec is None:
+        raise ValueError(f"template for kind {kind} has no ## {section} section")
+    labels = [m.group(1) for ln in sec[1:] if (m := CHECKLIST_ITEM_RE.match(ln.rstrip("\r")))]
+    if not labels:
+        raise ValueError(f"template for kind {kind} has no - [ ] **...** item under ## {section}")
+    return labels
+
+
 def line_prefixes(templates_dir):
-    """Per kind: the `**Label:**` prefixes read from the template lines named in CLASS_B_LINES."""
+    """Per kind: (reported line, pattern) for each required line Class B grades.
+
+    The `**Label:**` prefixes come from the template lines named in CLASS_B_LINES. The
+    checklist items come from the template sections named in CLASS_B_CHECKLISTS, and
+    their pattern accepts an empty or a checked box.
+    """
     out = {}
     for kind, label in CLASS_B_LINES:
         pat = re.compile(r"^(\*\*" + re.escape(label) + r":\*\*)")
@@ -93,7 +122,11 @@ def line_prefixes(templates_dir):
                        if (m := pat.match(ln))), None)
         if prefix is None:
             raise ValueError(f"template for kind {kind} has no line starting **{label}:**")
-        out.setdefault(kind, []).append(prefix)
+        out.setdefault(kind, []).append((prefix, re.compile(re.escape(prefix))))
+    for kind, section in CLASS_B_CHECKLISTS:
+        for label in checklist_labels(templates_dir, kind, section):
+            out.setdefault(kind, []).append(
+                (f"- [ ] **{label}**", re.compile(r"- \[[ xX]\] \*\*" + re.escape(label) + r"\*\*")))
     return out
 
 
@@ -130,8 +163,9 @@ def class_a(heads, required):
             if not any(pat == x if isinstance(pat, str) else pat.match(x) for x in heads)]
 
 
-def class_b(plain, prefixes):
-    return [p for p in prefixes if not any(ln.startswith(p) for ln in plain)]
+def class_b(plain, checks):
+    """The reported line of each check whose pattern matches no plain line at its start."""
+    return [shown for shown, pat in checks if not any(pat.match(ln) for ln in plain)]
 
 
 def load_templates(templates_dir):

@@ -165,19 +165,19 @@ Record the matrix's outcome — the shared paths found and how each pair was clo
 
 ### Step 9b: Post-Pass Harmonization
 
-**Runs when this invocation authored 2+ Sprint Plan files** — the same `n_sprints_scaffolded_this_pass` count Step 10 uses — **or fanned out to 2+ scaffolding subagents.** Skip it for a single-sprint pass. It runs after every sprint's files exist and **before** the Step-10 review gate.
+**Runs on every pass, including a single-sprint pass.** It runs after every sprint's files exist and **before** the Step-10 review gate. Handler text and template drift apart even in serial authoring. At `n_sprints_scaffolded_this_pass == 1`, Step 10 still offers "Skip to /planwise run", so a skipped sweep lets drift reach execution with no review.
 
-The three deviation classes in [`references/scaffolding-hygiene.md`](../references/scaffolding-hygiene.md) §8 accumulate whenever plan files are authored in parallel from one template set. The scaffolder is the cheapest place to catch them, because it still holds every file it just wrote: at authoring time a rename has no consumers, while after the fact the same rename is an edit sweep through every citing task file across every sprint.
+The three deviation classes in [`references/scaffolding-hygiene.md`](../references/scaffolding-hygiene.md) §8 accumulate whenever plan files are authored from one template set, in parallel or in a single-sprint pass. The scaffolder is the cheapest place to catch them, because it still holds every file it just wrote: at authoring time a rename has no consumers, while after the fact the same rename is an edit sweep through every citing task file across every sprint.
 
 Sweep this pass's own output for all three classes, then harmonize what surfaces:
 
 | Class | Sweep | Harmonize to |
 |-------|-------|--------------|
 | **A — section-header drift** | The gate grades each `##` heading the orchestration, sprint plan and task-file templates mark with a bare `<!-- REQUIRED -->`. `Grep` the rest across every Orchestration, Sprint Plan and task file this pass authored: each conditional `##` heading in the files where its condition holds (for example `## Dispatch Layers` in a DELEGATED Orchestration), and each template `###` heading. A heading whose hit count is below that file count is missing from the remainder | The template's exact wording, restored in every file that dropped it |
-| **B — optional formatting lines omitted** | The gate reports each missing formatting line, counted outside code fences: `**Total Estimated:**` and `**Mode:**` in an Orchestration, and `**Total Sessions:**` in a Master Plan | The line restored wherever it is absent |
+| **B — optional formatting lines omitted** | The gate reports each missing template line, counted outside code fences: `**Total Estimated:**` and `**Mode:**` in an Orchestration, `**Total Sessions:**` in a Master Plan, and each `- [ ] **{Label}**` item of the Orchestration template's `## Post-Session Checklist`. A checked box still counts, and a reworded label counts as missing | The line restored wherever it is absent, with the template's wording |
 | **C — `Scaffold-{Abbrev}/` absent** | `Glob` for `Exec-{Abbrev}/` first: absent ⇒ the plan is still at Discovery and this class does not apply. Present ⇒ `Glob` for `Scaffold-{Abbrev}/` | The folder created, per `scaffolding-hygiene.md` §8 Class C |
 
-**A script runs the Class B and Class C sweeps and the graded part of Class A.** On the fan-out path, the orchestrator dispatches `planwise:scaffold-harmonizer` (`handlers/plan-scaffolding.md` Step 4, Fan-Out Path). The harmonizer runs the gate below and harmonizes what it reports. On the inline path, the orchestrator runs the same command itself:
+**A script runs the Class B and Class C sweeps and the graded part of Class A, on every pass.** On the fan-out path, the orchestrator dispatches `planwise:scaffold-harmonizer` (`handlers/plan-scaffolding.md` Step 4, Fan-Out Path). The harmonizer runs the gate below and harmonizes what it reports. On the inline path, the orchestrator runs the same command itself:
 
 ```
 python -B "{plugin_root}/scripts/scaffold_deviations.py" check {exec_dir}
