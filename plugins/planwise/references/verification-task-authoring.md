@@ -26,7 +26,7 @@ paths: {planwise_root}/{plans_dir}/**
 | [gate-verdict-contract-and-adjudication.md](gate-verdict-contract-and-adjudication.md) | §5-§6, Check 060 | you write a verifier's output template, Actual contradicts Expected, or a BLOCKER arrives from a heuristic |
 | [gate-absence-and-consistency.md](gate-absence-and-consistency.md) | §8 | you write a `grep -c TOKEN == 0` criterion, a subset consistency check, or a status flip over a file that states one fact twice |
 | [gate-pre-edit-baseline.md](gate-pre-edit-baseline.md) | §10-§10.4, Check 082 | you write or review an After-block gate, or the gate linter reports Check 1 or Check 2 |
-| [gate-input-set-and-compared-window.md](gate-input-set-and-compared-window.md) | §10.6, §12 | a criterion is fed by a pinned diff or a sweep, or a proof compares string literals and reports a difference count |
+| [gate-input-set-and-compared-window.md](gate-input-set-and-compared-window.md) | §10.6, §12, §14, §15, Checks 104 and 105 | a criterion is fed by a pinned diff or a sweep, a proof compares string literals and reports a difference count, a task selects its own work with a pattern and checks success against that pattern's count, or a pull uses a fixed `-B` or `-A` window around a structured entry |
 | [gate-anchor-outcome-set.md](gate-anchor-outcome-set.md) | §10.7, §10.10, Check 095 | you write a Signoff anchor, an exit criterion, an Execution Input gate, or a `git diff --stat` allowed set over a regenerated directory |
 | [gate-command-semantics.md](gate-command-semantics.md) | §10.8-§10.9 | you pin any `grep`, `diff`, `wc` or `awk` gate, or a gate returns a plausible value on work you know is correct |
 | [gate-pinned-from-real-content.md](gate-pinned-from-real-content.md) | §10.5, §11 | the thing a gate measures does not exist yet, sits in a content block you wrote, comes from a tool whose output you have not seen, or is a Markdown verdict line or heading |
@@ -47,6 +47,7 @@ paths: {planwise_root}/{plans_dir}/**
 > - [ ] All four command-semantics traps checked: `grep -c` counts lines, `-B1` emits the match, set membership is not count equality, every path resolves from the declared cwd (`gate-command-semantics.md` §10.8).
 > - [ ] A mutation-control criterion names the guard, not a test: "each guard has a test that fails when only that guard is disabled", with one minimal input per guard and the mutated symbol's own return value asserted (`gate-predicate-discrimination.md` §14 and §15).
 > - [ ] A proof that two literal sets are verbatim reports the size of the compared set and extracts from the function body only (`gate-input-set-and-compared-window.md` §12).
+> - [ ] Every selection pattern a task's scope depends on is dry-run against known-bad input, every count it feeds is checked against an independent non-empty assertion, and every fixed context window is sized from the schema maximum (`gate-input-set-and-compared-window.md` §14 and §15).
 > - [ ] An anchor or verification command that runs a writer (`--write`, `--fix`, `--apply`, an upgrade flag) names a scratch target (`exit-criteria-fidelity.md` §16.10.7).
 
 ---
@@ -75,6 +76,8 @@ A citation written as `verification-task-authoring.md §N` resolves here. The se
 | §11 A Gate Is Pinned From a Run Over Real Content (§11.1-§11.5) | `gate-pinned-from-real-content.md` |
 | §12 A Verbatim-Literal Proof Extracts From the Body | `gate-input-set-and-compared-window.md` |
 | §13 A Predicate That Counts Names Its Unit | `gate-heuristic-verifier-patterns.md` |
+| §14 A Selection Pattern Is Dry-Run Before Its Count Becomes a Denominator (Check 104) | `gate-input-set-and-compared-window.md` |
+| §15 A Context Window Around a Structured Entry Is Sized From the Schema's Maximum (Check 105) | `gate-input-set-and-compared-window.md` |
 
 ---
 

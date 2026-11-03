@@ -71,13 +71,13 @@ LEDGERED_PLUGIN = (
     ("agents/review-discovery.md", 78),  # CONSUMER: a section of the generated fact sheet
     ("agents/review-discovery.md", 158),  # CONSUMER: a section of the generated fact sheet
     ("references/exit-criteria-fidelity.md", 397),  # LABEL: the canonical check-title heading
-    ("references/lessons-promote-batch-workflow-Part-2-DraftAndWrite.md", 348),  # EXAMPLE: sample value with stand-in file names
-    ("references/lessons-promote-batch-workflow-Part-2-DraftAndWrite.md", 364),  # EXAMPLE: sample value with stand-in file names
+    ("references/lessons-promote-batch-workflow-Part-2-DraftAndWrite.md", 357),  # EXAMPLE: sample value with stand-in file names
+    ("references/lessons-promote-batch-workflow-Part-2-DraftAndWrite.md", 373),  # EXAMPLE: sample value with stand-in file names
     ("references/measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md", 315),  # HISTORY: names the former section numbering
     ("references/measurement-discipline.md", 9),  # HISTORY: provenance of the split
     ("references/measurement-discipline.md", 516),  # HISTORY: names the former section numbering
     ("references/read-confirm-act-protocol.md", 117),  # EXAMPLE: a wrong example about another document's sections
-    ("references/read-confirm-act-protocol.md", 547),  # EXAMPLE: quotes a wrong entry in an incident table
+    ("references/read-confirm-act-protocol.md", 551),  # EXAMPLE: quotes a wrong entry in an incident table
     ("references/task-content-fidelity.md", 466),  # EXAMPLE: sample status cell citing an example artifact
     ("references/verification-gates.md", 48),  # EXAMPLE: quoted example citation form
     ("references/verify-anchor-against-artifact.md", 12),  # LABEL: names a numbering series, not a pointer

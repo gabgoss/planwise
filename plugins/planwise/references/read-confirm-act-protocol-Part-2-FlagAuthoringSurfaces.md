@@ -1,11 +1,11 @@
 ---
-description: Cross-task coordination flags continued — a Key Finding that names another session's file is re-filed as a flag, a flag that tells a task to produce something is a write-set delta reconciled against the Output line and write-target row, and an ordering flag is written against the pinned command it sequences. Split out of read-confirm-act-protocol.md §1.3 when that file neared the Read-tool token gate.
-consult-when: Authoring or reconciling a cross-session flag — read X's pinned command before writing "X before Y", count a flag's produce-verbs against the `Output:` line and write-target row, and re-file a Key Finding that names another session's file as a coordination flag; carries three `§1.3` subsections of `read-confirm-act-protocol.md`
+description: Cross-task coordination flags continued — a Key Finding that names another session's file is re-filed as a flag, a flag that tells a task to produce something is a write-set delta reconciled against the Output line and write-target row, an ordering flag is written against the pinned command it sequences, and a flag's stated mechanism is tested against its count and tagged CONTESTED when the counts do not reproduce it. Split out of read-confirm-act-protocol.md §1.3 when that file neared the Read-tool token gate.
+consult-when: Authoring or reconciling a cross-session flag — read X's pinned command before writing "X before Y", count a flag's produce-verbs against the `Output:` line and write-target row, re-file a Key Finding that names another session's file as a coordination flag, and test a flag's stated mechanism against its count before propagating it, tagging a failing mechanism `CONTESTED`; carries four `§1.3` subsections of `read-confirm-act-protocol.md`
 ---
 
 # READ-CONFIRM-ACT Protocol, Part 2 — Flag Authoring Surfaces
 
-**Purpose:** Three §1.3 subsections, split out of [read-confirm-act-protocol.md](read-confirm-act-protocol.md) when that file neared the Read-tool token gate. §1.1-§1.6 stay on that anchor, which keeps the original filename. Each subsection extends §1.3's "Authoring the Flag (Spec Delta, Not Observation)" test to a surface the earlier text did not name: a finding recorded in the wrong table, a write-set, and a step order.
+**Purpose:** Four §1.3 subsections, split out of [read-confirm-act-protocol.md](read-confirm-act-protocol.md) when that file neared the Read-tool token gate. §1.1-§1.6 stay on that anchor, which keeps the original filename. Each subsection extends §1.3's "Authoring the Flag (Spec Delta, Not Observation)" test to a surface the earlier text did not name: a finding recorded in the wrong table, a write-set, a step order, and an explanation that rides beside a measurement.
 
 ---
 
@@ -93,3 +93,39 @@ Two shapes hide a flag:
 - **The receiver's remedy is a spec delta, not a quiet reorder.** A contradiction between a binding flag and a task step is a Phase-1 structural finding. Surface it, get the choice, write the resolved order into the task file with the approval reference, and let the runner execute one unambiguous sequence.
 
 **Applies to** authoring a cross-session flag that sequences a downstream task's steps, and to the receiver's preflight: a flag that contradicts an Execution Step's pinned command is a structural finding for the CONFIRM block, not a reorder to apply silently. It covers any "do X first" instruction where X's command carries a path, port or artifact that a later step creates.
+
+## A Flag's Stated Mechanism Is Tested Against Its Count
+
+> [!constraint] A flag carries the measurement. It does not carry the runner's "because" as fact
+> A flag has two parts that travel together and have different standing. The **measurement** (a count, a timing, a file list) is a recorded observation. The receiver re-measures it for staleness and never re-argues it. The **mechanism** is the runner's explanation of why the measurement came out that way. It is an inference, and a downstream gate may overturn it. The routing-time test is mechanical: would the stated mechanism produce the stated count?
+
+**Example.** A runner measured two candidate natural keys on every file in a data set. Both showed 0 duplicates. Its Recovery then explained the result: "the source already splits a traded player into separate per-team rows, so the narrower key is unique". That mechanism predicts duplicates on the narrower key, because the split rows would collide. The measured 0 says the opposite. The orchestrator copied the sentence into the next task's flag block. A later task noticed the contradiction while pasting the counts, marked the sentence contested, and decided from the numbers. Nothing shipped wrong, only because the second reader compared the prose with the count.
+
+- **Run the test at routing time, before the flag is written.** State the count the mechanism predicts, then compare it with the measured count. A match lets the sentence travel. A mismatch means the sentence does not travel as fact.
+- **Name the decision and its decider.** A flag says what is decided and who decides it. The runner's "because" is not a decision.
+- **Tag a failing mechanism `CONTESTED`, inline, and keep the sender's sentence verbatim.** The sender's text stays per §1.4.E of [read-confirm-act-protocol.md](read-confirm-act-protocol.md), and the correction sits beside it. No new column, callout or schema is involved:
+
+```
+**CONTESTED** — {stated mechanism, verbatim}. Counts: {pointer to the measurement}. Decision: {what is decided} — {decider}.
+```
+
+> [!constraint] Absence of signal supports two opposite designs. Apply the mechanism test before choosing one
+> A zero-occurrence reading is compatible with "the guard needs strengthening" and with "the guard's site is unreachable". The two readings imply opposite designs. The mechanism test separates them.
+>
+> WRONG — read the 0 as support for a mitigation at the silent site:
+> ```
+> measurement: guard log occurrences during the failure = 0
+> inference:   the guard never fired, so a new hook at this site will catch the failure
+> flag:        "orchestrator-validated: recommend the hook at this site"
+> ```
+> CORRECT — ask what a reachable site would have produced:
+> ```
+> measurement: guard log occurrences during the failure = 0
+> fact:        the guard is the first statement at the call site and logs unconditionally
+> test:        a reachable site predicts more than 0 lines. The measured 0 contradicts that.
+> conclusion:  the site was never re-entered. A hook at this site inherits the unreachability.
+> flag:        measurement carried as a record. The hook recommendation is CONTESTED, and the
+>              gated design task resolves reachability first.
+> ```
+
+**Applies to** the orchestrator routing a runner's Recovery into a flag block, to the receiver's Phase-1 preflight (which already re-derives the conclusion per §1.4.D), and to any closeout that copies a runner's explanation into a propagated flag.

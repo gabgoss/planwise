@@ -420,7 +420,7 @@ After each task completes (DIRECT or DELEGATED, sequential):
 
 1. **Recovery file** -- update immediately:
    - Mark task COMPLETE with timestamp
-   - Add key findings to "Key Findings" section (re-file a bullet naming another session's file as a `Cross-Task Coordination Flags` row before the next dispatch)
+   - Add key findings to "Key Findings" section (re-file a bullet naming another session's file as a `Cross-Task Coordination Flags` row before the next dispatch, and before propagating a finding test its stated mechanism against its count and tag a failing one `CONTESTED`, per `references/read-confirm-act-protocol-Part-2-FlagAuthoringSurfaces.md` "A Flag's Stated Mechanism Is Tested Against Its Count")
    - Add files modified to "Files Modified" section
    - Add Change Log entry: date, step number, status, notes, and the runner id and round kind (`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17.7)
    - Update "Current Step" to next task number

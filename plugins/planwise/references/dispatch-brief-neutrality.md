@@ -1,6 +1,6 @@
 ---
-description: A brief that names the likely answer gets that answer back, and hedging it does not help. Covers separating context from premise in a dispatch brief, supplying the discriminator instead of the destination, fix instructions that name a target number, directional guardrails, routing every branch of a plan's central question, inviting the contradiction, what to do when the premise is refuted mid-run, checking each HARD CONSTRAINTS prohibition against every step of the brief, and naming every branch of a task's decision rule when a scope boundary narrows a write permission. Consult while writing a spawn prompt, a task brief, a repair instruction, or a plan's anti-inference guardrail, and at every reconciliation point where new evidence lands.
-consult-when: Writing a spawn prompt, task brief, fix instruction, or anti-inference guardrail, or reconciling after new evidence lands — keep the dispatcher's expectation out of the brief, supply the discriminator not the destination, make guardrails symmetric, route every outcome branch, retract a refuted premise explicitly, check each HARD CONSTRAINTS prohibition against every step of the brief before adding it, and name every branch of a task's decision rule when a scope boundary narrows a write permission
+description: A brief that names the likely answer gets that answer back, and hedging it does not help. Covers separating context from premise in a dispatch brief, supplying the discriminator instead of the destination, fix instructions that name a target number, directional guardrails, routing every branch of a plan's central question, inviting the contradiction, what to do when the premise is refuted mid-run, checking each HARD CONSTRAINTS prohibition against every step of the brief, naming every branch of a task's decision rule when a scope boundary narrows a write permission, and ordering the overturning parameter first in a gated design task that consumes an upstream recommendation. Consult while writing a spawn prompt, a task brief, a repair instruction, or a plan's anti-inference guardrail, and at every reconciliation point where new evidence lands.
+consult-when: Writing a spawn prompt, task brief, fix instruction, or anti-inference guardrail, or reconciling after new evidence lands — keep the dispatcher's expectation out of the brief, supply the discriminator not the destination, make guardrails symmetric, route every outcome branch, retract a refuted premise explicitly, check each HARD CONSTRAINTS prohibition against every step of the brief before adding it, name every branch of a task's decision rule when a scope boundary narrows a write permission, and in a gated design task that consumes an upstream recommendation name the overturning parameter, resolve it first, and license overturning the recommendation
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Dispatch Brief Neutrality — A Brief That Supplies the Answer Gets the Answer Back
@@ -27,6 +27,7 @@ One neighbouring rule owns the quantitative half of this discipline. [`dispatch-
 - [8. Record the Refutation, and Keep the Real Defect the Wrong Diagnosis Found](#8-record-the-refutation-and-keep-the-real-defect-the-wrong-diagnosis-found)
 - [9. A Prohibition Claims That No Step Needs the Prohibited Thing — Enumerate Before Adding One](#9-a-prohibition-claims-that-no-step-needs-the-prohibited-thing--enumerate-before-adding-one)
 - [10. A Scope Boundary That Narrows a Write Permission Names Every Branch of the Task's Own Decision Rule](#10-a-scope-boundary-that-narrows-a-write-permission-names-every-branch-of-the-tasks-own-decision-rule)
+- [11. A Gated Design Task That Consumes an Upstream Recommendation Resolves the Overturning Parameter First](#11-a-gated-design-task-that-consumes-an-upstream-recommendation-resolves-the-overturning-parameter-first)
 
 ---
 
@@ -221,6 +222,39 @@ The failure in practice: the orchestrator copied a prohibition from the brief's 
 **Measured cost.** The divergent branch fired: the measured value was `0.0994585` against a ceiling of `0.05`. The runner stopped short of the unauthorized edit, which was correct. The recovery still took two user questions (what the ceiling is for, then which value) and one resume of the same runner.
 
 **Applies to** any DELEGATED dispatch that narrows a write set to match one branch of a documented decision rule: a class-change check, a same-versus-different resolution, an idempotency check. The scope statement carries every branch the task file defines, not only the one the orchestrator expects.
+
+---
+
+## 11. A Gated Design Task That Consumes an Upstream Recommendation Resolves the Overturning Parameter First
+
+> [!constraint] An upstream recommendation is an input to the design gate, not a verdict the gate inherits
+> An upstream analysis often ends in a recommendation, and a later design task is gated on it. The recommendation carries the analyst's inference, and the inference can be wrong even when every measurement beside it is right. The design task's brief therefore does three things, in this order:
+>
+> 1. **Name the parameter that could overturn the recommendation.** This is the load-bearing feasibility fact: whether the recommended site is reachable, whether the recommended mechanism can run at all, whether the budget the option needs exists.
+> 2. **Order that parameter first.** The task resolves it before it designs anything, so the design starts from the measured answer.
+> 3. **License the overturn on evidence.** The brief says in terms that the task may reject the upstream recommendation when the parameter's answer contradicts it, and report what it found instead (§6).
+
+This is §1 applied to a recommendation. The recommendation is CONTEXT only for its measurements. Its "therefore option X" is a PREMISE, and §2 says to supply the discriminator for it, not the destination.
+
+> [!constraint] Order the overturning parameter before the design work
+> WRONG — hand over the recommendation as the design's starting point:
+> ```
+> Upstream result: the guard logged 0 lines during the failure, so mitigation X (a hook at that site)
+>                  is recommended.
+> Task: "Design mitigation X."
+> # The design starts from the verdict. If the 0 actually means the site was never reached, the
+> # hook inherits the same unreachability, and the brief gave the task no reason to check.
+> ```
+> CORRECT — name the parameter, order it first, license the overturn:
+> ```
+> Upstream result: the guard logged 0 lines during the failure; upstream recommends mitigation X.
+> Task: "First, resolve whether the call site is reachable during the failure. The guard is the first
+>        statement at that site and logs unconditionally, so decide what a reachable site would have
+>        logged. Then design. If the site is unreachable, reject mitigation X on that evidence and
+>        report the option you found instead."
+> ```
+
+**Applies to** any DELEGATED task whose gate is a design decision and whose inputs include another task's or session's recommendation. The same ordering belongs in the task's success criteria: the first criterion records the parameter's measured value, and the design criteria come after it.
 
 ---
 

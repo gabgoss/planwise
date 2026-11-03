@@ -47,10 +47,10 @@ All paths resolve from `config.yaml` (`project.planwise_root`, `project.lessons_
 | `{lessons_dir}/LL-{NNN}-*.md` | Lesson body — promoted content is INLINED into BB rule designs from these files. **Read in full during Phase 1** for every non-archived in-scope lesson before any grouping decision (§3.4). | Yes (in full, Phase 1) | Phase 4 — archive-on-capture ([Part-2 §6.5](lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#65-capture-the-in-scope-lessons-archive-on-capture)): set `status: promoted`, populate `promoted-to:` with every owning backlog item id, then `git mv` the file to `Archive/`. Skipped entirely under `--dry-run` |
 | `{lessons_dir}/Archive/LL-{NNN}-*.md` | Archived (already-promoted) lesson bodies. Skip as candidates — these are not promotion candidates. Also the **destination** of the Phase-4 capture move. | No | Phase 4 — receives each captured lesson via `git mv` ([Part-2 §6.5](lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#65-capture-the-in-scope-lessons-archive-on-capture) step 2) |
 | `{backlog_dir}/{backlog_index}` | Backlog master table; **also the BB ownership index** for cross-checking whether a lesson is already named in any active BB's title or row (§3.2 step 5). | Yes | Phase 4 — regenerated once, after the last BB is filed, via `generate_backlog_index.py --write` (§6.3) |
-| `{backlog_dir}/BB-*-*.md` | Active BB files. **Grep all of them for `LL-{NNN}` mentions** to detect lessons already owned by an active BB (regardless of status: `NOT_STARTED`, `IN_PROGRESS`, `BLOCKED`). | Yes (Grep, Phase 1) | No |
-| `{backlog_dir}/Archive/BB-*-*.md` | Archived (COMPLETE/CLOSED) BB files. **Also greppable** — a lesson named in an archived COMPLETE BB is already promoted; do not re-bundle. | Yes (Grep, Phase 1) | No |
+| `{backlog_dir}/BB-*-*.md` | Active BB files. **Grep all of them for `LL-{NNN}` mentions** to detect lessons already owned by an active BB (regardless of status: `NOT_STARTED`, `IN_PROGRESS`, `BLOCKED`). Also searched once per run for claimed `.claude/rules/` paths (§4.5). | Yes (Grep, Phase 1) | No |
+| `{backlog_dir}/Archive/BB-*-*.md` | Archived (COMPLETE/CLOSED) BB files. **Also greppable** — a lesson named in an archived COMPLETE BB is already promoted; do not re-bundle. Also searched once per run for claimed `.claude/rules/` paths (§4.5). | Yes (Grep, Phase 1) | No |
 | `{backlog_dir}/BB-{ID}-{SB}-DOC-PromoteLessons{BucketSlug}.md` | New BB files | No | Yes (one per planned promotion grouping) |
-| `.claude/rules/**` | Existing rules — check whether a target rule already exists (extend rather than create) | Yes (`Glob` + read frontmatter) | No |
+| `.claude/rules/**` | Existing rules — check whether a target rule exists on disk (extend rather than create); §4.5 pairs it with the claimed-path check | Yes (`Glob` + read frontmatter) | No |
 | `CLAUDE.md` | Force-read binding callouts pointing to the new rules | Yes | No (BB describes the CLAUDE.md edit; the BB executor performs it) |
 | `config.yaml: categorization` | Bucket schema, slug list, sub-bucket structure | Yes | No |
 
@@ -107,6 +107,8 @@ For each resolved lesson ID, run all five checks:
 
 ### 3.3 Report scope to chat
 
+Run the §4.5 claimed-path enumeration once, before the table. It supplies the claimed-path line that follows the table.
+
 Before doing any further work, emit a short table to the chat:
 
 ```markdown
@@ -120,6 +122,10 @@ Before doing any further work, emit a short table to the chat:
 | LL-... | D | MEDIUM | partial — fragment owned by BB-{Y} ({status}); remaining fragment in scope | ... |
 | LL-... | E | HIGH | orphaned — owner BB-{Z} (COMPLETE) closed without landing; in scope as re-bundle candidate | ... |
 ```
+
+**Claimed by a completed item, never authored:** `.claude/rules/{path}.md` -- BB-{Z} (COMPLETE). Triage only; the run continues.
+
+List each such path once, on its own line of this form.
 
 ### 3.4 Read every in-scope lesson body in full (BINDING)
 
@@ -232,6 +238,27 @@ For each target rule path, run `Glob` to detect whether the rule already exists.
 
 - **Extend** (preferred): the BB deliverable becomes "Extend `.claude/rules/{path}.md` with new §N covering LL-X content (fully inlined)" — no new file, just an `Edit` of the existing rule.
 - **Replace** (rare): the BB deliverable explicitly states the existing rule is being replaced, with rationale.
+
+The disk check cannot see a rule that a drafted backlog item claims but nobody has authored yet. Promote-batch only drafts items, so each earlier run leaves more claimed paths that are absent from disk. Run one more check, once per run, before drafting any rule deliverable:
+
+```
+Grep  pattern='\.claude/rules/[A-Za-z0-9_-][A-Za-z0-9_./-]*\.md'  path='{backlog_dir}'  output_mode='content'  -o=true
+```
+
+The search is recursive, so `{backlog_dir}/Archive/` is included. Then work through the hits in this order:
+
+1. Dedupe the hits into a list of distinct claimed paths.
+2. Run `Glob` on each claimed path and drop every path that exists on disk. The disk check above already covers those.
+3. Match each target rule path exactly against the remaining paths.
+4. Review the remaining paths for rules that sit beside a target rule, even when no path matches exactly.
+
+Each hit names its source file. The source file's frontmatter `status:` and its folder (`{backlog_dir}/` or `{backlog_dir}/Archive/`) give the claimant's state. Then apply the outcome that fits:
+
+- **(i) An open item claims the exact target.** The BB deliverable becomes "Extend the rule that BB-{Z} creates at `.claude/rules/{path}.md`". Record framing (c) in the Notes section ([Part-2 §5.5](lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#55-write-the-notes-section-last)). Do not edit BB-{Z}. The `blocks:` key lives only on the blocking item, so the Phase-4 chat report names BB-{Z} and asks the user to add the new item's id to BB-{Z}'s `blocks:`.
+- **(ii) An open item claims an adjacent rule.** Record framing (c) in the Notes section. State why the two items stay separate and what link they owe each other at landing.
+- **(iii) Only an archived COMPLETE item claims the path, and the rule is absent from disk.** The rule was never authored. Add one line to the §3.3 scope report and do nothing else. The line does not block the run.
+
+An empty `Glob` alone does not mean a free path.
 
 ---
 

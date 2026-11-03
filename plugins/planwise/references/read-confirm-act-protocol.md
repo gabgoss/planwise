@@ -239,6 +239,10 @@ A Coordination Flag Row is either **informational** — safe to deliver as conte
 
 **Moved.** This subsection lives in the Part-2 file named above. Before writing "run X before Y", read X's pinned command and ask what Y produces. State the intent beside the order. A receiver resolves a contradiction through a spec delta, never a quiet reorder.
 
+#### A Flag's Stated Mechanism Is Tested Against Its Count
+
+**Moved.** This subsection lives in the Part-2 file named above. Before a flag carries a runner's explanation, ask whether the stated mechanism would produce the stated count. A flag whose mechanism the counts do not reproduce travels tagged `CONTESTED`, with a pointer to the counts, and the sender's sentence stays verbatim (§1.4.E).
+
 #### Conditional Spec Branches Are Flags
 
 > [!constraint] An Unresolved Conditional Branch Is a Flag, Not a Finished Spec
@@ -263,13 +267,13 @@ A flag reaches an executing task in **two hops**, and each hop has exactly one o
 > ```
 > An entry with no stamp after the receiving session's Phase 1 is an unrouted flag, and the receiver's Recovery routing table (Step 1.1a) is where the miss is recorded.
 
-Each propagated entry MUST be tagged with the source session ID and the surface date so the downstream agent recognizes it as orchestrator-validated context (do NOT re-derive) and can age it for staleness.
+Each propagated entry MUST be tagged with the source session ID and the surface date so the downstream agent can age it for staleness. A carried measurement is binding as a record: the receiver re-measures it for staleness (§1.4.C) and never re-argues it. A carried inference, recommendation or stated "because" is an input that a named downstream gate may overturn (§1.4.D).
 
 > [!template] Propagated Flag Block
 > ```markdown
 > ## Pre-Known Cross-Task Coordination Flags
 >
-> These flags were surfaced and reconciled by upstream session orchestrators. Treat them as orchestrator-validated context — do NOT re-derive.
+> These flags were surfaced and reconciled by upstream session orchestrators. Treat each carried measurement as a validated record: re-measure it for staleness, never re-argue it. Treat each carried inference or recommendation as an input that a downstream gate may overturn.
 >
 > ### From {source-session-id} ({source-session-name}) — recorded {YYYY-MM-DD}
 >
