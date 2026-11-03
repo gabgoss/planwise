@@ -90,7 +90,7 @@ class BacklogLoopHandlerTests(unittest.TestCase):
         text = _read(REFINE_PART4)
         for needle in (
             "## Steps",
-            "Split the kept ids into batches of at most 5 items.",
+            "Split the kept ids into batches of at most 3 items.",
             "§ 7 Constraints",
         ):
             with self.subTest(needle=needle):

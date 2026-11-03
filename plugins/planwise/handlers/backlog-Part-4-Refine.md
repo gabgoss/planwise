@@ -24,7 +24,9 @@ Note each kept id that carries an empty `Answer:` line under `## Open Questions`
 
 ### Step 2: Batch the ids
 
-Split the kept ids into batches of at most 5 items. The cap comes from the preflight agent's 40-turn limit. Re-measure it on the first real run and record the turns each batch used.
+Split the kept ids into batches of at most 3 items. The cap comes from the preflight agent's 40-turn limit and its measured cost of about 10 tool calls per item with the full protocol. A batch of 3 fits in 40 turns even at one call per turn.
+
+A larger batch still finishes, but the agent drops protocol steps to fit. Measured once on items of 86 to 134 lines: 1 item used 10 tool calls and ran the duplicate scan. A batch of 5 used 32 tool calls and skipped the duplicate scan for every item. Re-measure when the preflight protocol changes.
 
 Create one hand-over directory per batch:
 
