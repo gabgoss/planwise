@@ -12,7 +12,10 @@ Usage:
 
 `stamp` records the HEAD sha, the current branch, and the
 `git status --porcelain -- <subtree>` output of each subtree (the whole tree
-when no `--subtree` is given). It writes the stamps as JSON to `--out`.
+when no `--subtree` is given). It also records the SHA-256 of every file
+the subtree's status names (untracked files listed one by one), so a path
+that was already dirty and is edited again still reads as a difference.
+It writes the stamps as JSON to `--out`.
 It refuses an `--out` path inside the stamped repository, so the stamp file
 can never change the status it records.
 
@@ -24,6 +27,7 @@ Stdout is LF-only text.
 """
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -33,6 +37,7 @@ sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__py
 
 WHOLE_TREE = "."
 DETACHED = "(detached)"
+MISSING = "(missing)"
 
 
 class PinError(Exception):
@@ -73,10 +78,42 @@ def take_stamps(repo: Path, subtrees: list[str]) -> dict:
     subtrees = list(subtrees) or [WHOLE_TREE]
     head = _git(repo, "rev-parse", "HEAD").strip()
     branch = _git(repo, "branch", "--show-current").strip() or DETACHED
+    top = repo_toplevel(repo)
     status = {}
+    hashes = {}
     for sub in subtrees:
         status[sub] = _git(repo, "status", "--porcelain", "--", sub)
-    return {"head": head, "branch": branch, "subtrees": subtrees, "status": status}
+        hashes[sub] = dirty_hashes(repo, top, sub)
+    return {"head": head, "branch": branch, "subtrees": subtrees, "status": status, "hashes": hashes}
+
+
+def dirty_paths(repo: Path, sub: str) -> list[str]:
+    """Return every modified, staged or untracked file path under `sub`, repo-root relative."""
+    raw = _git(repo, "status", "--porcelain", "-z", "--untracked-files=all", "--", sub)
+    tokens = raw.split("\0")
+    paths: list[str] = []
+    index = 0
+    while index < len(tokens):
+        entry = tokens[index]
+        index += 1
+        if len(entry) < 4:
+            continue
+        paths.append(entry[3:])
+        if "R" in entry[:2] or "C" in entry[:2]:
+            index += 1  # the rename or copy source follows as its own token
+    return sorted(set(paths))
+
+
+def dirty_hashes(repo: Path, top: Path, sub: str) -> dict[str, str]:
+    """Map each dirty path under `sub` to the SHA-256 of its bytes, or `(missing)`."""
+    out: dict[str, str] = {}
+    for rel in dirty_paths(repo, sub):
+        target = top / rel
+        try:
+            out[rel] = hashlib.sha256(target.read_bytes()).hexdigest()
+        except OSError:
+            out[rel] = MISSING
+    return out
 
 
 def is_inside(path: Path, root: Path) -> bool:
@@ -98,6 +135,13 @@ def diff_stamps(before: dict, after: dict) -> list[str]:
             out.append(f"differs: status {sub}: + {line}")
         for line in sorted(old - new):
             out.append(f"differs: status {sub}: - {line}")
+        if "hashes" not in before:
+            continue  # a stamp file written before content hashes were recorded
+        old_hashes = before["hashes"].get(sub, {})
+        new_hashes = after.get("hashes", {}).get(sub, {})
+        for rel in sorted(set(old_hashes) | set(new_hashes)):
+            if old_hashes.get(rel) != new_hashes.get(rel):
+                out.append(f"differs: content {sub}: {rel}")
     return out
 
 

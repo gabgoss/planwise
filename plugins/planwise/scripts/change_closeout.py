@@ -15,10 +15,14 @@ the first word of that file's `**Status:**` line. A file under two plan
 directories belongs to the deeper one. A backlog item is one `*.md` file
 under `--backlog`, and its status is its frontmatter `status:` value.
 
-One allow-list decides both: `OPEN_STATUSES`. A plan or item whose status is
-open is scanned. Any other status (COMPLETE, CLOSED, BLOCKED, an unknown
-word, or no status at all) is skipped and counted on a `skipped:` line, so an
-unexpected status is visible and never listed.
+"Open" means every status that is not finished, read from the plugin's own
+vocabularies rather than a list kept here. A plan is open when its status is
+in `list_plans.ACTIVE_STATUSES` (PLANNING, READY_TO_EXECUTE, REVIEWED,
+APPROVED, NEEDS_FIXES, IN_PROGRESS). A backlog item is open when its status
+is in `constants.OPEN_STATUSES` (NOT_STARTED, IN_PROGRESS, PLANNING,
+BLOCKED). Any other status (COMPLETE, CLOSED, an unknown word, an empty
+value, or no status at all) is skipped and counted on a `skipped:` line, so
+an unexpected status is visible and never listed.
 
 A file names a basename when the basename appears with no name character
 (a letter, digit, `_`, `-` or `.`) before it and no letter, digit or `_`
@@ -38,9 +42,10 @@ import sys
 from pathlib import Path
 
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
+from constants import OPEN_STATUSES as BACKLOG_OPEN_STATUSES
 from frontmatter_parser import parse_frontmatter_map, split_frontmatter_block
+from list_plans import ACTIVE_STATUSES as PLAN_OPEN_STATUSES
 
-OPEN_STATUSES = frozenset({"PLANNED", "READY_TO_EXECUTE", "IN_PROGRESS", "NOT_STARTED"})
 MASTER_PLAN_GLOB = "*-Master-Plan.md"
 NO_STATUS = "(none)"
 _STATUS_LINE_RE = re.compile(r"^\*\*Status:\*\*[ \t]*([A-Za-z_]+)", re.MULTILINE)
@@ -77,7 +82,8 @@ def backlog_status(text: str) -> str:
     fm = parse_frontmatter_map(split[0]) if split else None
     if not fm or not fm.get("status", "").strip():
         return NO_STATUS
-    return fm["status"].strip().strip("'\"").split()[0].upper()
+    words = fm["status"].strip().strip("'\"").split()
+    return words[0].upper() if words else NO_STATUS
 
 
 def is_master_plan(path: Path) -> bool:
@@ -114,7 +120,7 @@ def scan(changed: list[str], plans_dir: Path, backlog_dir: Path) -> dict:
 
     plans = find_plans(plans_dir)
     for status in plans.values():
-        if status not in OPEN_STATUSES:
+        if status not in PLAN_OPEN_STATUSES:
             skipped[status] = skipped.get(status, 0) + 1
     plan_dirs = list(plans)
     unowned = 0
@@ -122,14 +128,14 @@ def scan(changed: list[str], plans_dir: Path, backlog_dir: Path) -> dict:
         owner = owning_plan(path, plan_dirs)
         if owner is None:
             unowned += 1
-        elif plans[owner] in OPEN_STATUSES:
+        elif plans[owner] in PLAN_OPEN_STATUSES:
             record(path, plans[owner])
 
     items = 0
     for path in sorted(backlog_dir.rglob("*.md")):
         items += 1
         status = backlog_status(_read(path))
-        if status in OPEN_STATUSES:
+        if status in BACKLOG_OPEN_STATUSES:
             record(path, status)
         else:
             skipped[status] = skipped.get(status, 0) + 1

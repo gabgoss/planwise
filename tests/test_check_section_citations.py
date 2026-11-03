@@ -426,10 +426,15 @@ def test_heading_words_full_title_and_step_before_dash(tmp_path, heading, line, 
 @pytest.mark.parametrize(
     "entry, exit_code",
     [
-        pytest.param(".hidden/rules/x.md:2", 0, id="dot-directory-absolute-suffix"),
-        pytest.param("./.hidden/rules/x.md:2", 0, id="leading-dot-slash-prefix"),
+        # A relative entry resolves against --root, then each extra root and
+        # its parent. It never matches by path suffix, so a path that only
+        # ends like the file's absolute path no longer matches.
+        pytest.param(".hidden/rules/x.md:2", 1, id="dot-directory-suffix-no-longer-matches"),
+        pytest.param("./.hidden/rules/x.md:2", 1, id="leading-dot-slash-suffix-no-longer-matches"),
         pytest.param("rules/x.md:2", 0, id="printed-file-key"),
-        pytest.param(".hidden/rules/x.md:3", 1, id="different-line-number"),
+        pytest.param("./rules/x.md:2:§9", 0, id="leading-dot-slash-printed-key-three-field"),
+        pytest.param("{abs}:2:§9", 0, id="absolute-path-three-field"),
+        pytest.param("rules/x.md:3", 1, id="different-line-number"),
     ],
 )
 def test_ledger_matches_a_path_inside_a_dot_directory(tmp_path, entry, exit_code):
@@ -437,11 +442,171 @@ def test_ledger_matches_a_path_inside_a_dot_directory(tmp_path, entry, exit_code
     extra = tmp_path / ".hidden" / "rules"
     _a_md(root)
     _write(root, "references/src.md", "See `a.md` §1.\n")
-    _write(extra, "x.md", "intro\nSee `a.md` §9.\n")
+    x = _write(extra, "x.md", "intro\nSee `a.md` §9.\n")
     assert _run("--root", root, "--extra-root", extra).returncode == 1
-    ledger = _write(tmp_path, "ledger.txt", entry + "\n")
+    ledger = _write(tmp_path, "ledger.txt", entry.replace("{abs}", x.resolve().as_posix()) + "\n")
     done = _run("--root", root, "--extra-root", extra, "--ledger", ledger)
     assert done.returncode == exit_code
+
+
+# ------------------------------------------------- citation-keyed ledger
+
+
+def _two_cites_tree(root: Path) -> None:
+    _a_md(root)
+    _write(root, "references/src.md", "intro\nSee `a.md` §8 and `a.md` §9.\n")
+
+
+def test_three_field_entry_subtracts_only_its_own_citation(tmp_path):
+    root = tmp_path / "root"
+    _two_cites_tree(root)
+    one = _write(tmp_path, "one.txt", "references/src.md:2:§8\n")
+    done = _run("--root", root, "--ledger", one)
+    assert done.returncode == 1
+    assert "1 failing after ledger" in done.stdout
+    assert "line-keyed" not in done.stderr
+    both = _write(tmp_path, "both.txt", "references/src.md:2:§8\nreferences/src.md:2:§9 # EXAMPLE: reason\n")
+    assert _run("--root", root, "--ledger", both).returncode == 0
+
+
+def test_two_field_entry_still_loads_and_prints_a_line_keyed_note(tmp_path):
+    root = tmp_path / "root"
+    _two_cites_tree(root)
+    ledger = _write(tmp_path, "old.txt", "references/src.md:2 reviewed\n")
+    done = _run("--root", root, "--ledger", ledger)
+    assert done.returncode == 0
+    notes = [ln for ln in done.stderr.splitlines() if "line-keyed" in ln]
+    assert notes == ["ledger entry is line-keyed; re-key as path:line:citation: references/src.md:2"]
+
+
+def test_three_field_entry_with_a_different_citation_matches_nothing(tmp_path):
+    root = tmp_path / "root"
+    _two_cites_tree(root)
+    ledger = _write(tmp_path, "l.txt", "references/src.md:2:§7\n")
+    done = _run("--root", root, "--ledger", ledger)
+    assert done.returncode == 1
+    assert "matched no dangling or unresolved-target finding: references/src.md:2:§7" in done.stderr
+
+
+def test_read_ledger_parses_three_field_and_line_keyed_entries(tmp_path):
+    ledger = _write(
+        tmp_path,
+        "l.txt",
+        "# comment\n\nhandlers/p.md:57:§ Decisions\nr\\x.md:4:§1.2 # EXAMPLE\n"
+        "C:/abs/y.md:9:19\nreferences/z.md:3 reason text\n",
+    )
+    got = [(e.path, e.line, e.citation) for e in csc.read_ledger(ledger)]
+    assert got == [
+        ("handlers/p.md", 57, "§ Decisions"),
+        ("r/x.md", 4, "§1.2"),
+        ("C:/abs/y.md", 9, "19"),
+        ("references/z.md", 3, None),
+    ]
+    bad = _write(tmp_path, "bad.txt", "no line number here\n")
+    with pytest.raises(csc.CitationCheckError):
+        csc.read_ledger(bad)
+
+
+def test_citation_keyed_ledger_catches_a_new_citation_on_a_ledgered_line(tmp_path):
+    # Discrimination: a ledgered line gains a second, new dangling citation.
+    root = tmp_path / "root"
+    _a_md(root)
+    _write(root, "references/src.md", "intro\nSee `a.md` §8.\n")
+    new = _write(tmp_path, "new.txt", "references/src.md:2:§8\n")
+    old = _write(tmp_path, "old.txt", "references/src.md:2\n")
+    assert _run("--root", root, "--ledger", new).returncode == 0
+    assert _run("--root", root, "--ledger", old).returncode == 0
+    _write(root, "references/src.md", "intro\nSee `a.md` §8 and `a.md` §97.\n")
+    drifted = _run("--root", root, "--ledger", new)
+    assert drifted.returncode == 1
+    assert "references/src.md:2: dangling: §97" in drifted.stdout
+    assert _run("--root", root, "--ledger", old).returncode == 0
+
+
+def test_relative_entry_never_matches_by_suffix_another_files_finding(tmp_path):
+    # The old suffix rule let `references/src.md:2` also hide the extra root's
+    # `ext/references/src.md:2`, whose absolute path ends the same way.
+    root = tmp_path / "root"
+    extra = tmp_path / "ext"
+    _a_md(root)
+    _write(root, "references/src.md", "intro\nSee `a.md` §9.\n")
+    _write(extra, "references/src.md", "intro\nSee `a.md` §8.\n")
+    ledger = _write(tmp_path, "l.txt", "references/src.md:2:§9\n")
+    done = _run("--root", root, "--extra-root", extra, "--ledger", ledger)
+    assert done.returncode == 1
+    assert "1 failing after ledger" in done.stdout
+    both = _write(tmp_path, "both.txt", "references/src.md:2:§9\next/references/src.md:2:§8\n")
+    assert _run("--root", root, "--extra-root", extra, "--ledger", both).returncode == 0
+
+
+def test_relative_entry_never_resolves_against_the_cwd(tmp_path):
+    root = tmp_path / "root"
+    _a_md(root)
+    _write(root, "references/src.md", "intro\nSee `a.md` §9.\n")
+    # From cwd=tmp_path this path names the file, but the roots do not hold it.
+    _write(tmp_path, "l.txt", "root/references/src.md:2:§9\n")
+    done = subprocess.run(
+        [sys.executable, "-B", str(SCRIPT), "--root", "root", "--ledger", "l.txt"],
+        capture_output=True, text=True, encoding="utf-8", timeout=120, check=False, cwd=tmp_path,
+    )
+    assert done.returncode == 1
+    assert "matched no dangling or unresolved-target finding: root/references/src.md:2:§9" in done.stderr
+
+
+def test_resolve_ledger_prefers_root_then_extra_roots(tmp_path):
+    root = tmp_path / "root"
+    extra = tmp_path / "ext"
+    _write(root, "references/a.md", "x\n")
+    _write(extra, "only.md", "x\n")
+    entries = [csc.LedgerEntry("references/a.md", 1, None), csc.LedgerEntry("only.md", 1, None),
+               csc.LedgerEntry("ext/only.md", 1, None), csc.LedgerEntry("missing.md", 1, None)]
+    got = [e.target for e in csc.resolve_ledger(entries, csc.ledger_bases(root, [extra]))]
+    assert got == [
+        (root / "references" / "a.md").resolve().as_posix(),
+        (extra / "only.md").resolve().as_posix(),
+        (extra / "only.md").resolve().as_posix(),
+        "",
+    ]
+
+
+# ------------------------------------------------------ unreadable file
+
+
+def _cp1252_tree(root: Path) -> None:
+    _a_md(root)
+    _write(root, "references/good.md", "See `a.md` §9.\n")
+    path = root / "references" / "bad.md"
+    path.write_bytes(b"line one\nSee \xa7 1 here.\n")  # a cp1252 section sign
+
+
+def test_unreadable_file_is_one_finding_and_other_findings_still_print(tmp_path):
+    root = tmp_path / "root"
+    _cp1252_tree(root)
+    found = csc.check_tree(root)
+    (bad,) = _of(found, "references/bad.md")
+    assert (bad.verdict, bad.line, bad.citation, bad.fails) == ("unreadable", 2, "", True)
+    assert "byte 0xa7 at offset 13" in bad.note
+    assert _of(found, "references/good.md")[0].verdict == "dangling"
+    done = _run("--root", root)
+    assert done.returncode == 1
+    assert "references/bad.md:2: unreadable (not UTF-8: byte 0xa7 at offset 13)" in done.stdout
+    assert "references/good.md:1: dangling" in done.stdout
+    assert "unreadable=1" in done.stdout
+
+
+def test_unreadable_file_is_not_ledgerable(tmp_path):
+    root = tmp_path / "root"
+    _cp1252_tree(root)
+    ledger = _write(tmp_path, "l.txt", "references/good.md:1:§9\nreferences/bad.md:2\n")
+    done = _run("--root", root, "--ledger", ledger)
+    assert done.returncode == 1
+    assert "1 failing after ledger" in done.stdout
+    assert "matched no dangling or unresolved-target finding: references/bad.md:2" in done.stderr
+    # Control: with the file repaired the same ledger clears the run.
+    (root / "references" / "bad.md").write_bytes(b"line one\nplain text.\n")
+    fixed = _run("--root", root, "--ledger", _write(tmp_path, "l2.txt", "references/good.md:1:§9\n"))
+    assert fixed.returncode == 0
+    assert "unreadable" not in fixed.stdout
 
 
 # ------------------------------------------- pre-commit review fixes
@@ -513,6 +678,403 @@ def test_own_directory_wins_for_a_shared_basename(tmp_path):
     _write(root, "skills/bar/helper.md", "## 2. Two\n")
     (got,) = _of(csc.check_tree(root), "skills/foo/SKILL.md")
     assert (got.verdict, got.target) == ("ok", "skills/foo/helper.md")
+
+
+# ------------------------------------------------------------ redirect table
+
+# Each entry the table must hold: key -> (target basename, target section).
+# Membership only: a later entry may join the table without breaking these.
+REQUIRED_REDIRECTS = {
+    ("verification-gates.md", "9"): ("measurement-discipline.md", "8"),
+    ("verification-gates.md", "12"): ("verify-caller-before-complete.md", None),
+    ("verification-gates.md", "8"): ("gate-diff-baseline-pinning.md", "8"),
+    ("verification-gates.md", "1"): ("gate-runtime-boundary-evidence.md", "1"),
+    ("verification-gates.md", "7"): ("gate-runtime-boundary-evidence.md", "7"),
+}
+
+
+@pytest.mark.parametrize("key", sorted(REQUIRED_REDIRECTS), ids=lambda k: f"{k[0]}-{k[1]}")
+def test_redirect_table_holds_each_entry_with_its_source(key):
+    entry = csc.REDIRECTS[key]
+    assert (entry.target, entry.section) == REQUIRED_REDIRECTS[key]
+    # The source names the cited file's section that records the move.
+    assert entry.source.startswith("verification-gates.md § ")
+
+
+def _gates_tree(root: Path, md_body: str = "## 8. Empirical\n") -> None:
+    _write(root, "references/verification-gates.md", "### 9. Empirical\n\n### 12. Reachability\n\n## 2. Two\n")
+    _write(root, "references/measurement-discipline.md", md_body)
+    _write(root, "references/verify-caller-before-complete.md", "## 1. One\n")
+    _write(root, "references/src.md", "See `verification-gates.md` §9 and `verification-gates.md` §12.\n")
+
+
+def test_redirect_entry_wins_over_a_stub_heading(tmp_path):
+    root = tmp_path / "root"
+    _gates_tree(root)
+    got = _of(csc.check_tree(root), "references/src.md")
+    assert [(f.verdict, f.target, f.section) for f in got] == [
+        ("redirected", "references/measurement-discipline.md", "8"),
+        ("redirected", "references/verify-caller-before-complete.md", "12"),
+    ]
+    assert all("source: verification-gates.md § Reserved Section Numbers" in f.note for f in got)
+    # Default passes, --strict-parts fails on the table redirects alone.
+    assert _run("--root", root).returncode == 0
+    strict = _run("--root", root, "--strict-parts")
+    assert strict.returncode == 1
+    assert "2 failing after ledger" in strict.stdout
+    objs = [json.loads(ln) for ln in _run("--root", root, "--json").stdout.splitlines() if ln.strip()]
+    mine = [o for o in objs if o["file"] == "references/src.md"]
+    assert mine[0]["target"] == "references/measurement-discipline.md"
+    assert "redirect table:" in mine[0]["note"] and "source:" in mine[0]["note"]
+
+
+@pytest.mark.parametrize(
+    "md_body, why",
+    [
+        pytest.param("## 7. Seven\n", "target heading missing", id="target-heading-missing"),
+        pytest.param(None, "target file missing", id="target-file-missing"),
+    ],
+)
+def test_redirect_entry_with_a_missing_target_is_dangling(tmp_path, md_body, why):
+    root = tmp_path / "root"
+    _gates_tree(root, md_body or "")
+    if md_body is None:
+        (root / "references" / "measurement-discipline.md").unlink()
+    first = _of(csc.check_tree(root), "references/src.md")[0]
+    assert (first.verdict, first.target, first.section) == ("dangling", "references/verification-gates.md", "9")
+    assert why in first.note and "redirect table: verification-gates.md §9" in first.note
+    assert _run("--root", root).returncode == 1
+
+
+def test_subsection_of_a_moved_section_redirects_under_the_target_section(tmp_path):
+    root = tmp_path / "root"
+    _gates_tree(root, "## 8. Empirical\n\n### 8.2 Two\n")
+    _write(root, "references/src.md",
+           "See `verification-gates.md` §9.2, `verification-gates.md` §9.3 and "
+           "`verification-gates.md` §12.1.\n")
+    got = _of(csc.check_tree(root), "references/src.md")
+    assert [(f.verdict, f.target, f.section) for f in got] == [
+        ("redirected", "references/measurement-discipline.md", "8.2"),
+        # The mapped heading is absent from the target, so it stays dangling.
+        ("dangling", "references/verification-gates.md", "9.3"),
+        ("redirected", "references/verify-caller-before-complete.md", "12.1"),
+    ]
+    assert "target heading missing" in got[1].note
+
+
+def test_redirect_table_does_not_apply_outside_plugin_references(tmp_path):
+    root = tmp_path / "root"
+    _gates_tree(root)
+    _write(root, "references/gate-diff-baseline-pinning.md", "## 8. Diff\n")
+    rules = tmp_path / "consumer" / ".claude" / "rules"
+    _write(rules, "verification-gates.md", "## 8. Our own section\n")
+    _write(rules, "use.md", "See `verification-gates.md` §8.\n")
+    got = _of(csc.check_tree(root, extra_roots=[rules]), "rules/use.md")
+    assert [(f.verdict, f.target, f.section) for f in got] == [("ok", "rules/verification-gates.md", "8")]
+
+
+def test_citation_without_an_entry_resolves_ok_unchanged(tmp_path):
+    root = tmp_path / "root"
+    _gates_tree(root)
+    _write(root, "references/src.md", "See `verification-gates.md` §2 and `measurement-discipline.md` §8.\n")
+    got = _of(csc.check_tree(root), "references/src.md")
+    assert [(f.verdict, f.target, f.section, f.note) for f in got] == [
+        ("ok", "references/verification-gates.md", "2", ""),
+        ("ok", "references/measurement-discipline.md", "8", ""),
+    ]
+    assert _run("--root", root, "--strict-parts").returncode == 0
+
+
+# ------------------------------------------------- zone and symbol modes
+
+
+def _zone_tree(tmp_path: Path, target_body: str) -> tuple[Path, Path]:
+    brief = _write(tmp_path, "brief.md", "Step 1\nAdd the row under `## Topic Files` in the index.\n")
+    target = _write(tmp_path, "index.md", target_body)
+    return brief, target
+
+
+def test_zone_mode_counts_a_present_zone(tmp_path):
+    brief, target = _zone_tree(tmp_path, "# Index\n\n## Topic Files\n\n| a | b |\n")
+    (got,) = csc.check_zones(brief.read_text(encoding="utf-8"), [target], "brief.md")
+    assert (got.subject, got.count, got.label, got.line) == ("Topic Files", 1, "zone", 2)
+    done = _run("--brief", brief, "--zone", target)
+    assert done.returncode == 0
+    assert 'brief.md:2: zone: zone "Topic Files" count=1' in done.stdout
+
+
+def test_zone_mode_reports_a_dead_zone(tmp_path):
+    brief, target = _zone_tree(tmp_path, "# Index\n\n## Section Map\n")
+    (got,) = csc.check_zones(brief.read_text(encoding="utf-8"), [target])
+    assert (got.count, got.label, got.fails) == (0, "DEAD-ZONE", True)
+    done = _run("--brief", brief, "--zone", target)
+    assert done.returncode == 1
+    assert 'DEAD-ZONE: zone "Topic Files" count=0' in done.stdout
+    # The default citation summary does not print: the mode replaces the scan.
+    assert "findings (" not in done.stdout
+
+
+@pytest.mark.parametrize(
+    "line, zones",
+    [
+        pytest.param('Land it in the "Decisions" section.', ["Decisions"], id="quoted-after-in"),
+        pytest.param("Put it below `### Controls Run`.", ["Controls Run"], id="hashes-dropped"),
+        pytest.param("Edit the code in `check_tree()` and in `scripts/x.py`.", [], id="code-and-path-skipped"),
+        pytest.param("Write it as a `## Topic Files` row.", [], id="no-trigger-word"),
+        pytest.param('Set section `None`; each section "keeps its number".', [], id="code-value-and-prose-quote"),
+    ],
+)
+def test_zone_extraction_rule(line, zones):
+    assert [z for _, z in csc.extract_zones(line + "\n")] == zones
+
+
+@pytest.mark.parametrize(
+    "rows, label",
+    [
+        pytest.param("| 3 | Add a row matching the existing table | x.md |\n", "NO-LOCATOR", id="no-locator"),
+        pytest.param("<!-- Grep '^## Notes' x.md → 2 -->\n| 3 | Add a row matching the existing table | x.md |\n",
+                     "locator", id="locator-recorded"),
+        pytest.param("<!-- Grep '^## Notes' x.md → 0 -->\n| 3 | Add a row in native format | x.md |\n",
+                     "NO-FALLBACK", id="count-0-no-fallback"),
+        pytest.param("<!-- Grep '^## Notes' x.md → 0 -->\n| 3 | native format absent: add an inline note | x.md |\n",
+                     "locator", id="count-0-with-fallback"),
+    ],
+)
+def test_locator_evidence_rule(tmp_path, rows, label):
+    (got,) = csc.check_locators(rows)
+    assert got.label == label
+    brief = _write(tmp_path, "brief.md", rows)
+    target = _write(tmp_path, "x.md", "## Notes\n")
+    assert _run("--brief", brief, "--zone", target).returncode == (0 if label == "locator" else 1)
+
+
+def test_locator_rule_skips_a_quoted_mention():
+    assert csc.check_locators('A row that says "native format" or `matching the existing` is checked.\n') == []
+
+
+def test_symbol_mode_counts_present_and_reports_phantom(tmp_path):
+    src = tmp_path / "src"
+    _write(src, "mod.py", "def load_rule_scopes(path):\n    return load_rule_scopes\n")
+    spec = _write(tmp_path, "spec.md", "Sprint 1 shipped `mod.load_rule_scopes()` and `ghost_handler()`.\n"
+                                       "Run `python -B x.py` and read `notes.md`.\n")
+    got = csc.check_symbols(spec.read_text(encoding="utf-8"), [src], "spec.md")
+    assert [(f.subject, f.count, f.label) for f in got] == [
+        ("mod.load_rule_scopes", 2, "symbol"),
+        ("ghost_handler", 0, "phantom"),
+    ]
+    done = _run("--symbols", spec, "--source", src)
+    assert done.returncode == 1
+    assert 'phantom: symbol "ghost_handler" count=0' in done.stdout
+    listed = _write(tmp_path, "list.txt", "# one per line\nload_rule_scopes\n")
+    assert _run("--symbols", listed, "--source", src).returncode == 0
+
+
+def test_mode_flags_need_their_pair_and_keep_the_default_json_keys(tmp_path):
+    assert _run("--zone", tmp_path / "x.md").returncode == 2
+    assert _run("--symbols", tmp_path / "x.md").returncode == 2
+    assert "DEAD-ZONE" not in csc.VERDICTS and "phantom" not in csc.VERDICTS
+    brief, target = _zone_tree(tmp_path, "## Other\n")
+    done = _run("--brief", brief, "--zone", target, "--json")
+    objs = [json.loads(ln) for ln in done.stdout.splitlines() if ln.strip()]
+    assert [o["label"] for o in objs] == ["DEAD-ZONE"]
+    assert "summary:" in done.stderr
+
+
+# ------------------------------------------------- path and file:line modes
+
+
+def _project(tmp_path: Path) -> Path:
+    proj = tmp_path / "proj"
+    _write(proj, "planwise/config.yaml", "plugin_version: x\n")
+    _write(proj, "plans/Sprint/shared.md", "# Shared\n")
+    _write(proj, "plans/Sprint/Session/Outputs/prior.md", "# Prior\n")
+    _write(proj, "repo/scripts/tool.py", "x = 1\n")
+    return proj
+
+
+def _task(proj: Path, rc_rows: str, steps: str, output: str = "`Outputs/mine.md`") -> Path:
+    return _write(proj, "plans/Sprint/Session/T-01.md", (
+        f"# Task\n\n**Output:** {output}\n\n## Required Context\n\n"
+        "| Priority | File | Purpose |\n|---|---|---|\n" + rc_rows +
+        "\n## Execution Steps\n\n" + steps + "\n## Expected Output\n\n`repo/never/checked.py`\n"))
+
+
+GOOD_RC = ("| 1 | `../shared.md` — §2 | sibling |\n| 1 | `Outputs/prior.md` | prior |\n"
+           "| 2 | `repo/scripts/tool.py` | code |\n| 2 | Command corpus | n/a |\n")
+
+
+def test_path_mode_resolves_every_path_and_counts_skips(tmp_path):
+    proj = _project(tmp_path)
+    task = _task(proj, GOOD_RC, "1. Edit `repo/scripts/tool.py:12` and write `Outputs/mine.md`.\n"
+                                "2. Skip `Outputs/{Abbrev}-x.md`, `repo/tests/test_*.py` and `python -B x.py`.\n")
+    got, skipped = csc.check_paths(task)
+    assert [(f.subject, f.label) for f in got] == [
+        ("../shared.md", "path"), ("Outputs/prior.md", "path"), ("repo/scripts/tool.py", "path"),
+        ("Outputs/mine.md", "expected"),
+    ]
+    assert "via task folder" in got[0].note and "via project root" in got[2].note
+    assert skipped == {"placeholder": 1, "glob": 1}
+    done = _run("--paths", task, "--root", proj / "repo")
+    assert done.returncode == 0
+    assert 'path: path "../shared.md" count=1' in done.stdout
+    assert "skipped 1 placeholders, 1 globs" in done.stdout
+    # The section after Execution Steps is not read.
+    assert "never/checked.py" not in done.stdout
+
+
+def test_path_mode_exits_1_on_an_unresolved_required_context_path(tmp_path):
+    proj = _project(tmp_path)
+    bad = GOOD_RC + "| 2 | `Outputs/later.md` (projected) | next |\n| 2 | `repo/scripts/gone.py` | x |\n"
+    task = _task(proj, bad, "1. Read the module.\n")
+    done = _run("--paths", task, "--project-root", proj, "--root", proj / "repo")
+    assert done.returncode == 1
+    assert 'unresolved: path "repo/scripts/gone.py"' in done.stdout
+    assert 'unresolved: path "Outputs/later.md"' in done.stdout and "row marked projected" in done.stdout
+    assert "(unresolved=2, expected=0)" in done.stdout
+    # Exit 2 when no project root is found or given.
+    lone = _write(tmp_path, "lone/T.md", "## Required Context\n\n| File |\n|---|\n| `a/b.md` |\n")
+    assert _run("--paths", lone, "--root", proj / "repo").returncode == 2
+    assert _run("--project-root", proj).returncode == 2
+
+
+def _plugin_repo(proj: Path) -> Path:
+    """A plugin repo inside the project: ``.git``, ``plugins/p/scripts/x.py``, ``tests/test_y.py``."""
+    repo = proj / "cloned" / "plug"
+    (repo / ".git").mkdir(parents=True)
+    _write(repo, "plugins/p/scripts/x.py", "x = 1\n")
+    _write(repo, "tests/test_y.py", "def test_y():\n    pass\n")
+    return repo
+
+
+def test_path_mode_root_bases_resolve_plugin_relative_paths(tmp_path):
+    proj = _project(tmp_path)
+    repo = _plugin_repo(proj)
+    task = _task(proj, GOOD_RC, "1. Edit `scripts/x.py` and run `tests/test_y.py`.\n")
+    # Without --root, path mode keeps its two bases: both paths are unresolved.
+    assert _run("--paths", task).returncode == 1
+    got, _ = csc.check_paths(task, roots=[repo / "plugins" / "p"])
+    by = {f.subject: f for f in got}
+    assert by["scripts/x.py"].label == "path" and "via --root" in by["scripts/x.py"].note
+    assert by["tests/test_y.py"].label == "path" and "via repository root" in by["tests/test_y.py"].note
+    done = _run("--paths", task, "--root", repo / "plugins" / "p")
+    assert done.returncode == 0
+    assert "via --root" in done.stdout and "via repository root" in done.stdout
+
+
+def test_path_mode_plugin_relative_path_absent_everywhere_is_unresolved(tmp_path):
+    proj = _project(tmp_path)
+    repo = _plugin_repo(proj)
+    task = _task(proj, GOOD_RC, "1. Edit `scripts/gone.py`.\n")
+    done = _run("--paths", task, "--root", repo / "plugins" / "p")
+    assert done.returncode == 1
+    assert 'unresolved: path "scripts/gone.py"' in done.stdout
+    assert "repository root" in done.stdout
+
+
+def test_path_mode_reads_a_sibling_tasks_output_as_expected(tmp_path):
+    proj = _project(tmp_path)
+    _write(proj, "plans/Sprint/Session/T-02.md", "# Task\n\n**Output:** `Outputs/sib.md`\n")
+    task = _task(proj, GOOD_RC + "| 2 | `Outputs/sib.md` (projected) | next |\n", "1. Read it.\n")
+    done = _run("--paths", task, "--root", proj / "repo")
+    assert done.returncode == 0
+    assert 'expected: path "Outputs/sib.md"' in done.stdout and "Output:** line of T-02.md" in done.stdout
+
+
+def _cited(proj: Path, total: int, anchor_line: int, crlf: bool) -> None:
+    body = "".join("def anchor_here():\n" if i == anchor_line else f"line {i}\n" for i in range(1, total + 1))
+    _write(proj, "repo/src/code.py", body, crlf=crlf)
+
+
+@pytest.mark.parametrize("crlf", [False, True], ids=["lf", "crlf"])
+@pytest.mark.parametrize(
+    "total, anchor_line, label",
+    [
+        pytest.param(12, 10, "file-line", id="12-lines-anchor-on-10"),
+        pytest.param(5, 3, "stale-line", id="5-line-file"),
+        pytest.param(12, 3, "anchor-moved", id="anchor-moved-to-3"),
+    ],
+)
+def test_file_line_mode_controls(tmp_path, total, anchor_line, label, crlf):
+    proj = _project(tmp_path)
+    _cited(proj, total, anchor_line, crlf)
+    doc = _write(proj, "plans/ei.md", "See `repo/src/code.py:10`, where `anchor_here` lives.\n", crlf=crlf)
+    (got,) = csc.check_file_lines(doc.read_text(encoding="utf-8"), doc, [proj / "repo"])[0]
+    assert (got.subject, got.count, got.label) == ("repo/src/code.py:10", total, label)
+    if label == "anchor-moved":
+        assert 'anchor "anchor_here" at line 3' in got.note
+    done = _run("--file-line", doc, "--root", proj / "repo")
+    assert done.returncode == (0 if label == "file-line" else 1)
+    assert f"{label}: file-line" in done.stdout
+
+
+def test_line_count_is_the_same_for_crlf_and_lf_copies(tmp_path):
+    for text in ("a\nb\nc\n", "a\nb\nc"):
+        lf, crlf = text.encode(), text.replace("\n", "\r\n").encode()
+        assert csc.count_lines(lf) == csc.count_lines(crlf) == 3
+    assert csc.count_lines(b"") == 0
+    proj = _project(tmp_path)
+    _write(proj, "repo/a.md", "one\ntwo\n`x`\n", crlf=True)
+    _write(proj, "repo/b.md", "one\ntwo\n`x`\n")
+    doc = _write(proj, "plans/ei.md", "`a.md`:3-4 and `b.md`:3-4\nplaceholder `{N}.md:2`\n")
+    got, skipped = csc.check_file_lines(doc.read_text(encoding="utf-8"), doc, [proj / "repo"])
+    assert [(f.subject, f.count, f.label) for f in got] == [("a.md:3-4", 3, "stale-line"),
+                                                         ("b.md:3-4", 3, "stale-line")]
+    assert skipped == {"placeholder": 1}
+
+
+def _scope_tree(tmp_path: Path) -> tuple[Path, Path]:
+    root = tmp_path / "root"
+    extra = tmp_path / "rules"
+    _a_md(root)
+    _write(root, "references/src.md", "See `a.md` §9.\n")
+    _write(extra, "r.md", "See `a.md` §1 and `a.md` §8.\n")
+    return root, extra
+
+
+def test_scan_roots_indexes_every_root_and_scans_only_the_named_ones(tmp_path):
+    root, extra = _scope_tree(tmp_path)
+    full = csc.check_tree(root, extra_roots=[extra])
+    scoped = csc.check_tree(root, extra_roots=[extra], scan_roots=[extra])
+    # The root still resolves the extra root's citations; its own file is not scanned.
+    assert {f.file for f in full} == {"references/src.md", "rules/r.md"}
+    assert [f.as_json() for f in scoped] == [f.as_json() for f in _of(full, "rules/r.md")]
+    assert [(f.section, f.verdict, f.target) for f in scoped] == [
+        ("1", "ok", "references/a.md"), ("8", "dangling", "references/a.md")]
+    # The default (None) scans every root, so an existing caller is unchanged.
+    assert csc.check_tree(root, extra_roots=[extra], scan_roots=None) == full
+    assert csc.check_tree(root, extra_roots=[extra], scan_roots=[root, extra]) == full
+    assert csc.check_tree(root, extra_roots=[extra], scan_roots=[root]) == _of(full, "references/src.md")
+
+
+def test_scan_root_that_is_not_a_root_is_an_error(tmp_path):
+    root, extra = _scope_tree(tmp_path)
+    with pytest.raises(csc.CitationCheckError, match="scan root is not"):
+        csc.check_tree(root, extra_roots=[extra], scan_roots=[tmp_path])
+
+
+def test_each_chain_parses_once(monkeypatch):
+    calls = []
+    real = csc._parse_chain
+    monkeypatch.setattr(csc, "_parse_chain", lambda line, pos: calls.append(pos) or real(line, pos))
+    got = csc.parse_line("Per §4 here and §5/§6 too.")
+    assert [c.section for _, _, c in got] == ["4", "5", "6"]
+    # One parse per chain start: §4 alone, then §5 with its continuation §6.
+    assert calls == [4, 16]
+
+
+def test_resolution_is_memoized_per_name_and_citing_directory(tmp_path, monkeypatch):
+    root = tmp_path / "root"
+    _a_md(root)
+    _write(root, "references/src.md", "See `a.md` §1.\nSee `a.md` §2.\nSee `a.md` §1.\n")
+    _write(root, "skills/x/s.md", "See `a.md` §1.\n")
+    calls = []
+    real = csc._Roots._resolve
+    monkeypatch.setattr(csc._Roots, "_resolve", lambda self, name, citing=None: calls.append(
+        (name, citing.parent.name if citing else None)) or real(self, name, citing))
+    found = csc.check_tree(root)
+    assert [f.verdict for f in _of(found, "references/src.md")] == ["ok", "dangling", "ok"]
+    # One resolution per (name, citing directory), not one per citation.
+    assert sorted(calls) == [("a.md", "references"), ("a.md", "x")]
 
 
 def test_extra_root_inside_root_does_not_double_the_scan(tmp_path):

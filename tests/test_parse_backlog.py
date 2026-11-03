@@ -1081,6 +1081,29 @@ class TestClustersFlag(_ItemFlagFixtureBase):
         self.assertIn("cluster: BB-101, BB-102 | surfaced by: X-1", out)
 
 
+class TestBliPrefixedItemFiles(_ItemFlagFixtureBase):
+    """Item files named `BLI-NNN-*.md` resolve like `BB-NNN-*.md` ones."""
+
+    def write_bli(self, number: int, text: str) -> Path:
+        path = self.backlog_dir / f"BLI-{number:03d}-01-BUG-Fixture.md"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_clusters_read_bli_files_and_print_their_prefix(self):
+        self.write_bli(101, _item_text("2026-11-01", "X-1"))
+        self.write_bli(102, _item_text("2026-11-01", "X-1"))
+        code, out, _ = self.run_flag("--clusters")
+        self.assertEqual(code, 0)
+        self.assertIn("cluster: BLI-101, BLI-102 | surfaced by: X-1", out)
+        self.assertIn("2 items scanned, 2 with Surfaced by", out)
+
+    def test_find_item_file_resolves_a_bli_file(self):
+        path = self.write_bli(101, _item_text("2026-11-01", None))
+        config = {"_backlog_dir": self.backlog_dir, "_archive_dir": self.archive_dir}
+        self.assertEqual(parse_backlog.find_item_file("BLI-101", config), path)
+        self.assertEqual(parse_backlog.find_item_file("101", config), path)
+
+
 class TestCrossCuttingFlag(_ItemFlagFixtureBase):
     BODY = "\n## Cross-cutting\n\n- `scripts/a.py`\n- `tests/test_b.py`\n\n## Other\n\n`scripts/unrelated.py`\n"
 

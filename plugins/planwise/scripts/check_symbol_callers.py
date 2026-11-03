@@ -26,7 +26,9 @@ base and at least one path are required. Untracked files under the paths are
 read as wholly added, because `git diff` cannot see them.
 
 `--production` defaults to the `scripts`, `handlers`, `agents` and `skills`
-directories under `<repo>/plugins/planwise`. Any path with a `tests` segment or
+directories under `plugins/planwise` at the repository's top level, which may
+sit above `<repo>`. Every file path is keyed relative to that top level, the
+form `git diff` prints. Any path with a `tests` segment or
 a `test_*.py` name is skipped, because a test that passes the activating
 argument is a false witness.
 
@@ -143,15 +145,19 @@ def _symbols_in(path, added, removed_defs):
     return symbols
 
 
-def untracked_as_diff(repo, paths):
-    """Render untracked files under the paths as wholly-added diff text."""
-    result = _git(repo, ["ls-files", "--others", "--exclude-standard", "--", *paths])
+def untracked_as_diff(repo, paths, top=None):
+    """Render untracked files under the paths as wholly-added diff text.
+
+    Each path is relative to the top level ``top`` (``repo`` when None), the
+    form ``git diff`` prints, so both halves of the diff key files alike."""
+    top = Path(repo) if top is None else Path(top)
+    result = _git(repo, ["ls-files", "--others", "--exclude-standard", "--full-name", "--", *paths])
     chunks = []
     for rel in result.splitlines():
         if not rel.strip():
             continue
         try:
-            body = (Path(repo) / rel).read_text(encoding="utf-8").splitlines()
+            body = (top / rel).read_text(encoding="utf-8").splitlines()
         except (OSError, UnicodeDecodeError):
             continue
         chunks.append(f"+++ b/{rel}")
@@ -247,8 +253,11 @@ def main(argv=None):
     args = _parser().parse_args(argv)
     repo = Path(args.repo)
     try:
+        # git diff prints paths relative to the top level, whatever --repo is,
+        # so every path here is keyed relative to the top level.
+        top = Path(_git(repo, ["rev-parse", "--show-toplevel"]).strip())
         diff = _git(repo, ["diff", args.base, "--", *args.paths])
-        diff += "\n" + untracked_as_diff(repo, args.paths)
+        diff += "\n" + untracked_as_diff(repo, args.paths, top)
     except (RuntimeError, OSError) as exc:
         print(f"Error: check_symbol_callers cannot read the diff: {exc}", file=sys.stderr)
         return 2
@@ -256,12 +265,12 @@ def main(argv=None):
     if args.production:
         roots = [Path(p) if Path(p).is_absolute() else repo / p for p in args.production]
     else:
-        roots = [repo / "plugins" / "planwise" / d for d in DEFAULT_PRODUCTION]
+        roots = [top / "plugins" / "planwise" / d for d in DEFAULT_PRODUCTION]
     missing = [str(r) for r in roots if not r.is_dir()]
     if args.production and missing:
         print(f"Error: production directory not found: {', '.join(missing)}", file=sys.stderr)
         return 2
-    count_sites(symbols, production_files(r for r in roots if r.is_dir()), repo)
+    count_sites(symbols, production_files(r for r in roots if r.is_dir()), top)
     print(f"{len(symbols)} added symbols scanned")
     zero = 0
     for symbol in symbols:

@@ -122,6 +122,21 @@ class TestCheck32FileProducingTaskWithoutSizeGate(unittest.TestCase):
         extra = "**Output:** `Outputs/X-Summary.md`\n\n## Success Criteria\n\n- [ ] done\n\n"
         self.assertEqual(_lint(32, QUIET, extra=extra), [])
 
+    def test_fenced_comment_line_does_not_end_success_criteria(self):
+        # A "# comment" in a fenced command is not a heading; the size gate after it counts.
+        extra = self.HEAD + (
+            "## Success Criteria\n\n```bash\n# measure the produced file\n"
+            "python measure_files.py Outputs/X-Summary.md --md\n```\n\n"
+        )
+        self.assertEqual(_lint(32, QUIET, extra=extra), [])
+
+    def test_fenced_output_and_expected_output_sample_is_not_file_producing(self):
+        extra = (
+            "## Notes\n\n```markdown\n**Output:** `Outputs/X-Summary.md`\n\n"
+            "## Expected Output\n```\n\n## Success Criteria\n\n- [ ] done\n\n"
+        )
+        self.assertEqual(_lint(32, QUIET, extra=extra), [])
+
 
 class TestCheck33WriterCommandWithoutScratchTarget(unittest.TestCase):
     def test_bad_fixer_on_live_tree(self):

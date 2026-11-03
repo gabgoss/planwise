@@ -558,6 +558,30 @@ def _repo_root(path: Path):
     return None
 
 
+def _plan_root(path: Path) -> tuple:
+    """Return ``(root, has_git)`` for the plan whose task folder is ``path``.
+
+    The root is the nearest ancestor holding ``.git``. With none, it is the
+    nearest ancestor holding ``planwise/config.yaml``, the project root of a
+    plan not under git. ``(None, False)`` when neither exists.
+    """
+    root = _repo_root(path)
+    if root is not None:
+        return root, True
+    for candidate in (path, *path.parents):
+        if (candidate / "planwise" / "config.yaml").is_file():
+            return candidate, False
+    return None, False
+
+
+def _inside(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
 def _path_tokens(text: str) -> list:
     """Return the file paths written as inline code in ``text``.
 
@@ -620,7 +644,7 @@ def _canonical_targets(name: str, lines: list, sections: dict) -> tuple:
     if not output_tokens or not context:
         return [], []
     location = Path(name)
-    plan_root = _repo_root(location.resolve().parent) if location.is_file() else None
+    plan_root, has_git = _plan_root(location.resolve().parent) if location.is_file() else (None, False)
     if plan_root is None:
         names = {Path(t).as_posix() for t in output_tokens}
         undecided = []
@@ -630,12 +654,19 @@ def _canonical_targets(name: str, lines: list, sections: dict) -> tuple:
     task_dir = location.resolve().parent
     outputs = {_resolve(t, task_dir, plan_root) for t in output_tokens}
     targets = []
+    undecided = []
     for number, text in context:
         for token in _path_tokens(text):
             resolved = _resolve(token, task_dir, plan_root)
-            if resolved in outputs and _is_cross_repo(resolved, plan_root):
+            if resolved not in outputs:
+                continue
+            # With no git, a path outside the project root cannot be decided:
+            # it may sit in another repository or in a plain folder.
+            if not has_git and not _inside(resolved, plan_root):
+                undecided.append((token, number))
+            elif _is_cross_repo(resolved, plan_root):
                 targets.append((token, number, resolved))
-    return _first_per_path(targets), []
+    return _first_per_path(targets), _first_per_path(undecided)
 
 
 def _output_paths(lines: list) -> tuple:
@@ -724,7 +755,7 @@ def _cross_repo_findings(name: str, lines: list, sections: dict) -> list:
     if not targets:
         return findings
     location = Path(name).resolve()
-    task_dir, plan_root = location.parent, _repo_root(location.parent)
+    task_dir, plan_root = location.parent, _plan_root(location.parent)[0]
     for token, number, resolved in targets:
         if not any(_binding_row_names(t, resolved, task_dir, plan_root)
                    for _n, t, f in context if not f):

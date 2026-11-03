@@ -598,7 +598,9 @@ def duplicate_row_ids_message(duplicates: list[list[str]]) -> str:
 
 # --- Item-file reader shared by --clusters, --cross-cutting and --in-flight ---
 
-_ITEM_FILE_RE = re.compile(r"^BB-(\d+)-.*\.md$")
+# Item files carry either the `BB-` or the `BLI-` prefix (doctor_probes reads both).
+ITEM_FILE_PREFIXES = ("BB", "BLI")
+_ITEM_FILE_RE = re.compile(r"^(BB|BLI)-(\d+)-.*\.md$")
 # The literal text `Surfaced by`, an optional colon, then the value to the end
 # of the line. Case-sensitive; read from the frontmatter or the body.
 _SURFACED_RE = re.compile(r"Surfaced by:?[ \t]*([^\r\n]*)")
@@ -614,14 +616,17 @@ def _item_dirs(config: dict) -> list[Path]:
 
 
 def find_item_file(item_id: str, config: dict) -> Path | None:
-    """Resolve an id to its item file: `BB-<id>-*.md` in the backlog directory
-    or its Archive subdirectory (id zero-padded as the filenames carry it)."""
+    """Resolve an id to its item file: `BB-<id>-*.md` or `BLI-<id>-*.md` in the
+    backlog directory or its Archive subdirectory (id zero-padded as the
+    filenames carry it)."""
     number = id_number(item_id)
     if number is None:
         return None
     for directory in _item_dirs(config):
         if directory.is_dir():
-            matches = sorted(directory.glob(f"BB-{number:03d}-*.md"))
+            matches = sorted(
+                path for prefix in ITEM_FILE_PREFIXES for path in directory.glob(f"{prefix}-{number:03d}-*.md")
+            )
             if matches:
                 return matches[0]
     return None
@@ -648,10 +653,10 @@ def find_clusters(config: dict) -> tuple[list[tuple[list[int], str, str]], int, 
     items: dict[int, Path] = {}
     for directory in _item_dirs(config):
         if directory.is_dir():
-            for path in sorted(directory.glob("BB-*.md")):
+            for path in sorted(directory.glob("*.md")):
                 match = _ITEM_FILE_RE.match(path.name)
                 if match:
-                    items.setdefault(int(match.group(1)), path)
+                    items.setdefault(int(match.group(2)), path)
     groups: dict[tuple[str, str], list[int]] = {}
     with_surfaced = 0
     for number, path in items.items():
@@ -740,10 +745,17 @@ def _git_log(path: Path) -> str:
     return result.stdout.strip() or "(no commits)"
 
 
+def _item_prefix(number: int, config: dict) -> str:
+    """The filename prefix (`BB` or `BLI`) of item `number`'s file, `BB` when none is found."""
+    path = find_item_file(str(number), config)
+    match = _ITEM_FILE_RE.match(path.name) if path else None
+    return match.group(1) if match else ITEM_FILE_PREFIXES[0]
+
+
 def run_clusters(config: dict) -> int:
     clusters, scanned, with_surfaced = find_clusters(config)
     for numbers, surfaced, created in clusters:
-        ids = ", ".join(f"BB-{n:03d}" for n in numbers)
+        ids = ", ".join(f"{_item_prefix(n, config)}-{n:03d}" for n in numbers)
         print(f"cluster: {ids} | surfaced by: {surfaced} | created: {created}")
     print(f"{scanned} items scanned, {with_surfaced} with Surfaced by")
     return 0

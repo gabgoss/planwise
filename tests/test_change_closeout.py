@@ -51,8 +51,33 @@ class ChangeCloseoutTests(unittest.TestCase):
         )
         return proc.returncode, proc.stdout.decode("utf-8")
 
-    def test_planned_plan_is_listed_and_complete_plan_is_not(self):
-        open_task = self.plan("OpenPlan", "PLANNED", f"Read `references/{NAME}` first.\n")
+    def test_every_unfinished_plan_status_is_open(self):
+        # The plan vocabulary comes from list_plans.ACTIVE_STATUSES; a private
+        # list once skipped REVIEWED, APPROVED, NEEDS_FIXES and PLANNING.
+        statuses = ["PLANNING", "REVIEWED", "APPROVED", "NEEDS_FIXES", "READY_TO_EXECUTE", "IN_PROGRESS"]
+        tasks = [self.plan(f"P{i}", s, f"cites {NAME}\n") for i, s in enumerate(statuses)]
+        result = scan([NAME], self.plans, self.backlog)
+        self.assertEqual(sorted(h[0] for h in result["hits"]), sorted(t.as_posix() for t in tasks))
+        self.assertEqual(result["skipped"], {})
+
+    def test_unfinished_backlog_statuses_are_open_and_unknown_is_skipped(self):
+        blocked = self.item("BB-001-a.md", "BLOCKED", f"cites {NAME}\n")
+        planning = self.item("BB-002-b.md", "PLANNING", f"cites {NAME}\n")
+        self.item("BB-003-c.md", "PLANNED", f"cites {NAME}\n")
+        result = scan([NAME], self.plans, self.backlog)
+        self.assertEqual(sorted(h[0] for h in result["hits"]), sorted([blocked.as_posix(), planning.as_posix()]))
+        self.assertEqual(result["skipped"], {"PLANNED": 1})
+
+    def test_empty_quoted_status_is_counted_not_a_traceback(self):
+        self.item("BB-001-a.md", '""', f"cites {NAME}\n")
+        self.item("BB-002-b.md", "NOT_STARTED", f"cites {NAME}\n")
+        code, out = self.run_cli("--changed", NAME)
+        self.assertEqual(code, 0, out)
+        self.assertIn("skipped: (none) 1\n", out)
+        self.assertIn("1 hits", out)
+
+    def test_open_plan_is_listed_and_complete_plan_is_not(self):
+        open_task = self.plan("OpenPlan", "REVIEWED", f"Read `references/{NAME}` first.\n")
         closed_task = self.plan("DonePlan", "COMPLETE", f"Read `references/{NAME}` first.\n")
         result = scan([NAME], self.plans, self.backlog)
         paths = [hit[0] for hit in result["hits"]]
@@ -101,6 +126,7 @@ class ChangeCloseoutTests(unittest.TestCase):
         self.assertEqual(master_plan_status("no status line\n"), "(none)")
         self.assertEqual(backlog_status("---\nstatus: 'in_progress'\n---\nbody\n"), "IN_PROGRESS")
         self.assertEqual(backlog_status("# no frontmatter\n"), "(none)")
+        self.assertEqual(backlog_status("---\nstatus: \"\"\n---\nbody\n"), "(none)")
         self.assertIsNotNone(basename_regex(NAME).search(f"path/{NAME}."))
 
     def test_missing_directory_exits_2(self):

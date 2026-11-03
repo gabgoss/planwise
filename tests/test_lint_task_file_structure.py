@@ -462,6 +462,33 @@ def test_cross_repo_undecided_root_is_a_warning_naming_the_path():
     assert XR_TARGET in findings[0].message
 
 
+def _xr_no_git(tmp_path: Path, output: str, row_path: str) -> list:
+    """A project with planwise/config.yaml and no .git anywhere above it."""
+    root = tmp_path / "proj"
+    (root / "planwise").mkdir(parents=True)
+    (root / "planwise" / "config.yaml").write_text("x: 1\n", encoding="utf-8")
+    (root / "docs").mkdir()
+    (root / "docs" / "guide.md").write_text("# file\n", encoding="utf-8")
+    task_dir = root / "planwise" / "Plans" / "s1"
+    task_dir.mkdir(parents=True)
+    path = _write(task_dir, _xr_text(output=output, rows=f"| 1 | `{row_path}` | edit |",
+                                     steps=XR_BAD_STEPS))
+    return lint.lint_text(path.read_text(encoding="utf-8"), str(path))
+
+
+def test_cross_repo_no_git_in_project_path_has_no_finding(tmp_path):
+    assert not (tmp_path / ".git").exists()
+    assert _xr_no_git(tmp_path, "`docs/guide.md`", "docs/guide.md") == []
+
+
+def test_cross_repo_no_git_path_outside_project_is_a_warning(tmp_path):
+    outside = (tmp_path / "elsewhere" / "mod.md").as_posix()
+    findings = _xr_no_git(tmp_path, f"`{outside}`", outside)
+    assert [(f.rule, f.severity) for f in findings] == [
+        (lint.RULE_CROSS_REPO_BINDING, lint.SEVERITY_WARNING)]
+    assert outside in findings[0].message
+
+
 def test_cross_repo_step1_known_bad_is_one_blocker(tmp_path):
     findings = _xr(tmp_path, steps=XR_BAD_STEPS)
     assert [(f.rule, f.severity) for f in findings] == [

@@ -3,16 +3,19 @@
 
 `run_section_citation_stage(cfg)` resolves every `§` citation in the consumer
 project's `.claude/rules/` tree against the installed plugin's `references/`
-through `check_section_citations.check_tree`. The installed `cfg.plugin_root`
-is the tree checked, because that is the copy the consumer's rules cite.
+through `check_section_citations.check_tree`. Only the rules tree is scanned
+(`scan_roots`). The installed `cfg.plugin_root` is indexed for resolution and
+never scanned, because it is the copy the consumer's rules cite.
 
 Each `dangling`, `redirected` or `unresolved-target` finding in a consumer rule
 whose cited target is a plugin file prints as an upgrade leftover, followed by
 one remedy line. A `redirected` finding names the file that now holds the
 section. A target is a plugin file when it resolves under the plugin root, or,
 when it does not resolve, when its path starts with a plugin directory such as
-`references/`. Findings that cite project files are counted, not printed. The
-plugin's own findings are not reported, and `.claude/rules/planwise/` is
+`references/`. Findings that cite project files are counted, not printed. A
+rule that is not UTF-8 prints as `unreadable` with the bad byte and its
+offset, plus a second remedy line; the other rules' findings still print. The
+plugin's own citations are not scanned, and `.claude/rules/planwise/` is
 excluded from the check: it holds machine-managed installed copies that
 `/planwise upgrade` owns. Nothing here asks a question or writes a file. The
 caller wraps the stage, so an exception never changes doctor's exit status.
@@ -25,11 +28,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from check_section_citations import check_tree
 
-_REPORTED = ("dangling", "redirected", "unresolved-target")
+_REPORTED = ("dangling", "redirected", "unresolved-target", "unreadable")
 _REMEDY = (
     "Edit the citing rule to the section that now holds the text, "
     "or run /planwise upgrade if the citing file is a stale installed copy."
 )
+# Printed after _REMEDY only when an unreadable rule is listed.
+_UNREADABLE_REMEDY = "Re-save each unreadable rule as UTF-8; its citations are not checked until then."
 
 
 def _is_under(path: Path, base: Path) -> bool:
@@ -56,14 +61,17 @@ def run_section_citation_stage(cfg) -> None:
         print("No .claude/rules/ directory; no citation to check.")
         return
 
-    findings = check_tree(plugin_root, extra_roots=(rules_dir,), exclude=(managed_dir,))
+    # The plugin root is indexed for resolution but not scanned: only the
+    # consumer's rules are read for citations.
+    findings = check_tree(plugin_root, extra_roots=(rules_dir,), exclude=(managed_dir,), scan_roots=(rules_dir,))
     leftovers = []
     skipped = 0
     for f in findings:
         path = Path(f.path).resolve()
         if f.verdict not in _REPORTED or not _is_under(path, rules_dir):
             continue
-        if not _cites_plugin(f, plugin_root):
+        # An unreadable rule has no cited target; it is always reported.
+        if f.verdict != "unreadable" and not _cites_plugin(f, plugin_root):
             skipped += 1
             continue
         leftovers.append((path.relative_to(project_root).as_posix(), f))
@@ -81,6 +89,9 @@ def run_section_citation_stage(cfg) -> None:
     suffix = f" ({skip_note})" if skip_note else ""
     print(f"{len(leftovers)} dangling section citation(s), likely upgrade leftovers{suffix}:")
     for shown, f in leftovers:
+        if f.verdict == "unreadable":
+            print(f"  {shown}:{f.line}: unreadable — {f.note}")
+            continue
         if f.verdict == "dangling":
             missing = f"section §{f.section} is not in {f.target}"
         elif f.verdict == "redirected":
@@ -89,3 +100,5 @@ def run_section_citation_stage(cfg) -> None:
             missing = f"file {f.target} does not resolve ({f.note})" if f.note else f"file {f.target} does not resolve"
         print(f"  {shown}:{f.line}: {f.citation} — {missing}")
     print(_REMEDY)
+    if any(f.verdict == "unreadable" for _, f in leftovers):
+        print(_UNREADABLE_REMEDY)

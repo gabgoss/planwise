@@ -75,6 +75,22 @@ def test_untracked_file_is_read_as_added(repo, capsys):
     assert "ZERO function lonely (plugins/planwise/scripts/fresh.py:1)" in out
 
 
+def test_repo_below_the_top_level_keys_paths_from_the_top_level(repo, capsys):
+    # --repo names a folder inside the repository: git diff still prints
+    # top-level paths, so a same-module caller and an untracked caller count.
+    root, scripts, sha = repo
+    (scripts / "lib.py").write_text("def old():\n    return helper()\n\n\ndef helper():\n    return 1\n",
+                                    encoding="utf-8")
+    (scripts / "fresh.py").write_text("def newer():\n    return 2\n\n\nnewer()\n", encoding="utf-8")
+    code = csc.main(["--repo", str(root / "plugins" / "planwise"), "--base", sha, "--", "scripts"])
+    out = capsys.readouterr().out
+    assert out.splitlines()[0] == "2 added symbols scanned"
+    assert "function helper (plugins/planwise/scripts/lib.py:5): 1 call sites" in out
+    assert "function newer (plugins/planwise/scripts/fresh.py:1): 1 call sites" in out
+    assert "ZERO" not in out
+    assert code == 0
+
+
 def test_test_tree_caller_is_a_false_witness(repo, capsys):
     root, scripts, sha = repo
     (scripts / "lib.py").write_text("def old():\n    return 1\n\n\ndef orphan(x):\n    return x\n", encoding="utf-8")

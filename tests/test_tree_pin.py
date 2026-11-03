@@ -96,6 +96,35 @@ class TreePinTests(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("differs: branch: main -> side", out)
 
+    def test_already_dirty_paths_edited_again_differ(self):
+        # The porcelain line stays ` M sub/a.txt` and `?? sub/new.txt` across the
+        # window; only the recorded content hash can see the second edit.
+        (self.repo / "sub" / "a.txt").write_text("first edit\n", encoding="utf-8")
+        (self.repo / "sub" / "new.txt").write_text("n1\n", encoding="utf-8")
+        self.stamp("sub")
+        (self.repo / "sub" / "a.txt").write_text("second edit\n", encoding="utf-8")
+        (self.repo / "sub" / "new.txt").write_text("n2\n", encoding="utf-8")
+        code, out = self.compare()
+        self.assertEqual(code, 1, out)
+        self.assertIn("differs: content sub: sub/a.txt", out)
+        self.assertIn("differs: content sub: sub/new.txt", out)
+        self.assertNotIn("differs: status", out)
+
+    def test_file_inside_an_untracked_directory_is_hashed(self):
+        (self.repo / "sub" / "fresh").mkdir()
+        (self.repo / "sub" / "fresh" / "f.txt").write_text("1\n", encoding="utf-8")
+        self.stamp("sub")
+        (self.repo / "sub" / "fresh" / "f.txt").write_text("2\n", encoding="utf-8")
+        code, out = self.compare()
+        self.assertEqual(code, 1, out)
+        self.assertIn("differs: content sub: sub/fresh/f.txt", out)
+
+    def test_dirty_path_left_alone_still_compares_equal(self):
+        (self.repo / "sub" / "a.txt").write_text("edit\n", encoding="utf-8")
+        self.stamp("sub")
+        code, out = self.compare()
+        self.assertEqual(code, 0, out)
+
     def test_out_inside_the_repo_is_refused(self):
         inside = self.repo / "stamp.json"
         code, out = self.run_pin("stamp", "--repo", str(self.repo), "--out", str(inside))

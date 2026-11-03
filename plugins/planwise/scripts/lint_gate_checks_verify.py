@@ -106,8 +106,8 @@ def _task_files(context):
         yield rel, [raw.rstrip("\r") for raw in text.split("\n")]
 
 
-def _unfenced(lines):
-    """Yield ``(number, line)`` for each line outside a fenced block."""
+def _fence_marked(lines):
+    """Yield ``(number, line, fenced)``; a fence marker line counts as fenced."""
     fence = None
     for number, line in enumerate(lines, start=1):
         stripped = line.lstrip("> ").strip()
@@ -115,11 +115,20 @@ def _unfenced(lines):
         if fence is not None:
             if marker and stripped[0] == fence[0] and len(stripped) >= len(fence):
                 fence = None
+            yield number, line, True
             continue
         if marker:
             fence = marker.group(1)
+            yield number, line, True
             continue
-        yield number, line
+        yield number, line, False
+
+
+def _unfenced(lines):
+    """Yield ``(number, line)`` for each line outside a fenced block."""
+    for number, line, fenced in _fence_marked(lines):
+        if not fenced:
+            yield number, line
 
 
 def _heading_anchor_commands(context):
@@ -219,17 +228,21 @@ def _check31_status_gate_names_no_artifact(context) -> list:
 
 
 def _success_criteria_text(lines) -> str | None:
-    """The text of the Success Criteria section, or None when there is none."""
+    """The text of the Success Criteria section, or None when there is none.
+
+    A heading is read only outside a fenced block, so a ``# comment`` line in
+    a fenced command does not end the section. Fenced lines stay in the text,
+    because the size gate is usually a fenced command."""
     level = None
     body: list = []
-    for line in lines:
-        heading = _HEADING_LINE_RE.match(line)
+    for _number, line, fenced in _fence_marked(lines):
+        heading = None if fenced else _HEADING_LINE_RE.match(line)
         if level is not None and heading and len(heading.group(1)) <= level:
             break
         if level is not None:
             body.append(line)
             continue
-        criteria = _SUCCESS_CRITERIA_RE.match(line)
+        criteria = None if fenced else _SUCCESS_CRITERIA_RE.match(line)
         if criteria:
             level = len(criteria.group(1))
     return None if level is None else "\n".join(body)
@@ -246,10 +259,11 @@ def _check32_file_producing_task_without_size_gate(context) -> list:
     """
     findings = []
     for rel, lines in _task_files(context):
-        if not any(_EXPECTED_OUTPUT_RE.match(line) for line in lines):
+        # A fenced sample of a task file is not this task's own field or section.
+        if not any(_EXPECTED_OUTPUT_RE.match(line) for _number, line in _unfenced(lines)):
             continue
         output = next(
-            ((number, m.group(1)) for number, line in enumerate(lines, start=1)
+            ((number, m.group(1)) for number, line in _unfenced(lines)
              if (m := _OUTPUT_FIELD_RE.match(line.strip()))),
             None,
         )
