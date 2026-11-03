@@ -111,6 +111,32 @@ def test_unlabelled_blocks_are_not_extracted():
     assert cqs.extract_quote_blocks(raw) == []
 
 
+def test_quote_cutting_a_word_does_not_match(tmp_path):
+    deliverable = "Quote:\n\n```\nun passed\n```\n"
+    result = _run(tmp_path, deliverable, "the run passed\n")
+    assert result.returncode == 1
+    assert "UNMATCHED" in result.stdout
+    assert _run(tmp_path, "Quote:\n\n```\nrun passed\n```\n", "the run passed\n").returncode == 0
+
+
+def test_empty_labelled_block_is_its_own_finding(tmp_path):
+    result = _run(tmp_path, "Verbatim:\n\n```\n```\n", SOURCE_TEXT)
+    assert result.returncode == 1
+    assert "EMPTY " in result.stdout
+    assert "0 unmatched; 1 empty" in result.stdout
+
+
+def test_prose_using_the_word_is_not_a_label():
+    raw = "Use double quotes around the path:\n\n```bash\nls \"a b\"\n```\n"
+    assert cqs.extract_quote_blocks(raw) == []
+
+
+def test_accepted_label_line_shapes():
+    for label in ("Verbatim", "**Quote:**", "Quoted from the source:", "The line (verbatim):", "Source quote:"):
+        blocks = cqs.extract_quote_blocks(f"{label}\n\n```\nx\n```\n")
+        assert [b.lines for b in blocks] == [["x"]], label
+
+
 def test_unreadable_source_exits_two(tmp_path):
     deliv = _write(tmp_path / "deliverable.md", DELIVERABLE_EXACT)
     result = subprocess.run(

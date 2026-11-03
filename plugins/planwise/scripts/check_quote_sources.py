@@ -5,15 +5,23 @@ appear verbatim in one declared source file.
 Usage:
     python -B check_quote_sources.py <deliverable.md> --source <file> [--source <file> ...]
 
-Label rule. A block is a quote block when it is labelled ``quote`` or
-``verbatim`` (case-insensitive, whole word; ``quoted`` and ``quotes`` also
-count). Two block shapes are recognised:
+Label rule. The label words are ``quote``, ``quoted`` and ``verbatim``
+(case-insensitive, whole word). Two block shapes are recognised:
 
 - a fenced block (a ```` ``` ```` or ``~~~`` fence of three or more
-  characters) whose opening fence line, or the nearest non-blank line above
-  it, carries the label;
-- a run of ``>`` blockquote lines whose nearest non-blank line above carries
-  the label. The ``>`` marker and one following space are stripped.
+  characters) whose info string names a label word (```` ```quote ````,
+  ```` ```text verbatim ````), or whose nearest non-blank line above is a
+  label line;
+- a run of ``>`` blockquote lines whose nearest non-blank line above is a
+  label line. The ``>`` marker and one following space are stripped.
+
+A label line is one of four shapes, ignoring ``#``, ``*`` and ``_`` markup:
+the label word alone (``Verbatim``, ``**Quote:**``); a line that opens with
+the label word and ends in a colon (``Quoted from the source:``); a line
+holding the label word in parentheses and ending in a colon (``The line
+(verbatim):``); or a line whose last word before the closing colon is the
+label word (``Source quote:``). Prose that only uses the word, such as
+``Use double quotes around the path:``, is not a label line.
 
 Only labelled blocks are extracted. Prose, comments and unlabelled code in
 the deliverable are never compared, so a whole-file match cannot pass a
@@ -23,14 +31,19 @@ Normalization. Line endings (CRLF, CR, LF) and trailing spaces and tabs on
 each line are normalized, in the deliverable and in every source. Nothing
 else is: a changed word, a changed number or changed inner spacing is a
 mismatch. A block matches when its normalized text occurs as one contiguous
-run inside one normalized source.
+run inside one normalized source and does not cut a word at either end: a
+quote ``un passed`` does not match a source ``the run passed``. Leading and
+trailing blank lines of a block are not compared.
+
+A labelled block that holds no text is its own finding (an ``EMPTY`` line),
+never a match: an empty string occurs in every source.
 
 Exit contract:
     0  every quote block matched a source (a run with zero quote blocks also
        exits 0, and the summary line prints the count so an empty run is
        visible)
-    1  one or more quote blocks matched no source; each is printed with its
-       deliverable line number and first line
+    1  one or more quote blocks matched no source, or a labelled block is
+       empty; each is printed with its deliverable line number
     2  the deliverable or a source could not be read, or the arguments are
        invalid
 
@@ -49,7 +62,19 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-LABEL_RE = re.compile(r"\b(quote[sd]?|verbatim)\b", re.IGNORECASE)
+_WORD = r"(?:quote|quoted|verbatim)"
+INFO_LABEL_RE = re.compile(r"\b" + _WORD + r"\b", re.IGNORECASE)
+LINE_LABEL_RES = (
+    # the label word is the whole line: "Verbatim", "**Quote**", "Quoted:"
+    re.compile(r"^[#*_ \t]*" + _WORD + r"[*_ \t:]*$", re.IGNORECASE),
+    # the label word opens a line that ends in a colon: "Quoted from the source:"
+    re.compile(r"^[#*_ \t]*" + _WORD + r"\b[^\r\n]*:[*_ \t]*$", re.IGNORECASE),
+    # the label word in parentheses on a line ending in a colon: "The line (verbatim):"
+    re.compile(r"\(" + _WORD + r"\)[^\r\n]*:[*_ \t]*$", re.IGNORECASE),
+    # the label word directly before the closing colon: "Source quote:"
+    re.compile(r"\b" + _WORD + r"[*_ \t]*:[*_ \t]*$", re.IGNORECASE),
+)
+_WORD_CHAR = re.compile(r"\w")
 FENCE_RE = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})([^\r\n]*)$")
 BLOCKQUOTE_RE = re.compile(r"^[ ]{0,3}>[ ]?([^\r\n]*)$")
 
@@ -84,8 +109,14 @@ def normalize_text(raw: str) -> str:
     return "\n".join(normalize_lines(raw))
 
 
+def _info_labelled(info: str) -> bool:
+    """True when a fence info string names the label word."""
+    return bool(INFO_LABEL_RE.search(info))
+
+
 def _labelled(line: str) -> bool:
-    return bool(LABEL_RE.search(line))
+    """True when the line above a block is a label line, not prose using the word."""
+    return any(rx.search(line) for rx in LINE_LABEL_RES)
 
 
 def _previous_nonblank(lines: list[str], index: int) -> str:
@@ -116,7 +147,7 @@ def extract_quote_blocks(raw: str) -> list[QuoteBlock]:
             end = body_start
             while end < total and not close_re.match(lines[end]):
                 end += 1
-            if _labelled(info) or _labelled(_previous_nonblank(lines, index)):
+            if _info_labelled(info) or _labelled(_previous_nonblank(lines, index)):
                 blocks.append(QuoteBlock(body_start + 1, "fenced", lines[body_start:end]))
             index = end + 1
             continue
@@ -137,12 +168,26 @@ def extract_quote_blocks(raw: str) -> list[QuoteBlock]:
     return blocks
 
 
+def occurs_in(text: str, source: str) -> bool:
+    """True when `text` occurs in `source` and does not cut a word at either end."""
+    head = r"(?<!\w)" if _WORD_CHAR.match(text[0]) else ""
+    tail = r"(?!\w)" if _WORD_CHAR.match(text[-1]) else ""
+    return re.search(head + re.escape(text) + tail, source) is not None
+
+
+def find_empty(blocks: list[QuoteBlock]) -> list[QuoteBlock]:
+    """Return the labelled blocks that hold no non-blank line."""
+    return [block for block in blocks if not block.text.strip()]
+
+
 def find_unmatched(blocks: list[QuoteBlock], sources: dict[str, str]) -> list[QuoteBlock]:
-    """Return the blocks whose text occurs in no normalized source."""
+    """Return the non-empty blocks whose text occurs in no normalized source."""
     unmatched: list[QuoteBlock] = []
     for block in blocks:
-        text = block.text
-        if not any(text in source for source in sources.values()):
+        text = block.text.strip("\n")
+        if not text.strip():
+            continue  # reported by find_empty, never a match against every source
+        if not any(occurs_in(text, source) for source in sources.values()):
             unmatched.append(block)
     return unmatched
 
@@ -181,7 +226,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: cannot read source {name}: {exc}", file=sys.stderr)
             return 2
     blocks = extract_quote_blocks(raw)
+    empty = find_empty(blocks)
     unmatched = find_unmatched(blocks, sources)
+    for block in empty:
+        print(f"EMPTY {deliverable}:{block.line} ({block.kind}) labelled quote block holds no text")
     for block in unmatched:
         print(
             f"UNMATCHED {deliverable}:{block.line} ({block.kind}) "
@@ -189,9 +237,9 @@ def main(argv: list[str] | None = None) -> int:
         )
     print(
         f"summary: {len(blocks)} quote block(s) checked against "
-        f"{len(sources)} source(s); {len(unmatched)} unmatched"
+        f"{len(sources)} source(s); {len(unmatched)} unmatched; {len(empty)} empty"
     )
-    return 1 if unmatched else 0
+    return 1 if unmatched or empty else 0
 
 
 if __name__ == "__main__":

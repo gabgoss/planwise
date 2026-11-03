@@ -36,6 +36,16 @@ def test_row_with_file_line_but_no_expression_fires(tmp_path, capsys):
     assert "missing calling expression" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("quoted", ["`def x(arg):`", "`class X(Base):`", "`async def x(a)`"])
+def test_row_quoting_only_the_definition_fires(tmp_path, capsys, quoted):
+    assert _run(tmp_path, HEADER + f"| d | adds a function | scripts/x.py:12 {quoted} |\n") == 1
+    assert "missing calling expression" in capsys.readouterr().out
+
+
+def test_parenthesis_between_two_spans_is_not_an_expression(tmp_path):
+    assert _run(tmp_path, HEADER + "| d | adds a flag | `scripts/x.py:3` see (note) `x` |\n") == 1
+
+
 def test_non_behaviour_row_is_skipped(tmp_path, capsys):
     assert _run(tmp_path, HEADER + "| doc | reword only | none |\n") == 0
     assert capsys.readouterr().out.startswith("0 behaviour-adding rows checked in 1 ledger tables")

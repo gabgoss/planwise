@@ -7,8 +7,10 @@ Usage:
 A closing-sweep ledger answers "invoked from where?" for every deliverable
 that lands new behaviour. Such a row must quote a production call site: a
 `file:line` (for example `scripts/x.py:12`) and the calling expression in
-backticks (text containing `(`, for example `` `x(arg)` ``). A row whose only
-evidence is its own definition is not terminal.
+backticks (one backticked span containing `(`, for example `` `x(arg)` ``).
+A row whose only evidence is its own definition is not terminal, so a span
+that starts with `def ` or `class ` (optionally `async def `) is not a
+calling expression.
 
 A table counts as a ledger table when its header row names a class or a
 description column (a header holding `class`, `kind`, `type`, `description`,
@@ -40,7 +42,8 @@ ADDS_RE = re.compile(
 )
 BEHAVIOUR_CLASS_RE = re.compile(r"\bbehaviou?r\b", re.IGNORECASE)
 FILE_LINE_RE = re.compile(r"\S+\.\w+:\d+")
-CALL_EXPR_RE = re.compile(r"`[^`]*\([^`]*`")
+CODE_SPAN_RE = re.compile(r"`([^`]*)`")
+DEFINITION_RE = re.compile(r"\s*(?:async\s+)?(?:def|class)\s")
 SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$")
 
 
@@ -59,6 +62,11 @@ def _tables(lines):
             yield header, rows
         else:
             index += 1
+
+
+def has_call_expression(text):
+    """True when one backticked span holds `(` and is not a `def` or `class` line."""
+    return any("(" in span and not DEFINITION_RE.match(span) for span in CODE_SPAN_RE.findall(text))
 
 
 def check(text):
@@ -81,7 +89,7 @@ def check(text):
             missing = []
             if not FILE_LINE_RE.search(joined):
                 missing.append("file:line")
-            if not CALL_EXPR_RE.search(joined):
+            if not has_call_expression(joined):
                 missing.append("calling expression")
             if missing:
                 failures.append((number, row.strip(), missing))
