@@ -2,8 +2,9 @@
 """Text-pin tests for the /planwise backlog loop-mode hooks.
 
 `handlers/backlog.md` carries short hooks that point at
-`handlers/backlog-Part-2-LoopMode.md`. These tests pin the hook literals, the
-Part-2 question and marker text, and the two reference edits, so a later edit
+`handlers/backlog-Part-2-LoopMode.md` and `handlers/backlog-Part-4-Refine.md`.
+These tests pin the hook literals, the Part-2 question and marker text, the
+Part-4 steps and batch cap, and the two reference edits, so a later edit
 cannot silently drop one.
 
 Run with:  python -m pytest tests/test_backlog_loop_handler.py -q
@@ -15,6 +16,7 @@ from pathlib import Path
 PLUGIN = Path(__file__).resolve().parent.parent / "plugins" / "planwise"
 BACKLOG_HANDLER = PLUGIN / "handlers" / "backlog.md"
 LOOP_PART2 = PLUGIN / "handlers" / "backlog-Part-2-LoopMode.md"
+REFINE_PART4 = PLUGIN / "handlers" / "backlog-Part-4-Refine.md"
 AUTO_MODE_POLICY = PLUGIN / "references" / "auto-mode-policy.md"
 BACKLOG_SCHEMA = PLUGIN / "references" / "backlog-schema.md"
 
@@ -29,6 +31,7 @@ HOOK_LITERALS = [
     ("where C is not selectable", 1),
     ("--needs-plan", 1),
     ("§ Refine step", 1),
+    ("handlers/backlog-Part-4-Refine.md", 2),
 ]
 
 
@@ -83,10 +86,25 @@ class BacklogLoopHandlerTests(unittest.TestCase):
             with self.subTest(needle=needle):
                 self.assertIn(needle, text)
 
+    def test_part_4_carries_steps_and_batch_cap(self):
+        text = _read(REFINE_PART4)
+        for needle in (
+            "## Steps",
+            "Split the kept ids into batches of at most 5 items.",
+            "§ 7 Constraints",
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, text)
+
+    def test_phase_2_refine_mode_branch_present(self):
+        self.assertIn("**If `--refine <ids>` was provided:**", _read(BACKLOG_HANDLER))
+
     def test_auto_mode_policy_has_loop_rows(self):
         text = _read(AUTO_MODE_POLICY)
         self.assertIn("Loop opt-in (backlog.md Phase 2 Q1)", text)
         self.assertIn("Loop mode / count (backlog.md Phase 2 Q2)", text)
+        self.assertIn("Refine mode question round-trip (backlog-Part-4-Refine.md, `--refine`)", text)
+        self.assertIn("Refine mode ALREADY_MET close (backlog-Part-4-Refine.md, `--refine`)", text)
 
     def test_backlog_schema_documents_backlog_loop(self):
         self.assertIn("### backlog_loop.py", _read(BACKLOG_SCHEMA))

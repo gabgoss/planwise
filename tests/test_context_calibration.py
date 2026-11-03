@@ -1133,7 +1133,7 @@ class TestStructuralFloor(unittest.TestCase):
         self.assertEqual([k for k in subs if "-Part-" in k], [])
         self.assertEqual(len(subs), len(files) - part_count)
         self.assertEqual(subs["backlog"]["includes_parts"],
-            ["backlog-Part-2-LoopMode", "backlog-Part-3-Answers"],
+            ["backlog-Part-2-LoopMode", "backlog-Part-3-Answers", "backlog-Part-4-Refine"],
         )
         for parent in ("backlog", "doctor", "upgrade", "plan", "run"):
             self.assertEqual(

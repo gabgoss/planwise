@@ -12,6 +12,7 @@
 - `--loop-resume <run-id>` — re-enter a loop run after the hooks module compacts the session; skips the loop questions and processes exactly one item
 - `--refine-max N` — loop runs only: refine up to N unrefined items, highest score first, before they run (default 0); forwarded to `backlog_loop.py --init`, see `handlers/backlog-Part-2-LoopMode.md` § Eligibility
 - `--answer [item-id]` — answer open questions; see `handlers/backlog-Part-3-Answers.md`
+- `--refine <ids>` — design the named items through the creation process and stop; see `handlers/backlog-Part-4-Refine.md` (not the loop's `--refine-max N`)
 
 Loop mode is offered by Q1 on every interactive no-args run.
 
@@ -77,6 +78,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - For Auto Mode behavior (how a step behaves when `AskUserQuestion` cannot be answered non-interactively): Read `references/auto-mode-policy.md`
 - In loop mode, or on `--loop-resume`: Read `handlers/backlog-Part-2-LoopMode.md`
 - With `--answer`: Read `handlers/backlog-Part-3-Answers.md`
+- With `--refine`: Read `handlers/backlog-Part-4-Refine.md`
 - When filing or refining items: Read `references/backlog-creation-process.md`
 
 ---
@@ -140,6 +142,8 @@ Display the table to the user.
 ---
 
 ## Phase 2: SELECT
+
+**If `--refine <ids>` was provided:** skip selection, the loop questions and the status update. Run `handlers/backlog-Part-4-Refine.md` § Steps for the named ids, then STOP.
 
 **If `$1` was provided** (an item ID):
 - Use that item ID directly — skip the selection prompt
