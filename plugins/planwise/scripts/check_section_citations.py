@@ -233,9 +233,9 @@ REDIRECTS: dict[tuple[str, str], Redirect] = {
     ("verification-gates.md", "8"): Redirect(
         "gate-diff-baseline-pinning.md", "8", "verification-gates.md § The `$..._BASE` Pointer"),
     ("verification-gates.md", "1"): Redirect(
-        "gate-runtime-boundary-evidence.md", "1", "verification-gates.md § Section Map, row §1"),
+        "gate-runtime-boundary-evidence.md", "1", "verification-gates.md § (former Section Map row §1, now gate-runtime-boundary-evidence.md)"),
     ("verification-gates.md", "7"): Redirect(
-        "gate-runtime-boundary-evidence.md", "7", "verification-gates.md § Section Map, row §7"),
+        "gate-runtime-boundary-evidence.md", "7", "verification-gates.md § (former Section Map row §7, now gate-runtime-boundary-evidence.md)"),
     ("verification-gate-evidence.md", "1"): Redirect("gate-positive-and-mutation-controls.md", "1", _EVIDENCE_MAP),
     ("verification-gate-evidence.md", "2"): Redirect("gate-positive-and-mutation-controls.md", "2", _EVIDENCE_MAP),
     ("verification-gate-evidence.md", "3"): Redirect("gate-positive-and-mutation-controls.md", "3", _EVIDENCE_MAP),

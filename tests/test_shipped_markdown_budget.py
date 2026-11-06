@@ -67,7 +67,6 @@ WARN_ALLOWLIST = frozenset({
     "run.md",                                                  # 25,251 (OVER)
     "scaffolding-hygiene-Part-2-DerivationAndParallelism.md",  # 23,457
     "task-content-fidelity.md",                                # 22,615
-    "verify-before-cite.md",                                   # 22,568 (the numeric-literal subsection crossed the line; it stood at 20,607)
 })
 
 # OVER_EXEMPTIONS pinned @ becccfe10f08ea60e0abe67cab4fd965b4ca2954 (2026-10-20); tokens from CRLF-normalized bytes (checkout-independent)

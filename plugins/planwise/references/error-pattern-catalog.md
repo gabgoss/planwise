@@ -87,7 +87,7 @@ Fix: Name the trigger that fired, or change to DIRECT per references/agent-orche
 | 51 | Sprint signoff row-count mismatch with EI exit criteria (`exit-criteria-fidelity.md` §16.3) | BLOCKER | Sprint signoff |
 | 52 | Cross-session dependency not mirrored in task `Depends On` (`task-file-and-tracking-requirements.md` §9 cross-session) | BLOCKER | Task Depends On |
 | 53 | Post-scaffold back-propagation missed after task edit (`task-file-and-tracking-requirements.md` §9 post-scaffold sync) | ERROR | Task file + EI section |
-| 54 | BLI-cited audit anchor not re-verified before execution (`verify-discovery-consolidation.md` §6) | BLOCKER | Orchestration BLI refs |
+| 54 | BLI-cited audit anchor not re-verified before execution (`verify-cross-repo-fix-discipline.md` §6) | BLOCKER | Orchestration BLI refs |
 | 55 | Cohort token-uplift missing for known high-divergence cohort (`scaffolding-hygiene.md` §10) | WARNING | Master Plan Sprint Overview Notes |
 | 56 | Cross-tier audit-finding triage table missing (`execution-time-binding-rules.md` §18) | WARNING | Discovery/audit sessions |
 | 57 | EI multi-sprint cumulative state not reconciled (`ei-completeness.md` §9.1) | BLOCKER | Later-sprint EI Current state block + Sprint Plan Cross-Sprint File Touches + task-file Step-1 prerequisite grep gate |

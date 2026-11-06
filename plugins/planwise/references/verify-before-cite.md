@@ -212,7 +212,7 @@ Fix: Reconcile per references/verify-before-cite.md §9.B.13 + schema-pin-requir
 ### 9.B.7 Enumerate the specific helpers a spawn prompt tells an agent to use
 
 > [!constraint] A spawn prompt that says "use the project's helpers" MUST enumerate the specific helpers — name, location, signature
-> When a DELEGATED task's spawn prompt instructs the executing subagent to "use the existing helpers", "reuse the project's utilities", or any equivalent blanket phrasing, the prompt MUST instead enumerate each helper the task is expected to use: its name, the file it lives in, and its signature (or a one-line contract). A subagent has no shared context. A blanket instruction forces it to re-discover the helper set (token burn) or reimplement functionality that already exists (duplication).
+> When a DELEGATED task's spawn prompt instructs the executing subagent to "use the existing helpers", "reuse the project's utilities", or any equivalent blanket phrasing, the prompt MUST instead enumerate each helper the task is expected to use: its name, the file it lives in, and its signature (or a one-line contract).
 >
 > WRONG — `Use the project's existing helpers; do not reinvent utilities.`
 >
@@ -357,7 +357,7 @@ Fix: Add Field Mapping per templates/task-file.md | Confidence: HIGH
 ### 9.B.14 Verify-before-cite applies to every deployed symbol, not only SQL columns
 
 > [!constraint] Grep the live source-of-truth and cite `file:line` for every deployed symbol a template, brief, or reference doc names
-> A template, brief, or reference doc that names an environment variable, function signature, file path, helper name, config key, or dataclass field MUST Grep the live source-of-truth at authoring time and cite it with `file:line`. The search is the discipline, and the citation is the binding artifact. A one-character defect in a widely-inherited template is worth a binding rule precisely because it is never escalated. Each consumer fixes it locally, and the true cost (paid N times) stays invisible.
+> A template, brief, or reference doc that names an environment variable, function signature, file path, helper name, config key, or dataclass field MUST Grep the live source-of-truth at authoring time and cite it with `file:line`. The search is the discipline, and the citation is the binding artifact.
 >
 > WRONG — paste an env-var name from memory into a template that N notebooks will inherit.
 >
@@ -512,21 +512,21 @@ The generic pin rule is in `measurement-discipline-Part-3-RecordedDeltaAndPinned
 ### 9.B.25 A planner-authored citation is opened in the named file before it ships
 
 > [!constraint] A citation from an audit or from memory is verified like a user-cited one
-> §9.B.1 verifies the artifacts a user cites. A planner or an audit cites too: a test name, an `except` clause, a helper, a rule file's size. Each is a claim about one named file at one moment. A path Glob proves none of them. Five sprints scaffolded in one pass from an audit shipped all four shapes below.
+> §9.B.1 verifies the artifacts a user cites. A planner or an audit cites too: a test name, an `except` clause, a helper, a rule file's size. Each is a claim about one named file at one moment. A path Glob proves none of them.
 >
 > WRONG — cite from the audit's wording after the path check passed:
 > ```
-> Step: "update test_upgrade_messages in tests/test_upgrade.py"   # the test lives in tests/test_upgrade_flow.py
-> Step: "change `except ValueError as exc:`"                      # live code: `except (ValueError, TypeError, AttributeError): return None`, no binding
-> Context: "reuse make_fixture from tests/helpers.py"             # defined in tests/fixtures_util.py; the only match in helpers.py is a parametrize tuple
-> Context: "rules/foo.md, about 4K tokens"                        # measured 12K tokens after three sections landed
+> Step: "update test_upgrade_messages in tests/test_upgrade.py"  # the test lives in tests/test_upgrade_flow.py
+> Step: "change `except ValueError as exc:`"  # live code: `except (ValueError, TypeError, AttributeError): return None`
+> Context: "reuse make_fixture from tests/helpers.py"  # defined in tests/fixtures_util.py
+> Context: "rules/foo.md, about 4K tokens"  # measured 12K tokens
 > ```
 > CORRECT — open the named file and write the reading beside the citation:
 > ```
 > Read  file_path='tests/test_upgrade.py'  offset=<cited line>  limit=20
-> Grep  pattern='def test_upgrade_messages'  path='tests/test_upgrade.py'  output_mode='count'   # 0 -> wrong module; find the real home first
-> Grep  pattern='except \(ValueError'  path='<module>.py'  output_mode='content'  -n=true       # quote the live clause, not the paraphrase
-> python -B scripts/measure_files.py rules/foo.md                                               # fresh size, not the audit's
+> Grep  pattern='def test_upgrade_messages'  path='tests/test_upgrade.py'  output_mode='count'  # 0 -> wrong module; find the real home first
+> Grep  pattern='except \(ValueError'  path='<module>.py'  output_mode='content'  -n=true  # quote the live clause, not the paraphrase
+> python -B scripts/measure_files.py rules/foo.md  # fresh size, not the audit's
 > ```
 
 1. **Open the named file at the cited line.** Treat the line number as a hint and read the text around it.
@@ -537,9 +537,7 @@ The generic pin rule is in `measurement-discipline-Part-3-RecordedDeltaAndPinned
 ### 9.B.26 A documentation check on an inherited parameter changes the signature, not only the audit value
 
 > [!constraint] A verify-before-send rule answers what goes on the wire. The brief must also answer what the signature promises
-> A plan decision gave two new client methods the same keyword parameters as a sibling method, including a `{filter}` parameter and a boolean flag. The task brief then added a rule: send each parameter only if the endpoint's reference document lists it. If the document does not list it, do not send it. Record the audit value as `False` or `None` and say so in the findings.
->
-> Neither endpoint document listed the parameters. The runner followed the brief exactly. The result was two public methods that accept `{filter}="x"` and silently ignore it. The caller pays for every default value, while the audit row truthfully records `None`. The plan review rated this HIGH. The type checker had flagged both parameters as "not accessed" all along.
+> A brief that changes only the audit value produces public methods that accept `{filter}="x"` and silently ignore it, while the audit row truthfully records `None`.
 >
 > WRONG — the brief changes the audit value and leaves the signature spec alone:
 > ```text
@@ -553,10 +551,10 @@ The generic pin rule is in `measurement-discipline-Part-3-RecordedDeltaAndPinned
 > The audit column records what was sent.
 > ```
 
-1. **Treat "undocumented" as a signature finding.** When the documentation check says the endpoint does not take a parameter, the brief changes the signature spec. Changing only the audit value is not enough.
-2. **Name one of two outcomes.** If the endpoint does not take the parameter, it is not a parameter, so the brief removes it from the signature spec. If the parameter must stay for parity with a sibling, the brief requires that a non-default value raise an error. The caller asked for something the method cannot do.
-3. **Record what was sent in the audit column.** Nothing else was possible, so the column no longer hides a dead parameter.
-4. **Read two mechanical tells as proof the wrong shape landed.** The type checker reports `"<param>" is not accessed` on a public method's parameter. A test passes a non-default value and asserts its absence on the wire. That test is correct, but a correct signature would not have needed it.
+1. **Treat "undocumented" as a signature finding.** When the documentation check says the endpoint does not take a parameter, the brief changes the signature spec.
+2. **Name one of two outcomes.** If the endpoint does not take the parameter, it is not a parameter, so the brief removes it from the signature spec. If the parameter must stay for parity with a sibling, the brief requires that a non-default value raise an error.
+3. **Record what was sent in the audit column.**
+4. **Read two mechanical tells as proof the wrong shape landed.** The type checker reports `"<param>" is not accessed` on a public method's parameter. A test passes a non-default value and asserts its absence on the wire.
 
 #### Reviewer Check 118 — Documentation Check on an Inherited Parameter With No Signature Outcome
 
@@ -574,8 +572,6 @@ Fix: State one outcome, either remove "{parameter}" from the signature spec or r
 ### 9.B.27 A brief's claim about an external source's coverage is checked against the probe document it cites
 
 > [!constraint] A coverage claim in a brief is checked against the probe document, never written from memory
-> A brief said an external source's listing "may return 0 entries" before a given date. The probe document in the same brief's Required Context already recorded the real coverage rule. The planner wrote the sentence from memory and never opened the document. The sprint's sequencing then depended on a case the plan had not written down.
->
 > WRONG — coverage asserted from memory beside a probe document that states the rule:
 > ```text
 > Required Context: {probe document}
@@ -588,14 +584,14 @@ Fix: State one outcome, either remove "{parameter}" from the signature spec or r
 > ```
 
 1. **Open the cited probe document at scaffold time.** A date, a coverage window or a "may return nothing" caveat about an external source is a claim about that document.
-2. **Quote the rule and record the probe date.** A paraphrase can narrow or widen the rule.
+2. **Quote the rule and record the probe date.**
 3. **Reconcile every sentence about the source.** When the brief and the document disagree, the document wins until a fresh probe says otherwise. Correct the brief at its source.
 4. **Pair the claim with a criterion that names every cell.** A criterion over the source's listing follows [gate-anchor-outcome-set.md](gate-anchor-outcome-set.md) §10.12.
 
 ### 9.B.28 Every numeric literal in a brief is measured on its quoted command, or tagged UNVERIFIED
 
 > [!constraint] A number or a comparison in Execution Steps or Notes is a claim. Measure it on the command the brief quotes
-> §9.B.1 and §9.B.25 verify names and citations. A brief also carries numbers: doctest values, tolerances, expected counts, count anchors, and inequalities that justify a type, width, precision or range. A design record supplies many of them and nobody runs them. A runner that discovers one wrong then owns a design decision the brief never gave it.
+> §9.B.1 and §9.B.25 verify names and citations. A brief also carries numbers: doctest values, tolerances, expected counts, count anchors, and inequalities that justify a type, width, precision or range.
 >
 > WRONG — carry the design record's figures and arithmetic into the brief unrun:
 > ```text
@@ -611,10 +607,10 @@ Fix: State one outcome, either remove "{parameter}" from the signature spec or r
 > ```
 
 1. **Measure each literal on the exact command quoted.** One execution at scaffold time is enough. A literal with no reading carries `UNVERIFIED — {source}, {date}`. A figure measured on a different command counts as unmeasured.
-2. **Re-execute every inequality that justifies a type, width, precision or range.** The probe record's numbers are measured. The comparison between them is authored and fails at the rate of any prose. A false reason does not reverse a right decision, so fix the sentence and keep the type.
+2. **Re-execute every inequality that justifies a type, width, precision or range.** A false reason does not reverse a right decision, so fix the sentence and keep the type.
 3. **Treat a truncation-sensitive identity as a design decision.** A sum-to-one over a cut-off series either renormalises or is waived in writing. A tolerance chosen to make the test pass does neither.
 4. **Name what a count anchor counted.** Name the exact modules, or quote a dated measurement of the quoted directory command with its baseline and its delta.
-5. **Assert the property the code must have, not the document's derivation of it.** A test checks that the column kind is `bigint` and that a value above the ceiling binds. It does not copy the brief's arithmetic.
+5. **Assert the property the code must have, not the document's derivation of it.**
 6. **Route a correction, never absorb it.** A literal that only parameterises a check runs with the measured value and a `FLAG:` bullet naming the literal, the value and the command. A literal that encodes a design property is a `BRIEF COLLISION`. The task runner never widens a tolerance or re-pins a doctest alone. The rule sits in the task runner's "Decisions Beyond Your Brief" section.
 7. **Run each count anchor's Before command once at review.** The review discovery pass executes it, limited to read-only command classes. It lists any other command as unmeasured. The plan reviewer compares the literal with the executed value.
 

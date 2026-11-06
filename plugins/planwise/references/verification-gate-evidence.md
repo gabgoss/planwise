@@ -1,6 +1,6 @@
 ---
 description: Family index stub for verification-gate evidence — which short gate-* reference governs a positive or mutation control, a fixture's provenance, a live gate that disagrees with correct work, an old-home citation sweep, a generated input that silently empties a gate, a script's emitted reason or exit code, a proof run's scratch root and import order, an input set that could not have contained the case that fails the gate, or a gate satisfiable by destruction or unsatisfiable by construction; names the topic files, whose library rows carry the read-when text.
-consult-when: Finding which gate reference governs what a gate's output is evidence of — the family index: a read-when table over the `gate-*` topic files it indexes and the map from this file's former section numbers to the topic file that now holds each one
+consult-when: Finding which gate reference governs what a gate's output is evidence of — the family index stub: names the `gate-*` topic files, whose library rows carry the read-when text, and the checker's redirect table resolves this file's former section numbers
 paths: {planwise_root}/{plans_dir}/**
 ---
 

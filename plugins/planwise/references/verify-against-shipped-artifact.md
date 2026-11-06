@@ -316,7 +316,7 @@ When verification is impractical or the artifact isn't available, mark the citat
 
 ## 5. Applies To
 
-- Discovery-phase Consolidated Context authoring (`{planwise_root}/{plans_dir}/**/*Discovery*.md`, `*Consolidated-Context*.md`) — see `verify-discovery-consolidation.md` §6.
+- Discovery-phase Consolidated Context authoring (`{planwise_root}/{plans_dir}/**/*Discovery*.md`, `*Consolidated-Context*.md`) — see `verify-cross-repo-fix-discipline.md` §6.
 - Execution Input authoring (`{planwise_root}/{plans_dir}/**/*-Execution-Input.md`).
 - Task spec authoring (`{planwise_root}/{plans_dir}/**/*-S*-*-*.md`) when the task quotes a third-party SDK call, enum member, type name, harness API, or cross-sprint codebase symbol verbatim.
 - Backlog item authoring (`{planwise_root}/{backlog_dir}/BB-*.md`) — the "Files" section is a placement assertion subject to §3g.
@@ -332,7 +332,7 @@ This file covers §1-§5 — the core SDK/identifier verification recipes, the p
 
 | Segment | Content | File |
 |---------|---------|------|
-| §6 | Discovery-Phase Consolidation — Verify Citations and SDK Premises Against Live Source | [verify-discovery-consolidation.md](verify-discovery-consolidation.md) |
+| §6 | Discovery-Phase Consolidation — Verify Citations and SDK Premises Against Live Source | [verify-cross-repo-fix-discipline.md](verify-cross-repo-fix-discipline.md) |
 | §7 (.1-.7) | Cross-Repo Canonical Source — Fix-Task Authoring Discipline | [verify-cross-repo-fix-discipline.md](verify-cross-repo-fix-discipline.md) |
 | §3h, §3h.untested-axes, §3h.cluster, §3i, §8, §9 (.1-.3), §10, §11 | BLI triage-time recipes + verifying source edits under an older installed plugin + backlog-item citation freshness at execution time + backlog-item claim verification at filing time + re-alignment verb premise probing | [verify-backlog-citation-freshness.md](verify-backlog-citation-freshness.md) |
 
