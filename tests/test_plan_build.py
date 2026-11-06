@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import sys
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,7 @@ sys.path.insert(0, str(SCRIPTS))
 import plan_build as pb
 import scaffold_deviations as sd
 import scaffold_plan as sp
+import token_saver_writeback as tsw
 
 TEMPLATES = sp.DEFAULT_TEMPLATES
 TASK_DOC = "S01-01-01"
@@ -66,7 +68,7 @@ def make_spec():
 
 def _build_owned_spec():
     spec = make_spec()
-    spec["meta"] = {"owner": "ledger team"}
+    spec["meta"] = False
     session = spec["sprints"][0]["sessions"][0]
     session["omit_sections"] = ["Context Boundary"]
     session["meta"] = {"note": "first"}
@@ -152,7 +154,8 @@ def test_core_spec_strips_build_keys_and_passes_lint():
     assert sp.lint_spec(spec, TEMPLATES) != []
     core = pb.core_spec(spec)
     assert sp.lint_spec(core, TEMPLATES) == []
-    assert core["sprints"][0]["sessions"][0]["tasks"][0]["estimate_k"] == pb.AUTO_ESTIMATE_VALUE
+    # the fixture task holds one 1.5K read row plus output_k 4 and working_k 6: round(11.5) is 12
+    assert core["sprints"][0]["sessions"][0]["tasks"][0]["estimate_k"] == round(1.5 + 4 + 6) == 12
     assert spec == before
     assert sp.render_all(core, TEMPLATES)[0]
 
@@ -1291,9 +1294,620 @@ def test_write_failure_in_the_first_manifest_write_exits_3(tmp_path, capsys, ind
     assert set(pb.read_manifest(build.manifest)) == set(rendered)
 
 
+# ---- meta plans
+
+META = "ZCPL"
+PLAN_DIR = ("Plans", "OrchardLedger")
+PLAIN_SITES = (f"{META}-Master-Plan", "{Abbrev}-S{XX}-Sprint-Plan")  # the two forms a render prints
+META_SITES = (f"{META}-META-Master-Plan", "{Abbrev}-META-S{XX}-Sprint-Plan")
+META_OUTPUT = f"Outputs/{META}-META-S01-01-01-Parse.md"
+GATE_LINE_RE = re.compile(r"^gate=(\w+) status=(\w+) files=(\d+) (.*)$", re.MULTILINE)
+
+
+def meta_spec(meta=True):
+    """The sample spec as a Meta plan: every session DELEGATED, every session output named with the prefix."""
+    spec = make_spec()
+    spec.update(abbrev=META, meta=meta)
+    sprint = spec["sprints"][0]
+    sprint["name"] = "X"
+    sprint["sessions"][1]["mode"] = "DELEGATED"
+    sprint["sessions"][0]["tasks"][0]["outputs"] = ["src/orchard/parse.py", META_OUTPUT]
+    sprint["sessions"][1]["tasks"][1]["outputs"] = [f"Outputs/{META}-META-S01-02-02-Verify.md"]
+    return spec
+
+
+def direct_session_spec(meta=True):
+    spec = meta_spec(meta)
+    spec["sprints"][0]["sessions"][1]["mode"] = "DIRECT"
+    return spec
+
+
+def plain_output_spec(meta=True):
+    spec = meta_spec(meta)
+    spec["sprints"][0]["sessions"][0]["tasks"][0]["outputs"] = ["src/orchard/parse.py", f"Outputs/{META}-parse.md"]
+    return spec
+
+
+def meta_build(tmp_path, capsys, spec=None, bodies=None):
+    """A meta plan under tmp_path, with its out folder inside the `Plans` folder the index step reads."""
+    if bodies is None:
+        bodies = bodies_set(index_of(tmp_path, meta_spec()))
+    build = Build(tmp_path, capsys, {n.replace("QZX-", f"{META}-"): t for n, t in bodies.items()}, spec or meta_spec())
+    build.config.write_text("project_name: Chain\n", encoding="utf-8")
+    build.out = tmp_path.joinpath(*PLAN_DIR)
+    build.root = build.out / f"Meta-{META}"
+    build.manifest = tmp_path / f"{META}{'-META' if pb.is_meta(spec or meta_spec()) else ''}-build-manifest.json"
+    context = tmp_path / "src" / "orchard" / "ledger.py"  # on disk, so the estimates gate rewrites every task file
+    context.parent.mkdir(parents=True)
+    context.write_bytes(b"x = 1\n" * 900)
+    return build
+
+
+def full_run(build):
+    """Run `build` with all five gates, the index step included."""
+    code = pb.main([arg for arg in build.argv() if arg != "--skip-index"])
+    return code, build.capsys.readouterr().out
+
+
+def tree_files(root):
+    return {p.relative_to(root).as_posix(): p for p in root.rglob("*") if p.is_file()}
+
+
+def token_count(root, token):
+    """Occurrences of `token` in the Markdown files under `root`. Return (count, files read)."""
+    texts = [p.read_text(encoding="utf-8") for p in root.rglob("*.md")]
+    return sum(t.count(token) for t in texts), len(texts)
+
+
+def test_meta_known_good_renders_the_names_the_gitkeep_and_the_tokens(tmp_path, capsys):
+    build = meta_build(tmp_path, capsys)
+    code, out = full_run(build)
+    assert code == 0, out
+    files = tree_files(build.root)
+    assert {f"{META}-META-Master-Plan.md", f"Sprint-01-X/{META}-META-S01-Sprint-Plan.md", "Outputs/.gitkeep"} <= set(files)
+    assert f"{META}-Master-Plan.md" not in files and f"Sprint-01-X/{META}-S01-Sprint-Plan.md" not in files
+    session = f"Sprint-01-X/Session-01-ReadPath/{META}-S01-01"
+    assert {f"{session}-Orchestration.md", f"{session}-Recovery.md"} <= set(files)  # structural files keep plain names
+    assert not [rel for rel in tree_files(build.out) if not rel.startswith(f"Meta-{META}/")]
+    for token in PLAIN_SITES:
+        assert token_count(build.root, token) == (0, 10), token
+    for token in META_SITES:
+        assert token_count(build.root, token)[0] >= 1, token
+
+
+def test_meta_control_a_standard_build_holds_the_plain_tokens(tmp_path, capsys):
+    build = meta_build(tmp_path, capsys, meta_spec(meta=False))
+    code, out = build.run()
+    assert code == 0, out
+    for token in PLAIN_SITES:
+        assert token_count(build.out, token)[0] >= 1, token
+    for token in META_SITES:
+        assert token_count(build.out, token) == (0, 10), token
+
+
+def test_meta_rewrite_reaches_a_body_and_spares_another_plans_token(tmp_path, capsys):
+    index = index_of(tmp_path, meta_spec())
+    line = f"See {META}-Master-Plan.md and ../{META}-S01-Sprint-Plan.md, not X{META}-Master-Plan.md."
+    keys = f"<!-- section: ## Notes for Agent -->\n\n{line}\n"
+    bodies = add_keys(bodies_set(index, skip=under(index, TASK_DOC, "## Notes for Agent")), TASK_DOC, keys)
+    build = meta_build(tmp_path, capsys, bodies=bodies)
+    code, out = build.run()
+    assert code == 0, out
+    text = next(build.root.rglob(f"{META}-S01-01-01-*.md")).read_text(encoding="utf-8")
+    assert (f"See {META}-META-Master-Plan.md and ../{META}-META-S01-Sprint-Plan.md, "
+            f"not X{META}-Master-Plan.md.") in text
+
+
+def test_meta_full_chain_runs_on_the_renamed_tree_and_exits_0(tmp_path, capsys):
+    build = meta_build(tmp_path, capsys)
+    code, out = full_run(build)
+    assert code == 0, out
+    found = GATE_LINE_RE.findall(out)
+    assert [g[0] for g in found] == ["estimates", "headings", "deviations", "scan", "index"]
+    assert {g[1] for g in found} == {"ok"}, out
+    assert {int(g[2]) for g in found} == {len(tree_files(build.root))}
+    assert found[0][3] == "sessions=2 tasks=4 failed=0"
+    assert out.rstrip().endswith("fill_remaining=0\nexit=0")
+    assert f"built {len(tree_files(build.root))} files to {build.root};" in out
+    index = (tmp_path / "Plans" / "00-Index-Plans.md").read_text(encoding="utf-8")
+    assert "OrchardLedger (Meta / Discovery)" in index and META in index
+
+
+def test_meta_headings_gate_counts_the_renamed_plan_files(tmp_path, capsys):
+    build = meta_build(tmp_path, capsys)
+    assert build.run()[0] == 0
+    kinds = {Path(r["path"]).name: r for r in sp.check_headings([build.root], TEMPLATES)}
+    for name, kind in ((f"{META}-META-Master-Plan.md", "master"), (f"{META}-META-S01-Sprint-Plan.md", "sprint")):
+        assert kinds[name]["kind"] == kind and kinds[name]["h2"] > 0
+
+
+@pytest.mark.parametrize("name,old,new,reported", [
+    (f"{META}-META-Master-Plan.md", "**Total Sessions:**", "Sessions:", "CLASS_B"),
+    (f"{META}-META-S01-Sprint-Plan.md", "## Sessions", "## Rounds", "CLASS_A"),
+], ids=["master", "sprint"])
+def test_meta_deviation_gate_grades_a_renamed_plan_file(tmp_path, capsys, name, old, new, reported):
+    build = meta_build(tmp_path, capsys)
+    assert build.run()[0] == 0
+    assert deviations(build.root) == []
+    target = next(build.root.rglob(name))
+    text = target.read_text(encoding="utf-8")
+    assert old in text
+    target.write_text(text.replace(old, new), encoding="utf-8")
+    assert [line for line in deviations(build.root) if line.startswith(f"{reported} ") and name in line]
+
+
+def test_meta_scan_gate_reads_the_task_files_under_the_meta_root(tmp_path, capsys):
+    spec = meta_spec()
+    for task in spec["sprints"][0]["sessions"][0]["tasks"]:
+        task["required_context"] = [{"priority": 1, "path": "src/big.py", "kib": 108.0, "tokens_k": 30.0,
+                                     "purpose": "the big module"}]
+    build = meta_build(tmp_path, capsys, spec, bodies_set(index_of(tmp_path, spec)))
+    build.config.write_text("plans: plans\ncontext:\n  token_saver: true\n", encoding="utf-8")
+    (tmp_path / "src" / "big.py").write_bytes(b"x = 1\n" * 18_500)  # about 110 KB
+    code, out = build.run()
+    assert code == 1, out
+    scan = next(g for g in GATE_LINE_RE.findall(out) if g[0] == "scan")
+    assert scan[1] == "finding" and scan[3].endswith("exit=1"), out
+
+
+def test_meta_manifest_covers_the_renamed_paths_and_a_second_build_exits_0(tmp_path, capsys):
+    build = meta_build(tmp_path, capsys)
+    assert full_run(build)[0] == 0
+    files, listed = tree_files(build.root), pb.read_manifest(build.manifest)
+    assert set(listed) == set(files)
+    assert all(listed[rel] == pb.file_hash(path) for rel, path in files.items())
+    code, out = full_run(build)
+    assert code == 0, out
+    assert "CHANGED:" not in out and "STALE:" not in out
+    assert pb.read_manifest(build.manifest) == listed
+
+
+def test_meta_manifest_guard_sees_an_edit_to_a_renamed_file(tmp_path, capsys):
+    build = meta_build(tmp_path, capsys)
+    assert build.run()[0] == 0
+    rel = f"Sprint-01-X/{META}-META-S01-Sprint-Plan.md"
+    (build.root / rel).write_bytes((build.root / rel).read_bytes() + b"edited\n")
+    code, out = build.run()
+    assert code == 2
+    assert f"CHANGED: {rel}" in out.splitlines()
+
+
+def test_meta_known_bad_direct_session_exits_2_naming_it(tmp_path, capsys):
+    build = meta_build(tmp_path, capsys, direct_session_spec())
+    code, out = build.run()
+    assert code == 2, out
+    assert "LINT: session S01-02: mode is DIRECT, and a meta plan session must be DELEGATED" in out.splitlines()
+    assert not build.out.exists() and not build.manifest.exists()
+
+
+def test_meta_known_bad_plain_output_exits_2_naming_the_task(tmp_path, capsys):
+    build = meta_build(tmp_path, capsys, plain_output_spec())
+    code, out = build.run()
+    assert code == 2, out
+    assert (f'LINT: task S01-01-01: output "Outputs/{META}-parse.md" must start with {META}-META-S01-01-'
+            in out.splitlines())
+    assert not build.out.exists() and not build.manifest.exists()
+
+
+@pytest.mark.parametrize("make", [direct_session_spec, plain_output_spec], ids=["direct", "plain-output"])
+def test_meta_lint_and_keys_refuse_the_same_spec(tmp_path, capsys, make):
+    build = meta_build(tmp_path, capsys, make())
+    assert pb.main(["keys", "--spec", str(build.spec)]) == 2
+    assert pb.main(["lint", "--spec", str(build.spec), "--bodies-dir", str(build.bodies)]) == 2
+    assert capsys.readouterr().out.count("meta plan error(s)") == 2
+
+
+@pytest.mark.parametrize("make", [direct_session_spec, plain_output_spec], ids=["direct", "plain-output"])
+def test_meta_false_renders_the_same_fixture_as_a_standard_plan(tmp_path, capsys, make):
+    build = meta_build(tmp_path, capsys, make(meta=False))
+    code, out = build.run()
+    assert code == 0, out
+    files = tree_files(build.out)
+    assert {f"{META}-Master-Plan.md", f"Sprint-01-X/{META}-S01-Sprint-Plan.md"} <= set(files)
+    assert not build.root.exists() and "Outputs/.gitkeep" not in files
+
+
+def test_meta_known_bad_a_string_value_exits_2_naming_the_key(tmp_path, capsys):
+    spec = meta_spec()
+    spec["meta"] = "true"
+    build = meta_build(tmp_path, capsys, spec)
+    code, out = build.run()
+    assert code == 2, out
+    assert 'LINT: plan level: meta must be true or false, got "true"' in out.splitlines()
+    assert not build.out.exists() and not build.manifest.exists()
+
+
+def test_meta_control_a_false_value_renders_a_standard_plan(tmp_path, capsys):
+    build = meta_build(tmp_path, capsys, meta_spec(meta=False))
+    code, out = build.run()
+    assert code == 0, out
+    assert f"{META}-Master-Plan.md" in tree_files(build.out)
+    assert not build.root.exists()
+
+
+def test_meta_only_a_true_value_is_the_switch(tmp_path, capsys):
+    spec = _build_owned_spec()
+    assert not pb.is_meta(spec)
+    assert not pb.is_meta(make_spec())
+    assert pb.is_meta(meta_spec())
+    assert pb.render_core(str(_write_spec(tmp_path, spec)), TEMPLATES) is not None
+    assert "LINT" not in capsys.readouterr().out
+
+
+def test_meta_the_core_spec_never_sees_the_key_and_doc_ids_stay_plain(tmp_path):
+    core, _files, idx = pb.render_core(str(_write_spec(tmp_path, meta_spec())), TEMPLATES)
+    assert "meta" not in core
+    assert list(idx)[:3] == ["MASTER", "S01", ORCH_DOC]
+
+
+@pytest.mark.parametrize("path,errors", [
+    (f"Outputs/{META}-META-S01-01-01-Parse.md", 0),
+    (f"Outputs/{META}-META-S01-02-01-Parse.md", 1),  # the prefix of another session
+    (f"Outputs/{META}-S01-01-Summary.md", 1),
+    (f"plans/Meta-{META}/Sprint-01-X/Session-01-ReadPath/Outputs/{META}-parse.md", 1),
+    (f"plans/Meta-{META}/Sprint-01-X/Session-01-ReadPath/Outputs/{META}-META-S01-01-01-Parse.md", 0),
+    (f"plans\\Meta-{META}\\Sprint-01-X\\Session-01-ReadPath\\Outputs\\{META}-parse.md", 1),
+    (f"plans/Meta-{META}/Outputs/{META}-Consolidated-Context-Part-1-Topic.md", 0),  # the plan-level folder
+    (f"Meta-{META}/Outputs/{META}-Probe-Ledger.md", 0),
+    ("src/orchard/parse.py", 0),
+], ids=["own-prefix", "other-session", "summary", "full-plain", "full-prefix", "backslash", "plan-level", "plan-level-root",
+        "no-outputs-folder"])
+def test_meta_output_rule_reads_the_session_outputs_folder_only(path, errors):
+    spec = meta_spec()
+    spec["sprints"][0]["sessions"][0]["tasks"][0]["outputs"] = [path]
+    assert len(pb.meta_errors(spec)) == errors
+
+
+@pytest.mark.parametrize("path", [f"../../Outputs/{META}-Probe-Ledger.md", f"..\\..\\Outputs\\{META}-Probe-Ledger.md"],
+                         ids=["slash", "backslash"])
+def test_meta_output_rule_reads_a_relative_path_from_the_session_folder(path):
+    spec = meta_spec()
+    spec["sprints"][0]["sessions"][0]["tasks"][0]["outputs"] = [path]
+    assert pb.meta_errors(spec) == []
+    spec["sprints"][0]["sessions"][0]["tasks"][0]["outputs"] = [f"../Outputs/{META}-parse.md"]  # a sprint folder, so no exemption
+    assert len(pb.meta_errors(spec)) == 1
+
+
+@pytest.mark.parametrize("text", [
+    f"[plan](../../Exec-{META}/{META}-Master-Plan.md)",
+    f"Exec-{META}/Sprint-01-X/{META}-S01-Sprint-Plan.md",
+    f"Exec-{META}\\{META}-Master-Plan.md",
+    f"{META}-Master-Plan-Notes.md",
+    f"{META}-S01-Sprint-Plan-Draft.md",
+], ids=["exec-link", "exec-sprint", "exec-backslash", "longer-master", "longer-sprint"])
+def test_meta_rewrite_leaves_an_exec_path_and_a_longer_name_alone(text):
+    assert pb.meta_tree({"a.md": text}, META)["a.md"] == text
+
+
+def test_meta_rewrite_still_reaches_a_bare_token_beside_an_exec_path():
+    text = f"Exec-{META}/{META}-Master-Plan.md, then {META}-Master-Plan.md and ../{META}-S01-Sprint-Plan.md"
+    assert pb.meta_tree({"a.md": text}, META)["a.md"] == (
+        f"Exec-{META}/{META}-Master-Plan.md, then {META}-META-Master-Plan.md and ../{META}-META-S01-Sprint-Plan.md")
+
+
+def test_meta_and_exec_specs_in_one_folder_keep_their_own_manifests(tmp_path, capsys):
+    build = meta_build(tmp_path, capsys)
+    exec_spec, exec_out = tmp_path / "exec.json", build.out / f"Exec-{META}"
+    exec_spec.write_text(json.dumps(meta_spec(meta=False)), encoding="utf-8")
+    (build.out / f"Scaffold-{META}").mkdir(parents=True)
+
+    def run_exec():
+        swap = {str(build.spec): str(exec_spec), str(build.out): str(exec_out)}
+        code = pb.main([swap.get(arg, arg) for arg in build.argv()])
+        return code, capsys.readouterr().out
+
+    assert build.run()[0] == 0
+    code, out = run_exec()
+    assert code == 0, out
+    assert "CHANGED:" not in out
+    assert build.run("--force")[0] == 0  # the Meta build must not take the Exec tree's guard with it
+    assert f"{META}-Master-Plan.md" in pb.read_manifest(tmp_path / f"{META}-build-manifest.json")
+    assert f"{META}-META-Master-Plan.md" in pb.read_manifest(tmp_path / f"{META}-META-build-manifest.json")
+    edited = exec_out / f"{META}-Master-Plan.md"
+    edited.write_bytes(edited.read_bytes() + b"edited\n")
+    code, out = run_exec()
+    assert code == 2
+    assert f"CHANGED: {META}-Master-Plan.md" in out.splitlines()
+
+
+@pytest.mark.parametrize("extra", [(), ("--force",)], ids=["guarded", "force"])
+def test_meta_refuses_an_out_that_already_ends_in_the_meta_folder(tmp_path, capsys, extra):
+    build = meta_build(tmp_path, capsys)
+    build.out = build.root
+    code, out = build.run(*extra)
+    assert code == 2, out
+    assert len(out.splitlines()) == 1 and out.startswith("REFUSED: ") and f"Meta-{META}" in out
+    assert not build.root.exists() and not build.manifest.exists()
+
+
+@pytest.mark.parametrize("extra", [(), ("--force",)], ids=["guarded", "force"])
+def test_meta_refuses_a_root_path_that_is_a_file(tmp_path, capsys, extra):
+    build = meta_build(tmp_path, capsys)
+    build.out.mkdir(parents=True)
+    build.root.write_text("mine\n", encoding="utf-8")
+    code, out = build.run(*extra)
+    assert code == 2
+    assert out.splitlines() == [f"REFUSED: {build.root} is not a folder. Fix: pass a folder for --out."]
+    assert build.root.read_text(encoding="utf-8") == "mine\n"
+
+
 # ---- module docstring
 
 def test_docstring_names_the_one_template_text_the_module_holds():
     opening = pb.__doc__.split("Commands (run")[0]
     assert "FIRST_KEPT_LINES" in opening
     assert "It carries no template text of its own." not in opening
+
+
+def test_docstring_report_section_names_no_line_a_built_report_never_prints():
+    assert "CHANGED" not in pb.__doc__.split("Report. `build` prints")[1]
+
+
+def test_docstring_counts_only_the_keys_scaffold_plan_does_not_know():
+    key_list = pb.__doc__.split("Build spec format.")[1].split("meta           plan level")[0]
+    assert "four keys" in key_list and "five keys" not in key_list
+    assert all(f"`{key}`" in key_list for key in pb.BUILD_KEYS)
+
+
+def test_docstring_records_no_nested_meta_folder():
+    assert "nests a second folder" not in pb.__doc__
+
+
+# ---- auto estimates
+
+DELTA_RE = re.compile(r"^delta task=(\S+) spec=(\S+) measured=(\S+)$", re.MULTILINE)
+HEADER_FIGURE_RE = re.compile(r"^\*\*Estimated Tokens:\*\* ~(\d+)K$", re.MULTILINE)
+READ_K = 1.5  # the tokens_k of the one Required Context row every fixture task holds
+
+
+def fresh(tmp_path, name):
+    folder = tmp_path / name
+    folder.mkdir()
+    return folder
+
+
+def auto_spec(auto=(1, 2, 3, 4), spec=None):
+    """The sample spec with `estimate_k: "auto"` and distinct output_k and working_k on the numbered tasks (1-4, in order)."""
+    spec = spec or make_spec()
+    tasks = [t for se in spec["sprints"][0]["sessions"] for t in se["tasks"]]
+    for number in auto:
+        tasks[number - 1].update(estimate_k="auto", output_k=number + 2, working_k=number * 3)
+    return spec
+
+
+def estimate_bodies(tmp_path, spec):
+    """bodies_set for `spec`, minus the two markers its keys fill."""
+    skip = {(doc, name) for doc, (_f, fills) in pb.task_figures(spec).items() for name in fills}
+    return bodies_set(index_of(tmp_path, spec), skip=skip)
+
+
+def applied(tmp_path, spec, bodies=None):
+    """Render and apply in process, the way `build` does before it writes. Return ({rel: text}, markers left)."""
+    folder = fresh(tmp_path, "applied")
+    spec_path = _write_spec(folder, spec)
+    core, skeleton, idx = pb.render_core(str(spec_path), TEMPLATES)
+    bodies_dir = _write_bodies(folder, estimate_bodies(tmp_path, spec) if bodies is None else bodies)
+    docs, errors, _figures = pb.load_all_bodies(str(spec_path), bodies_dir, core, idx)
+    assert errors == []
+    return pb.apply_bodies(skeleton, docs, TEMPLATES)
+
+
+def task_texts(files):
+    return {pb.doc_id(rel): text for rel, text in files.items() if sp.file_kind(rel) == "task"}
+
+
+def test_auto_known_good_header_is_reads_plus_output_plus_working_and_no_marker_survives(tmp_path):
+    files, left = applied(tmp_path, auto_spec())
+    texts = task_texts(files)
+    assert len(texts) == 4
+    for number, (doc, text) in enumerate(texts.items(), start=1):
+        header = int(HEADER_FIGURE_RE.search(text).group(1))
+        assert header == round(READ_K + (number + 2) + number * 3), doc
+        assert f"~{number + 2}K (output) + ~{number * 3}K (working)" in text
+        assert "<!-- FILL: {O} -->" not in text and "<!-- FILL: {W} -->" not in text
+        assert "~0K" not in text
+    assert left == 0
+
+
+def test_auto_known_bad_a_body_less_marker_stays_unfilled_and_fails_the_build(tmp_path, capsys):
+    spec = make_spec()  # numeric estimates and no keys: the bodies path owns {O}
+    build = Build(tmp_path, capsys, bodies_set(index_of(tmp_path, spec), skip={(TASK_DOC, "O")}), spec)
+    code, out = build.run()
+    assert code == 1, out
+    assert build.task_file().read_text(encoding="utf-8").count("<!-- FILL: {O} -->") == 1
+    assert FILLED_RE.search(out).group(1) == "1"
+
+
+def test_auto_missing_output_k_exits_2_naming_the_task(tmp_path, capsys):
+    spec = auto_spec(auto=(1,))
+    del spec["sprints"][0]["sessions"][0]["tasks"][0]["output_k"]
+    build = Build(tmp_path, capsys, bodies_set(index_of(tmp_path, make_spec())), spec)
+    code, out = build.run()
+    assert code == 2
+    assert "LINT: task S01-01-01 (ParseRows)" in out and "output_k" in out
+    assert not build.out.exists()
+
+
+def test_auto_a_non_number_addend_exits_2_naming_the_task(tmp_path, capsys):
+    spec = auto_spec(auto=(2,))
+    spec["sprints"][0]["sessions"][0]["tasks"][1]["working_k"] = "6"
+    build = Build(tmp_path, capsys, bodies_set(index_of(tmp_path, make_spec())), spec)
+    code, out = build.run()
+    assert code == 2
+    assert "LINT: task S01-01-02 (IndexRows)" in out and "working_k" in out
+
+
+def test_auto_mixed_fixture_leaves_a_numeric_estimate_alone(tmp_path):
+    files, left = applied(tmp_path, auto_spec(auto=(1,)))
+    figures = {doc: int(HEADER_FIGURE_RE.search(text).group(1)) for doc, text in task_texts(files).items()}
+    assert figures == {"S01-01-01": round(READ_K + 3 + 3), "S01-01-02": 22, "S01-02-01": 21, "S01-02-02": 22}
+    assert left == 0
+
+
+def test_auto_missing_key_next_to_a_numeric_estimate_exits_2_naming_the_task(tmp_path, capsys):
+    spec = make_spec()
+    spec["sprints"][0]["sessions"][1]["tasks"][0]["output_k"] = 5
+    build = Build(tmp_path, capsys, bodies_set(index_of(tmp_path, make_spec())), spec)
+    code, out = build.run()
+    assert code == 2
+    assert "LINT: task S01-02-01 (WriteRows)" in out and "working_k" in out
+
+
+def test_auto_numeric_task_with_both_keys_fills_the_markers_and_keeps_its_estimate(tmp_path):
+    spec = make_spec()
+    spec["sprints"][0]["sessions"][0]["tasks"][0].update(output_k=4.5, working_k=7)
+    files, left = applied(tmp_path, spec)
+    text = task_texts(files)["S01-01-01"]
+    assert int(HEADER_FIGURE_RE.search(text).group(1)) == 21
+    assert "~4.5K (output) + ~7K (working)" in text
+    assert left == 0
+
+
+def test_auto_two_specs_that_differ_only_in_the_keys_build_different_trees(tmp_path):
+    low, high = make_spec(), make_spec()
+    for spec, output in ((low, 4), (high, 9)):
+        spec["sprints"][0]["sessions"][0]["tasks"][0].update(output_k=output, working_k=6)
+    first, _ = applied(fresh(tmp_path, "a"), low)
+    second, _ = applied(fresh(tmp_path, "b"), high)
+    assert [rel for rel in first if first[rel] != second[rel]] == [rel for rel in first if "S01-01-01" in rel]
+    assert first != second
+
+
+def test_auto_a_key_plus_a_body_for_one_marker_exits_2_naming_the_task(tmp_path, capsys):
+    spec = auto_spec(auto=(1,))
+    build = Build(tmp_path, capsys, bodies_set(index_of(tmp_path, make_spec())), spec)  # the bodies still hold O and W
+    code, out = build.run()
+    assert code == 2
+    assert "LINT: doc=S01-01-01 key=fill: O" in out and "LINT: doc=S01-01-01 key=fill: W" in out
+    assert not build.out.exists()
+
+
+def test_auto_keys_and_lint_stop_counting_a_marker_the_spec_fills(tmp_path, capsys):
+    spec = auto_spec(auto=(1,))
+    outs = {}
+    for name, source in (("plain", make_spec()), ("auto", spec)):
+        assert pb.main(["keys", "--spec", str(_write_spec(fresh(tmp_path, name), source))]) == 0
+        outs[name] = capsys.readouterr().out
+
+    def markers(out):
+        return int(re.search(r"^doc S01-01-01 markers=(\d+)$", out, re.MULTILINE).group(1))
+
+    assert markers(outs["plain"]) - markers(outs["auto"]) == 2
+    block = {name: out.split("doc S01-01-01 ")[1].split("\ndoc ")[0] for name, out in outs.items()}
+    assert "  marker O " in block["plain"] and "  marker O " not in block["auto"]
+    assert "  marker W " in block["plain"] and "  marker W " not in block["auto"]
+    folder = fresh(tmp_path, "lint")
+    code = pb.main(["lint", "--spec", str(_write_spec(folder, spec)),
+                    "--bodies-dir", str(_write_bodies(folder, estimate_bodies(tmp_path, spec)))])
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "session=S01-01 keys_missing=0 errors=0" in out
+
+
+def test_auto_build_prints_one_delta_line_per_task_before_the_closing_lines(tmp_path, capsys):
+    spec = auto_spec(auto=(1,))
+    build = Build(tmp_path, capsys, estimate_bodies(tmp_path, spec), spec)
+    code, out = build.run()
+    assert code == 0, out
+    found = DELTA_RE.findall(out)
+    assert [doc for doc, _s, _m in found] == ["S01-01-01", "S01-01-02", "S01-02-01", "S01-02-02"]
+    assert found[0][1] == "8" and found[1][1] == "22"  # round(1.5 + 3 + 3) is 8
+    assert all(measured.isdigit() for _d, _s, measured in found)
+    lines = out.rstrip().splitlines()
+    assert lines[-2:] == ["fill_remaining=0", "exit=0"]
+    assert max(i for i, ln in enumerate(lines) if ln.startswith("delta ")) < len(lines) - 2
+
+
+def test_auto_no_zero_estimate_survives_a_built_tree(tmp_path, capsys):
+    spec = auto_spec()
+    build = Build(tmp_path, capsys, estimate_bodies(tmp_path, spec), spec)
+    code, out = build.run()
+    assert code == 0, out
+    texts = [p.read_text(encoding="utf-8") for p in build.out.rglob("*.md")]
+    assert len(texts) > 4
+    assert not any("~0K" in t for t in texts)
+    assert not any("<!-- FILL: {O} -->" in t or "<!-- FILL: {W} -->" in t for t in texts)
+
+
+def test_auto_works_on_a_meta_build_and_prints_the_delta_lines(tmp_path, capsys):
+    spec = auto_spec(auto=(1, 3), spec=meta_spec())
+    build = meta_build(tmp_path, capsys, spec=spec, bodies=estimate_bodies(tmp_path, spec))
+    code, out = build.run()
+    assert code == 0, out
+    found = {doc: s for doc, s, _m in DELTA_RE.findall(out)}
+    assert found == {"S01-01-01": "8", "S01-01-02": "22", "S01-02-01": "16", "S01-02-02": "22"}
+    assert token_count(build.root, "<!-- FILL: {O} -->")[0] == 0
+    assert (build.root / "Sprint-01-X" / f"{META}-META-S01-Sprint-Plan.md").is_file()
+
+
+def test_auto_a_section_body_over_a_marker_the_spec_fills_is_no_collision(tmp_path, capsys):
+    spec = auto_spec(auto=(1,))
+    index = index_of(tmp_path, spec)
+    heading = next(h3 or h2 for name, h2, h3 in index[TASK_DOC]["markers"] if name == "O")
+    skip = {(TASK_DOC, "O"), (TASK_DOC, "W")} | under(index, TASK_DOC, heading)
+    keys = f"<!-- section: {heading} -->\n\nThe author's own text.\n"
+    bodies = add_keys(bodies_set(index, skip=skip), TASK_DOC, keys)
+    folder = fresh(tmp_path, "lint")
+    code = pb.main(["lint", "--spec", str(_write_spec(folder, spec)), "--bodies-dir", str(_write_bodies(folder, bodies))])
+    out = capsys.readouterr().out
+    assert "LINT:" not in out
+    assert code == 0, out
+    files, left = applied(tmp_path, spec, bodies)
+    assert "The author's own text." in task_texts(files)[TASK_DOC]
+    assert left == 0
+
+
+@pytest.mark.parametrize("tokens_k", [-1.5, float("nan"), float("inf")], ids=["negative", "nan", "infinity"])
+def test_auto_a_tokens_k_that_cannot_price_exits_2_naming_the_task(tmp_path, capsys, tokens_k):
+    spec = auto_spec(auto=(1,))
+    bodies = estimate_bodies(tmp_path, spec)
+    spec["sprints"][0]["sessions"][0]["tasks"][0]["required_context"][0]["tokens_k"] = tokens_k
+    build = Build(tmp_path, capsys, bodies, spec)
+    code, out = build.run()
+    assert code == 2, out
+    assert "LINT: task S01-01-01 (ParseRows)" in out and "tokens_k" in out
+    assert not build.out.exists()
+
+
+@pytest.mark.parametrize("reads,output,working", [(0.5, 1, 1), (1.5, 1, 2), (1.1, 1.2, 0.2)],
+                         ids=["2.5", "4.5", "2.5-from-float-noise"])
+def test_auto_figure_rounds_an_exact_half_the_way_the_write_back_does(reads, output, working):
+    task = {"required_context": [{"tokens_k": reads}], "output_k": output, "working_k": working}
+    total = sum(Decimal(str(value)) for value in (reads, output, working))
+    assert f"~{pb.auto_figure(task)}K" == tsw._fmt_k_at(total, 0)
+
+
+def test_auto_figure_takes_a_total_past_the_decimal_context_precision():
+    task = {"required_context": [{"tokens_k": 1}], "output_k": 1e30, "working_k": 1}
+    assert pb.auto_figure(task) == 10 ** 30
+
+
+@pytest.mark.parametrize("keys,figure", [
+    ({"estimate_k": 10 ** 400}, 10 ** 400),
+    ({"estimate_k": "auto", "output_k": 10 ** 308, "working_k": 10 ** 308}, 2 * 10 ** 308),  # the Decimal sum keeps 28 digits
+], ids=["numeric", "auto-total"])
+def test_auto_a_figure_past_the_float_range_prints_its_digits_and_the_build_finishes(tmp_path, capsys, keys, figure):
+    spec = make_spec()
+    spec["sprints"][0]["sessions"][0]["tasks"][0].update(keys)
+    build = Build(tmp_path, capsys, estimate_bodies(tmp_path, spec), spec)
+    code, out = build.run()
+    assert code in (0, 1), out
+    assert DELTA_RE.findall(out)[0][:2] == (TASK_DOC, str(figure))
+    listed = pb.read_manifest(build.manifest)
+    assert listed and all(pb.file_hash(build.out / rel) == digest for rel, digest in listed.items())  # the second manifest write ran
+    assert out.rstrip().endswith(f"exit={code}")
+
+
+@pytest.mark.parametrize("command", ["keys", "lint", "build"])
+@pytest.mark.parametrize("key", ["output_k", "tokens_k"])
+def test_auto_an_integer_past_the_float_range_exits_2_naming_the_task(tmp_path, capsys, command, key):
+    spec = auto_spec(auto=(1,))
+    task = spec["sprints"][0]["sessions"][0]["tasks"][0]
+    (task["required_context"][0] if key == "tokens_k" else task)[key] = 10 ** 400
+    build = Build(tmp_path, capsys, {}, spec)
+    bodies = ["--bodies-dir", str(build.bodies)]
+    argv = {"keys": ["keys", "--spec", str(build.spec)], "lint": ["lint", "--spec", str(build.spec), *bodies],
+            "build": build.argv()}[command]
+    assert pb.main(argv) == 2
+    out = capsys.readouterr().out
+    assert "LINT: task S01-01-01 (ParseRows)" in out and key in out

@@ -31,7 +31,8 @@ Commands (run with `python -B`):
     build --spec SPEC.json --bodies-dir DIR --out PLAN_DIR --config FILE
           [--date YYYY-MM-DD] [--force] [--skip-index] [--templates DIR]
         Run the lint, substitute the bodies into the rendered tree, write the tree to
-        PLAN_DIR, and write `<ABBREV>-build-manifest.json` beside the spec. Prints:
+        PLAN_DIR, and write `<ABBREV>-build-manifest.json` beside the spec, or
+        `<ABBREV>-META-build-manifest.json` for a Meta plan. Prints:
           built <n> files to <PLAN_DIR>; fill_remaining=<n>; surviving_placeholders=<n>
         `fill_remaining` equals the lint's `keys_missing` total, because a marker with
         no body stays in the file. The placeholder check reads the skeleton before the
@@ -47,6 +48,8 @@ Commands (run with `python -B`):
           scan        the Token Saver scan with --config
           index       `generate_plans_index.py --config FILE --write` as a subprocess,
                       because its `main()` takes no argv. --skip-index skips it.
+                      A written index with no row for the plan's abbreviation is
+                      a finding.
         Then `write_manifest(out, spec)` runs again, so the manifest covers the task
         files the estimates gate rewrote. The report, after the `built` line and any
         SURVIVING and STALE lines, holds one line per gate:
@@ -71,13 +74,23 @@ Commands (run with `python -B`):
 Document ids: `MASTER`, `S01` (Sprint Plan), `S01-01-ORCH`, `S01-01-RECOVERY`, and
 `S01-01-03` (task 3 of session 01 of sprint 01).
 
-Bodies file grammar. A bodies file is Markdown. Each directive sits alone on one
-line outside a fence. A directive inside a fence is body text.
+Bodies format. A bodies file is Markdown. Each directive sits alone on one
+line outside a fence. A directive inside a fence is body text. Three key grammars exist.
 
     <!-- doc: ID -->             opens a document block
     <!-- fill: name -->          opens the body of every occurrence of the marker
     <!-- fill: name [k] -->      opens the body of occurrence k only, counted from 1
     <!-- section: ## Heading --> opens the body of a section; H3 headings work too
+
+One example per grammar, with illustrative names. `keys` prints the real ones:
+
+    <!-- doc: S01-01-03 -->
+    <!-- fill: Task Title -->              every occurrence of the marker
+    Parse the input file.
+    <!-- fill: Task Title [2] -->          the second occurrence only
+    Parse the input and write the report.
+    <!-- section: ## Notes for Agent -->   the whole section text
+    Read the spec first.
 
 A body runs to the next directive, without its outer blank lines. A marker name
 compares after `scaffold_plan.norm` folds its whitespace, and it omits the marker's
@@ -134,18 +147,73 @@ manifest moves that path and its hash to its `stale` key, and every build prints
 stale hash is no hand edit. A step that rewrites built files calls
 `write_manifest(out, spec)` afterwards, so the final manifest matches the final tree.
 
-Build-owned spec keys: `meta`, `omit_sections`, `output_k`, `working_k` and
-`estimate_k: "auto"` are not `scaffold_plan.py` spec keys. `core_spec` removes the
-first four at every level. It sets an "auto" estimate to 0, because `estimate_k` is
-required and numeric.
+Build spec format. The spec is the JSON that `scaffold_plan.py` documents under its
+"Spec format" section, with its required keys and its lint rules. The build adds
+four keys that `scaffold_plan.py` does not know: `meta`, `omit_sections`, `output_k`
+and `working_k`. `core_spec` removes them at every level before it renders, so the
+core lint never sees them. `scaffold_plan.py` knows `estimate_k` only as a number,
+so `core_spec` computes an "auto" estimate first (see below).
+
+    meta           plan level. true or false. See Meta plan below.
+    omit_sections  task or session. Names of template sections to cut (Omission).
+    estimate_k     task. A number as in `scaffold_plan.py`, or the string "auto".
+    output_k       task. A number, in thousands of tokens.
+    working_k      task. A number, in thousands of tokens.
+
+Auto estimate. A task with `estimate_k: "auto"` gets the sum of its required_context
+`tokens_k`, `output_k` and `working_k`, rounded half up as the write-back rounds, so
+2.5 gives 3 where Python `round` gives 2. The session and sprint totals derive from
+that figure. An auto task needs `output_k` and `working_k` as numbers, and each
+`tokens_k` as a finite number that is not negative. A numeric task needs both keys
+or neither. No default exists, so a missing addend is a spec error:
+  LINT: task <id> (<name>): <reason>        exit 2, nothing written
+`output_k` and `working_k` fill the task file's `{O}` and `{W}` markers on any
+task, whatever its `estimate_k`, and a numeric figure stays as written. `keys`
+stops listing a marker that a spec key fills, and `lint` and `keys_missing` stop
+counting it. A body for a marker that a key fills is a lint error:
+  LINT: doc=<ID> key=fill: O: <reason>
+`--write-estimates` re-prices only the reads term from the live files and keeps
+both addends. The header it leaves can differ from the spec figure, and a
+difference never fails the build.
+
+Meta plan. `meta` is on only for the JSON value true. A plan-level value that is
+neither true nor false is a lint error. A session or task `meta` key has no effect.
+`build` writes to `<out>/Meta-<ABBREV>/`, so `--out` names the parent folder. An
+`--out` that already ends in `Meta-<ABBREV>` is refused with exit 2. The Master Plan
+becomes `<ABBREV>-META-Master-Plan.md`, each Sprint Plan becomes
+`<ABBREV>-META-S<XX>-Sprint-Plan.md`, and the plan-level `Outputs/.gitkeep` is added.
+The same renames apply to every link and text, bodies included. A path under
+`Exec-<ABBREV>/` keeps the plain name, because it names the Exec plan of the same
+abbreviation. A longer name such as `<ABBREV>-Master-Plan-Notes.md` stays too. The
+rename runs after the bodies go in, so `keys`, `lint` and the doc ids keep the plain
+names (`MASTER`, `S01`). The manifest paths and the five gates read the meta root.
+All three commands refuse a session whose mode is not DELEGATED and a session
+`Outputs/` file that lacks the prefix `<ABBREV>-META-S<XX>-<YY>-`. An output under
+the plan-level `Meta-<ABBREV>/Outputs/` folder is exempt from the prefix. A relative
+output reads from its session folder, so `../../Outputs/<name>` is that folder too.
+A Meta plan and an Exec plan can share an abbreviation and a spec folder, so a Meta
+plan keeps its own manifest. Turning `meta` on for a plan already built therefore
+writes a new tree and leaves the old tree and its manifest on disk.
+
+Report. `build` prints, in this order: the `built` line, any SURVIVING and STALE
+lines, the five gate lines with their detail lines, one delta line per task file,
+then `fill_remaining=<n>` and `exit=<code>`. The delta line reads
+  delta task=<doc id> spec=<n> measured=<n>
+`spec` is the computed auto figure, or the numeric `estimate_k`. `measured` is the
+`**Estimated Tokens:**` header read from the built file after the estimates gate,
+and `none` stands for a missing value. A pair that differs is the signal to read.
+A delta line never changes the exit code.
 """
 
 import argparse
 import copy
 import hashlib
 import json
+import math
+import posixpath
 import re
 import sys
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 sys.dont_write_bytecode = True  # a direct run must not grow scripts/__pycache__
@@ -155,7 +223,10 @@ import scaffold_plan as sp
 
 BUILD_KEYS = ("meta", "omit_sections", "output_k", "working_k")
 AUTO_ESTIMATE = "auto"
-AUTO_ESTIMATE_VALUE = 0
+AUTO_ESTIMATE_VALUE = 0  # the stand-in for an auto task whose addends are no numbers, which `estimate_errors` refuses
+ESTIMATE_KEYS = ("output_k", "working_k")
+ESTIMATE_MARKERS = ("O", "W")  # the `{O}` and `{W}` placeholders of the Context subtotal line, in the order of ESTIMATE_KEYS
+HEADER_RE = re.compile(r"^\*\*Estimated Tokens:\*\*\s*~(\d+(?:\.\d+)?)K", re.MULTILINE)
 PLAN_GROUP = "PLAN"
 
 MARKER_RE = re.compile(r"<!-- FILL: \{(.*?)\} -->")
@@ -185,20 +256,89 @@ def _dicts(obj, key):
     return [v for v in value if isinstance(v, dict)] if isinstance(value, list) else []
 
 
+def _num(value):
+    """Whether `value` is a finite number that is not a boolean and not negative."""
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value) and value >= 0
+    except OverflowError:  # a JSON integer past the float range
+        return False
+
+
+def read_costs(task):
+    """The `tokens_k` value of each Required Context row of a task dict."""
+    rows = task.get("required_context")
+    return [r.get("tokens_k") for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
+def auto_figure(task):
+    """`sum(tokens_k) + output_k + working_k` of a task dict, rounded half up, or AUTO_ESTIMATE_VALUE when an addend is no number."""
+    addends = [*read_costs(task), task.get("output_k"), task.get("working_k")]
+    if not all(_num(a) for a in addends):
+        return AUTO_ESTIMATE_VALUE
+    return int(sum(Decimal(str(a)) for a in addends).to_integral_value(rounding=ROUND_HALF_UP))
+
+
 def core_spec(spec):
-    """A copy of the spec holding only what `scaffold_plan.lint_spec` accepts."""
+    """A copy of the spec holding only what `scaffold_plan.lint_spec` accepts.
+
+    An "auto" estimate takes its computed figure here, before the render, so the session
+    and sprint totals derive from it. Both addend keys are read before they are stripped.
+    """
     core = copy.deepcopy(spec)
     sprints = _dicts(core, "sprints")
     sessions = [se for sprint in sprints for se in _dicts(sprint, "sessions")]
     tasks = [t for se in sessions for t in _dicts(se, "tasks")]
+    for task in tasks:
+        if task.get("estimate_k") == AUTO_ESTIMATE:
+            task["estimate_k"] = auto_figure(task)
     for obj in [core, *sprints, *sessions, *tasks]:
         if isinstance(obj, dict):
             for key in BUILD_KEYS:
                 obj.pop(key, None)
-    for task in tasks:
-        if task.get("estimate_k") == AUTO_ESTIMATE:
-            task["estimate_k"] = AUTO_ESTIMATE_VALUE
     return core
+
+
+def _task_rows(spec):
+    """[(doc id, task dict)] of a spec whose numbers and names passed `lint_spec`."""
+    return [(f"S{sprint['number']:02d}-{session['number']:02d}-{task['number']:02d}", task)
+            for sprint in _dicts(spec, "sprints") for session in _dicts(sprint, "sessions")
+            for task in _dicts(session, "tasks")]
+
+
+def estimate_errors(spec):
+    """One lint error per task whose `output_k` and `working_k` are not both numbers, or whose auto figure cannot price a read.
+
+    An "auto" estimate needs both, and a `tokens_k` that is finite and not negative
+    on every row. A numeric estimate needs both or neither.
+    """
+    errors = []
+    for doc, task in _task_rows(spec):
+        auto = task.get("estimate_k") == AUTO_ESTIMATE
+        if auto and not all(_num(value) for value in read_costs(task)):
+            errors.append(f'task {doc} ({task["name"]}): estimate_k is "auto", so every required_context '
+                          "tokens_k must be a finite number that is not negative")
+        if not auto and not any(key in task for key in ESTIMATE_KEYS):
+            continue
+        bad = [key for key in ESTIMATE_KEYS if not _num(task.get(key))]
+        if bad:
+            need = 'estimate_k is "auto", so' if auto else "the task sets one of them, so"
+            errors.append(f"task {doc} ({task['name']}): {need} output_k and working_k must both be numbers "
+                          f"(not a number: {', '.join(bad)})")
+    return errors
+
+
+def task_figures(spec):
+    """{doc id: (spec figure, {marker: text})} of a linted spec. The marker texts are empty without both keys."""
+    figures = {}
+    for doc, task in _task_rows(spec):
+        fills = {}
+        if all(_num(task.get(key)) for key in ESTIMATE_KEYS):
+            fills = {name: f"{task[key]:g}" for name, key in zip(ESTIMATE_MARKERS, ESTIMATE_KEYS)}
+        figure = auto_figure(task) if task.get("estimate_k") == AUTO_ESTIMATE else task.get("estimate_k")
+        figures[doc] = (figure, fills)
+    return figures
 
 
 def doc_id(rel):
@@ -393,6 +533,68 @@ def omit_files(files, plan, templates_dir):
     return out
 
 
+# ---------------------------------------------------------------- meta plans
+
+META_MODE = "DELEGATED"
+OUTPUTS_DIR = "Outputs"
+
+
+def is_meta(spec):
+    """Whether `spec` is a Meta plan. Only `true` at plan level switches it on."""
+    return spec.get("meta") is True
+
+
+def in_session_outputs(path, abbrev):
+    """Whether a task output sits under an `Outputs/` folder other than the plan-level `Meta-<ABBREV>/Outputs/`.
+
+    The path reads from its session folder, two folders below the meta root, so `../../Outputs/` is the plan level.
+    """
+    plain = path.replace("\\", "/").rstrip("/")
+    folders = posixpath.normpath(f"Meta-{abbrev}/sprint/session/{plain}").split("/")[:-1]
+    return any(name == OUTPUTS_DIR and folders[k - 1:k] != [f"Meta-{abbrev}"] for k, name in enumerate(folders))
+
+
+def meta_errors(spec):
+    """The errors of the plan-level `meta` key: a value that is no boolean, then under `true` one error
+    per session that is not DELEGATED and per session output without the META prefix."""
+    value = spec.get("meta", False)
+    if not isinstance(value, bool):
+        return [f"plan level: meta must be true or false, got {json.dumps(value)}"]
+    errors, abbrev = [], spec["abbrev"]
+    for sprint in _dicts(spec, "sprints") if value else ():
+        for session in _dicts(sprint, "sessions"):
+            sid = f"S{sprint['number']:02d}-{session['number']:02d}"
+            prefix = f"{abbrev}-META-{sid}-"
+            if session["mode"] != META_MODE:
+                errors.append(f"session {sid}: mode is {session['mode']}, and a meta plan session must be {META_MODE}")
+            for task in _dicts(session, "tasks"):
+                errors.extend(f'task {sid}-{task["number"]:02d}: output "{path}" must start with {prefix}'
+                              for path in task["outputs"] if in_session_outputs(path, abbrev)
+                              and not path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1].startswith(prefix))
+    return errors
+
+
+def meta_tree(files, abbrev):
+    """The tree of a Meta plan: the two plan file kinds renamed, their tokens rewritten, and the plan `Outputs/` folder.
+
+    One pattern serves the paths and the texts, so a link and the file it names cannot
+    part. It also takes the `{Abbrev}-S{XX}-Sprint-Plan` form, because the task template
+    prints that form as a literal example. The doc ids read the plain names, so this
+    runs after the bodies go in. A path under `Exec-<ABBREV>/` matches first and stays
+    whole, because the Exec plan keeps the plain names.
+    """
+    name = re.escape(abbrev)
+    token = re.compile(rf"(?<![\w-])Exec-{name}[/\\][^\s()\[\]<>`'\",]*|(?<![\w-])({name}|\{{Abbrev\}})-"
+                       r"(?=(?:Master-Plan|S(?:\d{2,}|\{XX\})-Sprint-Plan)(?![\w-]))")
+
+    def rewrite(text):
+        return token.sub(lambda m: f"{m.group(1)}-META-" if m.group(1) else m.group(0), text)
+
+    tree = {rewrite(rel): rewrite(text) for rel, text in files.items()}
+    tree[f"{OUTPUTS_DIR}/.gitkeep"] = ""
+    return tree
+
+
 def render_core(spec_path, templates_dir, date=None):
     """Lint the core spec, render it and cut its omissions. Print the refusal and return None on failure."""
     spec, err = sp.load_spec(spec_path)
@@ -412,6 +614,19 @@ def render_core(spec_path, templates_dir, date=None):
             for e in errors:
                 print(f"LINT: {e}")
             print(f"REFUSED: {len(errors)} omit_sections error(s). Fix: name only an omittable heading.")
+            return None
+        errors = meta_errors(spec)
+        if errors:
+            for e in errors:
+                print(f"LINT: {e}")
+            print(f"REFUSED: {len(errors)} meta plan error(s). Fix: correct the meta value, the session mode or the output name.")
+            return None
+        errors = estimate_errors(spec)
+        if errors:
+            for e in errors:
+                print(f"LINT: {e}")
+            print(f"REFUSED: {len(errors)} estimate error(s). Fix: give the task both output_k and working_k as numbers, "
+                  "and each tokens_k a finite figure that is not negative.")
             return None
         files, _rec = sp.render_all(core, templates_dir, date)
         files = omit_files(files, plan, templates_dir)
@@ -568,6 +783,42 @@ def missing_keys(body, info):
     return missing
 
 
+def section_covers(body, info, name):
+    """Whether a section body with text replaces every occurrence of marker `name`."""
+    sections = {heading for heading, text in body["sections"].items() if text} if body else ()
+    return all(h2 in sections or h3 in sections for marker, h2, h3 in info["markers"] if marker == name)
+
+
+def fill_estimates(docs, figures, index):
+    """Put the spec's `{O}` and `{W}` fills into `docs`, except where a section body replaces the marker.
+
+    Return one (group, error) per marker that a body also fills.
+    """
+    errors = []
+    for doc, (_figure, fills) in figures.items():
+        if doc not in index:
+            continue
+        present = {m[0] for m in index[doc]["markers"]}
+        for name, text in fills.items():
+            body = docs.get(doc)
+            if name not in present:
+                continue
+            if body and any(n == name and t for (n, _k), t in body["fills"].items()):
+                message = (f"doc={doc} key=fill: {name}: the spec fills this marker from "
+                           f"output_k and working_k, so a body for it is a second source")
+                errors.append((session_of(doc), message))
+            elif not section_covers(body, index[doc], name):
+                docs.setdefault(doc, _new_doc("spec"))["fills"][(name, None)] = text
+    return errors
+
+
+def load_all_bodies(spec_path, bodies_dir, core, index):
+    """Return (docs, load errors, figures): the bodies files with the spec's `{O}` and `{W}` fills merged in."""
+    docs, load_errors = load_bodies(bodies_dir, core["abbrev"])
+    figures = task_figures(sp.load_spec(spec_path)[0])
+    return docs, [*load_errors, *fill_estimates(docs, figures, index)], figures
+
+
 def lint_bodies(index, docs, load_errors=(), session=None):
     """Return (error lines, summary rows {group, keys_missing, errors}) in report order."""
     groups = {PLAN_GROUP: 0}
@@ -648,11 +899,11 @@ MANIFEST_ERRORS = (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError,
 
 
 def manifest_path(spec):
-    """`<ABBREV>-build-manifest.json` beside the spec file at path `spec`."""
+    """`<ABBREV>-build-manifest.json` beside the spec file at path `spec`, with `-META` after the abbreviation on a Meta plan."""
     loaded, err = sp.load_spec(spec)
     if err:
         raise ValueError(err)
-    return Path(spec).parent / f"{loaded['abbrev']}-build-manifest.json"
+    return Path(spec).parent / f"{loaded['abbrev']}{'-META' if is_meta(loaded) else ''}-build-manifest.json"
 
 
 def read_manifest(path):
@@ -764,15 +1015,20 @@ def cmd_keys(args):
     if built is None:
         return 2
     _core, _files, index = built
+    figures = task_figures(sp.load_spec(args.spec)[0])
+    total = 0
     for doc, info in index.items():
-        print(f"doc {doc} markers={len(info['markers'])}")
+        filled = set(figures.get(doc, (None, {}))[1])  # the spec fills these, so no body is needed
+        markers = [m for m in info["markers"] if m[0] not in filled]
+        total += len(markers)
+        print(f"doc {doc} markers={len(markers)}")
         counts = {}
-        for name, _h2, _h3 in info["markers"]:
+        for name, _h2, _h3 in markers:
             counts[name] = counts.get(name, 0) + 1
         for name, count in counts.items():
             print(f"  marker {name} count={count}")
         print(f"  headings: {' | '.join(info['headings'])}")
-    print(f"fill_markers={sum(len(i['markers']) for i in index.values())} docs={len(index)}")
+    print(f"fill_markers={total} docs={len(index)}")
     return 0
 
 
@@ -787,7 +1043,7 @@ def cmd_lint(args):
     if not Path(args.bodies_dir).is_dir():
         print(f"REFUSED: {args.bodies_dir} is not a folder. Fix: pass the folder that holds the bodies files.")
         return 2
-    docs, load_errors = load_bodies(args.bodies_dir, core["abbrev"])
+    docs, load_errors, _figures = load_all_bodies(args.spec, args.bodies_dir, core, index)
     lines, rows = lint_bodies(index, docs, load_errors, args.session)
     for line in lines:
         print(f"LINT: {line}")
@@ -912,28 +1168,38 @@ def gate_scan(out, config):
     return ("finding" if code else "ok"), f"{figures}exit={code}", details
 
 
-def gate_index(config, skip):
-    """`generate_plans_index.py --write` as a subprocess: its main() takes no argv, so it cannot run in process."""
+def gate_index(config, skip, abbrev):
+    """`generate_plans_index.py --write` as a subprocess: its main() takes no argv, so it cannot run in process.
+
+    A clean write with no row for `abbrev` is a finding, because the index walk never reached the plan.
+    """
     if skip:
         return "skipped", "exit=none", []
     import os
     import subprocess
 
+    from parse_plans import parse_index_table
+
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
-    proc = subprocess.run([sys.executable, "-B", str(INDEX_SCRIPT), "--config", str(config), "--write"],
+    proc = subprocess.run([sys.executable, "-B", str(INDEX_SCRIPT), "--config", str(config), "--write", "--json"],
                           capture_output=True, text=True, encoding="utf-8", env=env, check=False)
-    details = _first_lines(proc.stderr, DETAIL_LIMIT + 1) if proc.returncode else []
-    return ("finding" if proc.returncode else "ok"), f"exit={proc.returncode}", details
+    figures = f"exit={proc.returncode}"
+    if proc.returncode:
+        return "finding", figures, _first_lines(proc.stderr, DETAIL_LIMIT + 1)
+    index = Path(json.loads(proc.stdout)["index"])
+    if any(row.abbrev == abbrev for row in parse_index_table(index.read_text(encoding="utf-8")).rows):
+        return "ok", figures, []
+    return "finding", figures, [f"{index} holds no row for {abbrev}. Fix: build into a folder the index walk reads."]
 
 
-def run_chain(args, files):
+def run_chain(args, files, abbrev):
     """Run the five gates in order after the write. No gate stops the others. Return [(name, status, figures, details)]."""
     calls = {
         "estimates": lambda: gate_estimates(args.out, args.config, files),
         "headings": lambda: gate_headings(args.out, args.templates),
         "deviations": lambda: gate_deviations(args.out, args.templates),
         "scan": lambda: gate_scan(args.out, args.config),
-        "index": lambda: gate_index(args.config, args.skip_index),
+        "index": lambda: gate_index(args.config, args.skip_index, abbrev),
     }
     report = []
     for name in GATES:
@@ -954,6 +1220,26 @@ def print_gates(gates, count):
             print(f"  {line}")
         if len(details) > DETAIL_LIMIT:
             print(f"  +{len(details) - DETAIL_LIMIT} more")
+
+
+def delta_lines(out, files, figures):
+    """One `delta task=<id> spec=<n> measured=<n>` line per task file: the spec figure against the header on disk.
+
+    The write-back prices the reads from the live files, so a gap is information and never a failure.
+    """
+    lines = []
+    for rel in files:
+        if sp.file_kind(rel.replace("\\", "/").rsplit("/", 1)[-1]) != "task":
+            continue
+        doc = doc_id(rel)
+        figure = figures.get(doc, (None, {}))[0]
+        try:
+            found = HEADER_RE.search((Path(out) / rel).read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            found = None
+        shown = "none" if figure is None else figure if abs(figure) > sys.float_info.max else f"{figure:g}"  # `:g` overflows past the float range
+        lines.append(f"delta task={doc} spec={shown} measured={found.group(1) if found else 'none'}")
+    return lines
 
 
 def write_failure(args, exc, landed, total, stale, left):
@@ -980,13 +1266,26 @@ def cmd_build(args):
     if built is None:
         return 2
     core, skeleton, index = built
-    docs, load_errors = load_bodies(args.bodies_dir, core["abbrev"])
+    docs, load_errors, figures = load_all_bodies(args.spec, args.bodies_dir, core, index)
     lines, _rows = lint_bodies(index, docs, load_errors)
     if lines:
         for line in lines:
             print(f"LINT: {line}")
         print(f"REFUSED: {len(lines)} bodies lint error(s). Fix: correct the bodies files, then re-run this command.")
         return 2
+    files, left = apply_bodies(skeleton, docs, args.templates)
+    if is_meta(sp.load_spec(args.spec)[0]):
+        root = f"Meta-{core['abbrev']}"
+        if Path(args.out).resolve().name == root:
+            print(f"REFUSED: --out {args.out} already ends in {root}, and the build adds that folder. "
+                  "Fix: pass its parent folder.")
+            return 2
+        args.out = str(Path(args.out) / root)
+        refusal = build_inputs_refusal(args)
+        if refusal:
+            print(refusal)
+            return 2
+        skeleton, files = meta_tree(skeleton, core["abbrev"]), meta_tree(files, core["abbrev"])
     path = manifest_path(args.spec)
     guard = [] if args.force else guard_refusal(args.out, path, skeleton)
     if guard:
@@ -995,7 +1294,6 @@ def cmd_build(args):
     stale = stale_files(path, skeleton, args.out)
     leaked = {rel: sp.unmasked_braces(t) for rel, t in skeleton.items() if rel.endswith(".md")}
     leaked = {rel: names for rel, names in leaked.items() if names}
-    files, left = apply_bodies(skeleton, docs, args.templates)
     landed = []
     try:
         write_built(files, args.out, landed)
@@ -1008,8 +1306,10 @@ def cmd_build(args):
         print(f"SURVIVING: {rel}: {', '.join(names)}")
     for rel in stale:
         print(f"STALE: {rel}")
-    gates = run_chain(args, files)
+    gates = run_chain(args, files, core["abbrev"])
     print_gates(gates, len(files))
+    for line in delta_lines(args.out, files, figures):
+        print(line)
     try:
         write_manifest(args.out, args.spec)  # the estimates gate rewrote task files after the first manifest
     except MANIFEST_ERRORS as exc:

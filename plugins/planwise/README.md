@@ -686,7 +686,7 @@ planwise/                           # Plugin root
   templates/                        # Markdown templates
   manifests/                        # Artifact manifest and agent history
   seed/                             # Index file seeds for init
-  scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py, list_plans.py, skill_preflight.py (the zero-call list, the upgrade card and the plan Config Gate) and scaffold_plan.py (the plan skeleton render))
+  scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py, list_plans.py, skill_preflight.py (the zero-call list, the upgrade card and the plan Config Gate) and scaffold_plan.py (the plan skeleton render), plan_build.py (the plan build driver: keys, lint, build))
   hooks/                            # hooks.json and register.ts — the backlog loop's compaction-and-re-entry module
   examples/                         # Sample outputs
   config.yaml.template              # Config template

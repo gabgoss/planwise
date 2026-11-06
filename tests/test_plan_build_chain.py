@@ -144,7 +144,7 @@ def test_chain_clean_build_exits_0_and_prints_the_five_gates_in_order(big):
 def test_chain_report_is_under_30000_characters(big):
     _plan, _code, report, _count = big
     assert len(report) < REPORT_CAP, len(report)
-    # measured 2026-11-06 on this clean 1/9/35 build: about 400 characters, plus the length of the tmp path in the first line
+    # measured 2026-11-06 on this clean 1/9/35 build: 1836 characters, about 400 of gate lines plus 35 delta lines of 41 characters each, with a 96-character tmp path in the first line
     assert len(report) < 2_000, len(report)
 
 
@@ -314,6 +314,19 @@ def test_chain_index_step_failing_prints_a_finding_and_exit_1(tmp_path):
     assert table["index"][0] == "finding", report
     assert code == 1
     assert hand.read_bytes() == before  # the refusal wrote nothing
+
+
+def test_chain_index_step_finding_when_the_written_index_has_no_row_for_the_plan(tmp_path):
+    root = tmp_path / "norow"
+    deep = root / "Plans" / "OrchardLedger" / "Deep"  # the index walk ignores a plan this far down
+    deep.mkdir(parents=True)
+    plan = Plan(root, out=deep / "Exec-QZX", config="project_name: Chain\n")
+    code, report = plan.run()
+    table, _order = gates(report)
+    assert table["index"][0] == "finding", report
+    assert any("QZX" in ln for ln in detail_lines(report, "index")), report
+    assert code == 1
+    assert (root / "Plans" / "00-Index-Plans.md").is_file()
 
 
 def test_chain_a_gate_that_raises_is_a_finding_and_later_gates_still_run(tmp_path):
