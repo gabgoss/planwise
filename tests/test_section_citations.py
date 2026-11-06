@@ -137,7 +137,7 @@ FORM_EXAMPLES = (
     ("stage heading", "references/session-context-budget.md", 516),
     ("step heading with a dash title", "agents/rule-comparator.md", 73),
     ("three-level number", "references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md", 2),
-    ("letter series", "references/verify-against-shipped-artifact.md", 393),
+    ("letter series", "references/verify-against-shipped-artifact.md", 308),
     ("letter series with a number", "references/verify-before-cite.md", 30),
     ("letter series with a suffix", "references/verify-backlog-citation-freshness.md", 8),
     ("bare continuation", "agents/plan-reviewer.md", 160),

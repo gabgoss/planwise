@@ -37,9 +37,9 @@ Companion to [verify-against-shipped-artifact.md](verify-against-shipped-artifac
 
 ### 3h. BLI Motivating Driver Still Active (Triage Time)
 
-A BLI is a snapshot of a problem at the moment it was filed. Intervening sessions may have neutralized the motivating driver via independent work — a workaround, a refactor, a fix that addresses the symptom from a different angle, or a single `if` branch that makes the cited mechanism harmless. The BLI's narrative does not auto-update; without an explicit recheck, the triage handler will route a still-IN_PROGRESS-on-paper item to a meta-plan or execution plan against a problem that has already been solved.
+A BLI is a snapshot of a problem at filing time. Intervening work may have neutralized its motivating driver: a workaround, a refactor, a fix from a different angle, or a single `if` branch that makes the cited mechanism harmless. The BLI's narrative does not update itself. Without an explicit recheck, triage routes a still-IN_PROGRESS-on-paper item to a plan against a problem already solved.
 
-The drift surface is most severe for BLIs whose motivating driver is **a runtime symptom** (collision, race, hang, missing endpoint, binding miss, silent failure, performance regression) rather than **a measurable acceptance criterion** (line-count target, coverage %, schema diff). The handler's existing measurable-AC staleness check (Phase 3 of `/planwise backlog`) catches the latter; it does NOT catch the former.
+The drift is most severe when the driver is **a runtime symptom** (collision, race, hang, missing endpoint, binding miss, silent failure, performance regression). The handler's staleness check (Phase 3 of `/planwise backlog`) catches a **measurable acceptance criterion** (line-count target, coverage %, schema diff). It does NOT catch a runtime symptom.
 
 > [!verify] Re-verify a BLI's motivating driver before routing to a multi-session plan
 > ```
@@ -64,72 +64,48 @@ The drift surface is most severe for BLIs whose motivating driver is **a runtime
 > The check costs ~5 minutes of reading at triage time. It avoids the ~1–3 session-budgets a multi-phase plan would otherwise consume against a non-problem.
 
 > [!constraint] `/planwise backlog` Phase 3 MUST re-verify the BLI's motivating driver before routing
-> WRONG — read the BLI, treat its "Summary" / "Surfaced by" prose as the current state, route to SESSION_PLANNING based on scope keywords ("multi-phase", "refactor"). The handler's measurable-AC staleness check fires only when the BLI exposes counts/percentages/coverage; runtime-symptom drivers slip through:
+> WRONG — read the BLI, treat its "Summary" / "Surfaced by" prose as the current state, and route on scope keywords ("multi-phase", "refactor"):
 > ```
 > ITEM: {bli-id} — {bli-title}  (rationale: {runtime-symptom})
-> Route: SESSION PLANNING
-> Reason: Multi-phase, mechanical refactor across N modules / manifests / planwise cascade
-> [Routes to a Meta-Plan + Exec-Plan; spends sessions producing artifacts; user later
->  realizes the runtime symptom was already neutralized by an intervening fix shipped
->  in {session-id} — work is closed without commit.]
+> Route: SESSION PLANNING   [the symptom was already neutralized in {session-id}]
 > ```
 > CORRECT — re-verify the motivating SYMPTOM (not the BLI's proposed solution) is still active in current code before routing. If the symptom has been neutralized by intervening work, present a "Close as CLOSED — driver neutralized" option alongside the scope-based routing:
 > ```
-> ITEM: {bli-id} — {bli-title}  (rationale: {runtime-symptom})
->
-> Driver recheck:
->   - Symptom cited: "{exact symptom keyword from the BLI}"
->   - Current code: {file}:{line} — {brief description of intervening fix}
->   - Live evidence: {closeout-evidence-file} confirms the symptom is no longer
->     reproducible.
->   - Driver status: NEUTRALIZED by {session-id}.
->
+> Driver recheck: symptom "{keyword}"; current code {file}:{line}; evidence {closeout-evidence-file}
+> Driver status: NEUTRALIZED by {session-id}.
 > Route options:
->   A. CLOSE — driver neutralized; remaining value insufficient to justify
->      multi-phase cost
->   B. SESSION PLANNING — proceed anyway for residual value (proceed only after
->      explicit user acknowledgment that the original driver is gone)
+>   A. CLOSE — driver neutralized; remaining value does not justify multi-phase cost
+>   B. SESSION PLANNING — only after explicit user acknowledgment that the driver is gone
 > ```
 
 ### 3h.untested-axes Un-Tested Axes — Lead Phase 1 With the BLI's Blind Spots
 
-When the BLI's evidence is intermittent — the original repro reliably reproduced on some (object-class × count × version) combination, but not on others — the original session left **un-tested axes**. The BLI's own prescribed Phase 1 matrix typically re-runs the originally-failed dimension first, burying the cheapest disconfirmation cells (the un-tested axes) deep in the queue. A coverage-gap analysis at triage time identifies the cells the originating evidence never tested; leading Phase 1 with those cells short-circuits the matrix aggressively when one of them PASSes.
+When a BLI's evidence is intermittent, the original repro failed on some (object-class × count × version) combinations and not on others. The original session left **un-tested axes**. The BLI's prescribed Phase 1 matrix usually re-runs the originally-failed dimension first, which buries the cheapest disconfirmation cells. A coverage-gap analysis at triage time finds the cells the originating evidence never tested. Leading Phase 1 with those cells short-circuits the matrix when one of them PASSes.
 
 > [!constraint] Phase 1 of an intermittent-observation BLI MUST test originally-untested axes FIRST
 > WRONG — accept the BLI's prescribed reproducer matrix as-authored; Phase 1 cells mirror the originating session's setup (re-running the originally-failed dimension); the cheapest disconfirmation cell lives 5+ cells deep:
 > ```
-> Reproducer matrix (BLI as filed):
->   Cell #1: {object-class-A} × {count-A} × {version-A}    ← re-runs S{XX}-{YY} setup
->   Cell #2: {object-class-A} × {count-A} × {version-B}
->   Cell #3: {object-class-A} × {count-B} × {version-A}
->   ...
->   Cell #6: {object-class-B} × {count-A} × {version-A}    ← UN-TESTED in original
->   ...
-> [If Cell #6 PASSes, the matrix could short-circuit H3 immediately — but the
->  matrix as filed has 5 expensive re-runs ahead of it.]
+> Cell #1: {object-class-A} × {count-A} × {version-A}    ← re-runs S{XX}-{YY} setup
+> ...
+> Cell #6: {object-class-B} × {count-A} × {version-A}    ← UN-TESTED in original
 > ```
 > CORRECT — coverage-gap analysis enumerates the (axis × value) cells the originating evidence did NOT cover; Phase 1 leads with those cells; the matrix prunes aggressively when one of them PASSes:
 > ```
 > Coverage-gap analysis of {session-id} evidence:
 >   - object-class axis: tested {object-class-A}; UN-TESTED: {object-class-B}
->   - count axis: tested {count-A}; UN-TESTED: {count-B} (intermittent re-run subset)
 >   - version axis: tested {version-A}; UN-TESTED: {version-B}
->
 > Reproducer matrix (Phase 1 — un-tested axes FIRST):
 >   Cell #1: {object-class-B} × {count-A} × {version-A}    ← un-tested
 >   Cell #2: {object-class-A} × {count-A} × {version-B}    ← un-tested
->   Cell #3: {object-class-A} × {count-B} × {version-A}    ← un-tested
->   ...
-> [If Cell #1 PASSes, H3 (object-class-dependent) is disconfirmed and the matrix
->  prunes aggressively — saving 4+ expensive re-runs.]
+> [If Cell #1 PASSes, the object-class hypothesis is disconfirmed and the matrix prunes.]
 > ```
 
 > [!practice] When triaging an intermittent-observation BLI, surface the un-tested-axes pre-flight in the route assessment
-> Include in the routing recommendation: *"BLI's prescribed matrix re-runs the originating session's failed dimension; the cheapest disconfirmation lives in cells the original session never tested. Recommend re-ordering Phase 1 to lead with un-tested axes."* — so the user can approve the reorder before scaffolding cost is incurred.
+> State in the routing recommendation that the prescribed matrix re-runs the originating session's failed dimension, and that the cheapest disconfirmation lives in cells that session never tested. Recommend re-ordering Phase 1 to lead with un-tested axes, so the user can approve the reorder before scaffolding cost is incurred.
 
 ### 3h.cluster Cluster Batching
 
-A BLI may have been fixed-and-closed-as-collateral by its originating session before the BLI's formal closeout. The index status (NOT_STARTED / IN_PROGRESS) lags actual state — the originating session shipped the fix in a single Step, but didn't yet update the BLI status. When the triage handler trusts the index status, it misroutes the cluster to a fresh fix-agent session that re-does work already shipped.
+The originating session may have fixed a BLI as collateral before its formal closeout. The index status (NOT_STARTED / IN_PROGRESS) then lags the actual state. A triage handler that trusts the index status routes the cluster to a fresh fix-agent session that re-does shipped work.
 
 **Triage-time signals that a BLI may already be fixed by its originating session:**
 
@@ -145,18 +121,16 @@ A BLI may have been fixed-and-closed-as-collateral by its originating session be
 1. **Code-level grep** (§3h core recipe): grep the BLI's symptom keyword against `src/` to find any intervening fix.
 2. **Live-verification recheck**: read the originating session's Recovery `## Step Completion Status` and `## Key Findings` to confirm the cluster's fixes were shipped together.
 
+`scripts/parse_backlog.py --clusters` prints runs of adjacent ids that share `Surfaced by:` and `created:`, then exits 0.
+
 > [!constraint] When BLI cluster signals fire, driver-recheck per §3h before any fresh routing; surface cluster-batch close option when Recovery confirms shared fix
 > WRONG — trust the index status, route fresh fix-agent sessions per BLI in the cluster:
 > ```
 > Cluster: {bli-id-1}, {bli-id-2}, {bli-id-3} — all NOT_STARTED, same Surfaced by:
-> Action: route 3 fresh fix-agent sessions; each does the work the originating
->         session already shipped.
+> Action: route 3 fresh fix-agent sessions; each re-does shipped work.
 > ```
 > CORRECT — perform a driver-recheck per §3h before routing; surface a cluster-batch close option when Recovery confirms the shared fix:
 > ```
-> Cluster: {bli-id-1}, {bli-id-2}, {bli-id-3} — same Surfaced by: {session-id};
->          same created: {YYYY-MM-DD}; adjacent IDs.
->
 > Driver recheck:
 >   - {session-id} Recovery Step {N} Key Findings: "Fixed {symptom-class} across
 >     {bli-id-1}/{bli-id-2}/{bli-id-3} via {one-line description of fix}."
@@ -164,29 +138,23 @@ A BLI may have been fixed-and-closed-as-collateral by its originating session be
 >     present.
 >
 > Route options:
->   A. CLUSTER CLOSE — mark all three CLOSED with reference to {session-id}
->      Recovery Step {N}; pending formal closeout of {session-id}.
->   B. SCAFFOLD as separate items — proceed only if the user disagrees with the
->      cluster-fix evidence above.
+>   A. CLUSTER CLOSE — mark all three CLOSED with reference to {session-id} Recovery Step {N},
+>      pending formal closeout of {session-id}.
+>   B. SCAFFOLD as separate items — only if the user disagrees with the cluster-fix evidence.
 > ```
 
 ### 3i. BLI Cross-Cutting Check Coverage at Fix-Agent Delegation Time
 
-A BLI's "Files Touched" section names the **primary** target file. Several other sections may name **additional** files where the same defect class is suspected to exist:
+A BLI's "Files Touched" section names the **primary** target file. Other sections may name **additional** files where the same defect class is suspected. The conditions table in this section lists them.
 
-- A "Cross-cutting check" / "Cross-cutting consideration" subsection (e.g., the audit of sister DTOs that share a serialization-drift pattern).
-- An acceptance criterion phrased as "Cross-cutting audit of all {category} {pattern}".
-- A "Notes" entry like "the cross-cutting audit may surface latent defects in 1-N other {DTOs / files / call sites}".
-
-When the BLI is routed to DIRECT_FIX, the fix-agent spawn prompt MUST include those audit candidates as in-scope unless the main session explicitly scopes them out. The defect class — the same root-cause pattern that produced the primary defect — is repo-wide; treating only the primary file leaves N-1 latent defects to surface in future live-verifies.
+When the BLI routes to DIRECT_FIX, the fix-agent spawn prompt MUST include those audit candidates as in-scope unless the main session explicitly scopes them out. The defect class is repo-wide, so treating only the primary file leaves N-1 latent defects to surface in future live-verifies.
 
 > [!constraint] Fix-agent spawn prompts MUST include the BLI's cross-cutting audit candidates as in-scope by default
 > WRONG — copy only the BLI's "Files Touched" primary target into the fix-agent prompt; treat "Cross-cutting check" candidates as separate follow-up work:
 > ```
 > ## Item: {bli-id} — {defect-pattern}
 > File: {src/module}/{PrimaryTarget}.{ext}
-> [Fix-agent applies pattern to one file. The same defect remains unfixed on N
->  sister files; they surface one-by-one over the next N live-verifies.]
+> [The same defect stays on N sister files and surfaces over the next N live-verifies.]
 > ```
 > CORRECT — read the BLI in full, identify the audit candidates from any "Cross-cutting" / "Notes" section, list them in the fix-agent's prompt with a one-line rationale per file:
 > ```
@@ -194,12 +162,13 @@ When the BLI is routed to DIRECT_FIX, the fix-agent spawn prompt MUST include th
 > Files (cross-cutting per BLI Acceptance Criteria + Notes):
 >   - {src/module}/{PrimaryTarget}.{ext} (primary)
 >   - {src/module}/{Sister1}.{ext} (matches defect-class signal)
->   - {src/module}/{Sister2}.{ext} (matches defect-class signal)
 >   - {src/module}/{Sister3}.{ext} (verify shape; may not match — confirm before applying)
 > Apply the same pattern to each. Verify Nth file's shape before applying.
 > ```
 
 **Practical pre-flight:** before delegating, verify the cross-cutting scope by grepping the defect-class signal in the candidate folder — e.g., `grep -r "{defect-class-signal}" {src/module}/` returning zero matches confirms the defect was repo-wide. Prefix any candidate the fix-agent should NOT touch with an explicit out-of-scope rationale; otherwise the agent assumes inclusion.
+
+`scripts/parse_backlog.py --cross-cutting <ID> --prompt <FILE>` exits 1 when the item's Cross-cutting note names a file the prompt file does not list.
 
 **§3i applies when ANY of these conditions hold for the BLI being routed to DIRECT_FIX:**
 
@@ -222,39 +191,38 @@ When editing the plugin **source** while an older version is **installed and run
 >
 > CORRECT — prove source behavior deterministically: run the unit test suite, call edited functions directly against a temp copy, and run a read-only linter (`--doctor`) for before/after measurement. Explicitly mark live-behavior checks (dispatched agent definitions, live injection probes) as **DEFERRED-to-post-install** and record the exact post-`upgrade` re-test to run.
 
-**Deterministic source-level evidence (reliable under version split):**
-- Unit test suite run against the source directory directly
-- Direct function / script calls against a temp copy of the edited file
-- Read-only `--doctor` output (before/after line count, section presence)
-- Static grep checks on the edited source text
+**Deterministic source-level evidence (reliable under version split):** the unit test suite run against the source directory, direct function or script calls against a temp copy of the edited file, read-only `--doctor` output, and static searches on the edited source text.
 
-**Live-behavior signals (unreliable under version split — defer):**
-- Dispatched subagent runs (spawn a `{plugin}:task-runner` or equivalent) — these load the *installed* agent definition, not the edited source
-- Live path-rule injection probes ("does a brief-read inject N rules?") — these reflect the *installed* handler, not the edited handler
-- Any check that depends on the running harness loading the edited artifact
+**Live-behavior signals (unreliable under version split — defer):** dispatched subagent runs, which load the *installed* agent definition, live path-rule injection probes, which reflect the *installed* handler, and any check that depends on the running harness loading the edited artifact.
 
 **Model override weakens live signals further:** if a live acceptance check is forced to a model tier different from the fix's target (e.g., Opus 1M for a 200K-window overflow fix), name it a weakened signal and make the deterministic measurement primary.
 
-**Recording deferred checks:** For each live-behavior signal deferred, record:
-1. What the check would prove (the exact claim it tests)
-2. The post-`upgrade` command to re-run it
-3. That the deferred check is NOT a pass — it is explicitly unresolved until post-install
+**Recording deferred checks:** for each deferred signal, record the exact claim it tests and the post-`upgrade` command to re-run it. A deferred check is NOT a pass. It stays unresolved until post-install.
 
 ---
 
 ## 9. Backlog-Item Citation Freshness at Execution Time
 
-A backlog item's body is a snapshot; every reference it pins — a sequential identifier, a `file:line` code anchor, an acceptance criterion, a narrative claim about which artifact carries which behavior — is a *hypothesis* about a live artifact, and must be re-proven at execution time, never trusted. The item may have been drafted days or sprints before it is worked, and in that interval sibling changes land: a promotion consumes the next-free number, a file grows and its line anchors move, a criterion becomes satisfied by code that arrived after authoring, a symbol the note names turns out to hold a different assertion. Applying any stale citation verbatim ships a defect. Re-derive each cited reference from the current artifact — by content grep or measurement — immediately before acting on it.
+A backlog item's body is a snapshot, and every reference it pins is a *hypothesis* about a live artifact, re-derived from the current artifact immediately before acting on it and never trusted. §9.1-§9.3 re-prove the pointers: a sequential identifier, a `file:line` code anchor with its acceptance criteria, and a narrative claim about which artifact carries which behavior. §9.4-§9.6 re-derive the claims an item computed for itself: tallies, stated directions and contested counts.
 
-This is the backlog-execution sibling of `verify-cross-repo-fix-discipline.md` §7.3a–§7.3d (fix-recipe execution-time fidelity) and §8 below (verification under an older installed plugin): the same "verify against the live artifact, not the snapshot" principle, applied to the triage → fix surface where the drifting reference is the item's own pre-drafted citation rather than an audit recipe.
+WRONG — apply the item's pinned citation verbatim because it read true when drafted. A stale citation applied this way ships a defect:
+```
+item: "insert as {next-free-id} at {file}:{line}"  ->  inserted as written
+```
+CORRECT — re-derive the reference from the current artifact, then act on the derived value:
+```
+Grep {artifact} for the live maximum and the symbol  ->  insert at the derived id and line
+```
+
+This is the backlog-execution sibling of `verify-cross-repo-fix-discipline.md` §7.3a–§7.3d (fix-recipe execution-time fidelity) and §8 above (verification under an older installed plugin). The drifting reference here is the item's own pre-drafted citation, not an audit recipe.
 
 ### 9.1 Re-derive pinned sequential identifiers from the live artifact
 
 > [!constraint] A pre-drafted Check number / catalog row / §-number is next-free at DRAFT time only — re-derive it from the live artifact before inserting
 >
-> A backlog item drafted ahead of execution typically pins a **sequential artifact identifier** — a reviewer Check number, an Error Pattern Catalog row number, a reference §-number — to whatever was next-free *at draft time*. Those numbers are not stable: any other change that lands between drafting and execution consumes the next slot. Before inserting, re-derive the next-free identifier from the **live** artifact and renumber the deliverable (and any in-item self-references — group labels, acceptance criteria) to match.
+> A backlog item typically pins a **sequential artifact identifier** — a reviewer Check number, an Error Pattern Catalog row number, a reference §-number — to whatever was next-free *at draft time*. Any change that lands before execution can consume that slot. Before inserting, re-derive the next-free identifier from the **live** artifact. Renumber the deliverable and any in-item self-references (group labels, acceptance criteria) to match.
 >
-> **Re-derive across every surface the identifier is allocated over, not just the one you remember.** An identifier space can span more than one file, and a recipe that reads a single surface returns a number another surface has already consumed. Reviewer Check numbers are the worked example: each check's body lives under its owning `references/*.md` section as `#### Reviewer Check {NNN}`, while a check whose Source is a handler may be retained **inline** in the agent as `### Check {NNN}`. Reading only the agent returns the one retained inline number and understates next-free by the whole relocated range.
+> **Re-derive across every surface the identifier is allocated over, not just the one you remember.** Each reviewer check's body lives under its owning `references/*.md` section as `#### Reviewer Check {NNN}`, while a check whose Source is a handler may be retained **inline** in the agent as `### Check {NNN}`. Reading only the agent understates next-free by the whole relocated range.
 >
 > WRONG — trust the item's drafted number, or re-derive from a single surface:
 > ```
@@ -270,15 +238,15 @@ This is the backlog-execution sibling of `verify-cross-repo-fix-discipline.md` �
 > next-free = max(both) + 1 → insert at that number; update the item's group label + acceptance criteria to match.
 > ```
 >
-> The rule generalises to any monotonically-allocated identifier (Check number, Error Pattern Catalog row, reference §-number). Cost: one grep per allocating surface per pinned identifier. Failure it prevents: a duplicate ID shipped in an artifact. Two corollaries: in a queue of promotions, the later-executed item MUST re-verify — an earlier-executed sibling may have consumed the slot; and **whenever a change relocates an identifier's bodies, re-derive this recipe's surface list in the same change** — a decomposition that moves the bodies out from under a recipe leaves that recipe silently allocating into occupied numbers.
+> The rule generalises to any monotonically-allocated identifier. Two corollaries apply. In a queue of promotions, the later-executed item MUST re-verify, because an earlier-executed sibling may have consumed the slot. And **whenever a change relocates an identifier's bodies, re-derive this recipe's surface list in the same change**, because moved bodies leave the recipe silently allocating into occupied numbers.
 
-**Mechanized form — prefer the script over re-deriving by hand.** `scripts/resolve_anchor.py` performs this re-derivation for the three anchor shapes it recognises: `--scheme heading-toplevel` (`## N.`), `heading-sub` (`### {prefix}N`, with `--prefix`), and `table-row` (a leading numeric table column). It returns `max_found` and `next_free`, which removes the transcription step between reading a maximum and writing the number one above it. Its `--claim {claimant}` flag closes the first corollary above: a small per-repository ledger makes a second caller re-deriving the same `(file, scheme, prefix)` return one higher than an unconsumed claim, instead of the same number, so two items executing in parallel cannot both insert at the identical anchor. A claim releases itself as soon as the live file's own maximum reaches it, so inserting the anchor IS the release and there is no separate step to forget. The script does **not** close the second corollary — a relocated identifier family is a judgement about where content now belongs, not a numbering problem — but it detects the symptom, emitting an advisory warning when the target file carries a relocation-redirect marker. Treat that warning as a signal to read the redirect table, never as a reason to take a higher number in the same file.
+**Mechanized form — prefer the script over re-deriving by hand.** `scripts/resolve_anchor.py` performs this re-derivation for three anchor shapes: `--scheme heading-toplevel` (`## N.`), `heading-sub` (`### {prefix}N`, with `--prefix`), and `table-row` (a leading numeric table column). It returns `max_found` and `next_free`. Its `--claim {claimant}` flag closes the first corollary: a per-repository ledger makes a second caller on the same `(file, scheme, prefix)` return one higher than an unconsumed claim. A claim releases itself when the live file's own maximum reaches it, so inserting the anchor IS the release. The script does **not** close the second corollary, because a relocated identifier family is a judgement about where content belongs. It emits an advisory warning when the target file carries a relocation-redirect marker. Treat that warning as a signal to read the redirect table, never as a reason to take a higher number in the same file.
 
 ### 9.2 Re-locate cited code anchors by symbol; re-check acceptance criteria against HEAD
 
 > [!constraint] Treat a backlog item's `≈L####` as a hint, never an address; re-check every acceptance criterion against current code before writing a fix
 >
-> Line numbers and acceptance criteria are snapshots that rot as the codebase moves on. Before scoping or implementing, re-verify each against the **current** source:
+> Line numbers and acceptance criteria are snapshots. Before scoping or implementing, re-verify each against the **current** source:
 >
 > - **Anchors → re-locate by content.** Grep the cited function/symbol name; treat the item's `≈L####` as a hint, never an address. A partially-correct anchor set (some anchors still exact, some stale) is the dangerous case — it lulls you into trusting the rest.
 > - **Acceptance criteria → re-check against HEAD.** A criterion may already be satisfied by code that landed after the item was authored. Run the cheapest proof (grep for the constant, a throwaway dry-run) before writing a fix, and record it as "already satisfied — verified" rather than silently dropping it.
@@ -293,21 +261,20 @@ This is the backlog-execution sibling of `verify-cross-repo-fix-discipline.md` �
 > ```
 > grep -n "def _run_upgrade" foo.py   → real location of the logic
 > # For each acceptance criterion, run the cheapest proof it is still unsatisfied before writing code.
-> # A criterion already satisfied by later code → record "already satisfied — verified", never silently drop it.
 > ```
 
 ### 9.3 Verify pre-drafted narrative attributions against the live file
 
 > [!constraint] Verbatim fidelity binds the RULE CONTENT being promoted — not incidental wiring prose that names a sibling symbol; re-attribute those to the artifact that actually carries the behavior
 >
-> A backlog item's body is authored ahead of execution; its **narrative claims about which artifact carries which behavior** drift the same way pre-drafted sequential IDs and cited code anchors drift. Before inlining a pre-drafted note that asserts "test/section/function X does Y", verify the claim against the live file and reword to name the artifact that actually carries the behavior.
+> An item's **narrative claims about which artifact carries which behavior** drift the same way sequential IDs and code anchors drift. Before inlining a note that asserts "test/section/function X does Y", verify the claim against the live file. Reword it to name the artifact that actually carries the behavior.
 >
 > WRONG — inline the item's note verbatim because the content was "fully specified":
 > ```
 > The `test_read_constants_are_fixed_values` test also asserts a cross-model
 > ratio band: 1.4 ≤ … ≤ 1.55 (see …::test_cross_model_ratio_band).
 > ```
-> The note is internally contradictory: it attributes the assertion to one test, then cites a different one. `test_read_constants_are_fixed_values` asserts the FIXED caps only; the ratio band lives in the sibling method.
+> The note attributes the assertion to one test, then cites a different one. The ratio band lives in the sibling method.
 >
 > CORRECT — read the live file first, then attribute to the method that actually holds the assertion:
 > ```
@@ -332,12 +299,14 @@ This is the backlog-execution sibling of `verify-cross-repo-fix-discipline.md` �
 > - Where the item's tally and the live count disagree, fix the item's derived **acceptance criteria** too. A criterion naming the wrong members verifies the wrong thing.
 > - Report the correction in the closeout. A silently widened scope reads as unrequested scope creep.
 >
-> ```
 > WRONG — verify the named members and stop:
+> ```
 >   item: "three records carry lists (A, B, C)"  →  check A, B, C  →  3 passes  →  sign off
 >   [three other qualifying records were never examined]
+> ```
 >
 > CORRECT — derive the set, then compare it to the item's list:
+> ```
 >   query every in-scope record for the property  →  {A, B, C, D, E, F}
 >   item named 3 of 6  →  widen the criterion to all six; report the correction
 > ```
@@ -357,11 +326,15 @@ This is the backlog-execution sibling of `verify-cross-repo-fix-discipline.md` �
 > 2. **Break the tie on the downstream contract, not on document authority.** "The reference is binding" and "the handler is the entry point" are constant across both instances and therefore cannot distinguish them. Ask what a real consumer's behaviour depends on.
 > 3. Use corroboration count as evidence. One isolated cell contradicting three concordant descriptions elsewhere is the stale cell.
 > 4. **Write acceptance criteria that mandate the check without presupposing its outcome.**
+>    WRONG — presupposes the direction:
 >    ```
->    WRONG — presupposes the direction:  "correct the handler in both places"
->        [corrupts the inverted instance via a reviewer following the item faithfully]
->    CORRECT — demands the comparison:   "checked for the same drift; any mismatch fixed"
->        [leaves the direction open for each instance]
+>    "correct the handler in both places"
+>    [corrupts the inverted instance via a reviewer following the item faithfully]
+>    ```
+>    CORRECT — demands the comparison:
+>    ```
+>    "checked for the same drift; any mismatch fixed"
+>    [leaves the direction open for each instance]
 >    ```
 >
 > An inverted finding changes which file gets edited. Report it at the approval gate; never absorb it silently.
@@ -393,13 +366,21 @@ The three sub-rules share one premise — the item's own prose is a claim — an
 
 > [!constraint] An item is a factual claim about the current repository
 >
-> A backlog item asserts that some condition holds right now. Filing a false one is worse than filing nothing: it costs a future reader a full investigation to discover the condition is gone, and until they do, it distorts every prioritization pass reading the backlog. Before creating an item from a pre-computed list — a plan's out-of-scope table, an audit's findings, a prior session's deferred-work section — re-verify each condition against the live repository at filing time. The evidence line in the source is a pointer to how to check, not a substitute for checking. The freshness window is far shorter than it feels — treat any dated evidence as a statement about that date only, and treat "the plan was authored last week" as a strong signal, not a mild one.
+> A backlog item asserts that some condition holds right now. A false one costs a future reader a full investigation, and until then it distorts every prioritization pass. Before creating an item from a pre-computed list — a plan's out-of-scope table, an audit's findings, a prior session's deferred-work section — re-verify each condition against the live repository at filing time. The evidence line in the source is a pointer to how to check, not a substitute for checking. Treat any dated evidence as a statement about that date only, and treat "the plan was authored last week" as a strong signal, not a mild one.
+>
+> WRONG — file from the list, because each row carries an evidence line.
+>
+> CORRECT — run the check the evidence line points to. File the item only if the condition still holds, and otherwise record the finding.
 
 ### 10.2 "File N items" specifies scope, not that N conditions hold
 
 > [!constraint] "File N items" specifies scope, not that N conditions hold
 >
-> A brief that says "file N items" specifies which gaps are in play, not that N conditions are still true. When the evidence for one has evaporated, filing N−1 with the discrepancy surfaced is the correct execution of that brief, not a shortfall against it. Surface, do not absorb: filing the item anyway pollutes the backlog with a false claim; dropping it wordlessly makes the next reader re-derive the whole question with no record anyone looked. The correct shape is: the runner reports, the orchestrator verifies independently, the decision is recorded.
+> A brief that says "file N items" specifies which gaps are in play, not that N conditions are still true. When the evidence for one has evaporated, filing N−1 with the discrepancy surfaced is the correct execution of that brief. Surface, do not absorb.
+>
+> WRONG — file the item anyway, which pollutes the backlog with a false claim, or drop it wordlessly, which makes the next reader re-derive the whole question.
+>
+> CORRECT — the runner reports, the orchestrator verifies independently, and the decision is recorded.
 
 ### 10.3 Distinguish "already resolved" from "someone else has this in flight"
 
@@ -412,13 +393,21 @@ The three sub-rules share one premise — the item's own prose is a claim — an
 > grep -rln "{artifact_or_symbol}" {backlog_dir}/*.md
 > ```
 >
-> A fix landed by a differently-scoped change, and no existing item references the artifact → already resolved, do not file, record the finding. A fix in progress, or an existing item already covering it → coordinate rather than duplicate.
+> A fix landed by a differently-scoped change, and no existing item references the artifact → already resolved, do not file, record the finding. A fix in progress, or an existing item already covering it → coordinate rather than duplicate. `scripts/parse_backlog.py --in-flight <ID>` prints `git log -n 5` per artifact path and a backlog search for the item's symbol, then exits 0.
+>
+> WRONG — stop at "the condition no longer holds" and report it as resolved, so a fix in flight elsewhere goes unseen.
+>
+> CORRECT — read the artifact's history and the backlog first, then name which of the two verdicts applies.
 
 ### 10.4 Reconcile the source, or it permanently asserts something false
 
 > [!constraint] Reconcile the source, or it permanently asserts something false
 >
-> When re-verification retires a gap, the source document must be reconciled in the same change: mark the retired gap RESOLVED with the evidence and date, and amend any success criterion whose count the change invalidates. A count stated in a criterion is the same class of load-bearing claim as a count stated anywhere else.
+> When re-verification retires a gap, reconcile the source document in the same change: mark the retired gap RESOLVED with the evidence and date, and amend any success criterion whose count the change invalidates. A count stated in a criterion is the same class of load-bearing claim as a count stated anywhere else.
+>
+> WRONG — skip the filing and leave the source table listing the gap and the criterion still saying "file 5".
+>
+> CORRECT — mark the source row RESOLVED with evidence and date, and amend the criterion to "file 4", in the same change.
 
 ---
 
@@ -430,7 +419,7 @@ Some verbs assert. *Reconcile*, *re-target*, *re-align*, *align to the live shap
 
 > [!constraint] Probe the premise at the family level before accepting a re-target framing
 >
-> When a backlog item, audit finding, or task brief prescribes reconciling/re-targeting/re-aligning something to "the live shape," treat the existence of that shape as UNVERIFIED until probed — before accepting the prescription's framing as mechanical. Probe at the family level, not the specific failing path: (1) the bare target — no parameters, no qualifiers; (2) representative variants across the parameter space, not only the one named; (3) the siblings the item groups it with — a shared prefix is not a shared contract.
+> When a backlog item, audit finding, or task brief prescribes reconciling/re-targeting/re-aligning something to "the live shape," treat the existence of that shape as UNVERIFIED until probed. Probe at the family level, not the specific failing path: (1) the bare target — no parameters, no qualifiers; (2) representative variants across the parameter space, not only the one named; (3) the siblings the item groups it with — a shared prefix is not a shared contract.
 >
 > | Probe result | The task is |
 > |---|---|
@@ -438,17 +427,23 @@ Some verbs assert. *Reconcile*, *re-target*, *re-align*, *align to the live shap
 > | Bare target and all variants absent | Not a re-target. A scope decision — what happens to consumers, columns, code that pointed at it — goes to the user. |
 > | Siblings respond under a different contract | Two tasks of different kinds. Split them; route the design half. |
 >
-> Do not silently re-target to a guessed replacement, and do not silently delete the consumer half — both convert a decision into an edit and destroy the record that a decision was ever available. Only once the premise holds do further verification dimensions (key presence, shape, type alignment) apply — they all assume the thing responds. Generalizes past endpoints: any prescription aimed at an authority outside the repository — a vendor SDK surface, a published schema, an external registry — carries the same unstated premise. The rule is the verb, not the transport.
+> Only once the premise holds do further verification dimensions (key presence, shape, type alignment) apply, because they all assume the thing responds. Any prescription aimed at an authority outside the repository — a vendor SDK surface, a published schema, an external registry — carries the same unstated premise. The rule is the verb, not the transport.
+>
+> WRONG — silently re-target to a guessed replacement, or silently delete the consumer half. Both convert a decision into an edit and destroy the record that a decision was ever available.
+>
+> CORRECT — probe the family first, and let the probe result in the table name the task.
 
 ---
 
 ## 12. Verification Task Tree-State Pin
 
-A task whose deliverable is a verdict about code state must record which tree it read. An unpinned verdict is not evidence — it cannot be reproduced, and it silently answers a different question than the one asked. This is a state-of-the-source discipline, distinct from §9 above: §9 keeps a backlog item's own citations from rotting between drafting and execution (a document-age concern); this section keeps a verification task's read window honest about which physical tree it was reading in the first place (a tree-identity concern), and addresses a third failure §8's install-skew coverage and §9's citation-freshness coverage do not reach — neither requires recording the identity of a source tree being read, addresses two co-existing trees whose answers legitimately differ, or tells a synthesizer how to treat a torn parallel read.
+This is a state-of-the-source discipline, distinct from §9 above: §9 keeps a backlog item's own citations from rotting between drafting and execution (a document-age concern), and this section keeps a verification task's read window honest about which physical tree it read (a tree-identity concern). Neither §8's install-skew coverage nor §9's citation-freshness coverage requires recording the identity of a source tree being read, addresses two co-existing trees whose answers legitimately differ, or tells a synthesizer how to treat a torn parallel read.
 
 ### 12.1 Name the tree under test; one verdict per tree when they differ
 
 > [!constraint] Name the tree under test; give the claim one verdict per tree when they differ
+>
+> A task whose deliverable is a verdict about code state must record which tree it read. An unpinned verdict is not evidence: it cannot be reproduced, and it silently answers a different question than the one asked.
 >
 > | Column | Tree | Answers |
 > |--------|------|---------|
@@ -456,6 +451,10 @@ A task whose deliverable is a verdict about code state must record which tree it
 > | `wip` | the development tree | what is already done → prunes scope |
 >
 > Never collapse the columns. Never let a closed or archived item status remove something from scope without checking the shipped tree — an item's status tracks authoring, not shipping.
+>
+> WRONG — give one verdict for both trees, with scope set by the item's closed status.
+>
+> CORRECT — keep both columns, and give the claim one verdict per tree.
 
 ### 12.2 Pin the tree state at both ends of the read window
 
@@ -470,7 +469,13 @@ A task whose deliverable is a verdict about code state must record which tree it
 >
 > Both stamps go in the output header and the status block. The `SAME`/`DIFFERENT` matrix also halves the reading — only diverged files need a second pass.
 >
+> WRONG — stamp only the start of the read window, or record no stamps.
+>
+> CORRECT — stamp at the task's Step 0 and again as its last action.
+>
 > These stamps pin *which tree* was read. Where a concurrent writer is possible, they do not say whether the files' bytes held still between the two stamps; add the content-hash pins at both ends and both layers from [measure-artifact-identity.md](measure-artifact-identity.md) §2.
+
+`scripts/tree_pin.py stamp` writes the stamps to a file outside the repository. Its `compare` mode re-takes the stamps and compares them with that file.
 
 ### 12.3 Make divergence loud, not resolvable
 
@@ -491,6 +496,8 @@ A task whose deliverable is a verdict about code state must record which tree it
 > pins match                                      → a real reasoning disagreement: settle on
 >                                                    evidence quality
 > ```
+
+`scripts/tree_pin.py compare` re-takes a reader's stamps and compares them with its stamp file.
 
 **Applies to:** any task whose deliverable is a verdict about code state — defect verification, drift detection, audit, forensics, shipped-vs-source reconciliation — especially when readers run in parallel, when the repo is not exclusively owned by the session, or when a fix is known to be in flight.
 

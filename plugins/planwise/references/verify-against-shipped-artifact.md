@@ -1,12 +1,12 @@
 ---
-description: Plan/EI/BLI/task-spec citations of third-party SDK identifiers, type names, enum members, delegate shapes, framework presence, destination file paths under scoped-rule triggers, AND BLI motivating drivers (runtime symptoms cited as multi-phase plan rationale) MUST be verified against the shipped artifact (DLL reflection, vendor XML index, package on disk, current src/ code, recent session summaries) or the relevant project-scoped rule before being authored as prescriptive snippets, routed to a multi-session plan, or delegated to a fix-agent; and a declared host-API signature (a declaration stand-in) expires with the build, so it is regenerated and type-checked on every build change before any run is graded
+description: Plan/EI/BLI/task-spec citations of third-party SDK identifiers, type names, enum members, delegate shapes, framework presence, and destination file paths under scoped-rule triggers MUST be verified against the shipped artifact (DLL reflection, vendor XML index, package on disk, current src/ code) or the relevant project-scoped rule before being authored as prescriptive snippets or delegated to a fix-agent; and a declared host-API signature (a declaration stand-in) expires with the build, so it is regenerated and type-checked on every build change before any run is graded
 consult-when: Citing an SDK identifier, path, or BLI driver in a spec — verify against the shipped artifact first, and regenerate a declared host-API stand-in and type-check on every build change (§3k), and probe a parser a task says to reuse on three values from the real corpus, reading a zero-padded identifier as text because a typed YAML load turns `061` into an octal integer (§3l)
 paths: {planwise_root}/{plans_dir}/**
 ---
 
 # Verify Against Shipped Artifact — Plan-Author-Time Discipline
 
-**Purpose:** Force plan-time verification of every cited third-party identifier, destination file path, and BLI motivating driver against the shipped artifact (or the project's own scoped rules) so drift is caught at planning cost, not build-cycle or run-time cost. Extends from Exec-phase specs (EIs, task specs, BLIs) to Discovery-phase consolidation.
+**Purpose:** Force plan-time verification of every cited third-party identifier and destination file path against the shipped artifact (or the project's own scoped rules) so drift is caught at planning cost, not build-cycle or run-time cost. Extends from Exec-phase specs (EIs, task specs, BLIs) to Discovery-phase consolidation.
 
 ## Table of Contents
 
@@ -33,20 +33,22 @@ paths: {planwise_root}/{plans_dir}/**
 
 ## 1. The Recurring Failure Mode
 
-A plan or Execution Input pins a third-party identifier — an SDK named parameter, an enum member, a type's presence in a target version, a delegate signature, or a vendored package's exported surface. The identifier was sourced from memory, paraphrased docs, decompiled output, or speculative templating. The implementing agent copies it verbatim. The build fails at compile time, or — worse — fails silently at run time because a similarly-named member still exists with different semantics.
+A plan or Execution Input pins a third-party identifier sourced from memory, paraphrased docs, decompiled output, or speculative templating. The implementing agent copies it verbatim. The build fails at compile time, or — worse — fails silently at run time because a similarly-named member still exists with different semantics.
 
-| Drift surface | Plan-side citation form | Discovery-time miss | Run-time miss |
-|---------------|------------------------|--------------------|--------------|
-| SDK named parameters | `Foo(jsonSerializerOptions: null)` | Author paraphrased from memory or older SDK docs | Build error against the pinned package version |
-| Type / enum presence across versions | Polyfill keyed on `{external-system-api}` for the newest target | Type marked obsolete in current SDK; assumed still-present in older targets | Compile error against the older target |
-| Decompiled enum members / property names | `{ConcreteType}.{member}` lifted from raw decompiler output | Decompiled identifiers may be parameter names, internal aliases, or decompiler guesses | Member-not-found at run-time against the shipped DLL |
-| Tool / framework already wired | "Tests use {framework-X}" when project has {framework-Y} | Spec author didn't read the project's existing build / test config | Mid-execution pivot or two-step migration |
-| SDK delegate signatures | `Filter(ctx, next, ct)` middleware-style sketch | Author guessed shape; SDK uses middleware-factory `(next) => handler` | Registration-site type mismatch / missing type |
-| Vendored harness API surface | `{Harness}.SomeContext.CurrentSession()` | Author wrote a name from README narrative; package exposes a different surface | Symbol not found / type missing |
-| Internal placement / project scoped-rule constraints | A new public type proposed for an assembly whose project rules forbid that kind of type | Author didn't cross-check the project's own scoped rules — the destination has invariants encoded in a rule file, not in the compiler | Build clean + unit tests pass; silent failure at first live invocation, with no audit trail |
-| BLI motivating driver | A runtime symptom (collision, race, hang, missing endpoint) cited as the rationale for a multi-phase plan | Triage handler routed to a meta-plan + execution plan without rechecking whether intervening sessions had already neutralized the driver | Multiple session-budgets spent scaffolding/executing a plan against a problem that no longer exists |
+| Drift surface | Recipe | Run-time miss |
+|---------------|--------|---------------|
+| SDK named parameters | §3a | Build error against the pinned package version |
+| Type / enum presence across versions | §3b | Compile error against the older target |
+| Decompiled enum members / property names | §3c | Member-not-found at run-time against the shipped DLL |
+| Tool / framework already wired | §3d | Mid-execution pivot or two-step migration |
+| SDK delegate signatures | §3e | Registration-site type mismatch / missing type |
+| Vendored harness API surface | §3f | Symbol not found / type missing |
+| Internal placement / project scoped-rule constraints | §3g | Build clean and unit tests pass, then silent failure at first live invocation, with no audit trail |
 
-The plan-side cost of verification (one minute of reflection or grep) is two orders of magnitude smaller than the build-cycle cost (build + deviation note + Recovery update + sometimes a Sprint pivot). For internal-placement drift the cost asymmetry is even worse — the failure surfaces only at live invocation time, after a deploy + relaunch + interactive click. For motivating-driver drift the cost asymmetry is the worst of all — the "failure" is sunk planning effort against a non-problem, with no compiler or runtime signal to surface it.
+> [!constraint] Pay for verification at plan time, not at build or run time
+> WRONG — pin an identifier unchecked and let the first build find the drift. That costs a build, a deviation note, a Recovery update, and sometimes a Sprint pivot.
+>
+> CORRECT — spend one minute of reflection or search before pinning, which is two orders of magnitude cheaper. For internal-placement drift the cost asymmetry is even worse, because the failure surfaces only at live invocation time, after a deploy, a relaunch and an interactive click.
 
 For internal project artifacts (lesson IDs, schema files, function names), see `verify-before-cite.md §9.B`.
 
@@ -57,30 +59,13 @@ For internal project artifacts (lesson IDs, schema files, function names), see `
 > [!constraint] Cited identifiers MUST be verified against the shipped artifact at plan-write time
 > WRONG — author the EI / task spec from memory, paraphrased SDK docs, decompiled output, or speculative templating, then leave the implementing agent to discover the drift at first build:
 > ```markdown
-> ## §5 Implementation
->
-> Register the audit filter:
->
-> ```{lang}
-> async (ctx, next, ct) => { ... }
-> filters.Add(AuditFilter);
-> ```
+> Register the audit filter: `async (ctx, next, ct) => { ... }`
 > ```
 > CORRECT — verify the identifier against the shipped artifact before pinning. Cite as **declared by the artifact**, not as paraphrased:
 > ```markdown
-> ## §5 Implementation
->
-> Verified `{InterfaceType}<TReq, TRes>` shape against `{ExternalSdk}.dll`
-> {pinned-version} via `typeof({InterfaceType}<,>).GetMethod("Invoke")` — it is a
-> middleware-factory delegate `(next) => handler`, NOT a handler with `next` as a
-> parameter. Register via method-group reference.
->
-> ```{lang}
-> {ConcreteType}<TReq, TRes> Create({ConcreteType}<TReq, TRes> next) =>
->     async (ctx, ct) => { ... };
->
-> filters.AddCallToolFilter(auditFilter.Create);
-> ```
+> Verified `{InterfaceType}<TReq, TRes>` shape against `{ExternalSdk}.dll` {pinned-version}
+> via `typeof({InterfaceType}<,>).GetMethod("Invoke")`. It is a middleware-factory delegate
+> `(next) => handler`, NOT a handler with `next` as a parameter.
 > ```
 
 > [!practice] When verification is impractical, leave the spec underspecified
@@ -94,102 +79,75 @@ Each recipe states the probe in generic terms (reflection of the shipped artifac
 
 ### 3a. SDK Named Parameters
 
-> [!verify] Verify a named-argument signature against the pinned package
+> [!constraint] Verify a named-argument signature against the pinned package
+> WRONG — pin `Foo(jsonSerializerOptions: null)` paraphrased from memory or older SDK docs.
+>
+> CORRECT — locate the pinned package. Then open the shipped artifact in a reflection / decompilation tool, OR run a 1-line probe in a scratch project and check IDE diagnostics / build for an argument-name error. Cite the parameter as declared by the SDK:
 > ```
-> # Locate the pinned package on disk (consumer adapts to their package manager):
 > {pkg-locate-cmd} {package-name} --version {pinned-version}
 > # → e.g. <package-cache-root>/{package-name}/{pinned-version}/
 > ```
-> Open the shipped artifact in a reflection / decompilation tool, OR run a 1-line probe in a scratch project against the pinned reference and check IDE diagnostics / build for an argument-name error. Cite the parameter as declared by the SDK.
 
 ### 3a.2 Cross-Sprint Code Symbols
 
-EI sketches at scaffold time can pin (a) non-existent third-party type names sourced from memory ("the interface is called `{InterfaceType}`") and (b) cross-sprint codebase symbols that don't actually exist ("Sprint-N already shipped `{handler-name}`"). The first class fails at first build; the second class fails when the dependent sprint can't find what it was told already exists.
+EI sketches at scaffold time can pin non-existent third-party type names sourced from memory, and that class fails at first build. Reflect the pinned package's exported types and search for the name you intend to cite. If the reflection returns zero rows matching the cited type, the EI is citing a phantom, so re-pin to the actual shipped type.
 
-> [!verify] Verify SDK type names and cross-sprint codebase symbols before citing in an EI
-> ```
-> # SDK types (post-restore — locate the pinned package + reflect public types):
-> {pkg-locate-cmd} {package-name} --version {pinned-version}
-> # Reflect the package's exported types and grep for the name you intend to cite.
->
-> # Cross-sprint codebase symbols (the EI cites a "Sprint-N already-shipped" symbol):
-> grep -rln "{SymbolName}" src/
-> ```
-> If the SDK reflection returns zero rows matching the cited type, the EI is citing a phantom — re-pin to the actual shipped type. If the cross-sprint codebase grep returns zero matches, the prior sprint did NOT ship what the EI assumes — re-spec the EI section to use the actual current API surface OR add a precursor task that produces the missing symbol.
-
-> [!constraint] EI sketches MUST cite SDK type names and cross-sprint codebase symbols only after verification against the shipped artifact / current code
-> WRONG — EI sketch in `{Abbrev}-S{XX}-Execution-Input.md` cites a type name from memory and a "Sprint-N already-shipped" symbol without grep:
+> [!constraint] EI sketches MUST cite SDK type names only after verification against the shipped artifact
+> WRONG — an EI sketch cites a type name from memory:
 > ```markdown
-> ## §3 Integration
->
 > The handler implements `{InterfaceType}` from `{ExternalSdk}` (verified at planning).
-> It consumes Sprint-3's `{handler-name}` to dispatch domain events.
 > ```
-> ```
-> grep -rln "{handler-name}" src/   →   (empty)
-> reflection probe of {ExternalSdk}.dll   →   public types: { {ConcreteType}, ... }   (no {InterfaceType})
-> ```
-> CORRECT — verify both citations against the shipped artifact and current source; re-pin with the actual shapes and annotate the verification:
+> CORRECT — reflect the package, re-pin with the actual shape, and annotate the verification:
 > ```markdown
-> ## §3 Integration
->
 > Verified `{ExternalSdk}` 1.0.0 exposes the concrete class `{ConcreteType}`, NOT an
-> `{InterfaceType}` (reflected 2026-MM-DD via the package on disk; zero rows match
-> `{InterfaceType}` in the exported types).
->
-> Verified `{handler-name}` is NOT present in the current src/ tree
-> (`grep -rln "{handler-name}" src/` → empty as of 2026-MM-DD); the current dispatch
-> surface is `{actual-symbol}`. Sprint-N produced the dispatch surface under that
-> name — re-pin the integration to consume `{actual-symbol}`.
+> `{InterfaceType}` (reflected 2026-MM-DD via the package on disk; zero rows match).
 > ```
+
+A cross-sprint codebase symbol is an internal identifier, so `verify-before-cite.md` §9.B.2 carries its reconciliation rule. To test a "Sprint-N already shipped" claim, run `scripts/check_section_citations.py --symbols <file> --source <tree>`. This heuristic report prints each symbol's count and exits 1 on a phantom. A phantom means the prior sprint did NOT ship what the EI assumes. Re-spec the EI section to use the actual API surface, OR add a precursor task that produces the missing symbol.
 
 ### 3b. Type / Enum Presence Across Target Versions
 
 For polyfills, multi-target projects, or any reference to an external system whose API surface drifts across versions, verify the type/member's presence in the **oldest** target version before keying logic on it.
 
-> [!verify] Verify an external-system type / member exists in the OLDEST target version before keying logic on it
-> ```
-> # Type-level probe — query the vendor's index / shipped artifact for the target version:
-> grep -E '"T:{namespace}\.{TypeName}' "{vendor-api-index-for-target-version}"
-> # Empty result → the type is gone in this target; redesign the polyfill to avoid keying on it.
+> [!constraint] Verify an external-system type / member exists in the OLDEST target version before keying logic on it
+> WRONG — key a polyfill on `{external-system-api}` for the newest target, and assume that a type marked obsolete in the current SDK is still present in older targets.
 >
-> # Member-level probe (field / property / method on a type that does exist):
-> grep -E '"(F|P|M):{namespace}\.{TypeName}\.{MemberName}' \
->   "{vendor-api-index-for-target-version}"
+> CORRECT — query the vendor's index or shipped artifact for every target version the polyfill is meant to support:
 > ```
-> Run for every target version the polyfill is meant to support. A type with zero entries in the oldest target is a **planning blocker**, not an implementation hurdle — re-spec before the task reaches the build stage.
+> Grep  pattern='"T:{namespace}\.{TypeName}'  path='{vendor-api-index-for-target-version}'
+> Grep  pattern='"(F|P|M):{namespace}\.{TypeName}\.{MemberName}'  path='{vendor-api-index-for-target-version}'
+> ```
+> A type with zero entries in the oldest target is a **planning blocker**, not an implementation hurdle — re-spec before the task reaches the build stage.
 
 Major-version deprecation in many external systems is a deletion timer, not a permanent compatibility guarantee. The same caution applies to enum members removed in a major version, properties promoted from one type to another, and any "deprecated since vN" type.
 
 ### 3b.archive Already-Derived Findings — Do NOT Re-Run the Probe
 
-When a §3b probe has already been run and confirmed a phantom API (an identifier authors keep proposing that does NOT exist in the shipped artifact across the targeted versions), the result is archival. Future authors should NOT re-derive it. Capture the finding in this table, format:
+When a §3b probe has already confirmed a phantom API (an identifier authors keep proposing that does NOT exist in the shipped artifact across the targeted versions), the result is archival. Capture the finding in this table, format:
 
 | Phantom API (NOT shipped) | Targeted versions verified absent | Actual shipped APIs | Source |
 |---------------------------|----------------------------------|---------------------|--------|
 | *(illustrative format row only — populate per-project as findings accumulate)* `{external-system-api}({param-shape})` | `{version-1}`, `{version-2}`, `{version-3}` | `{alternative-api-1}({correct-shape})` (read-only), `{alternative-api-2}({correct-shape})` (destructive, requires transaction) | Verified by `{session-id}` against shipped artifact |
 
-> [!practice] If a phantom-API row exists for an external-system identifier, pivot directly to the listed actual API — do NOT re-run the probe
-> Future plans / EIs / fix-agent prompts whose initial spec mentions a phantom API listed above MUST pivot to the listed actual shipped APIs directly. The probe has already been run and the result is archived. Re-running the probe to re-derive an already-known answer wastes a planning cycle and risks producing a different paraphrase that drifts the spec yet again.
+> [!constraint] If a phantom-API row exists for an external-system identifier, pivot directly to the listed actual API — do NOT re-run the probe
+> WRONG — re-run the probe to re-derive an already-known answer. That wastes a planning cycle and risks a different paraphrase that drifts the spec yet again.
+>
+> CORRECT — a plan, EI or fix-agent prompt whose initial spec mentions a listed phantom API MUST pivot to the listed actual shipped APIs directly.
 
 ### 3c. Decompiled Enum Members and Property Names
 
 Decompilation-derived identifiers — enum members, struct fields, parameter names — are best-effort approximations. The decompiler may insert human-readable guesses, expose internal aliases, or print parameter names that differ from the public API surface.
 
-> [!verify] Verify decompiled identifiers against the shipped artifact via reflection
-> ```
-> # Enum members (consumer adapts the reflection form to their language):
-> {load-assembly-from-path} '{external-system-dll}'
-> {GetEnumNames}({external-system-namespace}.{TypeName})
-> # → returns the actual public enum names — compare to what the decompiler suggested.
+> [!constraint] Verify decompiled identifiers against the shipped artifact via reflection
+> WRONG — lift `{ConcreteType}.{member}` from raw decompiler output into a prescriptive adapter snippet.
 >
-> # Struct / class members:
-> {GetMembers}({external-system-namespace}.{TypeName})
-> #   Filter to Field / Property as needed.
+> CORRECT — list the public names by reflection and compare them to what the decompiler suggested:
 > ```
-
-> [!practice] Mark unverified decompiled identifiers in Discovery-phase Consolidated Context
-> When authoring Consolidated Context parts from decompiled output, suffix every uncertain identifier with `(decompiled — verify)` so downstream Execution Inputs preserve the uncertainty signal instead of laundering decompilation guesses into prescriptive adapter snippets.
+> {load-assembly-from-path} '{external-system-dll}'
+> {GetEnumNames}({external-system-namespace}.{TypeName})   # enum members
+> {GetMembers}({external-system-namespace}.{TypeName})     # struct / class members; filter to Field / Property
+> ```
+> In Discovery-phase Consolidated Context parts, suffix every uncertain identifier with `(decompiled — verify)`, so downstream Execution Inputs preserve the uncertainty signal.
 
 ### 3d. Tool / Framework Already Wired in the Project
 
@@ -201,20 +159,22 @@ When the spec calls for a tool (test framework, formatter, linter, code-gen pack
 > | The project's existing convention disagrees with the spec | `grep -r '{dependency-declaration-keyword}' {build-config-glob}`; read existing test/source files |
 > | A later session in the same plan already plans the migration | Read the Master Plan / Sprint Overview rows |
 > | Cross-tool coexistence requires non-trivial config | Mixed-runner / mixed-build research |
+
+> [!constraint] Project consistency outranks the spec letter when all three signals fire
+> WRONG — the spec says "Tests use {framework-X}", the project has {framework-Y}, and the runner chases the spec letter into a mid-execution pivot.
 >
-> When all three fire, the spec was likely written speculatively. Defer to the migration session and document the deviation in the Recovery + Summary; do NOT chase the spec letter at the cost of project consistency.
+> CORRECT — treat the spec as likely written speculatively. Defer to the migration session and document the deviation in the Recovery + Summary.
 
 ### 3e. SDK Delegate Signatures
 
-> [!verify] Verify an SDK delegate's invocation signature before sketching consumer code
+> [!constraint] Verify an SDK delegate's invocation signature before sketching consumer code
+> WRONG — sketch a `Filter(ctx, next, ct)` middleware-style shape from a guess when the SDK uses the middleware-factory `(next) => handler`.
+>
+> CORRECT — print the declared Invoke signature from a 5-line scratch program against the pinned package, and compare it to the sketch:
 > ```
-> # Scratch program, 5 lines, against the pinned package (consumer adapts to language):
 > var m = {reflection-form-for-typeof}({ExternalSdk}.{DelegateType}<TReq, TRes>)
 >             .GetMethod("Invoke");
 > print(m);
-> # → returns the declared Invoke signature.
-> #   Compare to the sketch — does it accept (next) and return a handler, or
-> #   does it accept (ctx, next, ct) directly?
 > ```
 > ALSO ACCEPTABLE — open the assembly in a decompiler / reflector and inspect the delegate declaration directly. Both costs are sub-minute.
 
@@ -222,108 +182,63 @@ When the spec calls for a tool (test framework, formatter, linter, code-gen pack
 
 When the spec references a vendored test harness, base class, or helper API, verify the actual exposed surface before authoring per-checkpoint test bodies.
 
-> [!verify] Verify a vendored harness exposes the surface the spec assumes
-> ```
-> # Locate the package's lib folder:
-> {pkg-locate-cmd} {harness-package} --version {pinned-version}
+> [!constraint] Verify a vendored harness exposes the surface the spec assumes
+> WRONG — cite `{Harness}.SomeContext.CurrentSession()`, a name from README narrative, when the package exposes a different surface.
 >
-> # Reflect public types and inheritance chain (adapt to language):
+> CORRECT — reflect the public types and inheritance chain, and compare them to the spec's assumed types, base classes, and property names:
+> ```
+> {pkg-locate-cmd} {harness-package} --version {pinned-version}
 > {load-assembly-from-path} '<path>/lib/<target-fwk>/{harness-package}.dll'
 > {GetExportedTypes}() | for-each { print("$name :: base=$baseName") }
-> # Reveals actual class hierarchy and exposed properties — compare to the spec's
-> # assumed types, base classes, and property names.
 > ```
 > Also verify the package namespace order — vendors sometimes invert the canonical order in README narratives and blog posts. Always cite the namespace as it appears in the reflected `FullName`, not as it appears in marketing copy.
 
 ### 3g. Internal Placement / Scoped-Rule Constraints
 
-A BLI's "Files" section, a plan task spec's destination paths, and a fix-agent spawn prompt all assert *where* code should live. The destination assembly / module / package frequently carries non-obvious constraints encoded in **the project's own scoped rules** — not in the compiler, not in unit tests. Build-clean and unit-test-green do NOT validate these constraints; the failure mode surfaces only at live invocation.
+A BLI's "Files" section, a plan task spec's destination paths, and a fix-agent spawn prompt all assert *where* code should live. The destination frequently carries non-obvious constraints encoded in **the project's own scoped rules** — not in the compiler, not in unit tests. Build-clean and unit-test-green do NOT validate these constraints, so the failure mode surfaces only at live invocation.
 
-> [!verify] Cross-check proposed destination paths against the project's own scoped rules before pinning
-> Before naming a destination path in a BLI's "Files" section, in a plan task spec, or in a fix-agent spawn prompt, identify whether the path falls under any project rule's force-read trigger. Source of truth: the project's `CLAUDE.md` or scoped-rules index (each project's own rules — there is no global "scoped rules" list authored at plugin level).
->
-> ```
-> # 1. Locate the project's scoped-rules registry:
-> #    Common locations — CLAUDE.md "Force-read when" table, .claude/rules/{domain}/,
-> #    or a domain-specific rules folder declared in the project's own conventions.
-> #
-> # 2. For each path you intend to pin, check whether it matches a force-read trigger:
-> grep -E '{proposed-path-glob}' {scoped-rules-registry}
-> #
-> # 3. If a trigger fires, EITHER (a) read the rule and re-pick the path so the
-> #    trigger no longer fires (move the type to a different module), OR (b) inline
-> #    the rule's relevant section verbatim into the spawn prompt — path-scoped
-> #    rules do NOT auto-load in spawned subagent contexts at startup.
-> ```
+Before naming a destination path, run `scripts/scoped_rules.py --project-root <root> --destinations <paths> --read <rules already read>`. It lists each unread rule under `.claude/rules/` whose `paths:` glob fires, and exits 1 when one does. Check a registry held elsewhere, such as a CLAUDE.md "Force-read when" table, by reading it. This file lists no project's rules, and no global list exists at plugin level, so **the project's own scoped-rules registry** is the source of truth.
+
+When a rule fires, EITHER (a) read the rule and re-pick the path so the trigger no longer fires, OR (b) inline the rule's relevant section verbatim into the spawn prompt. Path-scoped rules do NOT auto-load in spawned subagent contexts at startup.
 
 > [!constraint] Main session MUST force-read project scoped rules before delegating a fix-agent prompt that names paths under their triggers
 > WRONG — copy the BLI's "Files" section verbatim into the fix-agent spawn prompt, trust build + unit tests as sufficient evidence:
 > ```
 > Destination (NEW) | {src/module-A}/Audit/{NewClassifier}.{ext}  (BLI's intent)
->
-> [Build clean. Unit tests pass. Live invocation: error response, audit log not
->  written — silent failure because {src/module-A} is governed by a project
->  scoped rule the planner did not read.]
+> [Build clean. Unit tests pass. Live invocation: error response, audit log not written.]
 > ```
-> CORRECT — recognise the path falls under a force-read trigger, force-load the rule, then either correct the path before delegating OR inline the rule's relevant section so the fix-agent (which has no path-rule auto-load) sees the constraint:
+> CORRECT — recognise the path falls under a force-read trigger, force-load the rule, then either correct the path before delegating OR inline the rule's relevant section:
 > ```
 > Destination (NEW) | {src/module-B}/Audit/{NewClassifier}.{ext}
->                     — per {project's scoped-rule file} §{section}: types of this
->                       kind in {src/module-A} trigger the failure mode documented
->                       in that rule. Stay in {src/module-B}.
+>                     — per {project's scoped-rule file} §{section}: stay in {src/module-B}.
 > ```
 
-The asymmetry is unforgiving: each project's scoped rule is authored to encode a previous incident's empirical findings — those rules exist precisely because the failure mode silently passes a build + test gate. Skipping the cross-check at delegation time re-runs the original incident.
-
-> [!practice] Project-scoped rules are the source of truth — NOT the plugin's reference set
-> This reference (`verify-against-shipped-artifact.md`) describes *the discipline of cross-checking*. It does NOT list any project's specific scoped rules — those live in the consumer project's own `CLAUDE.md` / `.claude/rules/{domain}/` tree. Authors and reviewers MUST consult **the project's own scoped-rules registry**, not this file, for the list of force-read triggers that apply to the work at hand.
+Each project's scoped rule encodes a previous incident's empirical findings, so skipping the cross-check at delegation time re-runs the original incident.
 
 *§3h, §3h.untested-axes, §3h.cluster and §3i (BLI triage-time recipes) live in [verify-backlog-citation-freshness.md](verify-backlog-citation-freshness.md), co-located with §9.*
 
 ### 3j. Live-Verify Spawn-Prompt Tool-Name Drift
 
-A live-verify spawn prompt or task spec is a spec-like artifact. Any tool NAME it pins is an in-repo identifier subject to the same verify-against-shipped-artifact discipline as a third-party SDK type name or cross-sprint codebase symbol.
+A live-verify spawn prompt or task spec is a spec-like artifact, and any tool NAME it pins is an in-repo identifier. `verify-before-cite.md` §9.B.14 carries the general rule for a deployed symbol. This section keeps what is specific to a runtime tool surface, and extends §3d (tool / framework already wired in the project) from build-time framework drift to **runtime tool-name drift** in live-verify orchestration.
 
 > [!constraint] Tool names in a live-verify spawn prompt or task spec MUST be verified against the deployed tool surface before authoring
-> WRONG — name ID-lookup tools (or any tools) from convention or memory in the
-> spawn prompt; the runner discovers the tools are absent at runtime:
+> WRONG — name ID-lookup tools from convention or memory in the spawn prompt. `list_*` is a plausible-sounding convention that may not be the shipped naming pattern, so the runner discovers the absence mid-gate, at the cost of a discovery cycle and a deviation note:
 > ```text
 > Before acting, obtain ids:
 >   --call list_widgets        (widget id)
->   --call list_categories     (category id)
-> # Neither tool exists in the live tool surface — the runner discovers this at
-> # runtime, mid-gate, costing a discovery cycle and a deviation note.
 > ```
-> Common failure mode: `list_*` is a plausible-sounding convention that is not
-> actually the naming pattern used in the shipped tool surface.
->
-> CORRECT — verify names against the deployed surface at authoring time, OR
-> underspecify and instruct the runner to enumerate via the runtime's
-> tool-discovery command and pick the closest equivalent; do not assume a
-> `list_*` convention:
+> CORRECT — verify names against the deployed surface at authoring time, OR underspecify and instruct the runner to enumerate via the runtime's tool-discovery command:
 > ```text
 > Before acting, obtain ids from the LIVE tool surface:
 >   - widget id:   read_widgets       (verified present in the live tool surface)
->   - category id: ensure_categories (Matched outcome) or read_all_categories
 > If a named tool is absent, enumerate via the runtime's tool-discovery command
 > and pick the closest equivalent — do not assume list_*.
 > ```
->
-> Either verification approach costs under a minute:
-> - The runtime's tool-enumeration / discovery command lists the registered tools
->   (the canonical runtime source of truth).
-> - A grep of the tool-registration declarations in the server's source tree
->   confirms the shipped name set statically, without a live launch.
-
-This extends §3d (tool / framework already wired in the project) from build-time framework drift to **runtime tool-name drift** in live-verify orchestration.
+> Either verification approach costs under a minute. The runtime's tool-enumeration / discovery command is the canonical runtime source of truth. A `Grep` of the tool-registration declarations in the server's source tree confirms the shipped name set statically, without a live launch.
 
 ### 3k. A Declared API Drifts Between Builds: Regenerate the Declarations and Type-Check on Every Build Change
 
 A host API's declared signature is a recorded claim that expires with the build. Nothing at runtime tells you when it has. JavaScript does not fail on `Promise - Promise`. It yields `NaN`, which JSON writes as `null`, which every "row present" predicate accepts. The regenerated declaration file is the only artifact that carries the new truth, and a type-check against it is the only gate that reads it. §3f (vendored harness API surface) covers the plan-time check of a surface. This subsection covers the surface changing after the check.
-
-A module compiled clean against a declaration stand-in captured on build N, where `<host>.clock.now()` returned `number`. The module wrapped the call and did arithmetic on it in seven places: span timers, "milliseconds since turn complete", and a `savedAt` stamp used to sort a persisted per-session store before pruning. Three probe runs later, on builds N+3 and N+4, every `span_ms` field in the module's own log read `null`. All runs graded PASS, because no predicate read a timing field.
-
-The store sort compared two Promises and returned `NaN`, so the pruning order was undefined. That is a decision path, not a log field. The defect surfaced at the last task of the sprint. A type-check ran against declarations that a grading task had regenerated on build N+3. It reported one error, `Promise<number>` is not assignable to `number`, on a line no task in the sprint had touched.
 
 > [!constraint] Regenerate on the build change and type-check before the first grade
 > WRONG — compile once against a stand-in from an earlier build, then grade three runs on later builds:
@@ -342,7 +257,7 @@ The store sort compared two Promises and returned `NaN`, so the pruning order wa
 
 Three consequences follow.
 
-1. **Regenerate the declarations on every build change and type-check before grading.** A pin such as `cli: <version>` in a version file is a claim about which build the declaration file describes. When `<cli> --version` moves, regenerate, re-pin, and run the type-check before any run on the new build is graded. Put the gate before the first grade task, not after the last.
+1. **Regenerate the declarations on every build change and type-check before grading.** When `<cli> --version` moves past the version-file pin, regenerate, re-pin, and run the type-check. Put the gate before the first grade task, not after the last.
 2. **Read a new error outside the task's scope as evidence, not as noise.** Ask two questions. Is the line unchanged since `HEAD`, so the drift is in the environment and not the diff? Does the runtime log show the symptom, such as a `null` where a number belongs? With both answered, the finding becomes an Option A / Option B gate with a one-line fix on the table.
 3. **A pin in a version file governs when to regenerate and re-check, not only what to record.**
 
@@ -375,7 +290,7 @@ Three consequences follow.
 
 1. **Probe before you reuse.** Run three one-line probes against values from the real corpus before reusing the parser. The probes cost under a minute. The three above are an id with a leading zero, a list that mixes valid and invalid octal digits, and an unquoted date.
 2. **A caller that never compares values cannot see the corruption.** A caller that only counts list lengths works on the wrong types, and so the defect survives. A new caller that compares ids, ages, or edge lists will fail. Route the finding to the owner of the wrapper. Add a test that `id: 061` yields the string `"061"`.
-3. **Check the shipped code with a test, not by reading it.** Run the test that pins the text-level path. Add code only when that test is missing or failing.
+3. **Check the shipped code with a test, not by reading it.** Run the test that pins the text-level path. Add code only when that test is missing or failing. For this plugin's own parser that test is `tests/test_frontmatter_parser.py`, a development-only file that does not ship to a consumer.
 
 Applies to any frontmatter or config reader over values that look numeric but are identifiers. Examples are zero-padded ids, version strings such as `1.10` (read as the float `1.1`), ticket numbers, and dates meant as text. Read them as text or quote them at the source.
 
@@ -394,10 +309,6 @@ Applies to any frontmatter or config reader over values that look numeric but ar
 > - [ ] **Reused parser**: a task that says "reuse the existing parser" has the parser probed on three values from the real corpus, and a padded identifier is read as text (§3l)
 > - [ ] **File paths**: each named destination cross-checked against **the project's own scoped-rules registry** (CLAUDE.md "Force-read when" or equivalent) — if any rule fires, the rule has been read AND either the path was re-picked OR the rule's relevant section inlined into the spawn prompt
 > - [ ] **Cross-sprint codebase symbols** (when EI cites a "Sprint-N already-shipped" handler / service / helper): `grep -rln "{SymbolName}" src/` returns ≥1 match; if zero matches, re-spec the EI section to use the actual API surface OR add a precursor task that produces the symbol
-> - [ ] **BLI cluster recheck** (when triaging a BLI from a currently-IN_PROGRESS originating session OR ≥2 BLIs share `Surfaced by:` + `created:`): two-part driver-recheck per `verify-backlog-citation-freshness.md` §3h.cluster before any fresh routing; cluster-batch close option surfaced when Recovery confirms shared fix
-> - [ ] **Intermittent-observation BLI Phase 1** (when authoring or triaging a BLI with a multi-cell reproducer matrix): coverage-gap analysis enumerates the (axis × value) cells the originating evidence did NOT cover; Phase 1 leads with those cells
-> - [ ] **BLI motivating driver** (triage of items > 1 Sprint old, OR runtime-symptom drivers): symptom keyword grepped in current `src/` code AND in recent `{planwise_root}/{plans_dir}/**/Outputs/` session summaries; if neutralized by intervening work, "Close as CLOSED — driver neutralized" surfaced as an explicit route option before scope-based routing
-> - [ ] **BLI cross-cutting scope** (DIRECT_FIX delegation): if the BLI names additional audit candidates ("Cross-cutting check" / "Cross-cutting consideration" / "Notes" mentioning latent defects in N other files), the fix-agent prompt lists each candidate with a one-line rationale; defect-class signal grepped in the candidate folder before delegation to confirm repo-wide scope
 
 When verification is impractical or the artifact isn't available, mark the citation `(unverified)` in the spec and leave the keyword/positional choice to the implementer.
 
@@ -409,7 +320,7 @@ When verification is impractical or the artifact isn't available, mark the citat
 - Execution Input authoring (`{planwise_root}/{plans_dir}/**/*-Execution-Input.md`).
 - Task spec authoring (`{planwise_root}/{plans_dir}/**/*-S*-*-*.md`) when the task quotes a third-party SDK call, enum member, type name, harness API, or cross-sprint codebase symbol verbatim.
 - Backlog item authoring (`{planwise_root}/{backlog_dir}/BB-*.md`) — the "Files" section is a placement assertion subject to §3g.
-- Main-session triage handler (`/planwise backlog`) — Phase 3 (RESOLVE) MUST (a) cross-check every BLI-named path against the §3g table before generating a fix-agent spawn prompt, (b) re-verify the BLI's motivating driver per `verify-backlog-citation-freshness.md` §3h (including §3h.untested-axes and §3h.cluster) before routing any item whose driver is a runtime symptom or whose `created` date precedes the most recent Sprint by more than one cycle, AND (c) include the BLI's cross-cutting audit candidates per `verify-backlog-citation-freshness.md` §3i in any fix-agent spawn prompt routed to DIRECT_FIX.
+- Main-session triage handler (`/planwise backlog`) — Phase 3 (RESOLVE) MUST cross-check every path a backlog item names against §3g before generating a fix-agent spawn prompt. Its driver and cross-cutting checks live in `verify-backlog-citation-freshness.md` §3h to §3i.
 - Reviewers running `/planwise review` — flag any unsourced identifier OR any file path under a force-read trigger of the consumer project's own scoped rules as a verification target before approving the plan.
 - Fix-task authoring against canonical files **outside the working planwise repo** (sibling vendored repos, gitignored subfolders reached via `additionalDirectories`, out-of-tree package extractions, upstream plugin sources) — see `verify-cross-repo-fix-discipline.md` §7 for the BINDING SOURCE + Execution Step 1 mandate that binds at task-file authoring time, not just plan-author time.
 
