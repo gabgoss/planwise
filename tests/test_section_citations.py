@@ -97,9 +97,9 @@ LEDGERED_PLUGIN = (
     ("references/read-confirm-act-protocol.md", 551, "§1.18"),  # EXAMPLE: quotes a wrong entry in an incident table
     ("references/task-content-fidelity.md", 466, "§3"),  # EXAMPLE: sample status cell citing an example artifact
     ("references/verify-anchor-against-artifact.md", 12, "§9.B"),  # LABEL: names a numbering series, not a pointer
-    ("references/verify-anchor-against-artifact.md", 60, "§1.18"),  # EXAMPLE: incident narrative quoting lifted citations
-    ("references/verify-anchor-against-artifact.md", 60, "§1.22"),  # EXAMPLE: incident narrative quoting lifted citations
-    ("references/verify-anchor-against-artifact.md", 60, "§11.2"),  # EXAMPLE: incident narrative quoting lifted citations
+    ("references/verify-anchor-against-artifact.md", 64, "§1.18"),  # EXAMPLE: incident narrative quoting lifted citations
+    ("references/verify-anchor-against-artifact.md", 64, "§1.22"),  # EXAMPLE: incident narrative quoting lifted citations
+    ("references/verify-anchor-against-artifact.md", 64, "§11.2"),  # EXAMPLE: incident narrative quoting lifted citations
 )
 
 # Reviewed outer findings, keyed the way the checker names an outer file
