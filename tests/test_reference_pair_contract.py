@@ -81,7 +81,6 @@ PAIR_EXEMPTIONS = {
     ("task-content-fidelity.md", "### 9.A.8 Token Saver Large-File Ladder"): 2,  # @ becccfe (2026-10-20)
     ("task-content-fidelity.md", "### 9.A.14 Measure every Required Context row at scaffold close"): 2,  # @ becccfe (2026-10-20)
     ("task-file-and-tracking-requirements.md", "### Task File Template"): 3,  # @ becccfe (2026-10-20)
-    ("verify-before-cite.md", "### 9.B.2 Identifier reconciliation against the live contract"): 2,  # @ becccfe (2026-10-20)
 }
 
 
