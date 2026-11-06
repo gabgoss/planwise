@@ -94,7 +94,7 @@ Available subcommands:
   token-saver on|off|status    Toggle Token Saver mode anytime (--plan to override one plan)
   backlog [item-id] [--loop-resume <run-id>] [--answer] [--refine-max N] [--refine <ids>]  Triage backlog items; capture follow-up BLIs from resolution outputs
                                --loop-resume re-enters a one-item-per-session loop (needs the plugin's hooks module)
-                               --answer asks you each open question an item carries and records your answer
+                               --answer asks you each open question an item carries, with the item's context and the planner's recommendation, and records your answer
                                --refine-max N refines up to N unrefined items in a loop run before they run (default 0)
                                --refine designs the named items through the creation process and stops; it sets no status but an already-met close
   list [--active] [--no-check] List all plans with status
