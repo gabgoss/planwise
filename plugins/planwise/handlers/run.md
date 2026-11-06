@@ -178,7 +178,7 @@ Corollary — when an upstream contract SUPERSEDES an EI-verbatim block, the fla
 > [!binding] Read every repo's status before CONFIRM, and attribute each dirty path
 > Run `git status --porcelain` in every repo the session touches, nested repos included (`git -C <nested repo> status --porcelain`). A dirty path the plan did not write is **foreign** until this session's Files Modified list claims it. Find its owner before dispatch. HALT, revert, and override are remedies for this session's own changes only.
 >
-> Surface a foreign path in the CONFIRM block as a structural finding (Step 1.2a). Options: commit the peer's finished work here after verification, the owner commits it, or dispatch literally and HALT. Committing a peer's work is the user's decision, never the session's. Log the approval as a Scope-Expansion Decisions row. See [read-confirm-act-protocol.md §1.5](../references/read-confirm-act-protocol.md#15-attribute-a-dirty-path-before-choosing-a-remedy) for the verify-stage-commit order.
+> Surface a foreign path in the CONFIRM block as a structural finding (Step 1.2a). Options: commit the peer's finished work here after verification, the owner commits it, or dispatch literally and HALT. Committing a peer's work is the user's decision, never the session's. Log the approval as a Scope-Expansion Decisions row. See [read-confirm-act-protocol.md §1.5](../references/read-confirm-act-protocol.md#15-attribute-a-dirty-path-before-choosing-a-remedy) for the verify-stage-commit order. On a resume, run the resume compare of `references/gate-diff-baseline-pinning.md` §8.6 before the first dispatch. A wanted user edit to an in-scope file adds a per-file base option to the Step 1.2a gate.
 
 ### Step 1.1c: PLUGIN-PATH CURRENCY CHECK
 
@@ -680,6 +680,14 @@ Ask the user: "Were any lessons learned during this session?"
 > Every row in the Recovery file's `Cross-Task Coordination Flags` section MUST be propagated into the downstream consumer's plan file BEFORE the Git Commit step. A flag recorded only in upstream Recovery and never propagated is functionally a dropped constraint. See [references/read-confirm-act-protocol.md §1.3](../references/read-confirm-act-protocol.md#13-cross-task-coordination-flags) for the full lifecycle and destination matrix.
 
 1. Read the Recovery file's `Cross-Task Coordination Flags` section. If the section is empty or absent, skip to Step 4.5.
+
+   Then assert that flag ids are unique. Run this over the Recovery file:
+
+   ```
+   awk -F'|' '/^## /{f=($0 ~ /^## Cross-Task Coordination Flags/)} f && $2 ~ /^ *F?[0-9]+ *$/ {gsub(/[ F]/,"",$2); print $2}' {recovery} | sort | uniq -d
+   ```
+
+   The output MUST be empty. The same pipeline ending in `wc -l` MUST print the table's row count, and that count MUST be non-zero. A duplicate stops the step. Renumber the later-written row to the highest id plus 1, add a Change Log row, and mirror the id in the Summary. Then re-run the check before step 2.
 2. For each flag row, route per the destination table in `references/read-confirm-act-protocol.md` §1.3:
 
    | Downstream Consumer | Propagate To |

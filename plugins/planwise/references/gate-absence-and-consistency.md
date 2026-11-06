@@ -1,14 +1,14 @@
 ---
-description: An absence-grep criterion scrubs its token from every surface including the gate's own prose and legend (§8.1), a consistency check asserts against the right population rather than a conditional set against an observed union (§8.2), and a file that encodes one fact in two representations is updated in both on every mutation and verified against the file (§8.3). A comment-strip pre-filter sees only whole-line comments, so the dialect table says when to reword the prose and when to replace the instrument (§8.4). A phrase-absence criterion counts the joined form (§8.5). A banned form that is a prefix of the correct form needs a window check (§8.6).
-consult-when: Writing a `grep -c TOKEN == 0` criterion, a subset consistency check, or a status flip over a file that states one fact twice — scrub the token everywhere (§8.1), assert against the right population (§8.2), update both representations (§8.3), or a comment-stripped, phrase or prefix-form absence gate — the dialect table (§8.4), the joined form (§8.5), the window check (§8.6)
+description: An absence-grep criterion scrubs its token from every surface including the gate's own prose and legend (§8.1), a consistency check asserts against the right population rather than a conditional set against an observed union (§8.2), and a file that encodes one fact in two representations is updated in both on every mutation and verified against the file (§8.3). A comment-strip pre-filter sees only whole-line comments, so the dialect table says when to reword the prose and when to replace the instrument (§8.4). A phrase-absence criterion counts the joined form (§8.5). A banned form that is a prefix of the correct form needs a window check (§8.6). A strict-absence gate whose expected result is a non-zero constant is broken, so it is repaired to 0 and re-run over its whole cohort (§8.7).
+consult-when: Writing a `grep -c TOKEN == 0` criterion, a subset consistency check, or a status flip over a file that states one fact twice — scrub the token everywhere (§8.1), assert against the right population (§8.2), update both representations (§8.3), or a comment-stripped, phrase or prefix-form absence gate — the dialect table (§8.4), the joined form (§8.5), the window check (§8.6), or a gate whose expected result is a non-zero constant — repair it to 0 and re-run its whole cohort (§8.7)
 paths: {planwise_root}/{plans_dir}/**
 ---
 
 # Gate Absence and Consistency Checks (Scrub, Scope, and Sync)
 
-**Purpose:** Six gate shapes that return a false verdict on a correct artifact: an absence grep that matches its own description, a subset assertion against the wrong population, a parse-side check that never reads the prose copy of the same fact, an absence filter that cannot see a docstring or a trailing comment, a phrase wrapped across lines, and a banned form that is a prefix of the correct form. Split from `verification-task-authoring.md` on 2026-10-08. Section numbers are kept from that reference, so an existing `verification-task-authoring.md §N` citation translates by filename alone. The family index is `verification-task-authoring.md`.
+**Purpose:** Seven gate shapes that return a false verdict on a correct artifact or hide a real violation: an absence grep that matches its own description, a subset assertion against the wrong population, a parse-side check that never reads the prose copy of the same fact, an absence filter that cannot see a docstring or a trailing comment, a phrase wrapped across lines, a banned form that is a prefix of the correct form, and a gate whose expected result has settled at a non-zero number. Split from `verification-task-authoring.md` on 2026-10-08. Section numbers are kept from that reference, so an existing `verification-task-authoring.md §N` citation translates by filename alone. The family index is `verification-task-authoring.md`.
 
-**Read this when** you write a `grep -c TOKEN == 0` criterion, a `conditional ⊆ observed` consistency check, or a status flip over a file that states the same count in a code block and in prose. Read it too when an absence criterion strips comments first, counts a multi-word phrase, or bans a string that the correct form still contains.
+**Read this when** you write a `grep -c TOKEN == 0` criterion, a `conditional ⊆ observed` consistency check, or a status flip over a file that states the same count in a code block and in prose. Read it too when an absence criterion strips comments first, counts a multi-word phrase, bans a string that the correct form still contains, or expects a non-zero count as its pass value.
 
 ## Table of Contents
 
@@ -19,6 +19,7 @@ paths: {planwise_root}/{plans_dir}/**
   - [8.4 A comment-strip pre-filter sees only whole-line comments — reword the prose or replace the instrument](#84-a-comment-strip-pre-filter-sees-only-whole-line-comments--reword-the-prose-or-replace-the-instrument)
   - [8.5 A phrase-absence criterion counts the joined form](#85-a-phrase-absence-criterion-counts-the-joined-form)
   - [8.6 A banned form that is a prefix of the correct form needs a window check](#86-a-banned-form-that-is-a-prefix-of-the-correct-form-needs-a-window-check)
+  - [8.7 A strict-absence gate whose expected result is a non-zero constant fails open](#87-a-strict-absence-gate-whose-expected-result-is-a-non-zero-constant-fails-open)
 
 ---
 
@@ -32,6 +33,8 @@ paths: {planwise_root}/{plans_dir}/**
 > Observed false-FAIL: the criterion's own grep returned 8 against a file with zero unresolved data cells — every hit was the legend, the label, and the criterion's own description.
 
 An absence criterion also false-fails when it counts the artifact that enacts the absence, which must name its target: see [exit-criteria-fidelity.md](exit-criteria-fidelity.md) §16.9.1, "The Enactor Cause — Exclude the Artifact That Enacts the Absence".
+
+The synonym rule governs the token in the gate's own legend, labels and description, where rewording keeps the meaning. A match on correct documentation in the files the gate governs is an instrument defect, see §8.7.
 
 ### 8.2 Assert against the right population
 
@@ -95,6 +98,38 @@ A fix can append a qualifier to a flag, so `--old-flag` becomes `--old-flag --qu
 > [!constraint] Check a window after the banned form, and prove it on two trees
 > Test whether the banned form lacks its qualifier within the next N lines. Skip deliberate WRONG examples. Prove the check against the pre-fix revision, where it returns a non-zero count that you record. Then prove it against the fixed tree, where it returns 0. Use invented sample flags and paths in the brief.
 
+### 8.7 A strict-absence gate whose expected result is a non-zero constant fails open
+
+> [!constraint] A gate whose expected result is a non-zero constant is broken, not noisy
+> A strict-absence gate whose pass value has settled at a familiar non-zero number cannot tell the state it detects from its own baseline. Repair the gate until its pass value is exactly 0. A real violation then moves the count instead of hiding inside it.
+
+Sections 8.1 to 8.6 mostly describe a gate that fails closed. The table below names both failure directions.
+
+| Direction | What the reader sees | How it surfaces |
+|-----------|----------------------|-----------------|
+| Fail-closed | A false FAIL on correct work | Loud: the gate blocks, someone investigates, and the pre-filter gets fixed |
+| Fail-open | The usual non-zero count, returned again | Silent: nothing blocks, and a real violation hides inside the count |
+
+Observed fail-open: a gate searched a set of notebooks for a forbidden import. Three compliance comments that named the forbidden form matched it, so the accepted result became 3. A fourth match was a real import. Nobody investigated it, because a check known to return 3 had returned a familiar number.
+
+- **"The usual number" is not a pass condition.** Write the pass condition as 0. A criterion that expects a non-zero constant is a defect in the criterion.
+- **Run the repaired gate over every file the gate governs.** A repair is complete only after that run, not after the files that prompted the fix pass. The fix is cheap, and what it surfaces may not be.
+- **Never delete or weaken correct prose that trips a blind gate.** A compliance comment that names the forbidden form is correct documentation, and generated artifacts may inherit it. Fix the pre-filter or the scope.
+
+WRONG — accept the familiar count as the baseline and leave the compliance comments to keep tripping it:
+```text
+Grep  pattern='from app\.adapters\.'  path='docs/examples'  glob='*.txt'  output_mode='count'
+-> expect 3   # three comments read "never from app.adapters.*", so 3 is the accepted result
+```
+CORRECT — skip comment lines, expect 0, and run the repaired gate over the whole cohort:
+```text
+Grep  pattern='^[^#]*from app\.adapters\.'  path='docs/examples'  glob='*.txt'  output_mode='count'
+-> expect 0 across all 15 files, and the three compliance comments stay
+# the first run reports 1, a real import in docs/examples/ex_09.txt, which is fixed until the count is 0
+```
+
+Prove the repaired gate in both directions, as [gate-predicate-discrimination.md](gate-predicate-discrimination.md) §9.2 requires. Run it over its real content, as [gate-pinned-from-real-content.md](gate-pinned-from-real-content.md) §11.2 requires. [gate-denominator-integrity.md](gate-denominator-integrity.md) covers the cohort the run must span.
+
 ---
 
-*Cross-references: [gate-pinned-from-real-content.md](gate-pinned-from-real-content.md) §11.5 (a section is counted by a line-anchored heading test, never by substring) · [gate-denominator-integrity.md](gate-denominator-integrity.md) (a prose claim about a grep result is itself grep-visible) · [gate-instrument-proof-obligations.md](gate-instrument-proof-obligations.md) Obligation C (a multi-line code idiom needs a matcher that sees it, and §8.5 covers wrapped prose) · [verification-task-authoring.md](verification-task-authoring.md) (the family index).*
+*Cross-references: [gate-pinned-from-real-content.md](gate-pinned-from-real-content.md) §11.5 (a section is counted by a line-anchored heading test, never by substring) · [gate-denominator-integrity.md](gate-denominator-integrity.md) (a prose claim about a grep result is itself grep-visible) · [gate-instrument-proof-obligations.md](gate-instrument-proof-obligations.md) Obligation C (a multi-line code idiom needs a matcher that sees it, and §8.5 covers wrapped prose) · [gate-predicate-discrimination.md](gate-predicate-discrimination.md) §9.2 (prove a repaired gate in both directions) · [gate-pinned-from-real-content.md](gate-pinned-from-real-content.md) §11.2 (run a gate over its real content) · [verification-task-authoring.md](verification-task-authoring.md) (the family index).*

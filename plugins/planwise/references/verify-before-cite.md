@@ -1,5 +1,5 @@
 ---
-description: Verify-before-cite discipline (lesson IDs, schema files, field names, facade re-exports, upsert helper design, examples-repo version pinning, helper enumeration, field-mapping tables, tiered-fetch tactics, splitting an exemplar comparison into shape rows judged against the exemplar and data rows judged against the live source, tracing each hazard a guard names to a mechanism in code before the guard is retired, stating the signature outcome when a documentation check shows an inherited parameter is unsupported, and checking a brief's claim about an external source's coverage against the probe document it cites) for planwise task files and DELEGATED dispatch prompts
+description: Verify-before-cite discipline (lesson IDs, schema files, field names, facade re-exports, upsert helper design, examples-repo version pinning, helper enumeration, field-mapping tables, tiered-fetch tactics, splitting an exemplar comparison into shape rows judged against the exemplar and data rows judged against the live source, tracing each hazard a guard names to a mechanism in code before the guard is retired, stating the signature outcome when a documentation check shows an inherited parameter is unsupported, checking a brief's claim about an external source's coverage against the probe document it cites, and measuring each numeric literal, count anchor and justifying inequality in Execution Steps and Notes on its quoted command) for planwise task files and DELEGATED dispatch prompts
 consult-when: A task brief cites a lesson ID, schema file, or field name — open and skim it before citing, split an exemplar comparison into shape rows and data rows, trace each hazard before retiring a guard, state the signature outcome when a documentation check shows an inherited parameter is unsupported, check a brief's claim about an external source's coverage against the probe document it cites
 ---
 
@@ -592,6 +592,45 @@ Fix: State one outcome, either remove "{parameter}" from the signature spec or r
 3. **Reconcile every sentence about the source.** When the brief and the document disagree, the document wins until a fresh probe says otherwise. Correct the brief at its source.
 4. **Pair the claim with a criterion that names every cell.** A criterion over the source's listing follows [gate-anchor-outcome-set.md](gate-anchor-outcome-set.md) §10.12.
 
+### 9.B.28 Every numeric literal in a brief is measured on its quoted command, or tagged UNVERIFIED
+
+> [!constraint] A number or a comparison in Execution Steps or Notes is a claim. Measure it on the command the brief quotes
+> §9.B.1 and §9.B.25 verify names and citations. A brief also carries numbers: doctest values, tolerances, expected counts, count anchors, and inequalities that justify a type, width, precision or range. A design record supplies many of them and nobody runs them. A runner that discovers one wrong then owns a design decision the brief never gave it.
+>
+> WRONG — carry the design record's figures and arithmetic into the brief unrun:
+> ```text
+> Step: doctest round(p["home"] + p["away"], 10) -> 1.0, test tolerance 1e-12   # the grid truncates at 10 goals, the sum is 0.99965
+> Verify: pytest tests/adapters -q, baseline 20 passed, expect 39 passed         # the directory holds 269 cases, the author counted two modules
+> Note: BIGINT is needed because 2025030416 exceeds the INT ceiling 2147483647   # false, 2025030416 is below 2147483647
+> ```
+> CORRECT — run each literal on its quoted command and write the reading beside it:
+> ```text
+> Step: doctest value 0.99965 (measured on the quoted call, {date}). The grid truncates, so renormalise the split or waive the identity in writing
+> Verify: pytest tests/adapters -q -> baseline 20 passed, 269 collected ({date}). Expect 269 passed
+> Note: python -c "print(2025030416 > 2147483647)" -> False. BIGINT is kept for head-room
+> ```
+
+1. **Measure each literal on the exact command quoted.** One execution at scaffold time is enough. A literal with no reading carries `UNVERIFIED — {source}, {date}`. A figure measured on a different command counts as unmeasured.
+2. **Re-execute every inequality that justifies a type, width, precision or range.** The probe record's numbers are measured. The comparison between them is authored and fails at the rate of any prose. A false reason does not reverse a right decision, so fix the sentence and keep the type.
+3. **Treat a truncation-sensitive identity as a design decision.** A sum-to-one over a cut-off series either renormalises or is waived in writing. A tolerance chosen to make the test pass does neither.
+4. **Name what a count anchor counted.** Name the exact modules, or quote a dated measurement of the quoted directory command with its baseline and its delta.
+5. **Assert the property the code must have, not the document's derivation of it.** A test checks that the column kind is `bigint` and that a value above the ceiling binds. It does not copy the brief's arithmetic.
+6. **Route a correction, never absorb it.** A literal that only parameterises a check runs with the measured value and a `FLAG:` bullet naming the literal, the value and the command. A literal that encodes a design property is a `BRIEF COLLISION`. The task runner never widens a tolerance or re-pins a doctest alone. The rule sits in the task runner's "Decisions Beyond Your Brief" section.
+7. **Run each count anchor's Before command once at review.** The review discovery pass executes it, limited to read-only command classes. It lists any other command as unmeasured. The plan reviewer compares the literal with the executed value.
+
+#### Reviewer Check 128 — Numeric Literal Unmeasured, or Count Anchor Disagrees With Its Before Command
+
+- **Severity / Role / Type:** ERROR | Verification-Gate Reviewer | NEW
+- **What:** A numeric literal in Execution Steps or Notes MUST carry a reading from the command the brief quotes, or an `UNVERIFIED — {source}, {date}` tag. A count anchor MUST equal the review discovery fact sheet's executed value for the same Before command.
+- **Detection:** Compare each count anchor with the fact sheet's `count_anchor` row for the same command. A mismatch is an ERROR. Read each doctest value, tolerance, expected count and type-justifying inequality for a measured reading or an UNVERIFIED tag with source and date. A literal with neither is a WARNING, and an inequality that evaluates false is an ERROR. A command the fact sheet lists as unmeasured is a WARNING, never a pass.
+- **Finding template:**
+```
+[ERROR] Numeric literal disagrees with its quoted command
+File: {task file path} | Location: {Execution Step, Verification Command or Notes for Agent line}
+Issue: The brief states {literal} for `{command}`, but the review discovery fact sheet executed that command and measured {value}
+Fix: Replace the literal with the measured value and its date, or tag it UNVERIFIED with source and date, per references/verify-before-cite.md §9.B.28 | Confidence: HIGH
+```
+
 ---
 
 ## Plan-Review Enforcement Summary (Verify-Before-Cite)
@@ -610,6 +649,7 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 | 8 | Planner-authored citation not opened in the named file | A task cites a test, symbol, quoted code line or rule-file size taken from a planner or an audit, and the row records no reading from the named file (a symbol found only in a sibling file, or a size not freshly measured) | §9.B.25 |
 | 9 | Documentation check on an inherited parameter states no signature outcome | A brief sends an inherited parameter only when the endpoint document lists it, records `False` or `None` otherwise, and neither removes the parameter from the signature spec nor raises on a non-default value | §9.B.26 |
 | 10 | Coverage claim about an external source not checked against the probe document | A brief states a date, a coverage window or a "may return nothing" caveat for an external source, and its row quotes no rule from the probe document the brief cites | §9.B.27 |
+| 11 | Numeric literal unmeasured, or count anchor disagrees with its Before command | A brief states a doctest value, tolerance, expected count, count anchor or type-justifying inequality with no reading from its quoted command and no UNVERIFIED tag, or a count anchor differs from the executed value | §9.B.28 |
 
 ---
 

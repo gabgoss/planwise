@@ -225,6 +225,8 @@ This is worse than a missing gate. A missing gate is visible in review; a gate t
 > git diff --name-only $BASE -- <scope> | wc -l     # must equal the expected file count
 > ```
 >
+> The second line lists tracked paths only, because `git diff <commit>` never shows a never-staged file. For a scope or count gate, use the registration-free union form instead of `git add -N`: `{ git diff --name-only $BASE -- <scope>; git ls-files --others --exclude-standard -- <scope>; } | sort -u | wc -l`. It lists new files with no index change (`gate-diff-baseline-pinning.md` §8.5).
+>
 > **3. Add one unfiltered sweep for pre-existing content.** `^\+`-filtered gates correctly answer "did this change introduce X"; they cannot answer "does X exist". A whole-tree audit or release battery needs a sweep over files **on disk**, not over a diff — and it must **classify** hits rather than blanket-fail, since legitimate template placeholders and rule text that enumerates the forbidden forms will match. Widening a pattern without widening the classification step converts a silent miss into a noisy blanket-fail, which gets ignored just as fast.
 >
 > **4. Dry-run every gate, and every selection pattern a task's scope depends on, against known-bad input before trusting it** (`gate-input-set-and-compared-window.md` §14). Run it once against a file that genuinely carries the pattern and once against a clean file; the two runs MUST produce different results. Each of the three defects above would have surfaced in one such run. A gate that has only ever been run against clean input has never been shown to discriminate.
@@ -336,11 +338,11 @@ This is worse than a missing gate. A missing gate is visible in review; a gate t
 #### Reviewer Check 074 — Diff-Derived Gate Without Input-Set Assertion
 
 - **Severity / Role / Type:** ERROR | Task Reviewer | NEW
-- **What:** A task verification gate whose input comes from a change set — `git diff`, a changelog, a CI touched-files list, a migration delta — MUST carry BOTH an untracked-file registration step (`git add -N`) and an input-set assertion proving the diff actually covered the intended files. Without them the gate returns the same empty result whether it inspected everything or nothing, and every downstream reader consumes that empty result as evidence of cleanliness. The defect is worst on tasks that CREATE files: `git diff` does not report untracked paths at all, so a gate over a newly-authored file inspects zero bytes and reports PASS.
+- **What:** A task verification gate whose input comes from a change set — `git diff`, a changelog, a CI touched-files list, a migration delta — MUST carry BOTH an untracked-file registration step (`git add -N`, or the union form of `gate-diff-baseline-pinning.md` §8.5) and an input-set assertion proving the diff actually covered the intended files. Without them the gate returns the same empty result whether it inspected everything or nothing, and every downstream reader consumes that empty result as evidence of cleanliness. The defect is worst on tasks that CREATE files: `git diff` does not report untracked paths at all, so a gate over a newly-authored file inspects zero bytes and reports PASS.
 - **Detection:**
   1. Identify every Success Criterion / verification step whose command pipes a change set into a matcher (`git diff … | grep`, `git diff --name-only`, a touched-files list).
-  2. For each, check whether the task's Execution Steps also register untracked files (`git add -N`) before the gate runs. Absent, on a task whose deliverables include NEW files → ERROR.
-  3. Check for an input-set assertion (`git status --porcelain <scope> | grep -c '^??'` expecting 0, and/or `git diff --name-only $BASE -- <scope> | wc -l` compared against an expected file count). Absent → ERROR.
+  2. For each, check whether the task's Execution Steps also register untracked files (`git add -N`) before the gate runs, or the gate joins `git ls-files --others --exclude-standard`. Absent, on a task whose deliverables include NEW files → ERROR.
+  3. Check for an input-set assertion (`git status --porcelain <scope> | grep -c '^??'` expecting 0, and/or the union form `{ git diff --name-only $BASE -- <scope>; git ls-files --others --exclude-standard -- <scope>; } | sort -u | wc -l` compared against an expected file count). Absent → ERROR.
   4. If the task is a whole-tree audit or release battery, also require one unfiltered on-disk sweep — a `^\+`-filtered gate cannot answer "does X exist", only "did this change introduce X". Absent on an audit-scoped task → ERROR.
   5. Inspect the matcher pattern against the forms it must catch. A pattern matching only the hyphen-digit citation spelling of an identifier while the leak also appears glued into file names → ERROR (too narrow to discriminate).
 - **Finding template:**
@@ -348,7 +350,7 @@ This is worse than a missing gate. A missing gate is visible in review; a gate t
 [ERROR] Diff-derived gate without input-set assertion
 File: {task file path} | Location: Success Criteria / verification step {n}
 Issue: Gate derives input from {git diff | change set} with no {git add -N registration | input-set assertion | unfiltered sweep}; task authors {N} new file(s) whose content never enters the pipeline — empty result is unfalsifiable
-Fix: Add `git add -N` for each new file, assert `git status --porcelain <scope> | grep -c '^??'` == 0 and `git diff --name-only $BASE -- <scope> | wc -l` == expected count, and dry-run the gate against known-bad input per references/measurement-discipline.md §8.7 | Confidence: HIGH
+Fix: Add `git add -N` for each new file, or join `git ls-files --others --exclude-standard -- <scope>` to the diff listing. Assert `git status --porcelain <scope> | grep -c '^??'` == 0 and the union listing's `wc -l` == expected count, and dry-run the gate against known-bad input per references/measurement-discipline.md §8.7 | Confidence: HIGH
 ```
 
 #### Reviewer Check 075 — Size Gate Without Content-Conservation Gate

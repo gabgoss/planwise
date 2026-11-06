@@ -161,6 +161,7 @@ A file named in a task's `Output:` line is **owned by that runner** from the mom
 | **Verify by reading; delegate the re-run** | If a mutating check is genuinely required — a notebook must actually execute to prove it works — `SendMessage` the owner to re-run it and report the result. Do not run it yourself in parallel. |
 | **Any measurement taken inside the window is void** | Re-take it after the runner reports and the file has settled. Do not average, reconcile, or reason about the intermediate readings; they are not data. |
 | **Task briefs name the owner of every verification command** | An unattributed `{build-cmd}` or in-place executor in a brief is an invitation for the runner AND the orchestrator to run it. |
+| **Paths outside `Output:` are not the runner's** | The §1.4 subtraction step in `agent-orchestration-delegated.md` classifies a dirty path outside the runner's `Output:` line. Never attribute it to the runner, and never revert it from the orchestrator. |
 
 Highest-risk shapes: notebooks and any artifact where **execution is the verification**, and high-fanout batches where several runners hold adjacent files.
 
@@ -513,6 +514,25 @@ In the measured incident this is what held the line — the duplicate compared i
 
 > [!practice] A toolchain that updates mid-run splits a measurement set silently
 > An auto-updating CLI can upgrade itself between dispatches, or during one. For a campaign treating measurements as per-build facts, an update landing between repetitions splits a rep set across two builds with nothing surfacing an error. The same event also produces a long quiet window that is easy to misread as a dead runner. Pin or record the build at session start, and re-record it at close; a measurement set that spans two builds is reported as two sets.
+
+### 1.30.1 A run journal with `started` and no `result` is in progress
+
+A background workflow journal records a `result` line as each agent settles. A batch spawned together logs all its `started` lines up front. A started-only journal therefore reads the same for a live run and a dead one. An agent transcript that ends on an unanswered `user` message is a turn in flight, not a death.
+
+Wait for the completion notification, or check the run's live task status. To prove a stall, run the two-sample transcript-growth check above. Relaunch only after death is established. Stop the prior run first, then resume it by its run id with `resumeFromRunId`. Never start a fresh duplicate. If the harness refuses the resume, start a new run only after the prior one is stopped.
+
+> [!constraint] A started-only journal after a context compaction is not a dead run
+> WRONG — the journal is read as a death certificate, and a duplicate starts:
+> ```
+> compaction -> journal shows N `started` lines, no `result` -> "run is dead" -> launch a duplicate
+> -> the original finishes later: two writers on one target, double spend
+> ```
+> CORRECT — the run stays in progress until death is proven, and the relaunch is a resume:
+> ```
+> compaction -> journal shows `started` lines, no `result` -> in progress
+> -> wait for the notification, or check live task status
+> -> two-sample transcript-growth check shows no growth -> stop the prior run -> resume it by run id
+> ```
 
 ## 1.31 A Shared Precondition Belongs to the Orchestrator
 

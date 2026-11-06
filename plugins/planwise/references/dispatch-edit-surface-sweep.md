@@ -1,13 +1,13 @@
 ---
-description: The Grep is the enumeration — a brief that changes a value bound to many sites instructs a sweep, not a patch, and the half a structure map misses is the half that fails quietly. Covers site-named versus sweep-framed briefs, the zero-site defect, metadata surfaces, spelled-out counts, renumbering at every heading level plus the in-prose pointers, the renumbering gate's true expected count, operative sites versus prose sites when applying an upstream change in place, why a half-applied edit is worse than a notice, why an audit-then-repair inventory is a class query and not a list of named sites, how to seed a stale-reference sweep with what the moving task saw, why moving a source of truth invalidates every reader of the old one, and why retiring a writer does not retire the reader's legacy input. Consult while writing a brief that changes a count, a section number, a selector or an enum member, while renumbering, while reading a flag that says an upstream change was applied, while writing a repair inventory, while briefing a sweep after a text move, while planning a change that makes a stored value derived, and before deleting a reader because no producer writes its input any more.
-consult-when: Writing a brief that changes a count, section number, selector or enum member bound to many sites, renumbering headings, or checking a flag that says an upstream change was applied in place — instruct a sweep not a patch, map every heading level then hunt the in-prose section pointers, write the gate's true expected count, enumerate operative sites not prose sites, query the defect class in a repair inventory, seed a stale-reference sweep with what the mover saw, and sweep every reader of the old source when a change moves a source of truth, and a retired writer does not retire the reader's legacy input
+description: The Grep is the enumeration — a brief that changes a value bound to many sites instructs a sweep, not a patch, and the half a structure map misses is the half that fails quietly. Covers site-named versus sweep-framed briefs, the zero-site defect, metadata surfaces, spelled-out counts, renumbering at every heading level plus the in-prose pointers, the renumbering gate's true expected count, operative sites versus prose sites when applying an upstream change in place, why a half-applied edit is worse than a notice, why an audit-then-repair inventory is a class query and not a list of named sites, how to seed a stale-reference sweep with what the moving task saw, why moving a source of truth invalidates every reader of the old one, and why retiring a writer does not retire the reader's legacy input. Consult while writing a brief that changes a count, a section number, a selector or an enum member, while renumbering, while reading a flag that says an upstream change was applied, while writing a repair inventory, while briefing a sweep after a text move, while planning a change that makes a stored value derived, before deleting a reader because no producer writes its input any more, and while correcting a state assertion that another file may restate.
+consult-when: Writing a brief that changes a count, section number, selector or enum member bound to many sites, renumbering headings, or checking a flag that says an upstream change was applied in place — instruct a sweep not a patch, map every heading level then hunt the in-prose section pointers, write the gate's true expected count, enumerate operative sites not prose sites, query the defect class in a repair inventory, seed a stale-reference sweep with what the mover saw, and sweep every reader of the old source when a change moves a source of truth, a retired writer does not retire the reader's legacy input, and a correction to a state assertion that another file may restate sweeps the wider tree for the claim's shape
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Edit Surface Sweep — The Grep Is the Enumeration: Instruct a Sweep, Not a Patch
 
 **Purpose:** An edit brief that changes a value bound to many sites — a count, a section number, an enum member — is written by an author who maps the artifact the way they *think* about it. A count is thought of as living in one sentence; a section number as living in a heading; a partition key as living in the criterion that names it. In every case the artifact carried more referents than the mental model did, and the brief bounded the runner's search set to the ones the author happened to see.
 
-**Read this when** you are writing a brief that changes a count, a section number, a selector or an enum member; when you are renumbering headings; when you are applying an upstream change in place; when you are reading a flag that asserts such an edit was applied; when you are writing an audit-then-repair inventory; when you are briefing a stale-reference sweep after text moved; and when a change moves a source of truth.
+**Read this when** you are writing a brief that changes a count, a section number, a selector or an enum member; when you are renumbering headings; when you are applying an upstream change in place; when you are reading a flag that asserts such an edit was applied; when you are writing an audit-then-repair inventory; when you are briefing a stale-reference sweep after text moved; when a change moves a source of truth; and when you correct a state assertion that another file may restate.
 
 The two halves of such a surface are not equally visible, and **the invisible half is the one that fails quietly.** A stale *heading* is self-announcing — a reader sees `## 5.` above `### 4.A` and knows something is wrong. A stale *pointer* reads as a perfectly ordinary instruction and lands nowhere, or worse, on a renumbered section that now means something else. A partially applied edit is worse still: the file reads as updated, which invites nobody to check it.
 
@@ -30,6 +30,8 @@ Three neighbouring rules own machinery this file builds on. [`scaffolding-hygien
 - [11. Seed a Stale-Reference Sweep With What the Mover Saw](#11-seed-a-stale-reference-sweep-with-what-the-mover-saw)
 - [12. Moving a Source of Truth Invalidates Every Reader of the Old One](#12-moving-a-source-of-truth-invalidates-every-reader-of-the-old-one)
 - [13. Retiring a Writer Does Not Retire the Reader's Legacy Input](#13-retiring-a-writer-does-not-retire-the-readers-legacy-input)
+- [14. A Correction to a Duplicated State Assertion Sweeps the Wider Tree](#14-a-correction-to-a-duplicated-state-assertion-sweeps-the-wider-tree)
+  - [14.1 Plan-Review Detection](#141-plan-review-detection)
 
 ---
 
@@ -334,4 +336,52 @@ A code review before commit found the consumer this removed. A project upgrading
 
 ---
 
-*Cross-reference: [`scaffolding-hygiene.md`](scaffolding-hygiene.md) §12.4 (whole-document count sweep keyed on claim shape) · [`scaffolding-hygiene-Part-2-DerivationAndParallelism.md`](scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §13.4 (the four-pass roster-change sweep, both registers) · [`gate-positive-and-mutation-controls.md`](gate-positive-and-mutation-controls.md) §3 (the correct-post-state arm) · [`gate-artifact-over-instrument.md`](gate-artifact-over-instrument.md) §11 (an annotation never constrains correct work) · [`gate-anchor-outcome-set.md`](gate-anchor-outcome-set.md) §10.7 · [`measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md`](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md) §8.8 A, D · [`dispatch-boundary-evidence.md`](dispatch-boundary-evidence.md) §5 (a flag the sender says it delivered is a claim — the same re-derive-at-the-receiver rule for arrival rather than content)*
+## 14. A Correction to a Duplicated State Assertion Sweeps the Wider Tree
+
+> [!constraint] A correction is not complete until every other restatement of the claim is found and either corrected or classified
+> A task that corrects a state assertion known or suspected to be restated elsewhere runs a restatement search over the wider tree. The assertion may be a cross-reference table row that describes another file, an index note, or a companion file's self-description. After a partial correction, two documents disagree about one fact. The corrected copy looks fixed to a reviewer who checks only the task's declared scope.
+
+[`scaffolding-hygiene.md`](scaffolding-hygiene.md) §12.4 sweeps one document for a refreshed count. This section covers the other files in the tree.
+
+- **Key the search on the claim's shape, never on the stale value.** Use the subject identifiers plus the predicate noun, for example `{X}.*keeps.*{Y}|{Y}.*{X}`. For a companion file's self-description, use that file's own header and frontmatter range pattern.
+- **Name every hit.** Correct it or classify it. Report "N found, N corrected".
+- **Exempt dated historical records by class.** Archived items, signoffs, recovery and run logs, lesson bodies and changelogs record a past state. List them as exempt and leave them unedited.
+- **A correcting task with no wider-tree search step is incomplete.** That holds even when no sibling copy exists today.
+
+Two reported shapes show the failure. A task corrected a table row that gives a sibling file's section range. The sibling file's own header carried the same range and kept the old value. Another task corrected a claim that one item keeps a second item open, in the second item's file. An index file kept the old claim.
+
+```
+WRONG — the task edits the files it names and stops:
+  xref.md      row corrected to "sibling.md covers §1–§14"
+  item-Y.md    line corrected to "Y is no longer kept open by X"
+  (sibling.md still reads "This file carries §1–§12" and index.md still reads "X keeps Y open")
+
+CORRECT — the task searches the wider tree for the claim's shape before it closes:
+  Grep  pattern='§1–§1[0-9]'   path=<tree>    → sibling.md header, corrected
+  Grep  pattern='X.*keeps.*Y'     path=<tree>    → index.md note, corrected
+  Report: "2 found, 2 corrected"
+```
+
+### 14.1 Plan-Review Detection
+
+#### Reviewer Check 129 — Correction Leaves an Uncorrected Sibling Copy
+
+- **Severity / Role / Type:** ERROR when a live copy of the old claim survives outside every task's Output; WARNING when a correcting task has no wider-tree search step | Task Reviewer | NEW
+- **What:** A task that corrects, reconciles or supersedes a state assertion MUST sweep the wider tree for other restatements of it. A surviving copy contradicts the corrected one and reads as current.
+- **Detection:**
+  1. List each task whose steps correct, reconcile or supersede a state assertion.
+  2. Build the shape key for each assertion from its subject identifiers and predicate noun.
+  3. Search the project tree for the key. Skip the exempt classes named above.
+  4. A live hit outside every task's Output that states the old value is an ERROR. Name the file and line.
+  5. A correcting task with no wider-tree search step is a WARNING, even when no sibling copy exists today.
+- **Finding template:**
+```
+[ERROR] Correction leaves an uncorrected sibling copy
+File: {sibling file path} | Location: {line}
+Issue: Task {task id} corrects "{claim}" in {corrected file}, and this file still states the old value
+Fix: Correct this copy or classify it as a dated record, and add a wider-tree search step to the task, per references/dispatch-edit-surface-sweep.md §14 | Confidence: HIGH
+```
+
+---
+
+*Cross-reference: [`scaffolding-hygiene.md`](scaffolding-hygiene.md) §12.4 (whole-document count sweep keyed on claim shape; this file's §14 covers the other files in the tree) · [`scaffolding-hygiene-Part-2-DerivationAndParallelism.md`](scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §13.4 (the four-pass roster-change sweep, both registers) · [`gate-positive-and-mutation-controls.md`](gate-positive-and-mutation-controls.md) §3 (the correct-post-state arm) · [`gate-artifact-over-instrument.md`](gate-artifact-over-instrument.md) §11 (an annotation never constrains correct work) · [`gate-anchor-outcome-set.md`](gate-anchor-outcome-set.md) §10.7 · [`measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md`](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md) §8.8 A, D · [`dispatch-boundary-evidence.md`](dispatch-boundary-evidence.md) §5 (a flag the sender says it delivered is a claim — the same re-derive-at-the-receiver rule for arrival rather than content)*

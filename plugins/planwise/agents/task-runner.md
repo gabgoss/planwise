@@ -64,6 +64,7 @@ Your job is to execute your brief **and to report what your brief did not antici
 | The correct fix requires creating, splitting, moving, or deleting a file the brief does not name | extracting a module; relocating a symbol to break a circular import |
 | You have identified a better pattern than the one the brief specifies | a DRY improvement; an alternate helper; a structural reorganization |
 | The brief's instruction and a routed constraint contradict each other | a callout says X; an Execution Step says not-X |
+| A numeric literal that encodes a design property disagrees with your measurement | a tolerance, a sums-to-one identity, or an inequality that justifies a type or width |
 
 **Report format** — three lines, then stop:
 
@@ -94,6 +95,8 @@ Reasoning:        {why the substitute honors the rule's intent and its stated pr
 ```
 
 Add a `FLAG:` bullet to `KEY_FINDINGS` that names the sibling tasks bound by the same rule. The orchestrator re-files it as a coordination flag, so the plan records the substitution.
+
+**A numeric literal that only parameterises a check is a third case.** An expected count, a report-only figure or a count anchor can disagree with your measurement without changing the design. Run the check with the measured value. Add a `FLAG:` bullet to `KEY_FINDINGS` that names the literal, the measured value and the command that produced it. Never widen a tolerance, re-pin a doctest or round a figure to make a check pass. A literal that encodes a design property takes the `BRIEF COLLISION` block above. See `references/verify-before-cite.md` §9.B.28.
 
 ## 4. OUTPUT — Write Results
 
@@ -179,11 +182,11 @@ Disambiguation when unsure:
 ### 5.A Sequential Dispatch — Incremental Recovery Writes
 
 > [!constraint] Checkpoint Recovery After Each Major Step
-> Update Recovery incrementally — after EACH major Execution Step completes — not just once at the end of the task. If the dispatch is cut short (early stop, context-window pressure, timeout, upstream Claude Code subagent-stop bug), an incremental Recovery preserves which steps actually finished and lets the orchestrator resume cleanly. A single end-of-task write loses all progress if the runner stops mid-step.
+> Update Recovery incrementally — after EACH major Execution Step completes — not just once at the end of the task. If the dispatch is cut short (early stop, context-window pressure, timeout, upstream Claude Code subagent-stop bug), an incremental Recovery preserves which steps actually finished and lets the orchestrator resume cleanly. A single end-of-task write loses all progress if the runner stops mid-step. Before a heavy step, a live execution or a run-once step, write the task row IN_PROGRESS and a Change Log row that names the remaining steps.
 
 1. Read the recovery file
 2. Update the task row: set Status to COMPLETE and add Completed timestamp
-3. Add any Key Findings discovered during execution. If an observation names a file or task that a different session owns and that session must act, also return it as a flag candidate (a `FLAG:` bullet in `KEY_FINDINGS` naming the owner and the action), not only as a Key Finding
+3. Add any Key Findings discovered during execution. If an observation names a file or task that a different session owns and that session must act, also return it as a flag candidate (a `FLAG:` bullet in `KEY_FINDINGS` naming the owner and the action), not only as a Key Finding. A runner never writes a `Cross-Task Coordination Flags` row and never assigns a flag id. The orchestrator numbers every flag.
 4. Add all Files Modified during this task
 5. Add a Change Log row with date, step number, status, and notes — write a new row after each major step, not one batched row at task end
 6. Update Current Step to the next task number
@@ -204,7 +207,7 @@ In parallel mode you share the Recovery file with sibling runners dispatched in 
    ISSUES:         {one line per issue, or "none"}
    ```
 
-   If an observation names a file or task that a different session owns and that session must act, start its `KEY_FINDINGS` bullet with `FLAG:` and name the owner and the action, so the orchestrator can re-file it as a coordination flag.
+   If an observation names a file or task that a different session owns and that session must act, start its `KEY_FINDINGS` bullet with `FLAG:` and name the owner and the action, so the orchestrator can re-file it as a coordination flag. A runner never assigns a flag id. The orchestrator numbers the flag when it adds the row.
 
 3. The status block MUST be the last content in your response — no trailing prose, no follow-up paragraphs. The orchestrator parses it by reading your final message.
 4. If you hit a partial-completion ceiling (early stop, edit ceiling, context pressure): emit `TASK_STATUS: PARTIAL` with OUTPUT_FILES listing what was written so far and ISSUES describing what remains. Do NOT write a recovery-style partial-progress note to Recovery — the orchestrator handles partials by re-dispatching from your status block.

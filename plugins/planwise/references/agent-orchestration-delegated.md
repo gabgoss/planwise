@@ -32,7 +32,7 @@ Part 2 carries dispatch mechanics and what happens after a runner returns. Part 
 - [1.9 Tier-Rank Fixes by Invasiveness](#19-tier-rank-fixes-by-invasiveness)
 - [1.10 Forward-Looking-Verb Detection + SendMessage Resume Protocol](#110-forward-looking-verb-detection--sendmessage-resume-protocol)
 - [1.11 Operational-Ceiling Disclaimers in Spawn Prompts](#111-operational-ceiling-disclaimers-in-spawn-prompts)
-- [1.12 N>25 Edit-Task Resume Protocol with Tool-Use Budget Estimation](#112-n25-edit-task-resume-protocol-with-tool-use-budget-estimation)
+- [1.12 N>25 Edit-Task and Turn-Cap Resume Protocol with Tool-Use Budget Estimation](#112-n25-edit-task-and-turn-cap-resume-protocol-with-tool-use-budget-estimation)
 - [1.13 Shared-Edit-Target Strategy Matrix](#113-shared-edit-target-strategy-matrix)
 
 **Continued in Part 2** (§1.14–§1.22) and **Part 3** (§1.23–§1.32) — see the pointer table above.
@@ -192,6 +192,15 @@ When DELEGATED dispatches modify shared files (e.g., a shared algorithm module o
 **Orchestrator output-size verification:**
 
 After each dispatch that produces output files, the orchestrator MUST run `measure_files.py` on every output file and compare against the Expected Output token budget declared in the task file. Deviations >20% from the declared budget are a signal to review before proceeding to the next dispatch.
+
+**Foreign-dirt classification:**
+
+After each dispatch, the orchestrator runs `git -C <repo> status --porcelain` and subtracts the runner's declared `OUTPUT_FILES`. It classifies every remaining path:
+
+- **The remainder intersects the plan's write-set:** HALT. Surface the path before the next dispatch.
+- **The remainder is disjoint:** add a Recovery Issues row. Write path-scoped anchors into the downstream task files, with the measured numbers inline.
+
+Later spawn prompts say that an import error from a foreign module mid-edit is retried, not fixed. `references/harness-instrument-integrity.md` §3 explains why attribution outranks count. `handlers/run.md` Step 1.1b is the session-start counterpart.
 
 > [!constraint] Inter-Dispatch Diagnostic Check
 > WRONG — orchestrator dispatches all tasks in sequence without diagnostics between:
@@ -379,28 +388,36 @@ SendMessage(
 
 ## 1.11 Operational-Ceiling Disclaimers in Spawn Prompts
 
-Spawn prompts for tasks approaching operational ceilings (>25 file edits, >30 HTTP probes, >100K expected context) MUST include an operational ceiling disclaimer:
+Spawn prompts for tasks approaching operational ceilings (>25 file edits, >30 HTTP probes, >100K expected context, an estimated task size above about 80K tokens, or more than about eight verification commands) MUST include an operational ceiling disclaimer. This notice is the one turn-budget template for every dispatch. The harness caps a runner by turns, so the notice names the turn limit and the turn-economy rules:
 
 ```markdown
 ## Operational Ceiling Notice
 This task approaches operational ceilings:
 - **Edit ceiling:** ~{N} file edits expected (ceiling: 25 per dispatch)
 - **Context ceiling:** ~{X}K expected context load
+- **Turn ceiling:** ~{T} tool calls expected; harness limit {maxTurns} turns (for example 50 for task-runner)
+Turn economy:
+- Batch independent shell commands into one call.
+- Edit each notebook with one script, not one call per cell.
+- Read a large file with Grep or offset/limit, not in full pages.
+- Before a heavy step, a live execution or a run-once step, write the checkpoint. Sequential mode: set the task's Recovery row IN_PROGRESS and add a Change Log row naming the remaining steps. Parallel mode: write the pre-step evidence file only and do not touch Recovery (§1.13).
 If you reach a ceiling before completing all steps, STOP, write a partial output file documenting
 what was completed and what remains, then signal completion via your final response.
 ```
 
-## 1.12 N>25 Edit-Task Resume Protocol with Tool-Use Budget Estimation
+The block costs about 80 tokens per dispatch. The 80K-token and eight-command thresholds come from two sessions. They are observations, not fitted limits.
 
-When a task requires >25 file edits and cannot be split further, use the N>25 Edit-Task Resume Protocol:
+## 1.12 N>25 Edit-Task and Turn-Cap Resume Protocol with Tool-Use Budget Estimation
 
-1. Estimate tool-use budget: `({N} edits × 2 tool calls/edit) + {M} reads + {K} overhead = {total} tool calls`
-2. Declare the estimate in the spawn prompt under Operational Ceiling Notice
+When a task requires >25 file edits, an estimated task size above about 80K tokens, or more than about eight verification commands, and cannot be split further, use the N>25 Edit-Task Resume Protocol. The edit count alone under-covers the harness turn cap, because reads, scripts and verification runs spend turns too:
+
+1. Estimate tool-use budget: `({N} edits × 2 tool calls/edit) + {M} reads + {V} verification commands + {K} overhead = {total} tool calls`, then compare the total with the dispatch's turn limit
+2. Declare the estimate in the spawn prompt under Operational Ceiling Notice, on its turn-ceiling line
 3. After dispatch, if subagent reports incomplete: spawn continuation dispatch with "Resume from file {N+1}" instruction
 4. Cap continuation dispatches at 3; if still incomplete after 3 dispatches, escalate to orchestrator for redesign
 
 > [!practice] Tool-Use Budget Estimation for Edit-Heavy Tasks
-> Before dispatching >25-edit tasks, estimate: `(edits × 2) + reads + overhead`. If total exceeds 80% of model tool-budget ceiling, split the task. Example: 30 edits = 60 edit calls + 20 reads + 10 overhead = 90 tool calls — review against model ceiling before dispatching.
+> Before dispatching >25-edit tasks, estimate: `(edits × 2) + reads + verification commands + overhead`. If the total exceeds 80% of the dispatch's turn limit or of the model tool-budget ceiling, split the task at a natural seam (`session-context-budget.md` § Task Sizing Categories). Example: 30 edits = 60 edit calls + 20 reads + 6 verification commands + 10 overhead = 96 tool calls — review against the turn limit before dispatching.
 
 ## 1.13 Shared-Edit-Target Strategy Matrix
 

@@ -14,6 +14,7 @@ Run with:  python -m pytest -q tests/test_check_section_citations.py
 """
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -24,6 +25,7 @@ SCRIPTS = Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scr
 sys.path.insert(0, str(SCRIPTS))
 
 import check_section_citations as csc
+from markdown_parser import extract_headings, numbered_heading_index
 
 SCRIPT = SCRIPTS / "check_section_citations.py"
 PROG = "check_section_citations:"
@@ -699,6 +701,148 @@ def test_redirect_table_holds_each_entry_with_its_source(key):
     assert (entry.target, entry.section) == REQUIRED_REDIRECTS[key]
     # The source names the cited file's section that records the move.
     assert entry.source.startswith("verification-gates.md § ")
+
+
+# The former sections of verification-gate-evidence.md, from its Section Map:
+# topic file -> the numbers it keeps. Written here by hand, so a table entry
+# that drifts from the map fails.
+EVIDENCE_TOPICS = {
+    "gate-positive-and-mutation-controls.md": ("1", "2", "3", "4", "14"),
+    "gate-fixture-provenance.md": ("5", "6", "7", "8", "9"),
+    "gate-artifact-over-instrument.md": ("10", "11", "12", "13"),
+    "gate-old-home-citation-sweep.md": ("15",),
+    "gate-generated-input-integrity.md": ("16", "17", "18", "21"),
+    "gate-script-output-assertions.md": ("19", "23"),
+    "gate-environment-inputs.md": ("20", "22"),
+}
+REQUIRED_EVIDENCE_REDIRECTS = {
+    ("verification-gate-evidence.md", number): (topic, number)
+    for topic, numbers in EVIDENCE_TOPICS.items()
+    for number in numbers
+}
+
+
+def _evidence_tree(root: Path, number: str, topic: str, heading: str) -> None:
+    _write(root, "references/verification-gate-evidence.md", "# Index stub\n")
+    _write(root, f"references/{topic}", heading)
+    _write(root, "references/src.md", f"See `verification-gate-evidence.md` §{number}.\n")
+
+
+def test_evidence_redirects_cover_all_23_former_sections():
+    assert {number for _, number in REQUIRED_EVIDENCE_REDIRECTS} == {str(n) for n in range(1, 24)}
+
+
+@pytest.mark.parametrize("key", sorted(REQUIRED_EVIDENCE_REDIRECTS), ids=lambda k: f"evidence-{k[1]}")
+def test_evidence_redirect_entry_reads_redirected_to_its_topic_file(tmp_path, key):
+    topic, number = REQUIRED_EVIDENCE_REDIRECTS[key]
+    entry = csc.REDIRECTS[key]
+    assert (entry.target, entry.section) == (topic, number)
+    assert entry.source.startswith("verification-gate-evidence.md ")
+    root = tmp_path / "root"
+    _evidence_tree(root, number, topic, f"## {number}. Moved\n")
+    (got,) = _of(csc.check_tree(root), "references/src.md")
+    assert (got.verdict, got.target, got.section) == ("redirected", f"references/{topic}", number)
+
+
+def test_evidence_redirect_with_a_missing_heading_is_dangling(tmp_path):
+    root = tmp_path / "root"
+    _evidence_tree(root, "5", "gate-fixture-provenance.md", "## 6. Another\n")
+    (got,) = _of(csc.check_tree(root), "references/src.md")
+    assert (got.verdict, got.section) == ("dangling", "5")
+    assert "target heading missing" in got.note
+
+
+def test_evidence_redirect_targets_hold_their_headings_in_the_shipped_tree():
+    references = Path(csc.__file__).resolve().parent.parent / "references"
+    for topic, number in REQUIRED_EVIDENCE_REDIRECTS.values():
+        text = (references / topic).read_text(encoding="utf-8")
+        assert re.search(rf"^## {number}\. ", text, re.MULTILINE), f"{topic} has no ## {number}. heading"
+
+
+# The former sections of verification-task-authoring.md, from its Section Map:
+# topic file -> the numbers it keeps. §7 stays in the file and has no entry.
+AUTHORING_TOPICS = {
+    "gate-heuristic-verifier-patterns.md": ("1", "2", "3", "4", "9", "13"),
+    "gate-verdict-contract-and-adjudication.md": ("5", "6"),
+    "gate-absence-and-consistency.md": ("8",),
+    "gate-pre-edit-baseline.md": ("10",),
+    "gate-pinned-from-real-content.md": ("10.5", "11"),
+    "gate-input-set-and-compared-window.md": ("10.6", "12", "14", "15", "16"),
+    "gate-anchor-outcome-set.md": ("10.7", "10.10", "10.11", "10.12"),
+    "gate-command-semantics.md": ("10.8", "10.9"),
+}
+REQUIRED_AUTHORING_REDIRECTS = {
+    ("verification-task-authoring.md", number): (topic, number)
+    for topic, numbers in AUTHORING_TOPICS.items()
+    for number in numbers
+}
+# A subsection with no entry of its own takes its nearest ancestor's entry.
+AUTHORING_SUBSECTIONS = [
+    ("5.1", "gate-verdict-contract-and-adjudication.md"),
+    ("8.4", "gate-absence-and-consistency.md"),
+    ("10.1", "gate-pre-edit-baseline.md"),
+    ("10.1.1", "gate-pre-edit-baseline.md"),
+    ("10.7.1", "gate-anchor-outcome-set.md"),
+    ("10.9.1", "gate-command-semantics.md"),
+    ("11.3", "gate-pinned-from-real-content.md"),
+    ("14.1", "gate-input-set-and-compared-window.md"),
+]
+
+
+def _authoring_tree(root: Path, number: str, topic: str, heading: str) -> None:
+    _write(root, "references/verification-task-authoring.md", "## 7. Authoring Checklist\n")
+    _write(root, f"references/{topic}", heading)
+    _write(root, "references/src.md", f"See `verification-task-authoring.md` §{number}.\n")
+
+
+def test_authoring_redirects_cover_every_former_section_but_the_checklist():
+    numbers = {number for _, number in REQUIRED_AUTHORING_REDIRECTS}
+    assert len(numbers) == 23
+    assert "7" not in numbers
+    keys = {key for key in csc.REDIRECTS if key[0] == "verification-task-authoring.md"}
+    assert keys == set(REQUIRED_AUTHORING_REDIRECTS)
+
+
+@pytest.mark.parametrize("key", sorted(REQUIRED_AUTHORING_REDIRECTS), ids=lambda k: f"authoring-{k[1]}")
+def test_authoring_redirect_entry_reads_redirected_to_its_topic_file(tmp_path, key):
+    topic, number = REQUIRED_AUTHORING_REDIRECTS[key]
+    entry = csc.REDIRECTS[key]
+    assert (entry.target, entry.section) == (topic, number)
+    assert entry.source.startswith("verification-task-authoring.md ")
+    root = tmp_path / "root"
+    _authoring_tree(root, number, topic, f"## {number} Moved\n")
+    (got,) = _of(csc.check_tree(root), "references/src.md")
+    assert (got.verdict, got.target, got.section) == ("redirected", f"references/{topic}", number)
+
+
+@pytest.mark.parametrize("number, topic", AUTHORING_SUBSECTIONS, ids=lambda v: str(v))
+def test_authoring_subsection_reads_redirected_under_its_topic_file(tmp_path, number, topic):
+    root = tmp_path / "root"
+    _authoring_tree(root, number, topic, f"### {number} Moved\n")
+    (got,) = _of(csc.check_tree(root), "references/src.md")
+    assert (got.verdict, got.target, got.section) == ("redirected", f"references/{topic}", number)
+
+
+def test_authoring_redirect_with_a_missing_heading_is_dangling(tmp_path):
+    root = tmp_path / "root"
+    _authoring_tree(root, "10.7", "gate-anchor-outcome-set.md", "## 10.8 Another\n")
+    (got,) = _of(csc.check_tree(root), "references/src.md")
+    assert (got.verdict, got.section) == ("dangling", "10.7")
+    assert "target heading missing" in got.note
+
+
+def test_authoring_checklist_citation_stays_ok_in_the_file(tmp_path):
+    root = tmp_path / "root"
+    _authoring_tree(root, "7", "gate-pre-edit-baseline.md", "## 10. Moved\n")
+    (got,) = _of(csc.check_tree(root), "references/src.md")
+    assert (got.verdict, got.target) == ("ok", "references/verification-task-authoring.md")
+
+
+def test_authoring_redirect_targets_hold_their_headings_in_the_shipped_tree():
+    references = Path(csc.__file__).resolve().parent.parent / "references"
+    for topic, number in REQUIRED_AUTHORING_REDIRECTS.values():
+        index = numbered_heading_index(extract_headings((references / topic).read_text(encoding="utf-8")))
+        assert number in index, f"{topic} has no heading numbered {number}"
 
 
 def _gates_tree(root: Path, md_body: str = "## 8. Empirical\n") -> None:

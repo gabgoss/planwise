@@ -78,11 +78,12 @@ consult-when: Checking required files per plan level and the DELEGATED-trigger c
 - MUST include Cross-References table tracing each section back to its source part
 - Cross-References use `Spec #{N} ({filename.md})` format — global number + exact filename
 - Every file cited in Cross-References MUST appear in the `Extracted from:` header
+- `Extracted from:` entries use the same `Spec #{N} ({filename.md})` form, with `{N}` the Global Source Map's number (Reviewer Check 006)
 - Cross-sprint sources (used by multiple sprints) are listed in each EI's header like any other source
 
 - Every plan deliverable that states a format, a cap or a threshold names its writer (the script or agent that emits the form) or its gate (the check that rejects the wrong form). The plan-level form is "every deliverable is a writer or a gate, not a paragraph". See [rule-authoring.md](rule-authoring.md), "A Rule Is Not a Control: Pair Every Format Rule, Cap or Threshold With a Writer or a Gate".
 
-**Global Source Map:** When using global numbering for spec outputs (recommended for multi-sprint plans), the Master Plan MUST include a Global Source Map table assigning each spec output a number, its primary sprint, and any additional sprints that use it.
+**Global Source Map:** When using global numbering for spec outputs (recommended for multi-sprint plans), the Master Plan MUST include a Global Source Map table assigning each spec output a number, its primary sprint, and any additional sprints that use it. Every sprint's EI cites a mapped source under the Global Source Map's number, never a per-sprint recount.
 
 **Multi-Tier Discovery Extraction:**
 
@@ -114,6 +115,8 @@ Every scaffolded sprint MUST include a `{Abbrev}-S{XX}-Deferred-OutOfScope-Log.m
 - Rationale for deferral (out of sprint scope, belongs to a different sprint, truly out of scope)
 - Target sprint or "Out of scope" designation
 
+**Redirect-target rule:** A Target is a sprint declared in the plan, or `Out of scope`. Any location a row cites names a file and a heading that exist, and the section under that heading holds the content the row names. A heading with no body, or a named part such as a preamble that does not exist, fails. Each scaffolding path checks every row before the next sprint starts. The Redirect-Target Pair subsection gives one example.
+
 **EI Bidirectional Consistency:**
 
 Every Spec listed in the EI's `Extracted from:` header MUST appear in at least one Cross-References row. And conversely: every Cross-References row's source citation MUST appear in the `Extracted from:` header. Bidirectional inconsistency is WARNING with HIGH confidence at `/planwise review` Phase 2.
@@ -121,38 +124,38 @@ Every Spec listed in the EI's `Extracted from:` header MUST appear in at least o
 > [!constraint] EI Header ↔ Cross-References Table Consistency
 > WRONG — `Extracted from:` cites Spec #2 but Cross-References table has no row citing Spec #2:
 > ```markdown
-> **Extracted from:** Spec #1, Spec #2 ({filename.md}), Spec #5
+> **Extracted from:** Spec #1 (auth.md), Spec #2 (api.md), Spec #5 (data.md)
 >
-> | Section | Source | ... |
-> | §1 Auth design | Spec #1 §3 | ... |
-> | §2 API routes  | Spec #5 §1 | ... |
+> | Section | Source | Source Section(s) |
+> | §1 Auth design | Spec #1 (auth.md) | §3 |
+> | §2 API routes  | Spec #5 (data.md) | §1 |
 > ```
 > (Spec #2 is listed in header but never appears in the table — where was it used?)
 >
 > CORRECT — every header entry appears in at least one table row, and vice versa:
 > ```markdown
-> **Extracted from:** Spec #1, Spec #2 ({filename.md}), Spec #5
+> **Extracted from:** Spec #1 (auth.md), Spec #2 (api.md), Spec #5 (data.md)
 >
-> | Section | Source | ... |
-> | §1 Auth design | Spec #1 §3 | ... |
-> | §2 API routes  | Spec #2 §4 ({filename.md}) | ... |
-> | §3 Data model  | Spec #5 §1 | ... |
+> | Section | Source | Source Section(s) |
+> | §1 Auth design | Spec #1 (auth.md) | §3 |
+> | §2 API routes  | Spec #2 (api.md) | §4 |
+> | §3 Data model  | Spec #5 (data.md) | §1 |
 > ```
 
 > WRONG — Cross-References table cites Spec #7 but `Extracted from:` header does not list Spec #7:
 > ```markdown
-> **Extracted from:** Spec #1, Spec #2, Spec #5
-> | §4 Legacy compat | Spec #7 §2 | ... |   ← Spec #7 not in header
+> **Extracted from:** Spec #1 (auth.md), Spec #2 (api.md), Spec #5 (data.md)
+> | §4 Legacy compat | Spec #7 (legacy.md) | §2 |   → the header omits this source
 > ```
 > CORRECT — add Spec #7 to header OR remove from table:
 > ```markdown
-> **Extracted from:** Spec #1, Spec #2, Spec #5, Spec #7 ({filename.md})
-> | §4 Legacy compat | Spec #7 §2 | ... |
+> **Extracted from:** Spec #1 (auth.md), Spec #2 (api.md), Spec #5 (data.md), Spec #7 (legacy.md)
+> | §4 Legacy compat | Spec #7 (legacy.md) | §2 |
 > ```
 
 > When a Spec is referenced ONLY for background context (not as the source of any extracted section), it MAY be omitted from `Extracted from:` IF the table row carries an `(informational-only)` annotation:
 > ```markdown
-> | §4 Legacy compat | Spec #7 §2 (informational-only) | Background reference, not extracted |
+> | §4 Legacy compat | Spec #7 (legacy.md) (informational-only) | §2, background reference, not extracted |
 > ```
 
 **Three-Step Scaffolding Procedure for EI Consistency:**
@@ -162,6 +165,18 @@ Every Spec listed in the EI's `Extracted from:` header MUST appear in at least o
 3. Reconcile `Extracted from:` header: list every source cited in the table (exact filename); annotate informational-only rows where applicable
 
 **Reviewer note:** `/planwise review` Phase 2 reports EI header ↔ Cross-References inconsistency as WARNING with HIGH confidence.
+
+#### Redirect-Target Pair
+
+> [!constraint] A redirect target resolves to a declared sprint or to content that exists
+> WRONG — the Target names a preamble that the Master Plan never wrote, because `## Locked Decisions` goes straight into its table:
+> ```markdown
+> | Spec #4 (rules.md) | T2 | Tie-break order | Master Plan § Locked Decisions preamble |
+> ```
+> CORRECT — the Target is a declared sprint, or the named content is written first:
+> ```markdown
+> | Spec #4 (rules.md) | T2 | Tie-break order | Sprint-{YY} |
+> ```
 
 #### Reviewer Check 009 — EI Bidirectional Source/Cross-Reference Consistency
 

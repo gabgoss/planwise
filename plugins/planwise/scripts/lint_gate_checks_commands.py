@@ -261,11 +261,14 @@ def _grep_pattern_and_target(stage):
 def _git_subcommand(stage):
     """Return ``(repo_dir, index)`` for a git stage: the ``-C`` directory (or
     None) and the index of the subcommand token. ``(None, None)`` when the
-    stage is not git or names no subcommand."""
-    if not stage or stage[0] != "git":
+    stage is not git or names no subcommand. A leading ``{`` group token is
+    skipped, so the first command of a ``{ ...; ...; } | sort -u`` group is
+    still inspected; the index stays relative to the whole stage."""
+    start = 1 if stage and stage[0] == "{" else 0
+    if len(stage) <= start or stage[start] != "git":
         return None, None
     repo_dir = None
-    index = 1
+    index = start + 1
     while index < len(stage):
         token = stage[index]
         if token in _GIT_VALUE_OPTIONS:
@@ -590,8 +593,25 @@ def _check20_count_grep_chained_with_and(context) -> list:
     return findings
 
 
-def _diff_defects(stages) -> list:
-    """The baseline defects of every ``git diff`` stage in one pipeline."""
+def _has_untracked_union(tokens) -> bool:
+    """True when the command carries a ``git ls-files`` stage with ``--others``
+    or ``-o``, the half of the union form that lists never-staged files."""
+    for stages in _pipelines(tokens):
+        for stage in stages:
+            _, at = _git_subcommand(stage)
+            if at is None or stage[at] != "ls-files":
+                continue
+            args = stage[at + 1:]
+            if "--others" in args or any(
+                t.startswith("-") and not t.startswith("--") and "o" in t[1:] for t in args
+            ):
+                return True
+    return False
+
+
+def _diff_defects(stages, union=False) -> list:
+    """The baseline defects of every ``git diff`` stage in one pipeline.
+    ``union`` says the whole command also lists untracked files."""
     defects = []
     for index, stage in enumerate(stages):
         parts = _diff_parts(stage)
@@ -608,6 +628,8 @@ def _diff_defects(stages) -> list:
             filtered = any(later[0] == "grep" for later in stages[index + 1:])
             defects.append("an output filter instead of a `--` path scope" if filtered
                            else "no `--` path scope")
+        if "--name-only" in stage and not union:
+            defects.append("a `--name-only` listing with no `git ls-files --others` union")
     return defects
 
 
@@ -646,29 +668,48 @@ def _check21_diff_gate_not_baseline_pinned(context) -> list:
     §8.3 and §8.5; Reviewer Check 077 steps a and b). The diff must name a
     ``$..._BASE`` operand (or a literal commit id) and scope its paths with
     ``--``. ``HEAD`` moves with every commit, and a downstream grep only hides
-    what git already read from the whole working tree. ERROR.
+    what git already read from the whole working tree. A ``--name-only``
+    listing must also carry a ``git ls-files --others`` union, because
+    ``git diff <commit>`` lists tracked paths only and never shows a
+    never-staged new file (§8.5). The union is waived when an earlier command
+    in the same file runs ``git add``, which registers the path. ERROR.
     """
     findings = []
-    candidates = [(c.file, c.line, c.command) for c in context.commands]
-    candidates.extend(_success_criteria_spans(context))
-    for file, line, text in candidates:
+    added_by_file: dict = {}
+    candidates = [(c.file, c.line, c.command, c) for c in context.commands]
+    candidates.extend((file, line, span, None) for file, line, span in _success_criteria_spans(context))
+    for file, line, text, command in candidates:
+        waived = bool(added_by_file.get(file))
+        if command is not None and not command.is_placeholder:
+            added_by_file.setdefault(file, set()).update(_added_paths(command))
         if "WRONG" in text:
             continue
         tokens = _tokens(text)
         if not tokens or "git" not in tokens:
             continue
+        union = waived or _has_untracked_union(tokens)
         defects = []
         for stages in _pipelines(tokens):
-            defects.extend(_diff_defects(stages))
+            defects.extend(_diff_defects(stages, union))
         if not defects:
             continue
+        defects = list(dict.fromkeys(defects))
+        fix = "Pin a recorded base before the first edit and write git diff $BASE -- <paths>"
+        if any("ls-files" in defect for defect in defects):
+            fix += (
+                ", then join `git ls-files --others --exclude-standard -- <paths>` "
+                "so a never-staged new file appears"
+            )
+        reads = (
+            "git diff <commit> lists tracked paths only, so a never-staged new file "
+            "never appears and the gate reads empty. "
+            if all("ls-files" in defect for defect in defects)
+            else "It reads the whole working tree, so other writers' work fails or "
+            "passes the gate. "
+        )
         findings.append(_finding(
             check=21, severity=SEVERITY_ERROR, file=file, line=line, command=text,
-            message=(
-                f"This git diff gate has {'; '.join(dict.fromkeys(defects))}. It reads the "
-                "whole working tree, so other writers' work fails or passes the gate. "
-                "Pin a recorded base before the first edit and write git diff $BASE -- <paths>"
-            ),
+            message=f"This git diff gate has {'; '.join(defects)}. {reads}{fix}",
         ))
     return findings
 

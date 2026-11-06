@@ -84,6 +84,8 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 >
 > **Where a consolidation multiplier applies**, it is an explicit factor on the reads term — `~{R}K reads × {M} (consolidation overhead)` per `references/task-content-fidelity.md` §9.A.5 — and the identity holds with the factor applied. Apply it **once**: a multiplier stated in the formula plus a second allowance folded into `working` double-counts the same overhead.
 >
+> **Where the output mirrors a table shape**, the output addend declares its column arithmetic, so a reviewer can check N against the Schema Pin: `+ ~{O}K (output: {N} columns × {L} lines + {C} fixed = {lines} lines; {b} bytes per entry measured from {same-shape file}, ÷ {ratio})` per `references/task-content-fidelity.md` §9.A.18.
+>
 > **Budget the ceiling, not the hope.** Where a row's cost is a range, the row carries the ceiling. An under-budget task costs nothing; an over-budget one stalls mid-run.
 >
 > **One formula per task.** If two derivations appear in one file, the file has no single answer and a reader cannot tell which is authoritative. Two derivations can also disagree with each other while landing on the same total — so the totals agreeing is not evidence that either derivation is right.
@@ -103,7 +105,7 @@ Where the task's deliverable is a comparison or reconciliation (enumerate discre
 
 ### Change-Surface Census (Required when the task adds a parameter, flag or field, or changes a shared function's side effect)
 
-Run the four searches against the live tree before writing the `**Output:**` line, and record each search with its hits. The Output line is the union of the paths the change edits. A census path left off the line carries a one-line reason. Pin tests also go into Required Context and the test gate, and the task records a base-commit run of them before the first edit. See `references/verify-caller-before-complete.md` §6.
+Run the four searches against the live tree before writing the `**Output:**` line, and record each search with its hits. The Output line is the union of the paths the change edits. A census path left off the line carries a one-line reason. Pin tests also go into Required Context and the test gate, and the task records a base-commit run of them before the first edit. See `references/verify-caller-before-complete.md` §6. When a new option's default differs from its no-op value, also fill the Default blast radius row. See `references/verify-caller-before-complete.md` §7.
 
 | Surface | Search run | Hits | On Output line? |
 |---------|------------|------|-----------------|
@@ -111,6 +113,7 @@ Run the four searches against the live tree before writing the `**Output:**` lin
 | Callers | {Grep pattern and path} | {file:line list} | {yes / no — reason} |
 | Tests that reach it, including tests that pin the edited artifact's shape | {Grep pattern and path} | {file:line list} | {yes / no — reason} |
 | Documents and manifests that describe it | {Grep pattern and path} | {file:line list} | {yes / no — reason} |
+| Default blast radius (only when the new default differs from the no-op value) | {Grep for default construction of the type in tests and production} | {test groups needing an explicit opt-out; construction sites that ship the change} | {yes / no — reason} |
 
 ### Schema Pin <!-- CONDITIONAL — required when the task touches DB writes -->
 
@@ -219,6 +222,8 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
 
 {What the subagent should produce - be specific about format and content}
 
+<!-- Column-enumerating output: a line figure states its column term, for example `{N} columns × {L} lines + {C}` (references/task-content-fidelity.md §9.A.18). -->
+
 <!-- Structure-as-checklist + template pointer: when this task's output is consumed
      structurally by a named downstream task (an aggregator reading a named section, a
      script parsing headers, a table cell read by column position), point at a template file
@@ -246,7 +251,7 @@ The later stale-reference sweep task lists this slot in its `## Required Context
 > ```
 > **After:**
 > ```
-> {cmd_after_1}    # e.g., {lint-cmd} on files from git diff $..._BASE -- <paths> (expect: pass)
+> {cmd_after_1}    # e.g., {lint-cmd} on files from { git diff --name-only $..._BASE -- <paths>; git ls-files --others --exclude-standard -- <paths>; } | sort -u (expect: pass)
 > # pre-edit: {measured value} → expect {post-edit expectation}
 > {cmd_after_2}    # e.g., {test-cmd} on this task's own test files — never the whole suite per task
 > # pre-edit: {measured value} → expect {post-edit expectation}
@@ -320,7 +325,9 @@ The later stale-reference sweep task lists this slot in its `## Required Context
 > recorded `{ABBREV}_S{NN}_BASE` — never a bare `git diff`, `git diff HEAD`, or
 > `git diff --name-only` with no operand. Path-scope with `-- <paths>`, never
 > `| grep <path>`: the piped form reads the whole tree, so a sibling sprint's concurrent
-> work trips the gate as if it were this sprint's own edit. The baseline itself is
+> work trips the gate as if it were this sprint's own edit. Every `--name-only` scope,
+> list or count gate also joins the untracked files, because `git diff <commit>` lists
+> tracked paths only and never shows a new file the task has not staged. The baseline itself is
 > recorded once — by the sprint's first task that touches the repo, in Recovery Key
 > Findings, before that task's first edit — behind a clean-scope precondition
 > (`git status --porcelain -- <write paths>` empty, else HALT). A later task takes the
@@ -337,6 +344,28 @@ The later stale-reference sweep task lists this slot in its `## Required Context
 > CORRECT — scoped to the recorded base and to this sprint's own paths:
 > ```bash
 > git diff $<ABBREV>_S<NN>_BASE -- <paths> | grep -E '<pattern>'   # expect empty
+> { git diff --name-only $<ABBREV>_S<NN>_BASE -- <paths>; git ls-files --others --exclude-standard -- <paths>; } | sort -u | wc -l   # expect exactly N
+> ```
+>
+> See `references/gate-diff-baseline-pinning.md` §8.5 for the union form.
+
+> [!constraint] Anchors and Rewrites Name the Write-Set
+> Other sessions and the user may write to the same repository. A whole-directory anchor then fails on files this plan never touched.
+>
+> - Name the plan's own files in every count anchor and diff gate. Never write `pytest {dir}` or `git diff $BASE -- {dir}` when the plan owns only some files in `{dir}`.
+> - A task that rewrites or splits a file runs `git -C <repo> status --porcelain -- <those files>` as its first command. A non-empty result is a HALT to surface. The runner never merges it.
+> - After a mid-session user commit, re-derive the expected `git status` lists of later gates, because they shrink.
+> - Stage by name, so scratch output stays out of commits.
+>
+> The orchestrator classifies foreign dirt after each dispatch (`references/agent-orchestration-delegated.md` §1.4).
+>
+> WRONG — the anchor counts a whole directory:
+> ```bash
+> pytest tests/adapters -q   # expect 54 passed
+> ```
+> CORRECT — the anchor names the files this plan owns:
+> ```bash
+> pytest tests/adapters/test_<owned>.py -q   # expect the owned file's measured count
 > ```
 
 > [!constraint] A Live-Tree Figure Is a Census Placeholder

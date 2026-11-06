@@ -109,6 +109,17 @@ The Spawn-Prompt Skeleton's fenced block holds three `##` lines. They are body t
 
 Formatting lines: `**Mode:** {DIRECT | DELEGATED}` as the first line of `## Execution Strategy`, followed by `**Reason:**`. `**Total Estimated:** ~{XX}K tokens` directly after the Session Task List table, equal to that table's sum and to the session's row in the Sprint Plan Sessions table. `**Declared layers:**` opens `## Dispatch Layers`. The two OPTIONAL positions: `## Pre-Known Cross-Task Coordination Flags` sits after `## Task Files`, and `## Plan-Specific Sections` is the last H2.
 
+`## Post-Session Checklist` carries these six items verbatim, in this order:
+
+```
+- [ ] **Verify outputs** — confirm all expected output files were written to `Outputs/`
+- [ ] **Finalize recovery** — mark Session Status: COMPLETE, update all task statuses, add final Key Findings
+- [ ] **Generate session summary** — write `Outputs/{Abbrev}-S{XX}-{YY}-Summary.md` using `templates/summary-template.md`
+- [ ] **Capture lessons** — ask "Were any lessons learned?" If yes, create lesson file and run the generator
+- [ ] **Update plan status** — mark this orchestration COMPLETE; update sprint plan and master plan status fields
+- [ ] **Git commit and push** — stage specific files (`git add` by name, never `git add .`), commit, push
+```
+
 ### Recovery — `templates/recovery.md` (169 lines)
 
 ```
@@ -135,7 +146,7 @@ The template document also carries three sections after its fenced body. They de
 ## Change Log Status Values
 ```
 
-### Task file — `templates/task-file.md` (412 lines)
+### Task file — `templates/task-file.md` (488 lines)
 
 ```
 ## Objective <!-- REQUIRED -->

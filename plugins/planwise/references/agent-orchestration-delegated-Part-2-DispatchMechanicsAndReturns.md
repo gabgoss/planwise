@@ -244,8 +244,11 @@ Classify every returned runner against this table before acting on its result:
 | `completed` return whose final message ends mid-action ("Now let me…", "Next I'll…") or omits required report fields — reads as done, but deliverables are not yet on disk | Mid-action stall masquerading as completion — the `completed` status is not a deliverable check | Run the on-disk acceptance gate, then resume the SAME agent to finish (§1.17.4) |
 | No completion report and no named permission denial, a near-clean tree, no dispatch voice and no narration tail, Bash-only deliverables absent on disk | Silently auto-denied tool permission — a spawn-prompt tool path matches no allow entry and the runner cannot prompt (§1.21) | Compare the spawn prompt's tool paths against the project's allow entries BEFORE any resume, then resume the SAME agent with paths in a granted form. If no form is granted, surface the gap to the user, because a resume with the same paths reproduces the failure |
 | Structured completion report (status + verification results) whose deliverables verify on disk | Real completion | Reconcile normally |
+| No final message (idle with no status block, or an empty reply), every deliverable verifies on disk, and the task's Recovery row is written where the task owns one | Real completion whose report never arrived. Silence is not a failure signal | Reconcile normally from the on-disk evidence and note the missing report. Do NOT resume: a resume can re-apply edits or re-run a mutating verification against an accepted artifact |
 
 The four modes are genuinely distinct: self-delegation is a **clean** tree + **dispatch** voice (the runner never executed); a message-boundary stall is a **dirty** tree + **executor** voice that ends visibly mid-work (the runner executed part-way); a mid-action stall masquerading as completion **reads** as done — a structured-looking report or a clean final line — yet its deliverables are not on disk (§1.17.4); a silently auto-denied runner returns no report and names no denial, with a near-clean tree and its Bash-only deliverables absent on disk (§1.21). Deliverables absent on disk mark that row. Deliverables verified on disk mark a real completion, even with no report. The shared corrective is "resume the same agent," but the resume *message* — and, for the masquerade case, the on-disk check that exposes it — differs; see below.
+
+Classify a silent runner by read-only evidence before acting on it. Use these calls: `git status --short`, `git diff --shortstat -- {output paths}`, a `Grep` of the edit target for the expected symbol, a `Grep` of the Recovery file for the task id, and a `Glob` of the output directory. Classification stays read-only until acceptance. Use `--check` forms only. Never run an in-place `{notebook-executor} --execute --inplace`, an output clear or a formatter, because the runner may already have landed the artifact (Part 3 §1.26). If any deliverable or the Recovery row is missing, the runner is not a real completion. Classify it against the stall rows and §1.17.4. If it may still be working, apply Part 3 §1.30 before any resume.
 
 ### 1.17.2 Self-delegation resume
 
@@ -350,7 +353,7 @@ the file unwritten to keep hunting.
 
 **Worked figures.** A stalled runner used 63 tool uses and about 130K tokens. It left only an empty placeholder in `Outputs/`. The orchestrator resumed it with "write the row now, in one call, from the figures you hold; a figure you cannot find is `unmeasured (reason)`; do not re-read". The runner then wrote a 96-line file in five tool uses. A proof-heavy runner used 89 tool uses and 189,468 tokens against a 46.7K estimate. It repeated the edit-run-mutate-run-restore-verify loop 9 times.
 
-**Applies to** grade, audit, census, and review dispatches whose Required Context is a transcript, a log, or any file read by paging. It also applies to any DELEGATED brief that pairs authoring with an iterative verify loop, such as test authoring with per-class mutation proofs.
+**Applies to** grade, audit, census, and review dispatches whose Required Context is a transcript, a log, or any file read by paging. It also applies to any DELEGATED brief that pairs authoring with an iterative verify loop, such as test authoring with per-class mutation proofs. Every other dispatch whose estimate trips the §1.12 trigger carries the §1.11 Operational Ceiling Notice with its turn-ceiling and checkpoint lines.
 
 ### 1.17.6 Measure the landed state before resuming a capped runner, or accept it from disk
 
@@ -452,16 +455,17 @@ Applies to every DELEGATED task-runner launch, sequential or parallel.
 > This guard governs EVERY DELEGATED dispatch — both sequential and parallel task-runner launches (see `handlers/run.md` § DELEGATED Mode; §1.13 and §1.17 above for dispatch-return handling). It is a **temporary bridge**, not a permanent override (see self-deactivation below). It never changes the model for a healthy (small) rule surface.
 >
 > **Before dispatching a DELEGATED task whose `Agent:` maps to a 200K-window model (Sonnet or Haiku):**
-> 1. **Measure the plan-path rule surface.** Reuse the engine's linter: run `python {plugin_root}/scripts/init_project.py --doctor --project-root {project_root}` and sum the `approx_tokens` of the flagged (over-scoped) rules — those `.claude/rules/**` whose `paths:` target `planwise/Plans/**` (or sibling plan/backlog/lessons paths). If `--doctor` is unavailable, fall back to summing those rule files' byte sizes ÷ the conservative bytes-per-token ratio (2.6) — `measure_files.py` does this per file.
-> 2. **Project the subagent's worst-case load:** `flagged-rule tokens + ~54K fixed overhead`. If that **approaches the 200K window** — rule of thumb: flagged surface ≳ ~110K, leaving < ~35K of working headroom — the declared 200K-window model will overflow ("Prompt is too long") the instant it reads a plan brief that triggers those path rules.
-> 3. **Raise and log.** In that case, raise the dispatch `model` to the **1M tier** (Opus, or a 1M-window Sonnet where available) for THIS dispatch only, and emit a one-line log — never silent:
+> 1. **Re-measure projected inputs.** Run `measure_files.py --model {declared}` on every Required Context row marked `projected, re-measure at dispatch`. Those rows cite a file that an earlier task of this session produces. Rewrite a HALT-to-split contingency to "proceed" when the measured total fits the window.
+> 2. **Measure the plan-path rule surface.** Reuse the engine's linter: run `python {plugin_root}/scripts/init_project.py --doctor --project-root {project_root}` and sum the `approx_tokens` of the flagged (over-scoped) rules — those `.claude/rules/**` whose `paths:` target `planwise/Plans/**` (or sibling plan/backlog/lessons paths). If `--doctor` is unavailable, fall back to summing those rule files' byte sizes ÷ the conservative bytes-per-token ratio (2.6) — `measure_files.py` does this per file.
+> 3. **Project the subagent's worst-case load:** `measured input tokens + flagged-rule tokens + ~54K fixed overhead + expected output tokens`. If that **approaches the 200K window** (rule of thumb: above ~165K, leaving < ~35K of working headroom), the declared model will overflow ("Prompt is too long"). Either term can trip it. A flagged surface ≳ ~110K trips it alone, because the model overflows the instant it reads a plan brief that triggers those path rules. Large measured inputs trip it the same way.
+> 4. **Raise and log.** In that case, raise the dispatch `model` to the **1M tier** (Opus, or a 1M-window Sonnet where available) for THIS dispatch only, and emit a one-line log — never silent:
 >    ```
->    MODEL FLOOR: raised {task-id} {declared}→1M (plan-path rule surface ~{N}K exceeds safe {declared} budget)
+>    MODEL FLOOR: raised {task-id} {declared}→1M (inputs ~{I}K + plan-path rules ~{R}K + overhead ~54K + output ~{O}K = ~{T}K > {declared} safe budget ~{B}K)
 >    ```
-> 4. **Otherwise dispatch verbatim.** If the threshold is NOT tripped, pass the declared `Agent:` model through unchanged — the floor is inert for a small surface.
+> 5. **Otherwise dispatch verbatim.** If the threshold is NOT tripped, pass the declared `Agent:` model through unchanged — the floor is inert for a small surface.
 
 > [!practice] Self-Deactivating Bridge — Not Permanent
-> This floor exists only to keep declared-Sonnet/Haiku runners alive while a project still carries a large author-time rule surface scoped to plan paths. Once the project is de-scoped — plugin author-time rules handler-loaded from `references/` (not installed), and any project-local domain rules re-scoped to code paths per `/planwise doctor` — the flagged surface shrinks toward ~0, step 2's threshold is never tripped, and declared-Sonnet tasks dispatch unchanged. When `--doctor` reports no over-scoped rules for a project, this bridge is already inert; it can be retired entirely once no supported project trips it.
+> This floor exists only to keep declared-Sonnet/Haiku runners alive while a project still carries a large author-time rule surface scoped to plan paths. Once the project is de-scoped — plugin author-time rules handler-loaded from `references/` (not installed), and any project-local domain rules re-scoped to code paths per `/planwise doctor` — the flagged surface shrinks toward ~0 and the rule-surface term stops tripping step 3. Retiring the bridge removes only that term. The input-size trigger stays, because large measured inputs can still overflow a 200K window. When `--doctor` reports no over-scoped rules, the rule-surface term is already inert.
 
 ## 1.20 1M-Exception Dispatch (DELEGATED) — Token Saver
 
@@ -489,6 +493,15 @@ Applies to every DELEGATED task-runner launch, sequential or parallel; uses the 
 > read-reason Critical context file  → log `paged-read required` (NOT 1M-exception)  → runner pages it (offset/limit/Grep) on its declared model
 > ```
 > The warning engine (Token Saver) does NOT set `1M-exception` for a `read`-reason Critical, and `run.md` MUST NOT infer it. Log such a task with a `paged-read required` note and dispatch it on its declared model — keep the two reasons distinct in the dispatch log: `1M-exception` for `cost`-Critical, `paged-read required` for `read`-Critical.
+
+The routing item goes in the consumer task's Pre-Known flags. A bare "page it" warning invites a partial read, so the item carries four parts:
+
+```
+paged-read required: {file}, {N}K tokens measured {YYYY-MM-DD}, above the 25K per-Read cap.
+Heading line map: `## {A}` 1-120, `## {B}` 121-640 (read in slices of at most 400 lines: 121-520, 521-640).
+Grep `^## ` first, because line numbers drift. Rebuild the map from that result.
+Reference data: do not trim or split. Read every line.
+```
 
 ## 1.21 Background vs Foreground Gate
 

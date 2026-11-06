@@ -191,7 +191,7 @@ A flag is NOT a scope-expansion (§1.2 governs that — work done outside the li
 
 #### Recording the Flag (At Surface Time)
 
-When a task surfaces a coordination flag during execution, the orchestrator adds a row to the Recovery file's `Cross-Task Coordination Flags` section IMMEDIATELY — not at closeout. The same context-compaction risk that motivates per-task Recovery updates applies here: a flag held only in conversation context dies on the next compaction.
+When a task surfaces a coordination flag during execution, the orchestrator adds a row to the Recovery file's `Cross-Task Coordination Flags` section IMMEDIATELY — not at closeout. The same context-compaction risk that motivates per-task Recovery updates applies here: a flag held only in conversation context dies on the next compaction. The orchestrator is the only writer of this table and the only allocator of flag ids. A task-runner returns a `FLAG:` bullet with no id, as [The Orchestrator Numbers Every Flag](read-confirm-act-protocol-Part-2-FlagAuthoringSurfaces.md#the-orchestrator-numbers-every-flag) explains.
 
 > [!template] Coordination Flag Row
 > ```

@@ -223,6 +223,8 @@ class Redirect(NamedTuple):
 # (§8.2). Only a cited file in the plugin root's references/ directory matches.
 # ``source`` names the section of the cited file that records the move. The
 # target is resolved from the cited file's own directory first, then by basename.
+_EVIDENCE_MAP = "verification-gate-evidence.md (former Section Map; each topic file keeps the number)"
+_AUTHORING_MAP = "verification-task-authoring.md (former Section Map; each topic file keeps the number)"
 REDIRECTS: dict[tuple[str, str], Redirect] = {
     ("verification-gates.md", "9"): Redirect(
         "measurement-discipline.md", "8", "verification-gates.md § Reserved Section Numbers, ### 9."),
@@ -234,6 +236,52 @@ REDIRECTS: dict[tuple[str, str], Redirect] = {
         "gate-runtime-boundary-evidence.md", "1", "verification-gates.md § Section Map, row §1"),
     ("verification-gates.md", "7"): Redirect(
         "gate-runtime-boundary-evidence.md", "7", "verification-gates.md § Section Map, row §7"),
+    ("verification-gate-evidence.md", "1"): Redirect("gate-positive-and-mutation-controls.md", "1", _EVIDENCE_MAP),
+    ("verification-gate-evidence.md", "2"): Redirect("gate-positive-and-mutation-controls.md", "2", _EVIDENCE_MAP),
+    ("verification-gate-evidence.md", "3"): Redirect("gate-positive-and-mutation-controls.md", "3", _EVIDENCE_MAP),
+    ("verification-gate-evidence.md", "4"): Redirect("gate-positive-and-mutation-controls.md", "4", _EVIDENCE_MAP),
+    ("verification-gate-evidence.md", "5"): Redirect("gate-fixture-provenance.md", "5", _EVIDENCE_MAP),
+    ("verification-gate-evidence.md", "6"): Redirect("gate-fixture-provenance.md", "6", _EVIDENCE_MAP),
+    ("verification-gate-evidence.md", "7"): Redirect("gate-fixture-provenance.md", "7", _EVIDENCE_MAP),
+    ("verification-gate-evidence.md", "8"): Redirect("gate-fixture-provenance.md", "8", _EVIDENCE_MAP),
+    ("verification-gate-evidence.md", "9"): Redirect("gate-fixture-provenance.md", "9", _EVIDENCE_MAP),
+    ("verification-gate-evidence.md", "10"): Redirect("gate-artifact-over-instrument.md", "10", _EVIDENCE_MAP),
+    ("verification-gate-evidence.md", "11"): Redirect("gate-artifact-over-instrument.md", "11", _EVIDENCE_MAP),
+    ("verification-gate-evidence.md", "12"): Redirect("gate-artifact-over-instrument.md", "12", _EVIDENCE_MAP),
+    ("verification-gate-evidence.md", "13"): Redirect("gate-artifact-over-instrument.md", "13", _EVIDENCE_MAP),
+    ("verification-gate-evidence.md", "14"): Redirect("gate-positive-and-mutation-controls.md", "14", _EVIDENCE_MAP),
+    ("verification-gate-evidence.md", "15"): Redirect("gate-old-home-citation-sweep.md", "15", _EVIDENCE_MAP),
+    ("verification-gate-evidence.md", "16"): Redirect("gate-generated-input-integrity.md", "16", _EVIDENCE_MAP),
+    ("verification-gate-evidence.md", "17"): Redirect("gate-generated-input-integrity.md", "17", _EVIDENCE_MAP),
+    ("verification-gate-evidence.md", "18"): Redirect("gate-generated-input-integrity.md", "18", _EVIDENCE_MAP),
+    ("verification-gate-evidence.md", "19"): Redirect("gate-script-output-assertions.md", "19", _EVIDENCE_MAP),
+    ("verification-gate-evidence.md", "20"): Redirect("gate-environment-inputs.md", "20", _EVIDENCE_MAP),
+    ("verification-gate-evidence.md", "21"): Redirect("gate-generated-input-integrity.md", "21", _EVIDENCE_MAP),
+    ("verification-gate-evidence.md", "22"): Redirect("gate-environment-inputs.md", "22", _EVIDENCE_MAP),
+    ("verification-gate-evidence.md", "23"): Redirect("gate-script-output-assertions.md", "23", _EVIDENCE_MAP),
+    ("verification-task-authoring.md", "1"): Redirect("gate-heuristic-verifier-patterns.md", "1", _AUTHORING_MAP),
+    ("verification-task-authoring.md", "2"): Redirect("gate-heuristic-verifier-patterns.md", "2", _AUTHORING_MAP),
+    ("verification-task-authoring.md", "3"): Redirect("gate-heuristic-verifier-patterns.md", "3", _AUTHORING_MAP),
+    ("verification-task-authoring.md", "4"): Redirect("gate-heuristic-verifier-patterns.md", "4", _AUTHORING_MAP),
+    ("verification-task-authoring.md", "5"): Redirect("gate-verdict-contract-and-adjudication.md", "5", _AUTHORING_MAP),
+    ("verification-task-authoring.md", "6"): Redirect("gate-verdict-contract-and-adjudication.md", "6", _AUTHORING_MAP),
+    ("verification-task-authoring.md", "8"): Redirect("gate-absence-and-consistency.md", "8", _AUTHORING_MAP),
+    ("verification-task-authoring.md", "9"): Redirect("gate-heuristic-verifier-patterns.md", "9", _AUTHORING_MAP),
+    ("verification-task-authoring.md", "10"): Redirect("gate-pre-edit-baseline.md", "10", _AUTHORING_MAP),
+    ("verification-task-authoring.md", "10.5"): Redirect("gate-pinned-from-real-content.md", "10.5", _AUTHORING_MAP),
+    ("verification-task-authoring.md", "10.6"): Redirect("gate-input-set-and-compared-window.md", "10.6", _AUTHORING_MAP),
+    ("verification-task-authoring.md", "10.7"): Redirect("gate-anchor-outcome-set.md", "10.7", _AUTHORING_MAP),
+    ("verification-task-authoring.md", "10.8"): Redirect("gate-command-semantics.md", "10.8", _AUTHORING_MAP),
+    ("verification-task-authoring.md", "10.9"): Redirect("gate-command-semantics.md", "10.9", _AUTHORING_MAP),
+    ("verification-task-authoring.md", "10.10"): Redirect("gate-anchor-outcome-set.md", "10.10", _AUTHORING_MAP),
+    ("verification-task-authoring.md", "10.11"): Redirect("gate-anchor-outcome-set.md", "10.11", _AUTHORING_MAP),
+    ("verification-task-authoring.md", "10.12"): Redirect("gate-anchor-outcome-set.md", "10.12", _AUTHORING_MAP),
+    ("verification-task-authoring.md", "11"): Redirect("gate-pinned-from-real-content.md", "11", _AUTHORING_MAP),
+    ("verification-task-authoring.md", "12"): Redirect("gate-input-set-and-compared-window.md", "12", _AUTHORING_MAP),
+    ("verification-task-authoring.md", "13"): Redirect("gate-heuristic-verifier-patterns.md", "13", _AUTHORING_MAP),
+    ("verification-task-authoring.md", "14"): Redirect("gate-input-set-and-compared-window.md", "14", _AUTHORING_MAP),
+    ("verification-task-authoring.md", "15"): Redirect("gate-input-set-and-compared-window.md", "15", _AUTHORING_MAP),
+    ("verification-task-authoring.md", "16"): Redirect("gate-input-set-and-compared-window.md", "16", _AUTHORING_MAP),
 }
 
 # A section number token, kept whole: 15, 15.1, 1.16.5, 3k, 3a.2, 9.B, 9.B.1,

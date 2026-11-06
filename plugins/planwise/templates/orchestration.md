@@ -80,7 +80,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 **Orchestrator NEVER reads:** {list the heavy files — Consolidated Context parts, reference docs, source code}
 **Subagents read:** Per-task Required Context (each subagent gets a fresh window sized by the **dispatched model** — 200K for Sonnet/Haiku, 1M for Opus — regardless of the parent tier; see `references/session-context-budget.md` § Subagent Context Window)
 
-> **Subagent overhead:** Each subagent consumes ~54K (system ~26K + global rules/CLAUDE.md ~27K + skills ~1K) before any task work begins. Verify that each task's estimate + injected path-rule tokens + ~54K < the **dispatched model's** window (Sonnet/Haiku 200K, Opus 1M — NOT the parent `context_window`; see `references/session-context-budget.md` § Subagent Context Window). See `references/session-context-budget.md` § Task-Level Estimation for the bottom-up estimation formula and conversion factor.
+> **Subagent overhead:** Each subagent consumes ~54K (system ~26K + global rules/CLAUDE.md ~27K + skills ~1K) before any task work begins. Verify that each task's estimate + path-rule tokens (every rule whose `paths:` matches a file the runner reads or writes, including its own task brief under the plans directory: the flagged `approx_tokens` total from `python {plugin_root}/scripts/init_project.py --doctor --project-root {project_root}`, ~{R}K measured {YYYY-MM-DD}) + ~54K < the **dispatched model's** window (Sonnet/Haiku 200K, Opus 1M — NOT the parent `context_window`; see `references/session-context-budget.md` § Subagent Context Window). See `references/session-context-budget.md` § Task-Level Estimation for the bottom-up estimation formula and conversion factor.
 
 <!-- Uncomment when any task's declared Output is under `.claude/**` — declares the
      expected permission round-trip (see references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md §14):
@@ -260,6 +260,7 @@ Per `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns
 | `completed` return whose final message ends mid-action ("Now let me…", "Next I'll…") or omits required report fields | Mid-action stall masquerading as completion | Run Step 2's gate, then resume the SAME agent to finish |
 | No completion report and no named permission denial, a near-clean tree, no dispatch voice, Bash-only deliverables absent on disk | Silently auto-denied tool permission — a spawn-prompt tool path matches no allow entry | Compare the prompt's tool paths against the project's allow entries BEFORE any resume, then resume the SAME agent with paths in a granted form |
 | Structured completion report whose deliverables verify on disk | Real completion | Reconcile normally |
+| No final message, deliverables verify on disk, Recovery row written where owned | Real completion, report lost | Reconcile normally, note the missing report, do NOT resume (§1.17.1) |
 
 **On every failure state, resume the SAME agent — never dispatch a fresh one.** Its context already holds the task; a fresh runner re-reads everything and can race or duplicate the first one's partial work.
 

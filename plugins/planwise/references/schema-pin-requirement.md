@@ -237,7 +237,7 @@ Fix: Run the command recursively over {schema_glob_path}, then paste the command
 > - [ ] Reconciled to post-migration shape (columns, constraints, types)
 > - [ ] Quoted the live shape into a Pin table with the three required columns
 > - [ ] Cited CREATE range AND every contributing ALTER range
-> - [ ] Dated the Pin (`verified {YYYY-MM-DD}`)
+> - [ ] Dated the Pin (`verified {YYYY-MM-DD}`) only after the reconciliation it names has run. A table not yet deployed takes the §3.1 pre-execution heading
 > - [ ] Re-ran the grep on the day of dispatch if the pin was authored more than 7 days prior
 
 ---
@@ -322,6 +322,64 @@ When a plan's change log, decision register, or revision note records a table-sh
 ```bash
 grep -rln "{schema}\.{table}" {plans_dir}/{plan}/**/*.md
 # Every hit carrying a Pin row for this table must be reconciled in the same edit.
+```
+
+> [!constraint] Reconcile every Pin literal against the catalog before stamping
+> A sweep that only re-dates a Pin proves nothing. Each literal in a Pin is a claim, and each claim equals the deployed catalog or is a defect.
+>
+> 1. Tokenise every `column TYPE [NULL|NOT NULL]` literal in each hit's Pin. Compare its type, width and nullability with `INFORMATION_SCHEMA.COLUMNS`.
+> 2. Compare every quoted index or key tuple with `sys.index_columns` joined to `sys.indexes`, ordered by `key_ordinal`.
+> 3. Fix each mismatch in the same edit. Write the stamp only after both comparisons finish.
+>
+> ```sql
+> SELECT i.name, i.is_unique, c.name AS column_name, ic.key_ordinal
+>   FROM sys.indexes i
+>   JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+>   JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+>  WHERE i.object_id = OBJECT_ID('{schema}.{table}') AND ic.is_included_column = 0
+>  ORDER BY i.name, ic.key_ordinal;
+> ```
+>
+> - WRONG: re-date each Pin heading to `verified {YYYY-MM-DD}` and count the headings. The widths, types and keys inside each Pin stay unchecked.
+> - CORRECT: compare each literal and each key tuple with the two queries above, then stamp the heading.
+
+The stamp names the evidence it reconciled:
+
+```markdown
+## Schema Pin (verified {YYYY-MM-DD} against the live catalog — reconciled: {n} of {n} catalog columns, ordinal diff {d}, {k} index/key tuples, Pin document {path})
+```
+
+A stamp with no `reconciled:` evidence is unverified. Four rules follow.
+
+- **A pre-written heading is unverified.** A scaffolder may write `verified {date}` or `swept in by {task}` before the sweep runs. Treat it as unverified until the sweep's own evidence replaces it. A scaffolder writes the §3.1 pre-execution heading for a table that is not yet deployed, never a `verified` stamp.
+- **The unswept-Pin search cannot see a wrong sweep.** A `grep -L "{pin doc}\|verified {year}"` acceptance check lists the Pins no sweep reached. A heading pre-written by the scaffolder satisfies it before any edit. Pair it with the literal reconciliation above.
+- **A leftover placeholder means the sweep is undone.** A Pin row that still reads "HALT if this row still reads as a summary" was never reconciled. A stamp-only sweep leaves it in place.
+- **Brief literals are the expected defect.** After a Discovery step that refines widths, types or keys, literals copied from the brief and not from the ratified spec are the likeliest mismatches.
+
+#### Reviewer Check 127 — Schema Pin Stamp Predates Its Deploy or Keeps a Summary Placeholder
+
+- **Severity / Role / Type:** ERROR | Task Reviewer | NEW
+- **What:** A Schema Pin stamp MUST follow the deploy it claims to verify. A Pin row MUST NOT keep a "HALT if" summary placeholder. A post-deploy stamp SHOULD name its `reconciled:` evidence, per `references/schema-pin-requirement.md` §5.3.
+- **Detection:**
+  1. A Pin heading reads `verified {date}` and the date is earlier than the deploy the plan records for that table. The deploy date is the creating task's COMPLETE date in its Recovery file, or the plan's change-log entry. A heading that says `swept in by {task}` while that task is not COMPLETE also fires → ERROR.
+  2. A Pin row still carries `HALT if` placeholder text → ERROR.
+  3. A post-deploy stamp carries no `reconciled:` evidence → WARNING.
+- **Finding template:**
+```
+[ERROR] Schema Pin stamp predates its deploy
+File: {task file path} | Location: Schema Pin heading for {table}
+Issue: The heading reads "{stamp}" but {the table deployed on {date} | {task} is not COMPLETE}
+Fix: Replace the stamp with the sweep's own evidence per references/schema-pin-requirement.md §5.3 | Confidence: HIGH
+
+[ERROR] Schema Pin row keeps a summary placeholder
+File: {task file path} | Location: Schema Pin row for {table}
+Issue: The row still reads "{placeholder text}", so the sweep did not reconcile it
+Fix: Reconcile the row against the catalog and remove the placeholder per references/schema-pin-requirement.md §5.3 | Confidence: HIGH
+
+[WARNING] Schema Pin stamp names no reconciled evidence
+File: {task file path} | Location: Schema Pin heading for {table}
+Issue: The post-deploy stamp carries no `reconciled:` evidence
+Fix: Add the catalog totals, ordinal diff, index count and Pin document path per references/schema-pin-requirement.md §5.3 | Confidence: MEDIUM
 ```
 
 ### 5.4 Reconcile Against the Catalog, Never a Sibling Brief

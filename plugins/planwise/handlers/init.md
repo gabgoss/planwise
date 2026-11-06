@@ -128,6 +128,7 @@ Render `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` in the gen
    - `Generated: <today's date>` (ISO format `YYYY-MM-DD`)
    - `**Companion to:** [{lessons_index}]({lessons_index})` (`{lessons_index}` from `config.yaml: project.index_files.lessons`, default `00-Index-LessonsLearned.md`)
    - `## Scope` heading, then `config.yaml: categorization.scope` if set, else `Lessons captured during {project_name} sessions.` (substitute `{project_name}` from Step 1)
+   - The status paragraph that follows the scope paragraph in the template's `## Scope` section. Copy it verbatim and set its link target to `{lessons_index}`.
 5. For each bucket in `decision_tree_order`, render:
    - `## {BUCKET_ID}. {BUCKET_NAME} (0)` heading (the `(0)` is a per-bucket lesson count, initialised to 0)
    - `{BUCKET_DESCRIPTION}` paragraph

@@ -77,6 +77,7 @@ If your own reading contradicts the sheet, say so explicitly: re-measure — `wc
 - Verify that a paid or irreversible step whose target is pinned by a recency-ordered query over a stored corpus cites a census of the corpus, sets the fallback ceiling above the largest known gap, keeps the `NONE` sentinel with the measure-don't-substitute instruction, and asserts the target exists in the corpus the runner reads (Check 120, Corpus Target Pin With No Census, Fallback Ceiling or NONE Sentinel; `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.31.1)
 - Verify that a task dispatched to a runner, subagent or CI actor is not bound to a rule that names a tool only a human can reach, and that a rule naming a tool states the capability behind it, an instance for each bound actor and the reason for each prohibition (Check 121, Dispatched Runner Bound to a Rule Naming a Human-Only Tool; `references/rule-authoring.md` §8)
 - Verify that no Success Criterion, exit criterion or Signoff anchor uses a data-state literal as its pass or fail value, cited or not, and that measurement work carries one criterion tying a produced value to its evidence (Check 124, Data-State Literal Used as a Pass or Fail Value; `references/exit-criteria-fidelity.md` §16.10.1, `references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md` §16.19)
+- Verify that a task which corrects, reconciles or supersedes a state assertion restated elsewhere carries a wider-tree restatement sweep, and that no uncorrected live copy survives outside the plan's Outputs (Check 129, Correction Leaves an Uncorrected Sibling Copy; `references/dispatch-edit-surface-sweep.md` §14)
 - [Token Saver on only] Each task's Required Context obeys the `references/task-content-fidelity.md` §9.A.8 large-file ladder (Check 065): no over-ceiling task without `1M-exception`; Warn+ files carry a backlog item; a `read`-reason Critical is never `1M-exception`'d; oversized generated artifacts are Multi-Part split
 - Session Summary's Consumption Record present with `measured|estimated` tags; orchestrator-window total kept distinct from summed dispatch budgets
 
@@ -124,6 +125,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 029 — Task Measured Output-Size Pre-COMPLETE Gate → references/verify-before-cite.md §9.B.8
 - Check 030 — Task USED-Helper Enumeration → references/verify-before-cite.md §9.B.7
 - Check 031 — Task Planning-Tier Schema Pin Reconciliation → references/verify-before-cite.md §9.B.6
+- Check 127 — Schema Pin Stamp Predates Its Deploy or Keeps a Summary Placeholder → references/schema-pin-requirement.md §5.3
 - Check 032 — Task Env Var / Function Signature / Config Key Drift → references/verify-before-cite.md §9.B.7
 - Check 033 — Task MERGE/Upsert Field Mapping Subsection → references/verify-before-cite.md §9.B.8
 - Check 065 — Task Token Saver Large-File Ladder Applied → references/task-content-fidelity.md §9.A.8
@@ -148,6 +150,9 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 121 — Dispatched Runner Bound to a Rule Naming a Human-Only Tool → references/rule-authoring.md §8
 - Check 124 — Data-State Literal Used as a Pass or Fail Value → references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md §16.19
 - Check 125 — Equality Filter on a State Column With No Measured Vocabulary → references/schema-pin-requirement.md §5.1
+- Check 126 — Table-Shaped Output Estimate With No Column Term → references/task-content-fidelity.md §9.A.18
+- Check 129 — Correction Leaves an Uncorrected Sibling Copy → references/dispatch-edit-surface-sweep.md §14
+- Check 130 — Unmodified-Tests Criterion Beside a Behaviour-Changing Default → references/verify-caller-before-complete.md §7
 
 ### Dependency Reviewer
 
@@ -238,6 +243,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Verify that every pinned gate was run over the content it judges: a count pinned beside a content block was run over that block, a count method states the command's observed output line, and a pattern pinned before its subject exists is re-run when the producer lands, and a verdict grep copies the skeleton's bytes (`references/gate-pinned-from-real-content.md` §10.5 and §11)
 - Verify that every headline margin or ratio criterion has its enforcing size constant derived from it (or a stated weaker-guarantee restatement), and that each closeout reports against the headline, not the constant alone (`references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md` §16.14)
 - Verify that every deliverable or rule sentence stating a format, a cap or a threshold names the writer that emits it or the gate that rejects the wrong form (`references/rule-authoring.md` §7)
+- Verify that every doctest value, tolerance, expected count and type-justifying inequality in Execution Steps and Notes carries a reading from its quoted command or an UNVERIFIED tag with source and date, and that each count anchor equals the review discovery fact sheet's `count_anchor` executed value for the same Before command (Check 128, Numeric Literal Unmeasured, or Count Anchor Disagrees With Its Before Command; `references/verify-before-cite.md` §9.B.28)
 
 - Check 074 — Diff-Derived Gate Without Input-Set Assertion → references/measurement-discipline.md §8.7
 - Check 075 — Size Gate Without Content-Conservation Gate → references/measurement-discipline.md §8.7
@@ -258,6 +264,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 113 — Absence Check Scope Differs From the Execution Steps' Enumeration → references/gate-satisfiability.md §6
 - Check 114 — Verification Command Not Proven to Run in the Target Environment → references/gate-command-semantics.md §10.9.1
 - Check 119 — Criterion Over an External Listing Names Fewer Than Four Cells → references/gate-anchor-outcome-set.md §10.12
+- Check 128 — Numeric Literal Unmeasured, or Count Anchor Disagrees With Its Before Command → references/verify-before-cite.md §9.B.28
 
 ## Sub-role: Change-Surface Reviewer (NEW)
 

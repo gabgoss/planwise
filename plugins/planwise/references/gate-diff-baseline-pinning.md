@@ -89,6 +89,14 @@ Check 29 (§8.1) also covers the series base: a diff against a base name that no
 
 A scope rule states where a sprint **may** write. Testing it by enumerating the places it may not write permits every directory nobody thought to forbid — including directories that did not exist when the gate was authored. Assert the allowed set instead and require the complement to be empty. Only that form can fail for a reason nobody anticipated. A file-count gate asserts `wc -l` equals exactly N over a `--`-scoped diff.
 
+`git diff <commit>` lists tracked paths only, so a never-staged new file never appears in it. A `--name-only` gate over a task that creates a file then reads empty, and a literal reading says the task produced nothing. Every `--name-only` scope, list or count gate therefore takes the union form, which adds the untracked files:
+
+```bash
+{ git diff --name-only $BASE -- <paths>; git ls-files --others --exclude-standard -- <paths>; } | sort -u
+```
+
+Keep the plain diff for a tracked-only check such as "this file is unchanged". A bare `git status --porcelain -uall` also lists new files, but it stops listing them once a mid-sprint commit holds them. `git add -N` stays the remedy for a pattern-presence content gate only (`gate-baseline-independence.md` §2).
+
 `scripts/lint_verification_gates.py` registers Check 21 (`scripts/lint_gate_checks_commands.py`), which flags each unpinned shape below. Choosing the allowed set over a forbidden list stays a review judgment (Reviewer Check 077, step 5).
 
 > [!constraint] The three canonical unpinned shapes, and their baseline-scoped rewrites
@@ -101,28 +109,29 @@ A scope rule states where a sprint **may** write. Testing it by enumerating the 
 > CORRECT — each scoped to the recorded base and path-scoped with `--`:
 > ```bash
 > git -C <repo> diff $BASE -- <paths> | grep -E '^\+' | grep -E '<leak pattern>'          # expect empty
-> git -C <repo> diff --name-only $BASE -- <root> | grep -vE '^(<allowed dir>)/'           # expect empty
-> git -C <repo> diff --name-only $BASE -- <paths> | wc -l                                 # expect exactly N
+> { git -C <repo> diff --name-only $BASE -- <root>; git -C <repo> ls-files --others --exclude-standard -- <root>; } | sort -u | grep -vE '^(<allowed dir>)/'   # expect empty
+> { git -C <repo> diff --name-only $BASE -- <paths>; git -C <repo> ls-files --others --exclude-standard -- <paths>; } | sort -u | wc -l   # expect exactly N
 > ```
-> The WRONG forms fail in both directions named in §8: the file-count and directory-filter forms false-FAIL on work the sprint never made, and the leak-pattern form misattributes added lines. The rewrite is mechanical.
+> The WRONG forms fail in both directions named in §8: the file-count and directory-filter forms false-FAIL on work the sprint never made, and the leak-pattern form misattributes added lines. The `--name-only` rewrites also join the untracked files, because the tracked diff alone cannot list a new file. The rewrite is mechanical.
 
 #### Reviewer Check 077 — Diff-Scoped Gate Not Baseline-Pinned
 
 - **Severity / Role / Type:** ERROR | Task Reviewer | NEW
-- **What:** Any `git diff` in a task file's Verification Commands or Success Criteria MUST be scoped to a recorded baseline — the sprint's `{ABBREV}_S{NN}_BASE`, or `{ABBREV}_SERIES_BASE` for a whole-series battery — and MUST path-scope with `-- <paths>` rather than by filtering the command's output. A sprint whose first repo-touching task records no baseline at all fails this check for every gate in the sprint, including gates that name a `$..._BASE` operand that is never pinned anywhere. An unpinned gate reads the whole working tree: pre-existing uncommitted work counts against the sprint (false FAIL) and added lines the sprint never wrote are attributed to it (false PASS).
+- **What:** Any `git diff` in a task file's Verification Commands or Success Criteria MUST be scoped to a recorded baseline — the sprint's `{ABBREV}_S{NN}_BASE`, or `{ABBREV}_SERIES_BASE` for a whole-series battery — and MUST path-scope with `-- <paths>` rather than by filtering the command's output. A sprint whose first repo-touching task records no baseline at all fails this check for every gate in the sprint, including gates that name a `$..._BASE` operand that is never pinned anywhere. An unpinned gate reads the whole working tree: pre-existing uncommitted work counts against the sprint (false FAIL) and added lines the sprint never wrote are attributed to it (false PASS). A `--name-only` scope, list or count gate MUST also join `git ls-files --others --exclude-standard`, because `git diff <commit>` lists tracked paths only and a never-staged new file reads as absent.
 - **Detection:**
   1. Grep the task file for `git diff`; every hit is a candidate.
   2. For each hit, assert **(a)** a `$..._BASE` operand is present, **(b)** a `--` path scope is present — a pipe into a path filter does not satisfy this, and **(c)** the operand names a base the sprint's first repo-touching task actually records. Any one absent → ERROR.
   3. Open that first repo-touching task and confirm it pins the base **before its first edit**, behind a clean-scope precondition (`git status --porcelain -- <write paths>` MUST be empty, else HALT), and records name + value in Recovery Key Findings. Pinned after an edit, or not recorded → ERROR.
   4. On a multi-sprint plan, confirm a `{ABBREV}_SERIES_BASE` is recorded once at the first sprint and **adopted verbatim** by later sprints. A later sprint that re-derives it from its own HEAD → ERROR.
   5. Inspect any scope gate that enumerates forbidden directories rather than asserting the allowed set; the enumerating form permits every directory nobody listed → ERROR.
-- **Enforced by:** `scripts/lint_verification_gates.py` registers Check 21 (`scripts/lint_gate_checks_commands.py`) for steps 2(a) and 2(b), and Check 29 (`scripts/lint_gate_checks_plan.py`) for steps 2(c) and 3. Step 3's order inside one file, step 4 and step 5 stay review steps.
+  6. Inspect each `git diff --name-only` scope, list or count gate for a `git ls-files --others` union over the same paths. A bare `--name-only` gate, with no earlier `git add` of the task's new files, returns empty for a task that creates a file → ERROR.
+- **Enforced by:** `scripts/lint_verification_gates.py` registers Check 21 (`scripts/lint_gate_checks_commands.py`) for steps 2(a), 2(b) and 6, and Check 29 (`scripts/lint_gate_checks_plan.py`) for steps 2(c) and 3. Check 21 exempts a gate when an earlier command in the same file runs `git add`. Step 3's order inside one file, step 4 and step 5 stay review steps.
 - **Finding template:**
 ```
 [ERROR] Diff-scoped gate not baseline-pinned
 File: {task file path} | Location: Verification Commands / Success Criteria step {n}
-Issue: Gate runs `git diff` with {no recorded base | `HEAD` as the operand | no `--` path scope | a base no task in the sprint records}; it reads the whole working tree, so pre-existing uncommitted work fails the sprint (false FAIL) and added lines the sprint never wrote are attributed to it (false PASS)
-Fix: Pin `{ABBREV}_S{NN}_BASE=$(git -C <repo> rev-parse HEAD)` in the sprint's first repo-touching task behind an empty-`git status --porcelain -- <write paths>` precondition, record it in Recovery Key Findings before the first edit, and rewrite the gate as `git diff $BASE -- <paths>` per references/gate-diff-baseline-pinning.md §8 | Confidence: HIGH
+Issue: Gate runs `git diff` with {no recorded base | `HEAD` as the operand | no `--` path scope | a base no task in the sprint records | a `--name-only` listing with no `git ls-files --others` union, so a never-staged new file never appears}; it reads the whole working tree, so pre-existing uncommitted work fails the sprint (false FAIL) and added lines the sprint never wrote are attributed to it (false PASS)
+Fix: Pin `{ABBREV}_S{NN}_BASE=$(git -C <repo> rev-parse HEAD)` in the sprint's first repo-touching task behind an empty-`git status --porcelain -- <write paths>` precondition, record it in Recovery Key Findings before the first edit, and rewrite the gate as `git diff $BASE -- <paths>` per references/gate-diff-baseline-pinning.md §8, and join `git ls-files --others --exclude-standard -- <paths>` for a `--name-only` listing | Confidence: HIGH
 ```
 
 ### 8.6 A Base Is a Statement About One Moment; Commits After It Inside the Gate's Paths Break Every Delta Gate
@@ -130,7 +139,7 @@ Fix: Pin `{ABBREV}_S{NN}_BASE=$(git -C <repo> rev-parse HEAD)` in the sprint's f
 A commit does not remove work from a `$BASE..worktree` diff. It moves that work from "uncommitted" to "committed", and both states sit inside the range. In a repository that a second session can write to, a whole-tree gate measures every writer's work, not this session's. Measured once: a pinned count of 6 files became 14, then 22, while a second session kept editing. Run as pinned, the gate failed a correct tree.
 
 > [!constraint] Four operative points for a shared repository
-> 1. **Pin every diff gate to an explicit path list from the start.** Assert on `git diff --name-only $BASE -- <path list> | wc -l`. Print the whole-tree listing so a human can classify it, but do not assert on it.
+> 1. **Pin every diff gate to an explicit path list from the start.** Assert on the union form over that list: `{ git diff --name-only $BASE -- <path list>; git ls-files --others --exclude-standard -- <path list>; } | sort -u | wc -l`. Print the whole-tree listing so a human can classify it, but do not assert on it.
 > 2. **A clean `git status` is not evidence the gate scope is clean.** A clean tree after a bundled commit is the case where a whole-tree base diff is most wrong, because the committed foreign work is still inside the range.
 > 3. **Expect the other session's edits to reach your own files.** Path-scoped gates stay correct. The commit then needs hunk-level staging (`git apply --cached` with a patch of only this session's lines), taken from a saved snapshot of the foreign diff.
 > 4. **When a pinned count moves (6, then 14, then 22), ask what the diff range contains before asking what changed in your code.**
@@ -143,6 +152,10 @@ git log --oneline <sprint base>..HEAD -- <the gates' pathspecs>
 
 - **Empty:** the sprint base is still exact for this session.
 - **Non-empty:** pin a session-start base, record both bases, and name each intervening commit as an attributed delta for any gate that still compares against the sprint base.
+
+**Resume compare.** On a resume after a pause, run every content compare the plan pins against the base over the write-set before the first dispatch. Do not wait for the gate that needs it. Two commands show the state: `git -C <repo> status --porcelain -- <write paths>` and `git -C <repo> diff --name-only $BASE -- <write paths>`.
+
+**Per-file base.** A wanted user edit to one in-scope file after the pin is new truth, not drift. Pin a second ref for that one file only, and make every compare on that file take it. Prove the amended compare both ways: clean with the new ref, dirty with the old ref. Send a spec-delta flag to each downstream front door. Never revert the edit, and never replay that file at the old base.
 
 > [!constraint] A sprint-wide base goes stale when an earlier session commits under the gates' pathspec
 > WRONG — adopt the sprint base unconditionally. The first session's closeout committed three new files under the pathspec, so a frontmatter-key gate matches every `+id:` line of those files and fails correct work:

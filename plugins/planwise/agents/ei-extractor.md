@@ -133,13 +133,14 @@ Write each file whole, in one `Write`. If a body is wrong, compose it again and 
 
 ## Step 3: RECONCILE
 
-Run the three-step EI consistency procedure on every EI file before the measurement:
+Run the four-step EI consistency procedure on every EI file before the measurement:
 
 1. **Sections.** Every `ei_sections` id has its section, with full content or the body `none`.
 2. **Cross-References table.** One or more rows per section map it to its source. Each source cell uses the form `Spec #{N} ({filename.md})`: the global number and the exact filename together, never a bare number.
-3. **`Extracted from:` header.** List every source the table cites, with its exact filename. Then check both directions. Every header source appears in at least one Cross-References row. Every row's source appears in the header.
+3. **`Extracted from:` header.** List every source the table cites in the paired form `Spec #{N} ({filename.md})`, with its exact filename. `{N}` is the Global Source Map's number, copied from the `source_map` row and never renumbered or recounted. Then check both directions. Every header source appears in at least one Cross-References row. Every row's source appears in the header.
+4. **Redirect targets.** Every Deferred row's redirect target is a Target value from `deferred_targets` or reads `Out of scope`. Every file-plus-heading location a Target or Rationale cell names must resolve by `Grep`, and the section under it must hold the named content when you `Read` it. Repair a failing row with a whole-file `Write`.
 
-One exemption applies. A source used only for background, and the source of no extracted section, may stay out of the header when its row carries the `(informational-only)` annotation, for example `Spec #{N} §{n} (informational-only)`.
+One exemption applies. A source used only for background, and the source of no extracted section, may stay out of the header when its row carries the `(informational-only)` annotation, for example the Source cell `Spec #{N} ({filename.md}) (informational-only)`, with `§{n}` in the Source Section(s) cell.
 
 Any change this step forces is a whole-file `Write` of the affected file.
 

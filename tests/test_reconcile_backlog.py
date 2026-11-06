@@ -4,9 +4,10 @@
 `reconcile_backlog.detect_drift(config)` reads item files, never an index.
 It checks each item file's frontmatter `status:` against the file's location.
 A COMPLETE/CLOSED item file outside `Archive/` is drift. An open item inside
-`Archive/`, a file with no readable status, two files carrying one id, and a
-closed item whose filename already exists in `Archive/` are anomalies, which
-are reported and never acted on.
+`Archive/`, a file with no readable status, two files carrying one id, a
+closed item whose filename already exists in `Archive/`, and an open item
+whose frontmatter carries a `closed:` date are anomalies, which are reported
+and never acted on.
 
 `reconcile_backlog.reconcile(config)` re-scans the item files and moves each
 still-drifted file into `Archive/`. It never edits or writes any index file.
@@ -90,14 +91,23 @@ class _BacklogFixtureBase(unittest.TestCase):
         return self.index_path
 
     def write_item(
-        self, filename: str, item_id: str, status: str, archived: bool = False
+        self,
+        filename: str,
+        item_id: str,
+        status: str,
+        archived: bool = False,
+        closed_date: str | None = None,
     ) -> Path:
-        """Create an item file in the backlog dir or under Archive/."""
+        """Create an item file in the backlog dir or under Archive/.
+
+        `closed_date` adds a frontmatter `closed:` line after `status:`.
+        """
         target_dir = self.archive_dir if archived else self.backlog_dir
         target_dir.mkdir(parents=True, exist_ok=True)
         path = target_dir / filename
+        closed_line = f"closed: {closed_date}\n" if closed_date else ""
         path.write_text(
-            f"---\nid: {item_id}\nstatus: {status}\n---\n\n# {filename}\n",
+            f"---\nid: {item_id}\nstatus: {status}\n{closed_line}---\n\n# {filename}\n",
             encoding="utf-8",
         )
         return path
@@ -181,6 +191,37 @@ class TestAnomaliesNeverActedOn(_BacklogFixtureBase):
         self.assertEqual(moved, 0)
         self.assertTrue(path.exists())
         self.assertFalse((self.backlog_dir / "reopened-BUG-item.md").exists())
+
+    def test_closed_date_beside_open_status_is_anomaly_and_not_moved(self):
+        # A frontmatter `closed:` date is not a schema field, so it never
+        # closes an item. The conflict is reported and the file stays put.
+        path = self.write_item(
+            "dated-BUG-item.md", "060", "IN_PROGRESS", closed_date="2026-06-12"
+        )
+
+        result = detect_drift(self.config)
+        self.assertEqual(result["drifts"], [])
+        self.assertEqual(len(result["anomalies"]), 1)
+        reason = result["anomalies"][0]["reason"]
+        self.assertIn("closed: 2026-06-12", reason)
+        report = reconcile_backlog._format_report(result)
+        self.assertIn("060 (IN_PROGRESS): ", report)
+        self.assertIn(reason, report)
+
+        moved, _ = self.run_reconcile_quietly()
+        self.assertEqual(moved, 0)
+        self.assertTrue(path.exists())
+        self.assertFalse((self.archive_dir / "dated-BUG-item.md").exists())
+
+    def test_closed_date_beside_closed_status_is_plain_drift(self):
+        # The date adds nothing to a file that already reads closed.
+        self.write_item(
+            "done-DOC-item.md", "061", "COMPLETE", closed_date="2026-06-12"
+        )
+
+        result = detect_drift(self.config)
+        self.assertEqual([d["id"] for d in result["drifts"]], ["061"])
+        self.assertEqual(result["anomalies"], [])
 
     def test_unreadable_status_is_anomaly_and_not_moved(self):
         no_fm = self.backlog_dir / "no-frontmatter-item.md"

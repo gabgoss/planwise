@@ -1,11 +1,11 @@
 ---
 description: Required Context fidelity — measured estimates, freshness across file splits, bytes-per-token ratios, the Token Saver large-file ladder, and giving a copy or quote task every source it quotes from — for planwise task files
-consult-when: Checking Required Context fidelity in a task file — measured estimates, freshness, large-file ladder, and a copy or quote task's brief lists every quote source in Required Context (§9.A.16)
+consult-when: Checking Required Context fidelity in a task file — measured estimates, freshness, large-file ladder, and a copy or quote task's brief lists every quote source in Required Context (§9.A.16), and pricing table-shaped output by column count (§9.A.18)
 ---
 
 # Task Content Fidelity
 
-**Purpose:** Required Context fidelity rules (§9.A) for task files — measured estimates that stay fresh across file splits, bytes-per-token ratios, and the Token Saver large-file classification ladder. Extends [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) §9 (Task File Template) with the §9.A subsection; extracted into this sibling file to keep both rule files comfortably within a single Read call. Verify-before-cite discipline is the split sibling [verify-before-cite.md](verify-before-cite.md) (§9.B).
+**Purpose:** Required Context fidelity rules (§9.A) for task files — measured estimates that stay fresh across file splits, bytes-per-token ratios, and the Token Saver large-file classification ladder. Extends [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) §9 (Task File Template) with the §9.A subsection.
 
 **Companion files:** [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) (Task File Template, Orchestration linkage, completion tracking), [verify-before-cite.md](verify-before-cite.md) (§9.B Verify-Before-Cite — split sibling: lesson IDs, schema files, field names, facade re-exports, upsert helper design).
 
@@ -13,7 +13,7 @@ consult-when: Checking Required Context fidelity in a task file — measured est
 
 ## 9.A Required Context Fidelity (BINDING)
 
-The Task File Template's Required Context table is a *contract* for the subagent's budget. Every cell MUST reflect a measured reality at the moment the plan is committed.
+The Task File Template's Required Context table is a *contract* for the subagent's budget. Every cell MUST reflect a measured reality at the moment the plan is committed. Required Context cells are one class of numeric claim, and every numeric literal in Execution Steps and Notes falls under [verify-before-cite.md](verify-before-cite.md) §9.B.28.
 
 ### 9.A.1 Update Required Context when prior tasks change file structure
 
@@ -577,6 +577,26 @@ This row type has no size intuition to fall back on, which is why it is the one 
 
 The label decays independently of the file, which is what makes it worse than a stale number: a stale number can be compared against a fresh measurement and found wrong, while "small" stays plausible at any size. Two files carrying the same "full (small)" label routinely differ by 3×.
 
+#### A row citing a same-session output is projected, re-measure at dispatch
+
+A row can cite a file that an earlier task of the same session produces. The file does not exist at scaffold close, so no measurement can price it. The row carries a projection.
+
+Mark that row `projected, re-measure at dispatch`. Never write a split or HALT threshold against its figure. A runner that halts to ask has already spent its dispatch. The orchestrator re-measures before dispatch (`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.19) and decides from three measured numbers:
+
+- the input bytes of the cited files
+- the dispatched model's window, less the `--doctor` rule surface and the ~54K overhead
+- the expected size of the output
+
+> [!constraint] A threshold against a projected size is a guess
+> WRONG — a HALT threshold written against a projected figure:
+> ```markdown
+> | 1 | {same-session output} | ~48 | ~19K | {purpose}. If the total exceeds ~55 KB, HALT and ask for a split. |
+> ```
+> CORRECT — the row carries the marker, and the orchestrator decides at dispatch:
+> ```markdown
+> | 1 | {same-session output}, projected, re-measure at dispatch | ~48 | ~19K | {purpose} |
+> ```
+
 #### Reviewer Check 084 — Required Context Rows Measured at Row Grain
 
 - **Severity / Role / Type:** WARNING (ERROR when the task's bottom-up estimate crosses a dispatch ceiling once corrected) | Task Reviewer | NEW
@@ -586,7 +606,7 @@ The label decays independently of the file, which is what makes it worse than a 
   3. **Un-run command corpus** — a row whose subject is command output carries no dry-run record, or bundles multiple command families behind one undecomposed figure.
   4. **Unmeasured size adjective** — a size adjective appears in a size cell, Purpose column, or Notes-for-Agent line with no measured figure beside it.
 - **Detection:**
-  1. For each row naming a file path: run `measure_files.py --model {assigned Agent}` on it and compare against the row's cells.
+  1. For each row naming a file path: run `measure_files.py --model {assigned Agent}` on it and compare against the row's cells. A row marked `projected, re-measure at dispatch` is checked for the marker and is not compared against a live measurement. A row that cites a same-session output without the marker is failure mode 1.
   2. For each row naming a `§` anchor: resolve the heading(s) in the live file, measure the bounded range (to EOF where no next heading exists), and compare.
   3. For each row whose subject is command output: check for a dry-run comment recording scope, returned line count and byte count.
   4. Grep the task file for `\b(small|large|brief|scoped|full)\b` within Required Context rows and Notes-for-Agent; each hit must have a numeric figure on the same line.
@@ -685,6 +705,17 @@ Issue: step {N} reads {path} (~{measured}K) and Required Context has no row for 
 Fix: Add a measured row and re-derive the subtotal and Estimated Tokens | use the spawn prompt's Base commit: literal | Confidence: HIGH
 ```
 
+### 9.A.18 Price table-shaped output by column count
+
+A deliverable that lists a table's columns is sized `columns × lines-per-column + fixed`, not `functions × lines-per-function`. It covers an INSERT column list, a `?` placeholder list, a field tuple, a per-field fixture and a `MERGE ... USING (SELECT ? AS ...)` clause. Take N from a recount of the Schema Pin's widest table. Convert lines to tokens by measured bytes (§9.A.3), never by a per-line rate.
+
+These figures are an observation from two tasks, not a fitted model: an INSERT string about N + 6 lines, a field tuple N + 3, a per-field fixture N + 10, a per-row test case 15 to 25.
+
+#### Reviewer Check 126 — Table-Shaped Output Estimate With No Column Term
+
+- **Severity / Role / Type:** WARNING | Task Reviewer | NEW
+- **Detection:** Recount the columns of the widest table in the Schema Pin. Raise the finding when the recount is 20 or more, the task writes a column-enumerating deliverable, and neither Expected Output nor the Context subtotal output addend carries a column term such as `48 columns × 1 + 6`. The fix states that arithmetic.
+
 ---
 
 ## Plan-Review Enforcement Summary
@@ -706,6 +737,7 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 | 11 | Large-file scan hand-reproduced | `context.token_saver: true` AND a task carries a `⚠ PAGED` / `⚠ REFACTOR` annotation with no recorded scan run behind it; or the Step 8c checklist item is ticked with no exit code recorded | §9.A.15 |
 | 12 | Quote source outside Required Context | A task brief demands a verbatim copy or quote of recorded content, and a source file the brief names for any quote is absent from the task's Required Context | §9.A.16 |
 | 13 | Execution Steps read with no Required Context row | A path the Execution Steps Read, Grep or Edit has no row in the task's Required Context File column | §9.A.17 |
+| 14 | Table-shaped output with no column term | Schema Pin recount of 20 or more columns, a column-enumerating deliverable, and no column term in Expected Output or the subtotal | §9.A.18 |
 
 For the Verify-Before-Cite checks (§9.B: cited-artifact verification, field-name drift, facade re-export, upsert column-presence, Schema Pin / Pre-SQL verification), see [verify-before-cite.md](verify-before-cite.md)'s Plan-Review Enforcement Summary.
 

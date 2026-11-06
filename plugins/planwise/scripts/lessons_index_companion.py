@@ -51,6 +51,23 @@ NOTES_FILENAME = "00-Categorization-Notes-LessonsLearned.md"
 # directory.
 _LANDED_STATUSES = frozenset({"applied", "rule"})
 
+
+def _companion_status_note(index_name: str) -> str:
+    """The status paragraph under `## Scope`. It is derived from
+    `_LANDED_STATUSES` so the bold rule and its description cannot drift."""
+    landed = " or ".join(f"`{s}`" for s in sorted(_LANDED_STATUSES))
+    return (
+        "The bucket tables list every lesson of every status. "
+        "Each lesson appears in exactly one table, chosen by its technology and domain, "
+        "never by its status. "
+        f"A bold ID marks a landed lesson ({landed}). "
+        "An `orphaned` lesson stays in its domain bucket, unbolded like `documented` and `promoted`. "
+        "Its owner closed without landing this content, and it has no live owner. "
+        "It resurfaces ahead of `documented` in the next promotion pass. "
+        f"The Status column of [{index_name}]({index_name}) names each lesson's status."
+    )
+
+
 _SEVERITY_ORDER = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
 
 # `## {id}. {name} (N)` / `### {sub_id}. {sub_name} (N)` -- the same shape
@@ -374,6 +391,8 @@ def render_companion_header(config: dict, naming) -> str:
         "## Scope\n"
         "\n"
         f"{scope}\n"
+        "\n"
+        f"{_companion_status_note(index_name)}\n"
     )
 
 

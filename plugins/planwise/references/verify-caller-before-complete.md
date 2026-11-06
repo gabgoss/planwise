@@ -1,11 +1,11 @@
 ---
-description: A definition is not a caller. Every presence gate — symbol exists, text is in the file, suite is green — stays green on behaviour that production never reaches, so a deliverable that adds a function, an optional parameter, a CLI flag, a config key, an event subscription or a guarded branch is terminal only when a production caller supplies the activating argument. Covers the call-site search that replaces the definition search, why the natural unit test is a false witness, the call-site quote the closing-sweep ledger owes per deliverable, why a runner's "dormant until a follow-up wires it" note is PARTIAL, never COMPLETE, and why a routed claim that a function, flag, script or writer already exists is grepped before it is written into a task as binding, and why a read-only reporter that predicts another command's behaviour calls that command's own predicate for every question it answers rather than re-deriving them, and why a task that adds a parameter, flag or field derives its Output line from a recorded census of the definition site, callers, tests and documents, and why a task that edits an artifact a test pins owns those pin tests. Consult before marking a behaviour-adding deliverable COMPLETE, before accepting a runner return that adds behaviour, when writing a closing-sweep ledger, before routing a "this is already wired" note into a task, when authoring or accepting a doctor, lint, dry-run or status stage, and when writing the Output line of a task that adds a parameter, flag or field.
+description: A definition is not a caller. Every presence gate — symbol exists, text is in the file, suite is green — stays green on behaviour that production never reaches, so a deliverable that adds a function, an optional parameter, a CLI flag, a config key, an event subscription or a guarded branch is terminal only when a production caller supplies the activating argument. Covers the call-site search that replaces the definition search, why the natural unit test is a false witness, the call-site quote the closing-sweep ledger owes per deliverable, why a runner's "dormant until a follow-up wires it" note is PARTIAL, never COMPLETE, and why a routed claim that a function, flag, script or writer already exists is grepped before it is written into a task as binding, and why a read-only reporter that predicts another command's behaviour calls that command's own predicate for every question it answers rather than re-deriving them, and why a task that adds a parameter, flag or field derives its Output line from a recorded census of the definition site, callers, tests and documents, and why a task that edits an artifact a test pins owns those pin tests, and why a new option whose default differs from its no-op value ships that change on every default-constructed caller and needs a Default blast radius row. Consult before marking a behaviour-adding deliverable COMPLETE, before accepting a runner return that adds behaviour, when writing a closing-sweep ledger, before routing a "this is already wired" note into a task, when authoring or accepting a doctor, lint, dry-run or status stage, and when writing the Output line of a task that adds a parameter, flag or field.
 consult-when: About to mark COMPLETE a deliverable that adds a function, optional parameter, CLI flag, config key or guarded branch, accepting a runner return that adds one, or writing the closing-sweep ledger — a definition is not a caller: search the production call site for the activating argument, quote it per deliverable, and treat "dormant until a follow-up wires it" as PARTIAL, and grep a routed claim that code already shipped before it is binding, and have a read-only reporter (doctor, lint, dry-run, status) call the actor's own predicate for every question it answers (§5), and derive the Output line of a task that adds a parameter, flag or field or changes a shared side effect from a recorded census of its definition site, callers, tests and describing documents, and put the tests that pin an edited artifact's shape in the same task's write-set, Required Context and test gate (§6)
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Verify the Caller Before COMPLETE — a Definition Is Not a Caller
 
-**Purpose:** Every gate the verification discipline prescribes measures **presence**: the symbol exists, the message text is in the file, the suite is green, lint is clean. None measures **reachability**: whether production ever executes the thing. A deliverable can land complete, correct, tested and lint-clean, and still be unable to run. §1 to §3 close that gap at the caller. §4 covers a routed note that says code already exists. §5 covers a reporter that predicts another command's behaviour. §6 covers the census that makes a task's `**Output:**` line match the files the live tree forces in.
+**Purpose:** Every gate the verification discipline prescribes measures **presence**: the symbol exists, the message text is in the file, the suite is green, lint is clean. None measures **reachability**: whether production ever executes the thing. A deliverable can land complete, correct, tested and lint-clean, and still be unable to run. §1 to §3 close that gap at the caller. §4 covers a routed note that says code already exists. §5 covers a reporter that predicts another command's behaviour. §6 covers the census that makes a task's `**Output:**` line match the files the live tree forces in. §7 covers a new option whose default changes behaviour for every caller that constructs the object with defaults.
 
 **The gate lives above the task.** A per-file `**Output:**` boundary separates a behaviour from the site that activates it. The definition sits inside one task's scope, and the wiring sits in someone else's file. The runner is correctly scope-bound and cannot fix the gap. Only whoever holds both sides can see it, so the gate lives at the orchestrator and closing-sweep layer.
 
@@ -197,6 +197,49 @@ File: {task file path} | Location: {Output line, Required Context or Verificatio
 Issue: The task edits "{artifact}" and {pin test file} pins its shape, but the pin test is missing from {the Output line | Required Context | the test gate}
 Fix: Add the pin tests to all three places and run them at the base commit before the first edit, per references/verify-caller-before-complete.md §6 | Confidence: HIGH
 ```
+
+---
+
+## 7. A New Option's Non-Neutral Default Ships on Every Default-Constructed Caller
+
+A default value is shipped behaviour, not only API surface. A record, dataclass or options object carries its defaults to every caller that constructs it without arguments. A new field whose default differs from its no-op value changes production and the existing tests the moment it lands.
+
+**Trigger.** The task adds an option, config key or record field, and its specced default differs from the no-op value. The no-op value leaves the old behaviour unchanged, for example `None`, `0`, `False` or an empty list. A filter that defaults ON is not a no-op.
+
+**The declaration.** The task fills one extra row of its Change-Surface Census (`templates/task-file.md`), named Default blast radius. The row records two lists:
+
+- **Test groups.** The existing tests that construct the object with defaults and so need an explicit opt-out.
+- **Construction sites.** The production code that default-constructs the object and ships the change at once.
+
+**The rule.** Such a task never carries "existing tests pass unmodified" as written. The criterion and the default contradict each other. Rewrite the criterion to "existing tests pass with only the opt-outs the Default blast radius row lists", or choose the neutral default.
+
+> [!constraint] A non-neutral default and "existing tests pass unmodified" cannot both hold
+> WRONG — the task pins the filter ON and promises untouched tests:
+> ```
+> Step 2: add `min_length_mm` to `ExportOptions`, default 3048 (filter ON)
+> Success Criteria: [ ] Existing tests pass without modification
+> # every test that builds ExportOptions() now filters; the contradiction surfaces mid-task as a user gate
+> ```
+> CORRECT — the census prices the default, and the criterion names the opt-outs:
+> ```
+> census row: Default blast radius | Grep 'ExportOptions\(' tests/ src/ | tests/test_export.py (3 constructions); src/cli.py:41 ships the filter | yes
+> Success Criteria: [ ] Existing tests pass with only the opt-outs the Default blast radius row lists (`min_length_mm=None` in tests/test_export.py)
+> ```
+
+#### Reviewer Check 130 — Unmodified-Tests Criterion Beside a Behaviour-Changing Default
+
+- **Severity / Role / Type:** ERROR (HIGH confidence) | Task Reviewer | NEW
+- **What:** A task whose new option has a default that differs from the no-op value MUST NOT carry an "existing tests pass unmodified" criterion, and MUST carry a Default blast radius row in its Change-Surface Census, per `references/verify-caller-before-complete.md` §7.
+- **Detection:** For each task whose Execution Steps or census introduce an option, key or field, compare its specced default with the no-op value. A neutral default never fires. Flag the task when the default is not neutral and its Success Criteria or Expected Output say that existing tests pass unmodified, without modification or unchanged. Flag the task again when the default is not neutral and the census has no Default blast radius row. → ERROR.
+- **Finding template:**
+```
+[ERROR] Unmodified-tests criterion beside a behaviour-changing default
+File: {task file path} | Location: {Success Criteria or Expected Output line, or the Change-Surface Census}
+Issue: Step {n} adds "{option}" with default "{value}", which differs from the no-op value "{neutral}", and {the criterion says existing tests pass unmodified | the census has no Default blast radius row}
+Fix: Add the Default blast radius row and rewrite the criterion to "existing tests pass with only the listed opt-outs", or choose the neutral default, per references/verify-caller-before-complete.md §7 | Confidence: HIGH
+```
+
+**Dry run.** Two fixture task pairs were reviewed by a Task Reviewer restricted to this check. Both add a `min_length_mm` field to an options object and carry the criterion "existing tests pass without modification". Fixture A defaults the field to 3048.0, so the filter is ON. It returned exactly one `[ERROR] Unmodified-tests criterion beside a behaviour-changing default` finding. Fixture B defaults the field to `None`, the no-op value. It returned no Check 130 finding. The check therefore fires on a non-neutral default and stays silent on a neutral one.
 
 ---
 

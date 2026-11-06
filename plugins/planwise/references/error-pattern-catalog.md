@@ -61,7 +61,7 @@ Fix: Name the trigger that fired, or change to DIRECT per references/agent-orche
 | 25 | Verify-before-cite round-2 (`verify-before-cite.md` §9.B.6 examples-repo pin verification, §9.B.7 spawn-prompt helper enumeration, §9.B.8 field-mapping + measured output-size gate, §9.B.9 tiered-fetch ladder) | BLOCKER (varies by sub-rule) | Task file spawn prompts, Required Context, and Verification Commands |
 | 26 | Sprint exit-gate verdict not reflecting gate-defining step (`gate-exit-verdict-and-smoke-reports.md` §3) | BLOCKER | Sprint Plan + Sprint Overview row |
 | 27 | Sprint Overview row encoding session-count fraction instead of gate verdict (`gate-exit-verdict-and-smoke-reports.md` §4) | ERROR | Master Plan Sprint Overview |
-| 28 | EI Cross-References §-citation format violated (`ei-citation-and-token-reconciliation.md` §7) | BLOCKER | EI Cross-References table |
+| 28 | EI §-citation format violated in the `Extracted from:` header or a Cross-References row, including a number that disagrees with the Global Source Map (`ei-citation-and-token-reconciliation.md` §7) | BLOCKER | EI header + Cross-References table |
 | 29 | UNCONFIRMED claim missing four-site enforcement (`ei-fidelity.md` §4) | BLOCKER | EI body |
 | 30 | Sprint Plan has `READY_TO_EXECUTE` at scaffolding time (`scaffolding-hygiene.md` §4) | WARNING | Sprint Plan Status field |
 | 31 | Per-session `Outputs/` directory missing (`scaffolding-hygiene.md` §5) | BLOCKER | Session folder |

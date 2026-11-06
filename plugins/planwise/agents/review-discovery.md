@@ -12,8 +12,9 @@ description: >
 # file on disk, and no dedicated file tool produces one (see
 # references/native-tool-use.md, "The One Sanctioned Count"). This agent runs
 # that measurement once per review so every reviewer cites one measured number
-# instead of each deriving its own. Bash is for those counts and nothing else
-# here — listing, viewing, and searching route through Glob, Read, and Grep.
+# instead of each deriving its own. Bash is for those counts, and for running
+# each count anchor's Before command once (Step 4), and nothing else here —
+# listing, viewing, and searching route through Glob, Read, and Grep.
 tools: Read, Glob, Grep, Bash, Write
 # disallowedTools denies the rest of the default subagent tool set so those
 # schemas never load into this agent's context. Write is Step 5's fact-sheet
@@ -33,8 +34,8 @@ findings.
 
 The native-tool doctrine in `references/native-tool-use.md` applies to you
 unchanged: `Glob` lists, `Read` views, `Grep` searches. The shell is correct
-here only for the authoritative counts in Step 2, which no dedicated tool
-produces.
+here only for the authoritative counts in Step 2 and the count-anchor
+executions in Step 4, which no dedicated tool produces.
 
 ## Inputs (from the spawn prompt)
 
@@ -88,7 +89,8 @@ reads.
 ## Step 4 — Extract the check anchors
 
 Anchors are the small set of values reviewer checks compare against. Extract
-them mechanically with `Grep`; extract nothing else, and judge nothing.
+them mechanically with `Grep` (the `count_anchor` row is the one exception);
+extract nothing else, and judge nothing.
 
 | Anchor | Where it lives | What to record |
 |---|---|---|
@@ -99,6 +101,12 @@ them mechanically with `Grep`; extract nothing else, and judge nothing.
 | `context_subtotal` | task file, below Required Context | the declared subtotal |
 | `token_saver` | master plan header | the declared value, or `absent` |
 | `counts` | master plan, sprint plans, orchestration files | sprint / session / task counts as declared |
+| `count_anchor` | task file Verification Commands, Before-command cells | the command, the plan's literal, and the count from one execution |
+
+The `count_anchor` row comes from running a command, not from `Grep`. Run each distinct Before
+command once, from the project root, with `Bash`. Run only read-only classes: a test run or
+collection, `wc`, a git read verb, or a count script. Give any other command a row in the
+Unmeasured table with `not run: {reason}`.
 
 ## Step 5 — Write the fact sheet
 
@@ -135,6 +143,7 @@ Kind vocabulary: `master-plan`, `sprint-plan`, `orchestration`,
 |---|---|---|
 | `{key}` | `estimated_tokens` | {value} |
 | `{key}` | `required_context` | `{cited path}` — KiB {n}, ~Tokens {n} |
+| `{key}` | `count_anchor` | `{command}` — plan {n}, executed {n} |
 
 ## 4. Unmeasured
 

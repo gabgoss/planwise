@@ -2188,6 +2188,24 @@ class TestCompanionScopeSentence(unittest.TestCase):
         self.assertIn("Lessons captured during Acme sessions.\n", text)
 
 
+class TestCompanionStatusNote(unittest.TestCase):
+    naming = gli._index_naming(Path("00-Index-LessonsLearned.md"))
+
+    def test_zero_lesson_render_carries_status_note(self):
+        text = gli.render_companion_file([], {"categorization": gli.DEFAULT_CATEGORIZATION}, self.naming)
+        for phrase in ("every lesson of every status", "no live owner", "resurfaces ahead of"):
+            self.assertIn(phrase, text)
+
+    def test_orphaned_lesson_is_listed_unbolded_in_its_domain_bucket(self):
+        item = {
+            "id": 5, "title": "x", "severity": "MEDIUM", "status": "orphaned",
+            "domain": [], "technology": [],
+        }
+        text = gli.render_companion_file([item], {"categorization": gli.DEFAULT_CATEGORIZATION}, self.naming)
+        self.assertIn("| LL-005 |", text.split("## D.")[1])
+        self.assertNotIn("**LL-005**", text)
+
+
 class TestShippedCompanionTemplateMatchesRender(unittest.TestCase):
     """`templates/categorization-by-domain.md` is the generator's own
     zero-lesson output for the ship-default config, below its leading

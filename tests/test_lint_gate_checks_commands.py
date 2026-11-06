@@ -230,11 +230,44 @@ class TestCheck21DiffGateNotBaselinePinned(unittest.TestCase):
         findings = _lint_lines(21, ["wc -l notes.md   # expect 3"], extra=extra)
         self.assertEqual([(f["check"], f["line"]) for f in findings], [(21, 5)])
 
+    UNION = (
+        "{ git diff --name-only $ABC_S01_BASE -- scripts/; "
+        "git ls-files --others --exclude-standard -- scripts/; } | sort -u"
+    )
+
     def test_good_pinned_and_path_scoped(self):
         findings = _lint_lines(21, [
-            "git diff --name-only $ABC_S01_BASE -- scripts/ | grep -vE '^scripts/ok/'   # expect empty",
+            f"{self.UNION} | grep -vE '^scripts/ok/'   # expect empty",
         ])
         self.assertEqual(findings, [])
+
+    def test_bad_name_only_count_without_untracked_union(self):
+        findings = _lint_lines(21, [
+            "git diff --name-only $ABC_S01_BASE -- scripts/ | wc -l   # expect 1",
+        ])
+        self.assertEqual([(f["check"], f["severity"]) for f in findings], [(21, "ERROR")])
+        self.assertIn("git ls-files --others", findings[0]["message"])
+        self.assertIn("tracked paths only", findings[0]["message"])
+
+    def test_good_union_form_count(self):
+        findings = _lint_lines(21, [f"{self.UNION} | wc -l   # expect 1"])
+        self.assertEqual(findings, [])
+
+    def test_good_earlier_intent_to_add_registers_the_path(self):
+        findings = _lint_lines(21, [
+            "git add -N scripts/new.py",
+            "git diff --name-only $ABC_S01_BASE -- scripts/ | wc -l   # expect 1",
+        ])
+        self.assertEqual(findings, [])
+
+    def test_bad_union_form_without_base_still_errors(self):
+        gate = (
+            "{ git diff --name-only -- scripts/; "
+            "git ls-files --others --exclude-standard -- scripts/; } | sort -u   # expect 1"
+        )
+        findings = _lint_lines(21, [gate])
+        self.assertEqual(len(findings), 1)
+        self.assertIn("no recorded base operand", findings[0]["message"])
 
 
 class TestCheck22PathListReadBeforeCounted(unittest.TestCase):

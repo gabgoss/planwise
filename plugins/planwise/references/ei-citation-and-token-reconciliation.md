@@ -177,7 +177,7 @@ If any of the four is missing, the propagation is incomplete and the cross-tier 
 > ```
 
 > [!constraint] Every `Spec #N (filename)` citation MUST resolve to the Global Source Map as a pair — the number alone is not the citation
-> Every `Spec #N (filename)` citation in an EI Cross-References table MUST
+> Every `Spec #N (filename)` citation in an EI's `Extracted from:` header and its Cross-References table MUST
 > resolve to the Master Plan's Global Source Map **as a pair** — both the
 > number AND the filename. A scaffolding agent MUST validate every cell
 > against the live register at scaffold time, and re-validate after any pass
@@ -185,6 +185,11 @@ If any of the four is missing, the propagation is incomplete and the cross-tier 
 > **The number alone is not the citation:** a number pointing at the wrong
 > filename, and the right filename carrying the wrong number, are the same
 > defect and both must fail.
+> Under global numbering, every sprint's EI resolves against the one map
+> and cites a mapped source under the Global Source Map's number. A sprint
+> that restarts a local count fails, even when its header and table agree
+> with each other. A bare `Spec #N` in either surface cannot be checked as
+> a pair and fails as a format violation.
 >
 > This is a different assertion than the existing non-sequential-numbering
 > allowance (which stays valid) — sparse numbering is fine; a
@@ -208,12 +213,12 @@ NOT applicable when the task is explicitly producing the verbatim content for th
 #### Reviewer Check 006 — EI §-Citation Format Discipline
 
 - **Severity / Role / Type:** BLOCKER | EI Reviewer | NEW
-- **What:** Every Cross-References row MUST use canonical format `Spec #{N} ({filename.md})` with global numbering matching Master Plan Global Source Map.
-- **Detection:** Grep `Spec #\d+ \([^\)]+\.md\)` on Cross-References table; verify each `{N}` **and its paired filename together** against Master Plan Global Source Map — a number matching the wrong filename, or the right filename carrying the wrong number, is a Mismatch → BLOCKER.
+- **What:** Every `Extracted from:` header entry and every Cross-References row MUST use canonical format `Spec #{N} ({filename.md})` with global numbering matching Master Plan Global Source Map.
+- **Detection:** Run over every `*-Execution-Input*.md` in the plan, Parts included. Enumerate every `Spec #\d+` token on the `Extracted from:` line and in every Cross-References row's Source cell. A token not immediately followed by ` ({filename.md})` is a format violation → BLOCKER. Verify each `{N}` **and its paired filename together** against Master Plan Global Source Map — a number matching the wrong filename, or the right filename carrying the wrong number, is a Mismatch → BLOCKER. Report one finding per EI file per mismatch.
 - **Finding template:**
 ```
 [BLOCKER] EI Cross-Reference §-citation format violated
-File: {EI file path} | Location: Cross-References row {N}
+File: {EI file path} | Location: {Extracted from: entry {k} | Cross-References row {N}}
 Issue: Citation "{quoted_citation}" does not match Spec #{N} ({filename.md}) format
 Fix: Reformat per references/ei-citation-and-token-reconciliation.md §7 + verify against Global Source Map | Confidence: HIGH
 ```
