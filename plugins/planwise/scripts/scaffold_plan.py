@@ -38,6 +38,15 @@ Commands (run with `python -B`):
         heading. Prints one line per file and a `stray_h2=<n>` total.
         Exit 0 no stray H2, 1 stray H2 found, 2 a PATH does not exist.
 
+    check-scope-line PATH...
+        Single-task scope line. PATH is a plan file or a folder (walked for *.md,
+        skipping Outputs/). For each Orchestration file whose Mode line is
+        DELEGATED, count the `Execute ONLY` clause of the spawn prompt. The
+        clause must appear exactly once. A DIRECT Orchestration and any other
+        file are skipped. Prints one line per file and a `scope_line_misses=<n>`
+        total. Exit 0 every count is 1, 1 a count is 0 or above 1, 2 a PATH does
+        not exist.
+
 Spec format (JSON, UTF-8). Required keys are marked *; every other key is
 optional and takes the default shown. Any key not listed here is a lint error.
 
@@ -1316,6 +1325,22 @@ def check_headings(paths, templates_dir=DEFAULT_TEMPLATES):
     return results
 
 
+SCOPE_CLAUSE = "Execute ONLY"
+DELEGATED_MODE_RE = re.compile(r"^\*\*Mode:\*\* DELEGATED\b", re.MULTILINE)
+
+
+def check_scope_lines(paths):
+    """Per DELEGATED Orchestration file: {path, count}; the clause must occur exactly once."""
+    results = []
+    for f in collect_plan_files(paths):
+        if file_kind(str(f)) != "orchestration":
+            continue
+        text = read_lf(f)
+        if DELEGATED_MODE_RE.search(text):
+            results.append({"path": str(f), "count": text.count(SCOPE_CLAUSE)})
+    return results
+
+
 # ---------------------------------------------------------------- CLI
 
 def load_spec(path):
@@ -1396,6 +1421,21 @@ def cmd_check(args):
     return 1 if total else 0
 
 
+def cmd_scope_line(args):
+    missing = [p for p in args.paths if not Path(p).exists()]
+    if missing:
+        print(f"ERROR: no such path: {', '.join(missing)}")
+        return 2
+    results = check_scope_lines(args.paths)
+    misses = 0
+    for r in results:
+        ok = r["count"] == 1
+        misses += 0 if ok else 1
+        print(f"{r['path']}: kind=orchestration scope_line={r['count']}" + ("" if ok else " MISS"))
+    print(f"scope_line_misses={misses} files={len(results)}")
+    return 1 if misses else 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Render, lint and check plan skeletons from the plan templates.")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1410,6 +1450,8 @@ def main(argv=None):
     c = sub.add_parser("check-headings", help="report H2 headings outside the template set")
     c.add_argument("paths", nargs="+", metavar="PATH")
     c.add_argument("--templates", default=str(DEFAULT_TEMPLATES))
+    k = sub.add_parser("check-scope-line", help="report DELEGATED Orchestrations without exactly one Execute ONLY clause")
+    k.add_argument("paths", nargs="+", metavar="PATH")
     args = ap.parse_args(argv)
     if args.cmd == "render":
         if args.date and not DATE_RE.match(args.date):
@@ -1418,6 +1460,8 @@ def main(argv=None):
         return cmd_render(args)
     if args.cmd == "lint-spec":
         return cmd_lint(args)
+    if args.cmd == "check-scope-line":
+        return cmd_scope_line(args)
     return cmd_check(args)
 
 

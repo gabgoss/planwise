@@ -491,7 +491,7 @@ That combination is worse than a vague criterion, not better. A prose-only row g
 #### 16.10.1 A Literal in a Criterion Carries Its Provenance or It Is Not a Literal
 
 > [!constraint] A literal in a criterion carries its provenance or it is not a literal
-> State criteria as **relationships the system maintains**, not as literal counts — unless the count was measured at authoring time and **the measurement is cited in the criterion**.
+> State criteria as **relationships the system maintains**, not as literal counts. The one exception is a count the change itself determines, measured at authoring time with **the measurement cited in the criterion**. A data-state literal never qualifies, however well it is cited.
 >
 > - WRONG: `{flag} = 1` reaches **5**
 > - CORRECT: `{flag} = 1` equals the number of known instances the upstream step disposed `resolved` — read from `{artifact}`, with a reconciliation table accounting for all five
@@ -499,6 +499,10 @@ That combination is worse than a vague criterion, not better. A prose-only row g
 > **Every literal needs a provenance**, because the same number is usually true of a different fact. In the observed instance "six tables" was correct for tables that carry the column and was silently reinterpreted as tables that contribute unresolved values. Two facts, one number, and nothing recorded which one the criterion meant.
 >
 > **Prefer `after == before` to `after == {literal}`.** An invariant the pipeline maintains is checkable without predicting a value; a predicted value is a forecast wearing a gate's clothing. When a plan already asserts "this table is unchanged" rather than "this table has N rows", that discipline generalises to every criterion in the plan.
+>
+> **A data-state literal is banned as a pass or fail value, even when cited.** It is a value the data held when someone measured it, such as a row count, "NULL everywhere" or a corpus distribution. Record it beside the criterion as a measurement, and never as the expected value. Assert the invariant the code guarantees instead. Examples are NULL exactly when the source column is NULL, an anti-join that MUST be 0, and the weakest predicate the domain guarantees (a floor or a presence check).
+>
+> A predicate measured over a partial load is a hypothesis. A contiguous prefix of an interrupted load can exclude the tail where the anomaly lives. Print the distribution as data and add a "do not re-tighten" note that carries the counter-example. Three scaffold tests catch the rest. Would a correct run fail after tomorrow's ingest? Does the criterion assert what the code does or what the data held? Does the cited design decision say this? Measurement work also carries one criterion that ties a produced value to its evidence (`exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md` §16.19).
 >
 > The two failure directions are opposites and both are silent:
 >

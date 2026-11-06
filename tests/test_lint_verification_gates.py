@@ -355,8 +355,8 @@ class TestAllowlistRefusal(unittest.TestCase):
     asserts there is no bypass: no flag, no debug mode, no environment
     variable re-enables execution."""
 
-    def test_allowlist_is_exactly_the_four_named_executables(self):
-        self.assertEqual(set(ALLOWED_EXECUTABLES), {"grep", "wc", "ls", "test"})
+    def test_allowlist_is_exactly_the_five_named_executables(self):
+        self.assertEqual(set(ALLOWED_EXECUTABLES), {"git", "grep", "wc", "ls", "test"})
 
     def test_allowlisted_executable_is_executed(self):
         result = run_command(["wc", "-l", str(FIXTURES_ROOT / "README.md")])
@@ -369,7 +369,7 @@ class TestAllowlistRefusal(unittest.TestCase):
         self.assertEqual(result["disposition"], "UNCERTAIN")
 
     def test_python_is_not_on_the_allowlist(self):
-        # Nothing outside grep/wc/ls/test -- not even the interpreter
+        # Nothing outside git/grep/wc/ls/test -- not even the interpreter
         # running the linter itself.
         self.assertNotIn("python", ALLOWED_EXECUTABLES)
         result = run_command(["python", "-c", "print(1)"])
@@ -747,6 +747,27 @@ class TestCheck2PreEditSpellings(unittest.TestCase):
     def test_parenthesised_note_must_close_before_the_colon(self):
         self.assertEqual(len(self._check2("# pre-edit (2026-10-07: 0")), 1)
 
+    def test_deferral_in_place_of_a_value_warns(self):
+        findings = self._check2("# pre-edit: measure at execution")
+        self.assertEqual([f["severity"] for f in findings], ["WARNING"])
+        self.assertIn("defers its pre-edit", findings[0]["message"])
+
+    def test_other_deferral_phrases_warn(self):
+        for phrase in ("TBD", "at run time", "to be measured", "Measured at execution"):
+            with self.subTest(phrase=phrase):
+                findings = self._check2(f"# pre-edit: {phrase} -> expect 2")
+                self.assertEqual(len(findings), 1)
+                self.assertIn("defers its pre-edit", findings[0]["message"])
+
+    def test_deferral_after_a_shape_note_still_warns(self):
+        self.assertEqual(len(self._check2("# pre-edit (matching lines): TBD")), 1)
+
+    def test_numeric_value_with_a_shape_note_is_silent(self):
+        self.assertEqual(self._check2("# pre-edit (matching lines): 0 -> expect 2"), [])
+
+    def test_a_value_that_merely_mentions_execution_is_silent(self):
+        self.assertEqual(self._check2("# pre-edit: 0 (measured before execution) -> expect 2"), [])
+
 
 class TestMultiLineQuotedCommand(unittest.TestCase):
     """A quoted argument that spans lines is one command, not one per line."""
@@ -775,7 +796,7 @@ class TestMultiLineQuotedCommand(unittest.TestCase):
             findings = lint_plan(plan_root)
         refusals = [f for f in findings if f["check"] is None]
         self.assertEqual(len(refusals), 1)
-        self.assertIn("not one of the four allowed", refusals[0]["message"])
+        self.assertIn("is not on the read-only allowlist", refusals[0]["message"])
         self.assertNotIn("unterminated", refusals[0]["message"])
 
     def test_stray_quote_does_not_swallow_the_gates_after_it(self):
@@ -811,7 +832,7 @@ class TestCoverageLine(unittest.TestCase):
     def test_all_refused_reads_not_checked(self):
         line = self._coverage(
             [
-                "git status --porcelain   # expect: empty",
+                "curl -s http://example.invalid   # expect: empty",
                 "python -c \"print(1)\"   # expect: 1",
             ]
         )
@@ -821,7 +842,7 @@ class TestCoverageLine(unittest.TestCase):
         line = self._coverage(
             [
                 "grep -c 'X' target.md   # expect >=1",
-                "git status --porcelain   # expect: empty",
+                "curl -s http://example.invalid   # expect: empty",
             ]
         )
         self.assertEqual(line, "Coverage: checked 1 of 2 gates; 1 refused.")
@@ -833,6 +854,102 @@ class TestCoverageLine(unittest.TestCase):
     def test_execution_disabled_says_so(self):
         line = self._coverage(["grep -c 'X' target.md   # expect >=1"], execute=False)
         self.assertEqual(line, "Coverage: execution disabled; 1 gates not run.")
+
+
+class TestExitNotChecked(unittest.TestCase):
+    """The CLI exit code separates a scan that decided nothing (4) from a scan
+    with advisory findings (1). Every case runs the real CLI in a child process
+    and reads its exit code, so the test sees what a caller sees."""
+
+    REFUSED_GATE = "curl -s x   # expect: 1"
+    # A piped gate is refused whole, yet Check 9 still reads its first stage.
+    PIPED_CRLF_GATE = "grep -c '^The exact required sentence\\.$' target.md | wc -l   # expect: 1"
+
+    def _run_cli(self, plan_root, *extra):
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONUTF8"}
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        script = Path(lint_module.__file__)
+        return subprocess.run(
+            [sys.executable, "-B", str(script), str(plan_root), *extra],
+            capture_output=True,
+            env=env,
+            check=False,
+        )
+
+    def _plan(self, tmp, fence_lines, target=b"X\n"):
+        plan_root = Path(tmp)
+        (plan_root / "target.md").write_bytes(target)
+        _write_task(plan_root, fence_lines)
+        return plan_root
+
+    def test_constant_is_distinct_from_every_other_exit_code(self):
+        codes = (
+            lint_module.EXIT_NO_FINDINGS,
+            lint_module.EXIT_ADVISORY_ONLY,
+            lint_module.EXIT_ERROR_PRESENT,
+            lint_module.EXIT_INTERNAL_ERROR,
+        )
+        self.assertEqual(lint_module.EXIT_NOT_CHECKED, 4)
+        self.assertNotIn(lint_module.EXIT_NOT_CHECKED, codes)
+
+    def test_all_refused_plan_exits_not_checked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run_cli(self._plan(tmp, [self.REFUSED_GATE]))
+        stdout = result.stdout.decode("utf-8")
+        self.assertEqual(result.returncode, lint_module.EXIT_NOT_CHECKED, stdout)
+        self.assertTrue(stdout.splitlines()[0].startswith("Coverage: NOT CHECKED"), stdout)
+
+    def test_error_finding_with_all_gates_refused_still_exits_two(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_root = self._plan(
+                tmp,
+                [self.PIPED_CRLF_GATE],
+                target=b"# T\r\n\r\nThe exact required sentence.\r\n",
+            )
+            result = self._run_cli(plan_root)
+        stdout = result.stdout.decode("utf-8")
+        # Control: the plan really is all-refused and really carries an ERROR.
+        self.assertTrue(stdout.splitlines()[0].startswith("Coverage: NOT CHECKED"), stdout)
+        self.assertIn("[ERROR] Check 9", stdout)
+        self.assertEqual(result.returncode, lint_module.EXIT_ERROR_PRESENT, stdout)
+
+    def test_partly_run_plan_does_not_exit_not_checked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run_cli(
+                self._plan(tmp, ["grep -c 'Y' target.md   # expect >=1", self.REFUSED_GATE])
+            )
+        stdout = result.stdout.decode("utf-8")
+        self.assertTrue(stdout.splitlines()[0].startswith("Coverage: checked 1 of 2"), stdout)
+        self.assertNotIn("[ERROR]", stdout)
+        self.assertEqual(result.returncode, lint_module.EXIT_ADVISORY_ONLY, stdout)
+
+    def test_execution_off_does_not_exit_not_checked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run_cli(self._plan(tmp, [self.REFUSED_GATE]), "--no-execute")
+        stdout = result.stdout.decode("utf-8")
+        self.assertTrue(stdout.splitlines()[0].startswith("Coverage: execution disabled"), stdout)
+        self.assertNotEqual(result.returncode, lint_module.EXIT_NOT_CHECKED, stdout)
+
+    def test_plan_without_gates_does_not_exit_not_checked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run_cli(self._plan(tmp, ["grep -c 'X' target.md"]))
+        stdout = result.stdout.decode("utf-8")
+        self.assertTrue(stdout.splitlines()[0].startswith("Coverage: checked 0 of 0"), stdout)
+        self.assertNotEqual(result.returncode, lint_module.EXIT_NOT_CHECKED, stdout)
+
+    def test_line_and_code_read_one_helper(self):
+        # The line starts NOT CHECKED exactly when none_ran is true.
+        cases = (
+            ([self.REFUSED_GATE], True),
+            (["grep -c 'X' target.md   # expect >=1", self.REFUSED_GATE], False),
+            (["grep -c 'X' target.md"], False),
+        )
+        for fence_lines, expected in cases:
+            with self.subTest(fence_lines=fence_lines), tempfile.TemporaryDirectory() as tmp:
+                _, context = _lint(self._plan(tmp, fence_lines), True)
+                line = coverage_line(context)
+                self.assertEqual(lint_module.none_ran(context), expected, line)
+                self.assertEqual(line.startswith("Coverage: NOT CHECKED"), expected, line)
 
 
 class TestConsoleEncodingSurvival(unittest.TestCase):

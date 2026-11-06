@@ -1,6 +1,6 @@
 ---
-description: Schema Pin requirement and construction recipe for task files referencing DB tables — required structure, grep recipe, post-migration reconciliation, and review-time verification
-consult-when: A task's Required Context references a DB table — Schema Pin structure, grep recipe
+description: Schema Pin requirement and construction recipe for task files referencing DB tables — required structure, construction recipe, absence-claim rule, post-migration reconciliation, review-time verification, and the read-only execution a review task names for a module that generates SQL
+consult-when: A task's Required Context references a DB table — Schema Pin structure, construction recipe, a Pin row that asserts an absence ("zero ALTERs", "no column"), or a review task for a module that generates SQL (name a read-only execution against a named row set)
 ---
 
 # Schema Pin Requirement
@@ -20,6 +20,7 @@ Any task file whose Required Context references a DB table — directly (inline 
   - [§5.3 A Recorded Shape Change Obligates a Pin Sweep](#53-a-recorded-shape-change-obligates-a-pin-sweep)
   - [§5.4 Reconcile Against the Catalog, Never a Sibling Brief](#54-reconcile-against-the-catalog-never-a-sibling-brief)
   - [§5.5 Prefer a Verification That Would Fail If the Column Were Absent](#55-prefer-a-verification-that-would-fail-if-the-column-were-absent)
+- [6. A Generated-Query Review Task Names a Read-Only Execution Against a Named Row Set](#6-a-generated-query-review-task-names-a-read-only-execution-against-a-named-row-set)
 
 ---
 
@@ -95,6 +96,35 @@ The pin MUST capture POST-MIGRATION state. Initial `CREATE TABLE` blocks alone a
    - Column types: latest `ALTER COLUMN` wins.
 5. Quote the reconciled shape into the Pin. Cite both the CREATE source range and every ALTER source range that contributes to the live shape.
 
+> [!constraint] An Absence Claim Pastes the Executed, Dated, Unscoped Command and Its Output
+> A Pin row can assert an absence: "zero ALTERs", "no {col}", "never dropped". An existence claim checks itself, because the author opens the file to cite it. An absence claim does not. A query scoped to one file hides the counter-example that sits in another file.
+>
+> A row that asserts an absence MUST paste four things:
+> - the command that was executed
+> - the date it ran
+> - its output
+> - a positive control over the same scope, whose output shows the command can see the schema files
+>
+> The command runs recursively over `{schema_glob_path}`. It never names a single file.
+>
+> WRONG — the row states the absence, and the one file read is the only evidence:
+> ```markdown
+> | {table} | 70 columns — zero ALTERs | {ddl_file_a}:{create-range} (CREATE TABLE) |
+> ```
+> A guarded block in `{ddl_file_b}` added 16 columns. The scoped read never saw it. The Pin reports 70 columns and the live table has 86.
+>
+> CORRECT — the row pastes the command, its date, its output and a control, all over the whole schema path:
+> ```markdown
+> | {table} | 86 columns — no DROP COLUMN on {table} | {ddl_file_a}:{create-range} (CREATE TABLE) + {ddl_file_b}:{alter-range} (ADD COLUMN, 16 columns) |
+>
+> Absence claim: no DROP COLUMN on {table}
+> - Command: Grep pattern='DROP COLUMN' path='{schema_glob_path}' output_mode='content' -n=true
+> - Executed: {YYYY-MM-DD}
+> - Output: No matches found
+> - Control: Grep pattern='CREATE TABLE {table}' path='{schema_glob_path}' output_mode='content' -n=true -> {ddl_file_a}:{line}
+> ```
+> An empty output proves an absence only when the control shows the same call reaches the schema files. Without it, a wrong path and a true absence print the same thing.
+
 ---
 
 ## 3. Pin Format
@@ -106,7 +136,15 @@ The pin MUST capture POST-MIGRATION state. Initial `CREATE TABLE` blocks alone a
 > | Table | Columns + constraints (post-migration shape) | Source ranges (CREATE + every ALTER cited separately) |
 > |-------|----------------------------------------------|------------------------------------------------------|
 > | {table_name} | {column list} — {constraint summary} | {file}:{create-range} (CREATE TABLE) + {file}:{alter-range} ({migration description}) |
+>
+> Absence claim: {the absence the row asserts, for example "no DROP COLUMN on {table_name}"}
+> - Command: {the executed Grep call, recursive over {schema_glob_path}, naming no single file}
+> - Executed: {YYYY-MM-DD}
+> - Output: {the pasted output}
+> - Control: {the same call with a pattern known to match, and the match it returned}
 > ```
+
+Include one Absence claim block for each absence the Pin asserts. Omit the block when the Pin asserts none. The rule is in §2.
 
 Required columns of the Pin table:
 - **Table**: bare table name (no schema prefix unless the project uses one).
@@ -174,6 +212,23 @@ Issue: DB-write task lacks Schema Pin section
 Fix: Add Schema Pin per references/schema-pin-requirement.md §4 | Confidence: HIGH
 ```
 
+#### Reviewer Check 107 — Schema Pin Absence Claim Without an Executed, Dated, Unscoped Command and Output
+
+- **Severity / Role / Type:** ERROR | Task Reviewer | NEW
+- **What:** A Schema Pin row that asserts an absence MUST carry an Absence claim block with the executed command, its date, its output and a control, per `references/schema-pin-requirement.md` §2 and §3. The command MUST run over `{schema_glob_path}` and name no single file.
+- **Detection:**
+  1. Grep each task file's `## Schema Pin` section for absence wording about ALTERs, columns, constraints or migrations: `(?i)\b(zero|no|none|never|absent|unchanged|not altered)\b`.
+  2. For each row that matches, check that an `Absence claim` block follows the Pin and holds a Command, an Executed date, an Output and a Control.
+  3. Read the Command. It names one file path instead of `{schema_glob_path}` → ERROR.
+  4. Any of the four fields missing → ERROR.
+- **Finding template:**
+```
+[ERROR] Schema Pin absence claim lacks an executed, dated, unscoped command and output
+File: {task file path} | Location: Schema Pin row for {table}
+Issue: Row asserts "{absence wording}" and {has no Absence claim block | the Command names one file | the {field} is missing}
+Fix: Run the command recursively over {schema_glob_path}, then paste the command, date, output and a control per references/schema-pin-requirement.md §2 | Confidence: HIGH
+```
+
 ### Authoring Checklist
 
 > [!checklist] Pin Authoring (Pre-Dispatch)
@@ -205,15 +260,55 @@ A Schema Pin's staleness risk does not end at authoring — it resurfaces at dis
 
 ### 5.1 Omission Is the Silent Drift Shape
 
-A Pin can be wrong in three ways, not equally detectable:
+A Pin can be wrong in four ways, not equally detectable:
 
 | Drift shape | Failure mode | When you find out |
 |---|---|---|
 | Names a column that does not exist | LOUD — Invalid column name | First execution |
 | States the wrong type | LOUD-ish — data/type error on first incompatible row | First incompatible row, possibly much later |
 | Omits columns that exist and are nullable/defaulted | SILENT — every row inserts; omitted columns hold DEFAULT/NULL forever | Never, unless something downstream reads them |
+| Filters with an equality literal on a column whose vocabulary the Pin never measured | SILENT — excluded rows never reach any count, and every downstream count is measured against the narrowed set | Never, unless someone widens a masking filter |
 
 A statement authored from an under-declared Pin executes cleanly against the wider table — no driver, engine, linter, or row-count validation objects. A Pin's column list is not documentation of the shape; it IS the shape the derived statement will bind, and a short list quietly narrows the write.
+
+The fourth shape concerns values, not columns. A Pin verifies a column's existence and type. It never verifies the column's vocabulary. An equality literal such as `WHERE {state_col} = '{literal}'` therefore asserts a vocabulary nobody measured. A second spelling of the same state may exist, and another column may mask it. The narrow filter then returns the right rows today and drops rows the first time a user widens the masking exclusion.
+
+Profile the vocabulary at scaffold time with one query. Cross it with any column that masks it:
+
+```sql
+SELECT {col}, COUNT(*) FROM {table} GROUP BY {col};
+SELECT {col}, {masking_col}, COUNT(*) FROM {table} GROUP BY {col}, {masking_col};
+```
+
+- Record the measured vocabulary in the Pin row with its date.
+- Or tag the predicate `UNVERIFIED — vocabulary not profiled`.
+- Diff the new predicate against any mirrored artifact's predicate before accepting a narrower one.
+
+WRONG — the Pin declares type and DDL, and the filter asserts a vocabulary:
+```
+| {table} | {col} VARCHAR(8) NOT NULL | {ddl_file} |        WHERE {col} = '{v1}'
+```
+CORRECT — the Pin row carries the dated vocabulary and the masking relationship:
+```
+| {table} | {col} VARCHAR(8) NOT NULL. Vocabulary (measured {date}): '{v1}' {n1} / '{v2}' {n2}; '{v2}' occurs only where {masking_col} = '{m1}' | {ddl_file} |
+```
+
+#### Reviewer Check 125 — Equality Filter on a State Column With No Measured Vocabulary
+
+- **Severity / Role / Type:** WARNING | Task Reviewer | NEW
+- **What:** A task whose SQL filters a status, state, type or kind column with a literal MUST carry that column's dated, measured vocabulary or the tag `UNVERIFIED — vocabulary not profiled` in its Schema Pin row, per `references/schema-pin-requirement.md` §5.1.
+- **Detection:**
+  1. Grep each task file's SQL for `(?i)\b\w*(status|state|type|kind)\w*\s*(=|IN\s*\()\s*'`.
+  2. For each hit, read the Schema Pin row for that table.
+  3. A dated vocabulary or the UNVERIFIED tag is present → no finding.
+  4. Neither is present → WARNING.
+- **Finding template:**
+```
+[WARNING] Equality filter on a state column with no measured vocabulary
+File: {task file path} | Location: {step or query containing the filter}
+Issue: `{col} = '{literal}'` asserts a vocabulary the Schema Pin row for {table} never measured
+Fix: Profile {col} with GROUP BY, crossed with any masking column, and record the dated vocabulary or the UNVERIFIED tag per references/schema-pin-requirement.md §5.1 | Confidence: MEDIUM
+```
 
 ### 5.2 A Count in a Pin Is a Claim, Not a Label
 
@@ -244,6 +339,56 @@ SELECT name, is_unique FROM sys.indexes WHERE object_id = OBJECT_ID('{schema}.{t
 A criterion phrased as an implication over a column is satisfied trivially when nothing ever populates that column — precisely the state an under-declared write produces. It cannot distinguish "the mechanism works" from "the mechanism never ran."
 - WRONG: `SELECT COUNT(*) FROM {table} WHERE {flag_col}=1 AND {reason_col} IS NULL; -- expect 0. Returns 0 when the write never set {flag_col}=1 for any row.`
 - CORRECT: assert the column is bound (count where `{flag_col}=1` > 0) AND then the invariant over it (count where `{flag_col}=1 AND {reason_col} IS NULL` = 0). General form: a criterion whose pass condition is reachable by doing nothing is not a criterion.
+
+---
+
+## 6. A Generated-Query Review Task Names a Read-Only Execution Against a Named Row Set
+
+A module whose product is one generated SQL statement can pass every DB-free test and still return the wrong rows. A test asserts the module's shape against its spec. It cannot assert that the spec produces the right rows. A review task for such a module therefore names a read-only execution of the generated statement.
+
+> [!constraint] A paper trace and a test run cannot see a semantic defect in generated SQL
+> **Rule.** The review task carries an execution step. The step runs the generated statement as a read-only `SELECT` against a named row set. It states the expected counts, or where they come from, and it pastes the observed counts into the task's anchors section.
+>
+> A sprint delivered one generated statement: two source arms, a union, a `ROW_NUMBER()` dedupe and a join to a spine table. Nine DB-free tests passed. A reviewer ran the CTE chain as a `SELECT` against one real event and found two blocking defects:
+>
+> - **Wrong window partition key.** A per-arm dedupe window partitioned on `(event, kind, book, market, outcome_name)`. In the new source one outcome sits on many points, so the dedupe kept 7 and 8 rows per kind instead of 41 and 48.
+> - **Group expression that merged two orientations.** A normalization group keyed on `ABS(outcome_point)` merged two orientations of one absolute point into a four-price group. The group overround read 1.115, where the two real lines give 0.052 and 0.063. The plan's own summary gate could not see it, because normalization forces any group to sum to 1.0.
+>
+> WRONG - the review task offers a paper trace, so the reviewer sees green tests and a clean diff and passes:
+> ```markdown
+> ## Execution Steps
+> 3. Trace a concrete example through both arms.
+> ```
+> CORRECT - the review task names a read-only execution against a named row set:
+> ```markdown
+> ## Execution Steps
+> 3. Run the generated CTE chain as a SELECT (replace the trailing INSERT with
+>    `SELECT COUNT(*), source, market ... GROUP BY ...`) against event {smoke_event_id}.
+>    Paste the per-arm, per-market row counts into `## Anchors`.
+>    Compare them to the source row counts for that event.
+> ```
+
+Three operative points:
+
+- **Name the execution and the row set.** The task says "execute the chain as a SELECT against event X and paste the counts". It states the expected counts, or the query that derives them from the source.
+- **Keep the DB-free suite as a shape pin.** It is the wrong instrument for semantics, and it is not redundant. Both checks stay.
+- **Move corpus-level facts into the run.** Per-book row counts and which source arm won a contested row belong in the validation step of the job that later runs the module. They become flags there.
+
+#### Reviewer Check 115 — Generated-Query Review Task With No Read-Only Execution Against a Named Row Set
+
+- **Severity / Role / Type:** ERROR | Task Reviewer | NEW
+- **What:** A review task for a module that generates SQL MUST name a read-only execution of the generated statement against a named row set, per `references/schema-pin-requirement.md` §6. A test run or a paper trace alone does not satisfy it.
+- **Detection:**
+  1. Find review tasks whose subject generates SQL. Use `Grep` on Required Context and Execution Steps for `(?i)generat\w+ (SQL|statement|query)|CTE chain|SQL-generating`.
+  2. Read the Execution Steps. A step that runs the statement as a `SELECT` against a named event, table or row set, and states the expected counts or their source, satisfies the check.
+  3. The steps offer only a test run (`pytest`, "run the tests") or a trace (`(?i)\b(trace|walk through)\b`) → ERROR.
+- **Finding template:**
+```
+[ERROR] Generated-query review task has no read-only execution against a named row set
+File: {task file path} | Location: Execution Steps
+Issue: The review of {module} offers only {a test run | a paper trace}, and neither can see a wrong partition key or a merged group
+Fix: Add a step that runs the generated statement as a read-only SELECT against {a named row set}, states the expected counts or their source, and pastes the observed counts into Anchors, per references/schema-pin-requirement.md §6 | Confidence: HIGH
+```
 
 ---
 

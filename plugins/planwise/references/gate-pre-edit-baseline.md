@@ -1,6 +1,6 @@
 ---
-description: Every Before/After gate records its measured pre-edit value inline beside its post-edit expectation, written from a run against the live pre-edit tree (§10.1); a gate whose pre-edit value already satisfies its expectation is vacuous by construction and is rewritten, never shipped with a caveat (§10.2); a preservation gate is marked `invariant:` on the annotation line (§10.3); why the annotation and not only the discipline, and the WARNING/ERROR split (§10.4); Reviewer Check 082.
-consult-when: Writing or reviewing an After-block gate — every gate records its measured pre-edit value (§10.1), a value that already satisfies the expectation is vacuous and is rewritten (§10.2), a preservation gate is marked `invariant:` (§10.3), Check 082
+description: Every Before/After gate records its measured pre-edit value inline beside its post-edit expectation, written from a run against the live pre-edit tree (§10.1); a gate whose pre-edit value already satisfies its expectation is vacuous by construction and is rewritten, never shipped with a caveat (§10.2); a gate target is classified session-owned or shared, and a shared target asserts a delta from a Before derived in the same invocation (§10.1.2); a preservation gate is marked `invariant:` on the annotation line (§10.3); why the annotation and not only the discipline, and the WARNING/ERROR split (§10.4); Reviewer Check 082.
+consult-when: Writing or reviewing an After-block gate — every gate records its measured pre-edit value (§10.1), a gate target is classified session-owned or shared and a shared target asserts a delta from a Before derived in the same run (§10.1.2), a value that already satisfies the expectation is vacuous and is rewritten (§10.2), a preservation gate is marked `invariant:` (§10.3), Check 082
 paths: {planwise_root}/{plans_dir}/**
 ---
 
@@ -14,6 +14,8 @@ paths: {planwise_root}/{plans_dir}/**
 
 - [10. Every Gate Records Its Measured Pre-Edit Value](#10-every-gate-records-its-measured-pre-edit-value)
   - [10.1 The annotation](#101-the-annotation)
+    - [10.1.1 Scope the measurement to the gate's population](#1011-scope-the-measurement-to-the-gates-population)
+    - [10.1.2 Classify each gate target session-owned or shared](#1012-classify-each-gate-target-session-owned-or-shared)
   - [10.2 A gate whose pre-edit value already satisfies its expectation is vacuous by construction](#102-a-gate-whose-pre-edit-value-already-satisfies-its-expectation-is-vacuous-by-construction)
   - [10.3 Invariant and preservation gates are exempt — and must be marked](#103-invariant-and-preservation-gates-are-exempt--and-must-be-marked)
   - [10.4 Why the annotation, and not just the discipline](#104-why-the-annotation-and-not-just-the-discipline)
@@ -48,7 +50,11 @@ The annotation's grammar is one comment line adjacent to the command it annotate
 # pre-edit: {measured value} → expect {post-edit expectation}
 ```
 
-The literal token `pre-edit:` is the load-bearing part — a reviewer or a mechanical checker keys on it — so keep it verbatim and keep the measured value immediately after it. The arrow and the surrounding wording are readability, not syntax. `scripts/lint_verification_gates.py` Check 2 (`_check2_missing_pre_edit_baseline`) flags an After-block gate with no `pre-edit:` annotation beside its expectation.
+The literal token `pre-edit:` is the load-bearing part — a reviewer or a mechanical checker keys on it — so keep it verbatim and keep the measured value immediately after it. The arrow and the surrounding wording are readability, not syntax. `scripts/lint_verification_gates.py` Check 2 (`_check2_missing_pre_edit_baseline`) flags an After-block gate with no `pre-edit:` annotation beside its expectation, and one whose value is a deferral.
+
+Record the command's observed output shape in the parenthesised note the grammar already accepts, as in `# pre-edit (matching lines): 0 → expect >=1`. A bare number leaves open whether the command counts lines, occurrences or files. The shape comes from reading one real run of the command, never from memory of how the tool usually prints.
+
+A deferral is not a value. "Measure at execution", "TBD" and "at run time" record nothing, and each one hides a gate that may already be satisfied or may be unable to fail. One 41-task plan carried about ten gates deferred this way, and a stated baseline of 1 measured 0. Measure at scaffold time, while the pre-edit tree still exists.
 
 #### 10.1.1 Scope the measurement to the gate's population
 
@@ -69,6 +75,39 @@ Measure a whole-population baseline once per plan, before the first task file. R
 > ```
 
 `scripts/lint_verification_gates.py` Check 16 (`_check16_unscoped_suite_gate`) flags a task file's Before or After `pytest` gate that names no path. A whole-population baseline belongs in the Master Plan, measured once with its tree identity recorded.
+
+#### 10.1.2 Classify each gate target session-owned or shared
+
+A gate target is the artifact a gate measures. Classify each one at authoring time. A **session-owned** target changes only through this sprint's write-set, so its end state is the claim. A **shared** target is also written or regenerated by other sprints' work. A tool index, a capability matrix, a registry and a generated README are shared by construction.
+
+A plan-time magnitude on a shared target goes stale with no change to this sprint. Another plan regenerates the artifact, the pinned number is wrong at run time, and a literal edit built on it writes a header that contradicts its own rows.
+
+> [!constraint] A shared target asserts a delta from a Before derived in the same invocation
+> WRONG — an absolute magnitude pinned at plan time, with a literal edit that depends on it:
+> ```bash
+> {count-cmd} {index}
+> # pre-edit: 43 → expect 44            # four unrelated commits had moved the index to 52
+> ```
+> CORRECT — BEFORE is measured in the run that edits, and the expectation is a delta from it:
+> ```bash
+> BEFORE=$({count-cmd} {index})         # derived now, never carried forward from plan time
+> {edit step}
+> AFTER=$({count-cmd} {index})
+> test "$AFTER" -eq "$((BEFORE + 1))"
+> # pre-edit: derived in this run → expect BEFORE + 1
+> ```
+> Rewrite a downstream literal edit the same way. "Change `(43)` to `(44)`" becomes "write the derived count plus one".
+
+The pre-flight halt tests the sprint's declared Write-Set (the `## Write-Set` section of `templates/sprint-plan.md`):
+
+- **Dirt inside the write-set halts.** The halt message names the dirty path and the write-set entry that owns it.
+- **Drift outside the write-set does not halt.** Record the new baseline, derive BEFORE from it, and continue.
+
+Never write "another session touched this surface" for drift on a shared artifact. That message frames benign drift as a scope collision and stops a correct run.
+
+The two rules do not conflict. A session-owned target whose end state is the claim keeps its state assertion, such as `expect 12`. Only a shared target takes a delta.
+
+A shared-target gate carries the `pre-edit:` reading of §10.1 and no fixed `baseline: N` literal. A fixed literal would let Check 7 (`_check7_contradicted_before_baseline`) flag benign drift as a contradicted baseline.
 
 ### 10.2 A gate whose pre-edit value already satisfies its expectation is vacuous by construction
 
@@ -130,7 +169,8 @@ Without the recorded value, vacuity is **unknowable** from the artifact, so the 
   4. An author-marked invariant/preservation gate — the annotation line reads `invariant:` rather than `expect`, and `pre == post` is the intended outcome — is exempt and MUST NOT be flagged by steps 2 or 3.
   5. Where the pre-edit tree state is still reachable, re-measure and compare against the recorded value; a recorded baseline that disagrees with the measured one → ERROR (the annotation was authored from intent, not from a run).
   6. A gate whose subject is a report the same work produces: if it greps a bare token the report's own template emits, rather than the machine-readable verdict line or the status-cell row pattern → WARNING.
-- **Enforced by script:** steps 2, 3 and 5 are tested by Checks 2, 1 and 7 of `scripts/lint_verification_gates.py`.
+  7. A gate target other sprints' work regenerates (a shared target, §10.1.2) that pins an absolute magnitude from plan time, or a halt message that names another session instead of the write-set test → ERROR. Fix: derive BEFORE in the same invocation and assert `AFTER == BEFORE + {n}`.
+- **Enforced by script:** steps 2, 3 and 5 are tested by Checks 2, 1 and 7 of `scripts/lint_verification_gates.py`. Step 7 has no script check. The reviewer reads it.
 - **Finding template:**
 ```
 [ERROR] Verification gate is vacuous — pre-edit value already satisfies its expectation

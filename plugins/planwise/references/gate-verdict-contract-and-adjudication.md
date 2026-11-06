@@ -14,6 +14,7 @@ paths: {planwise_root}/{plans_dir}/**
 
 - [5. PASS Requires Actual = Expected — No Arithmetic Fudging](#5-pass-requires-actual--expected--no-arithmetic-fudging)
   - [5.1 A Check That Could Not Be Run Returns UNCERTAIN, Never PASS](#51-a-check-that-could-not-be-run-returns-uncertain-never-pass)
+  - [5.2 A Count-Equality Gate Obeys the Same Contract](#52-a-count-equality-gate-obeys-the-same-contract)
 - [6. Orchestrator Adjudication of BLOCKER-From-Heuristic](#6-orchestrator-adjudication-of-blocker-from-heuristic)
 
 ---
@@ -40,6 +41,24 @@ The verdict-arithmetic check is mechanical: if the comparison operator's evaluat
 
 > [!constraint] A verifier reporting that a check could not be run MUST NOT return PASS or a bare narrative claim about the environment
 > This is the adjacent case to arithmetic fudging above — not a check that ran and produced a contradicting Actual, but one that never ran at all. The verifier returns `[UNCERTAIN]` for orchestrator adjudication — never PASS, and never a bare narrative claim about the environment (e.g. "not available here," "the tool doesn't support it"). The report MUST carry the exact command attempted and the exact error observed; the orchestrator adjudicates from that evidence, not from a summary judgement.
+
+### 5.2 A Count-Equality Gate Obeys the Same Contract
+
+The contract covers every gate a verification task carries. That includes dry-run, threshold and absence gates. It also includes a plain count-equality gate, such as a path-scoped `git diff --name-only -- <paths> | wc -l` that must equal N. A count gate is simpler than a heuristic gate, and a mismatched count still cannot be marked PASS.
+
+> [!constraint] A count-equality gate returns FAIL when its Actual differs from its Expected
+> WRONG — a path-scoped file count of 3 against an Expected of 4, marked PASS:
+> ```markdown
+> | Check | Actual | Expected | Verdict |
+> |-------|--------|----------|---------|
+> | path-scoped file count | 3 | 4 | PASS |
+> ```
+> CORRECT — the same row with the verdict the contract requires:
+> ```markdown
+> | Check | Actual | Expected | Verdict |
+> |-------|--------|----------|---------|
+> | path-scoped file count | 3 | 4 | FAIL — Actual≠Expected |
+> ```
 
 ## 6. Orchestrator Adjudication of BLOCKER-From-Heuristic
 

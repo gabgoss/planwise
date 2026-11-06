@@ -149,6 +149,7 @@ Q1, Q2, Q3 and the HALT question are the only questions in loop mode. Every othe
 | Phase 3 scoped-rule verdict `inject` or `none` | Proceed. An `inject` verdict carries the listed rules into the fix-agent prompt |
 | Phase 3 scoped-rule verdict `placement` | Documented skip. The evidence names the destination and the rule or content tree |
 | Phase 3 acceptance criteria already met | Unattended close (§ Unattended close): every criterion's proving command is run, the record is written under `## Resolution`, and the item is closed `COMPLETE`; the refine step closes an item whose preflight proved every criterion MET the same way, with the close record under `## Resolution` |
+| Phase 3 conditional check resolves to close | Documented skip. The evidence is the item's `Conditional:` lines. Never an unattended close: a resolved conditional is not a met criterion |
 | Refine step returns `QUESTIONS` | Written into `## Open Questions`; skip with the short note; no `--decision` |
 | Refine step returns `REFINED` | Skip with the note `refined; review before run`; no `--decision`. The user reads `## Resolution` or the item's diff before a later run executes it |
 | Phase 4 route | Take the recommended route when it is A or B. A Route C result is a documented skip that also writes `needs_plan: true` (`--needs-plan`) |

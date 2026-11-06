@@ -23,7 +23,19 @@ Run it through the facade, which is the invocation Step 8c cites:
     python token_saver.py --scan --plan {plan_path} --config {config}
 
 Exit codes: 0 when every classified file is Green (or the scan does not apply),
-1 when any file classifies Warn or worse, 2 on a usage error.
+or when every Critical row is handled and nothing else is Warn or worse.
+1 when any file classifies Warn, or Critical without a handled row. 2 on a
+usage error.
+
+Handled rows
+------------
+A `read`-reason Critical row is handled when BOTH markers are present: the
+task's `**Token Budget:**` field records `exception: paged-read (read)` AND
+the row itself carries the `⚠ PAGED` annotation. The task marker alone would
+clear a row that grew past its authored size without being re-annotated. The
+row marker alone would clear a row in a task that never declared the
+exception. A handled row stays in the report with its size, so the
+measurement stays visible. A `cost`-reason Critical is never handled.
 
 Write-back mode
 ---------------
@@ -166,8 +178,27 @@ def parse_required_context(text: str) -> list[dict]:
             if purpose_idx is not None and purpose_idx < len(cells)
             else ""
         )
-        rows.append({"file_cell": cells[file_idx], "purpose": purpose})
+        rows.append({
+            "file_cell": cells[file_idx], "purpose": purpose, "row": stripped,
+        })
     return rows
+
+
+_PAGED_EXCEPTION_RE = re.compile(
+    r"exception:\s*paged-read\s*\(read\)", re.IGNORECASE
+)
+_PAGED_ROW_RE = re.compile(r"⚠\s*PAGED")
+
+
+def parse_paged_read_exception(text: str) -> bool:
+    """True when the task's `**Token Budget:**` field records the exception."""
+    m = re.search(r"^\*\*Token Budget:\*\*(.*)$", text, re.MULTILINE)
+    return bool(m and _PAGED_EXCEPTION_RE.search(m.group(1)))
+
+
+def row_is_paged(row_text: str) -> bool:
+    """True when the Required Context row carries the `⚠ PAGED` annotation."""
+    return bool(_PAGED_ROW_RE.search(row_text))
 
 
 def _clean_file_cell(cell: str) -> str:
@@ -395,6 +426,7 @@ def scan_plan(
         "summary": {
             "tasks": 0, "files": 0,
             "green": 0, "notice": 0, "warn": 0, "critical": 0,
+            "critical_handled": 0,
         },
     }
     if not ts_config["token_saver"]:
@@ -410,6 +442,7 @@ def scan_plan(
         text = task_path.read_text(encoding="utf-8", errors="replace")
         model = parse_agent(text)
         rows = parse_required_context(text)
+        task_paged_exception = parse_paged_read_exception(text)
         task_rel = str(task_path.relative_to(project_root)) \
             if _is_relative(task_path, project_root) else str(task_path)
         task_entry = {"task": task_rel, "model": model, "files": []}
@@ -453,9 +486,17 @@ def scan_plan(
             }
             entry["annotations"] = annotations_for(verdict, model)
             entry["recommendation"] = recommend(verdict, file_type)
+            entry["handled"] = bool(
+                verdict["level"] == "Critical"
+                and verdict["reason"] == "read"
+                and task_paged_exception
+                and row_is_paged(row.get("row", ""))
+            )
             task_entry["files"].append(entry)
             result["summary"]["files"] += 1
             result["summary"][verdict["level"].lower()] += 1
+            if entry["handled"]:
+                result["summary"]["critical_handled"] += 1
             if verdict["level"] != "Green":
                 result["findings"].append(entry)
 
@@ -520,10 +561,16 @@ def group_findings(findings: list[dict]) -> list[dict]:
     Two tasks may cite the same file under different models, which yields
     different token estimates for one file. The severest verdict is the one
     that has to be acted on, so it wins and its model is the one reported.
-    Ordered severest first, then largest.
+    A file is handled only when every citing row is handled: one unhandled
+    citation keeps the whole file on the worklist.
+    Ordered unhandled first, then severest, then largest.
     """
     by_path: dict[str, dict] = {}
+    all_handled: dict[str, bool] = {}
     for f in findings:
+        all_handled[f["path"]] = (
+            all_handled.get(f["path"], True) and bool(f.get("handled"))
+        )
         current = by_path.get(f["path"])
         if current is None:
             entry = dict(f)
@@ -540,9 +587,11 @@ def group_findings(findings: list[dict]) -> list[dict]:
             current.clear()
             current.update(f)
             current["tasks"] = tasks
+    for path, entry in by_path.items():
+        entry["handled"] = all_handled[path]
     return sorted(
         by_path.values(),
-        key=lambda e: (-_SEVERITY[e["level"]], -e["tokens"]),
+        key=lambda e: (e["handled"], -_SEVERITY[e["level"]], -e["tokens"]),
     )
 
 
@@ -574,7 +623,10 @@ def format_report(result: dict) -> str:
         out.append("Per-file recommendations (Green files are silent):")
         out.append("")
         for f in grouped:
-            out.append(f"  [{f['level']} / reason={f['reason']}] {f['cell']}")
+            tag = " handled (paged-read)" if f["handled"] else ""
+            out.append(
+                f"  [{f['level']} / reason={f['reason']}{tag}] {f['cell']}"
+            )
             projected = (
                 f"  (+{f['projected_added_bytes']:,} projected)"
                 if f["projected_added_bytes"] else ""
@@ -597,7 +649,10 @@ def format_report(result: dict) -> str:
         out.append("All classified files are Green — no recommendation blocks.")
         out.append("")
 
-    worklist = [f for f in grouped if f["level"] in ("Warn", "Critical")]
+    worklist = [
+        f for f in grouped
+        if f["level"] in ("Warn", "Critical") and not f["handled"]
+    ]
     if worklist:
         out.append(
             f"Backlog filing worklist — {len(worklist)} file(s) at Warn or worse "
@@ -631,7 +686,9 @@ def format_report(result: dict) -> str:
     out.append(
         f"Levels (per Required Context row, so a shared file counts once per "
         f"citing task): {s['green']} Green, {s['notice']} Notice, "
-        f"{s['warn']} Warn, {s['critical']} Critical"
+        f"{s['warn']} Warn, {s['critical']} Critical "
+        f"({s['critical_handled']} handled, "
+        f"{s['critical'] - s['critical_handled']} unhandled)"
     )
     return "\n".join(out)
 
@@ -755,8 +812,11 @@ def main(argv: list[str] | None = None) -> int:
             json.dump(result, f, indent=2)
         print(f"JSON: {json_path}")
 
-    warn_or_worse = result["summary"]["warn"] + result["summary"]["critical"]
-    return 1 if warn_or_worse else 0
+    summary = result["summary"]
+    open_rows = (
+        summary["warn"] + summary["critical"] - summary["critical_handled"]
+    )
+    return 1 if open_rows else 0
 
 
 if __name__ == "__main__":

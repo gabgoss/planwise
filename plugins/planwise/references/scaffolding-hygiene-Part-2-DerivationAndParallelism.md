@@ -417,7 +417,9 @@ The scaffold emits the scoped form into every per-task gate, so the next plan in
 
 **Example.** An orchestration declared two layers. L1 held the diff module (task 1) and its tests (task 3). L2 held the report module (task 2) and the fixture-driven tests (task 4). L2 was marked parallel on the strength of disjoint output files, with task 4 depending on tasks 1 and 3. Task 4's own brief specified `test_report_renders_fixture_diff`, which calls `report.render(diff(...))`, a symbol task 2 writes. A flag the orchestrator routed into task 4 added a second `report.render` call. Dispatched in parallel, task 4 would have imported a module that did not exist yet, or written its tests against a file mid-authoring. The orchestrator noticed the edge only while composing the L2 spawn prompts, and ran L2 sequentially. The fix cost nothing because the check came before the dispatch call.
 
-> [!constraint] Match each task's called symbols to its layer-mates' outputs before a parallel dispatch
+**Second example.** A plan recorded each session's base commit in Task 01's Output file, and later tasks read it ("Wait until the Output exists; take the base from it"). Their `Depends On` was `-`, so the Orchestration placed them in layer 1 beside Task 01 with an empty write-target intersection. A reviewer found the five affected tasks only by reading each Required Context against the layer table.
+
+> [!constraint] Match each task's called symbols and Output-path reads to its layer-mates' outputs before a parallel dispatch
 > WRONG — the layer table is derived from `Depends On` and output-file overlap alone:
 > ```
 > | L2 | Task 2, Task 4 | yes — disjoint files (report module vs test fixtures, two test files) |
@@ -428,21 +430,24 @@ The scaffold emits the scoped form into every per-task gate, so the next plan in
 > for each task T in the layer:
 >     Grep T's brief for module.symbol calls (report.render, diff.diff_files, snapshot.load, ...)
 >     for each hit whose module is another layer-mate's Output -> the layer is NOT parallel
+>     Grep T's Required Context and steps for each layer-mate's `**Output:**` paths
+>     a hit -> T moves to a later layer, or lists the layer-mate in `Depends On`
 > -> L2: Task 4 calls report.render (Task 2's Output) -> sequential: Task 2, then Task 4
+> -> L1: Task 2 reads Task 1's recorded base from its Output -> Task 2 moves to L2, Depends On: 1
 > ```
 
 Two rules follow.
 
-- **At scaffold time**, a task's `Depends On` lists every task whose output it imports or calls, not only every task whose output it reads as context. The reviewer check for a parallel layer is the called-symbol `Grep` above, run against the briefs, not a glance at the file lists.
-- **At run time**, the orchestrator repeats the `Grep` on the briefs it is about to dispatch, including any flags it just routed into them, which can add an edge the planner never saw. A routed flag that names a symbol from a layer-mate is a layer change, and the same Recovery row records it.
+- **At scaffold time**, a task's `Depends On` lists every task whose output it imports or calls, not only every task whose output it reads as context. The reviewer check for a parallel layer is the called-symbol `Grep` above, run against the briefs, not a glance at the file lists. It also runs the Output-path `Grep`: a task that reads a layer-mate's `**Output:**` path moves to a later layer or lists the layer-mate in `Depends On`.
+- **At run time**, the orchestrator repeats the `Grep` on the briefs it is about to dispatch, including any flags it just routed into them, which can add an edge the planner never saw. A routed flag that names a symbol from a layer-mate, or adds a read of a layer-mate's Output path, is a layer change, and the same Recovery row records it.
 
 **Applies to** any DELEGATED session with a parallel layer where one task authors tests, renderers or CLI wiring that exercises another task's module. It also applies to the Flag-Reconciliation Preflight in `handlers/run.md` Step 1.1a, and to plan review of orchestration files: "disjoint files" is necessary for parallel dispatch and is not sufficient. For a shared edit target, see [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) §1.13.
 
 #### Reviewer Check 083 — Dispatch Layer Without a Computed Write-Target Intersection
 
 - **Severity / Role:** BLOCKER | Scaffolding Hygiene Reviewer | NEW
-- **What:** An Orchestration declaring a multi-member dispatch layer without a computed write-target intersection shown for that layer; or a layer annotated "disjoint" whose member task `**Output:**` lines in fact overlap; or a per-task count gate scoped repo-wide inside a parallel layer.
-- **Detection:** For each Orchestration, read the declared dispatch layers. For every layer with 2+ members, collect each member task file's `**Output:**` paths and intersect them pairwise. Assert a `Computed Write-Target Intersection` row exists for that layer carrying a shown result (`∅` or the named paths) plus a Verdict, and that the computed result matches the shown one. Then Grep each member's gate commands for a tree-wide count with no path scoping. When flags were routed into the member task files after the table was written, re-read them too: a flag that tells a task to write a new artifact adds an output the table never saw (see `read-confirm-act-protocol.md` §1.3, "A Produce-Flag Is a Write-Set Delta"). Any one → BLOCKER.
+- **What:** An Orchestration declaring a multi-member dispatch layer without a computed write-target intersection shown for that layer; or a layer annotated "disjoint" whose member task `**Output:**` lines in fact overlap; or a layer still marked parallel whose member reads a layer-mate's `**Output:**` path; or a per-task count gate scoped repo-wide inside a parallel layer.
+- **Detection:** For each Orchestration, read the declared dispatch layers. For every layer with 2+ members, collect each member task file's `**Output:**` paths and intersect them pairwise. Assert a `Computed Write-Target Intersection` row exists for that layer carrying a shown result (`∅` or the named paths) plus a Verdict, and that the computed result matches the shown one. For every multi-member layer, also assert that the `Reads from a layer-mate's Output` cell is shown, and that it matches a Grep of each member's Required Context for the layer-mates' `**Output:**` paths. A non-empty cell in a layer still marked parallel is a BLOCKER. Then Grep each member's gate commands for a tree-wide count with no path scoping. When flags were routed into the member task files after the table was written, re-read them too: a flag that tells a task to write a new artifact adds an output the table never saw (see `read-confirm-act-protocol.md` §1.3, "A Produce-Flag Is a Write-Set Delta"). Any one → BLOCKER.
 - **Finding template:** `[BLOCKER] Dispatch layer {L2 = {2,3}} declared disjoint but write-targets intersect at {path} | File: {Orchestration path} | Fix per references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md §17 | Confidence: HIGH`
 
 ## 18. A Sheet a Human Runs Is Written for the Operator's Terminal

@@ -1,6 +1,6 @@
 ---
-description: Destructive-path and config-gated change requirements — interaction-matrix spec, independent test authorship, gated-branch pin discipline, pre-commit adversarial review, a lexical scorer's absent verdict is not evidence of absence (adjudicate before the writer runs), a similarity heuristic may only escalate in refuse-by-default tooling, and review convergence gated on consequence classes rather than severity labels, what the adversarial review must be told (seven case classes, the fix-diff review and the stopping rule), and an exemption modelled on a reference check copies the whole refusal condition
-consult-when: A branch can DELETE, OVERWRITE, MIGRATE, PRUNE or SWEEP user data — interaction-matrix spec, independent tests, adjudicating a lexical scorer's absent verdict before the writer runs, an escalate-only similarity heuristic, adversarial review gated on consequence classes, and an exemption that copies the whole refusal condition
+description: Destructive-path and config-gated change requirements — interaction-matrix spec, independent test authorship, gated-branch pin discipline, pre-commit adversarial review, a lexical scorer's absent verdict is not evidence of absence (adjudicate before the writer runs), a similarity heuristic may only escalate in refuse-by-default tooling, and review convergence gated on consequence classes rather than severity labels, what the adversarial review must be told (seven case classes, the fix-diff review and the stopping rule), and an exemption modelled on a reference check copies the whole refusal condition, and a destructive-step guard is verified through the producer of its condition, not by a read or an injected input
+consult-when: A branch can DELETE, OVERWRITE, MIGRATE, PRUNE or SWEEP user data — interaction-matrix spec, independent tests, adjudicating a lexical scorer's absent verdict before the writer runs, an escalate-only similarity heuristic, adversarial review gated on consequence classes, and an exemption that copies the whole refusal condition, a guard before a destructive step whose evidence is a read, a "reasoned" label or an injected input, and the producer of a guard's condition
 ---
 
 # Destructive-Path and Config-Gated Change Requirements
@@ -12,7 +12,7 @@ consult-when: A branch can DELETE, OVERWRITE, MIGRATE, PRUNE or SWEEP user data 
 
 ## 10. Destructive-Path & Config-Gated Change Requirements
 
-*Applies to any task that adds or extends a branch which can DELETE, OVERWRITE, MIGRATE, PRUNE, or SWEEP user data or user customizations. For such code the ordinary per-task gates — lint clean, unit suite green, smoke passing, self-containment greps empty — certify nothing about the inputs and adjacent states nobody named. These requirements are a chain, not duplicates: §10.1 makes the spec cover the whole interaction matrix; §10.2 has an independent test task re-derive the contract; §10.3 pins the gated branch without disturbing default-path evidence; §10.4 backstops all three with an adversarial review before the commit. §10.5 to §10.7 cover a destructive path that a similarity score or a severity label steers: §10.5 says a lexical scorer's "absent" verdict is not evidence of absence, so a semantic adjudicator runs before the writer; §10.6 says a similarity heuristic may only escalate toward refusal; §10.7 gates a review loop's convergence on consequence classes, not on severity labels. §10.8 and §10.9 cover what a review and a guard author each miss when the author of the feature also wrote its fixtures: §10.8 names the case classes the review brief must carry, requires a review of a fix diff, and sets the stopping rule. §10.9 says an exemption modelled on a reference check copies that check's whole refusal condition.*
+*Applies to any task that adds or extends a branch which can DELETE, OVERWRITE, MIGRATE, PRUNE, or SWEEP user data or user customizations. For such code the ordinary per-task gates — lint clean, unit suite green, smoke passing, self-containment greps empty — certify nothing about the inputs and adjacent states nobody named. These requirements are a chain, not duplicates: §10.1 makes the spec cover the whole interaction matrix; §10.2 has an independent test task re-derive the contract; §10.3 pins the gated branch without disturbing default-path evidence; §10.4 backstops all three with an adversarial review before the commit. §10.5 to §10.7 cover a destructive path that a similarity score or a severity label steers: §10.5 says a lexical scorer's "absent" verdict is not evidence of absence, so a semantic adjudicator runs before the writer; §10.6 says a similarity heuristic may only escalate toward refusal; §10.7 gates a review loop's convergence on consequence classes, not on severity labels. §10.8 and §10.9 cover what a review and a guard author each miss when the author of the feature also wrote its fixtures: §10.8 names the case classes the review brief must carry, requires a review of a fix diff, and sets the stopping rule. §10.9 says an exemption modelled on a reference check copies that check's whole refusal condition. §10.10 covers the guard itself: a guard before a destructive step is verified through the producer of its condition, not by a read of the guard or a test that injects the condition's value.*
 
 ### 10.1 Enumerate the config-interaction matrix in the spec
 
@@ -240,6 +240,60 @@ Four rules:
 - **Name what the exemption cannot check.** Pending row prose needed the migrator's full plan, and the generator could not import it without a cycle. Record that check as a named backlog candidate instead of silently leaving it out.
 
 **Applies to** any guard, refusal or safety check that gains an exemption to unblock a failing test, especially a protected or pinned one. It applies to any code that imitates a sibling module's predicate through a shared regex or constant rather than calling the predicate.
+
+### 10.10 A Guard Has Two Halves: Its Condition and the Producer It Reads
+
+> [!constraint] Verifying a destructive guard means verifying the producer of its condition
+> A guard has two halves. The condition tests a value. The producer is the code that writes that value. A read of the guard, or a test that sets the value directly, verifies the condition alone. It does not show that the producer can ever emit the triggering value.
+>
+> In one reported run, a guard raised an error when a failure list was non-empty, before a destructive step. Only exception handlers appended to the list. The library reported failure through return values, so no exception fired and the list stayed empty. The guard was dead, and a failed fetch counted as success. Three certifications read green:
+> - A verification report labelled the branch "reasoned, guard code read and confirmed present".
+> - Ten tests set the failure list directly and asserted the guard raised.
+> - A live run had every fetch succeed, so the guard never had a reason to fire.
+>
+> Before the fix, the failure count was 0 and the fetched count was 2. After the fix, the failure count was 1 and the fetched count was 1, and the guard fired.
+>
+> WRONG — the guard is certified from its own half only:
+> ```text
+> Verification: reasoned - guard code read, confirmed present.
+> Tests: 10 tests set failures = ["x"] and assert the guard raises.
+> Live run: every fetch succeeded.
+> ```
+> CORRECT — the producer is named, and one test drives it end to end:
+> ```text
+> Guard: raise if failures is non-empty, before the delete step.
+> Producer: the fetch wrapper appends to failures, and only inside its except block.
+> Reachability: the library returns an error object and raises nothing, so the wrapper never appends.
+> Test: a stub fetch returns the library's real failure value. The test runs the real wrapper and
+>       asserts the guard raises and the delete step does not run.
+> Both directions: the test fails on the pre-fix artifact and passes on the fixed artifact.
+> ```
+
+Five rules:
+
+- **Make the task brief name the producer.** A brief that adds or relies on a guard names the producer of the guard's condition. It also carries a verification step that proves the producer can emit the triggering value.
+- **Treat "reasoned" as existence, not reachability.** A "reasoned" or "confirmed present" label means the guard code exists. It says nothing about whether the guard can fire. Word the report so the two are separate, such as "present: confirmed. Reachable: not exercised".
+- **Keep an unexercised destructive guard unverified.** That status holds until a test drives the guard end to end through the real producer. An injected input shows that the guard reacts to a value. It does not show that the value can occur.
+- **Name the producer of its condition at review time.** For every guard, search for each writer of the value the guard reads. Confirm that one of them can emit the triggering value through the failure channel the dependency really uses. This takes one search, and it belongs before the destructive step ships.
+- **Prove the fix in both directions.** Run the new test against the pre-fix artifact and confirm it fails. Then run it against the fixed artifact and confirm it passes. `gate-instrument-proof-obligations.md` §10 obligation A states the full method. A guard test that never ran against known-bad input is itself unverified.
+
+#### Reviewer Check 122 — Destructive Guard Evidenced Only by a Read or an Injected Input
+
+- **Severity / Role / Type:** ERROR | Destructive-Path Reviewer | NEW
+- **What:** A task that adds or relies on a guard before a delete, overwrite, migrate, prune or sweep step MUST name the producer of the guard's condition. It MUST evidence the guard with a test that drives the real producer. A code read, a "reasoned" label or a test that injects the condition's value is existence evidence only.
+- **Detection:**
+  1. List each guard, refusal or abort condition that stands before a destructive step in the task, its Execution Inputs or its verification report.
+  2. For each, find the producer of the value the condition reads. Flag a guard whose brief or report names no producer.
+  3. Flag a guard whose only evidence is a code read, a "reasoned" or "confirmed present" label, a test that sets the condition's value directly, or a live run in which the triggering value never occurred.
+  4. Flag a guard fix whose test was never run against the pre-fix artifact.
+  5. A guard that names its producer, has a test that drives the real producer to the triggering value, and shows that test failing on the pre-fix artifact and passing on the fixed one is not a finding. A step that destroys nothing is not a finding.
+- **Finding template:**
+```
+[ERROR] Destructive guard evidenced only by a read or an injected input
+File: {task or report file path} | Location: {the guard or the verification line}
+Issue: The guard "{quoted guard}" stands before "{destructive step}" and its only evidence is {a code read | a reasoned label | an injected input | a live run that never hit the trigger}. {No producer of its condition is named | The producer was never driven to the triggering value}
+Fix: Name the producer, add a test that drives it end to end to the triggering value, and show the test failing on the pre-fix artifact and passing on the fixed one, per references/destructive-change-requirements.md §10.10 | Confidence: HIGH
+```
 
 ---
 

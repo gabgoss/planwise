@@ -606,7 +606,7 @@ The per-file ladder above has a shipped driver. `handlers/plan-Part-2-GatherAndG
 python "{plugin_root}/scripts/token_saver.py" --scan --plan {plan_path} --config {config}
 ```
 
-It classifies every Required Context row in every task against that task's assigned model and **exits non-zero while any file lands Warn or worse**. Reproducing its judgement by hand is a defect even when the judgement is right.
+It classifies every Required Context row in every task against that task's assigned model and **exits non-zero while any file lands Warn or Critical without a handled row**. A `read`-reason Critical row is handled only when its task records `exception: paged-read (read)` and the row carries `⚠ PAGED`. Reproducing its judgement by hand is a defect even when the judgement is right.
 
 > [!constraint] A hand-written annotation and a computed one are indistinguishable
 > WRONG — the author reads the ladder, decides a file is oversized, and types the marker into the row:
@@ -655,6 +655,36 @@ A task that asks a runner to copy, quote or transcribe recorded content has a se
 
 **Applies to** any task that quotes, copies or transcribes recorded content: READMEs, runbooks, reports and changelogs. §9.A.1 covers updating Required Context when a prior task changes file structure. This subsection covers the case where the structure is unchanged and the source was never listed.
 
+### 9.A.17 Every file the Execution Steps read has a Required Context row
+
+A task's Required Context table prices what the runner reads. A file that the Execution Steps read, Grep or Edit but the table omits has no cost in the subtotal or in `Estimated Tokens`. The estimate then runs low by that file's size. A prior task's or prior sprint's Recovery file is the usual miss. It costs about 1.3K to 1.8K tokens, and an author sees it as bookkeeping, not as a read.
+
+> [!constraint] Give every file the Execution Steps read a measured row
+> WRONG — an Execution Step reads a Recovery file, and the table has no row for it:
+> ```markdown
+> 3. Read Key Findings in `{plan_path}/Sprint-{NN}-{Name}/Session-{NN}-{Name}/{ABBREV}-S{NN}-{NN}-Recovery.md` for the prerequisite marker.
+> | 1 | `{template}` | {K} | ~{X}K | {purpose} |
+> ```
+> CORRECT — the same task with a measured row, and the subtotal and `Estimated Tokens` re-derived:
+> ```markdown
+> | 2 | `{plan_path}/Sprint-{NN}-{Name}/Session-{NN}-{Name}/{ABBREV}-S{NN}-{NN}-Recovery.md` Key Findings | {K} | ~{X}K | Prerequisite marker read in step 3 |
+> ```
+
+**A baseline pin is the exception.** A DELEGATED later task takes its sprint base from the `Base commit:` line of its spawn prompt. It never reads Recovery for `{ABBREV}_S{NN}_BASE`, so it needs no row. Fix such a read with the `Base commit:` literal, as [gate-diff-baseline-pinning.md](gate-diff-baseline-pinning.md) §8.1 directs. A prerequisite check, or a series-base adoption Grep over Recovery files per §8.4 of that file, is a real read. It needs a file row, or a command-corpus row per §9.A.14.
+
+#### Reviewer Check 123 — Execution Steps Read With No Required Context Row
+
+- **Severity / Role / Type:** WARNING (ERROR when the omitted row's measured cost carries the task estimate past its dispatch ceiling) | Task Reviewer | NEW
+- **What:** A path that the Execution Steps Read, Grep or Edit has no row in the Required Context File column.
+- **Detection:** List every path the Execution Steps Read, Grep or Edit. Leave out paths the task creates and values the spawn prompt injects. Compare the list with the File column. A Recovery read for a `_BASE` name in a DELEGATED later task is a finding whose fix is the `Base commit:` literal.
+- **Finding template:**
+```
+[{WARNING|ERROR}] Execution Steps read a file with no Required Context row
+File: {task file path} | Location: Execution Steps, step {N}
+Issue: step {N} reads {path} (~{measured}K) and Required Context has no row for it | step {N} reads Recovery for {ABBREV}_S{NN}_BASE in a DELEGATED later task
+Fix: Add a measured row and re-derive the subtotal and Estimated Tokens | use the spawn prompt's Base commit: literal | Confidence: HIGH
+```
+
 ---
 
 ## Plan-Review Enforcement Summary
@@ -675,6 +705,7 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 | 10 | Required Context row not measured at row grain | A row disagrees with a live measurement of the span it cites while a sibling row is measured; or a `§` span row carries no resolution; or a command-corpus row was never dry-run; or a size adjective stands in place of a number | §9.A.14 |
 | 11 | Large-file scan hand-reproduced | `context.token_saver: true` AND a task carries a `⚠ PAGED` / `⚠ REFACTOR` annotation with no recorded scan run behind it; or the Step 8c checklist item is ticked with no exit code recorded | §9.A.15 |
 | 12 | Quote source outside Required Context | A task brief demands a verbatim copy or quote of recorded content, and a source file the brief names for any quote is absent from the task's Required Context | §9.A.16 |
+| 13 | Execution Steps read with no Required Context row | A path the Execution Steps Read, Grep or Edit has no row in the task's Required Context File column | §9.A.17 |
 
 For the Verify-Before-Cite checks (§9.B: cited-artifact verification, field-name drift, facade re-export, upsert column-presence, Schema Pin / Pre-SQL verification), see [verify-before-cite.md](verify-before-cite.md)'s Plan-Review Enforcement Summary.
 

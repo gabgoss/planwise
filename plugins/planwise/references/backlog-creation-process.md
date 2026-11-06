@@ -5,7 +5,7 @@ consult-when: Filing or refining a backlog item through the preflight, planner a
 
 # Backlog Creation Process
 
-**Purpose:** One process files new backlog items and refines existing ones. Four callers cite it: the backlog handler's Phase 7 (filing) and the backlog loop's refine step (refining), harvest Stage 2, and the promote-batch workflow's filing step. Each caller dispatches the same three agents in the same order and reads the same status blocks. The agents hold the field-level contracts, and this file holds the order, the hand-over directory, the spawn prompts and the routing.
+**Purpose:** One process files new backlog items and refines existing ones. Five callers cite it: the backlog handler's Phase 7 (filing), the backlog loop's refine step (refining), the backlog handler's standalone `--refine <ids>` mode (refining, then stop), harvest Stage 2, and the promote-batch workflow's filing step. Each caller dispatches the same three agents in the same order and reads the same status blocks. The agents hold the field-level contracts, and this file holds the order, the hand-over directory, the spawn prompts and the routing.
 
 ---
 
@@ -28,6 +28,7 @@ The three agents pass work through files, never through their final messages. Th
 - The fact sheet is `{handover_dir}/preflight.md`, one block per candidate.
 - Each design file is `{handover_dir}/{id-or-label}-design.md`.
 - The backlog loop uses `{backlog_dir}/Backlog-Runs/{run-id}-refine/{item-id}/`. The index readers never walk that path.
+- The standalone `--refine` mode uses `{backlog_dir}/Backlog-Runs/{YYYYMMDD-HHMMSS}-refine/batch-{n}/`, one directory per batch. The index readers never walk that path either.
 - A filing caller uses a scratch directory it names. It sits outside `backlog_dir` so that no item reader sees it.
 
 Discard the directory after the author returns and the caller has read the status blocks.

@@ -156,9 +156,29 @@ git log --oneline <sprint base>..HEAD -- <the gates' pathspecs>
 > git diff $SESSION_START -- '<dir>/<prefix>-*.md' | grep -E '^[+-](id|title):'   # empty
 > ```
 
+**Before-command re-run.** At the same preflight, re-run the Before commands each task file carries and compare each reading with the task's `# pre-edit:` annotation. A changed reading is a structural finding. Three probes cover most drift:
+
+- `git status --porcelain -- <write-scope>` MUST print nothing. A path it lists belongs to another writer.
+- Every "does not exist yet" claim gets its own probe. Use `git check-ignore <path>` for an ignored path, or a `Glob` of the files the task creates.
+- `git log --oneline --since=<scaffold date> -- <targets>` MUST print nothing. If it prints a commit, read that commit before dispatch.
+
 **Corpus count check.** At the same preflight, compare the live file count in the gated directory against the figure the plan carries. A mismatch (302 live against 299 recorded) is the early signal that a commit landed after the base.
 
 Cross-references: §8.4 (the series base, which has the same first-to-touch hazard) and §8.1 (the clean-scope precondition, which also requires attribution per [read-confirm-act-protocol.md](read-confirm-act-protocol.md) §1.5).
+
+#### Assert the state, not the delta, when the end state is what matters
+
+A delta gate reads "the file gains 2 lines". An unrelated commit that already added one of those lines turns correct work into a +1 and fails it. A state assertion reads the end state, which no earlier commit can move. Keep a delta gate only when the delta itself is the claim.
+
+> [!constraint] A delta gate becomes a state assertion
+> WRONG — a delta gate, pinned to a scaffold-time reading:
+> ```bash
+> git diff --numstat $SESSION_START -- <file>   # expect 2 added; an unrelated commit already added one
+> ```
+> CORRECT — a state assertion over the end state:
+> ```
+> Grep  pattern='^{line}$'  path='<file>'  output_mode='count'   # expect 1
+> ```
 
 ---
 

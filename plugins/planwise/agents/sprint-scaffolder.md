@@ -53,7 +53,7 @@ The orchestrator fixes the decomposition, every task id, every Output path, `wri
 
 Copy these headings byte for byte, in this order, with their markers. Each list was taken from the live template; the line count beside it shows when the template last moved. A heading marked OPTIONAL or CONDITIONAL is kept only when its condition holds, and then in this position. A file never gains a `##` H2 that its list does not hold.
 
-### Sprint Plan — `templates/sprint-plan.md` (233 lines)
+### Sprint Plan — `templates/sprint-plan.md` (239 lines)
 
 ```
 ## Sprint Objective <!-- REQUIRED -->
@@ -71,9 +71,9 @@ Copy these headings byte for byte, in this order, with their markers. Each list 
 ## Plan-Specific Sections <!-- OPTIONAL -->
 ```
 
-Formatting lines: `**Sprint ID:** {ABBREV}-S{XX}`, `**Status:** PLANNED`, `**Estimated Tokens:** ~{XX}K total across all sessions` (equal to the sum of the Sessions table), and `**Total: {N} deliverables**` under the Deliverables table, counted from its rows. Repeat the `### Session {NN}:` H3 once per session.
+Formatting lines: `**Sprint ID:** {ABBREV}-S{XX}`, `**Status:** PLANNED`, `**Estimated Tokens:** ~{XX}K total across all sessions` (equal to the sum of the Sessions table), and `**Total: {N} deliverables**` under the Deliverables table, counted from its rows. The Deliverables table header is `| # | Deliverable | Class | Producer | Description |`, and each row's `Producer` cell names one task id, one Post-Session Checklist step, or `n/a` for a `verified-absent` row. Repeat the `### Session {NN}:` H3 once per session.
 
-### Orchestration — `templates/orchestration.md` (356 lines)
+### Orchestration — `templates/orchestration.md` (360 lines)
 
 ```
 ## Session Objective <!-- REQUIRED -->

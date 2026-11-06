@@ -11,6 +11,9 @@ with the same six keys the linter's ``make_finding`` writes. The severity
 strings equal the linter's ``SEVERITY_*`` constants. A test pins both
 agreements, so a change on either side shows up.
 
+Checks 39 to 41 read the command text alone. Check 40 also reads the task
+file that holds the command, to count the test names it lists.
+
 Every check here is static except Check 18, which in execute mode asks git
 whether a gated path is tracked. That query has a fixed argument vector:
 ``git -c core.fsmonitor=false ls-files --error-unmatch -- <path>``. It reads
@@ -77,6 +80,22 @@ _NUMERIC_BAND_RE = re.compile(
     r"|(?:<=|>=|≤|≥)\s*\d|\d+(?:\.\d+)?\s*(?:to|–)\s*\d"
 )
 _QUOTE_CHARS = "\"'`“”‘’"
+
+# pytest short options whose value is the rest of the cluster or the next token.
+_PYTEST_VALUE_LETTERS = "kmcopW"
+
+# A pytest selector pinned to a pass count: ``# 7 passed`` or ``7 passed`` in the
+# trailing comment or the adjacent annotation line.
+_PASSED_COUNT_RE = re.compile(r"\b(\d+)\s+passed\b")
+
+# A test function name listed in a task file. The lookaheads keep ``test_x.py``
+# (a file name) out and stop the match at the end of the identifier.
+_TEST_NAME_RE = re.compile(r"(?<![A-Za-z0-9_])test_[A-Za-z0-9_]+(?![A-Za-z0-9_])(?!\.py)")
+_SIMPLE_SELECTOR_RE = re.compile(r"[A-Za-z0-9_]+")
+
+# ``from module import *`` and a private name that follows it.
+_STAR_IMPORT_RE = re.compile(r"\bfrom\s+[\w.]+\s+import\s+\*")
+_PRIVATE_NAME_RE = re.compile(r"(?<![\w.'\"])_(?!_)[A-Za-z0-9]\w*")
 
 _SUCCESS_CRITERIA_HEADING_RE = re.compile(r"^#{1,6}\s+Success Criteria\b", re.IGNORECASE)
 _HEADING_RE = re.compile(r"^#{1,6}\s")
@@ -913,6 +932,205 @@ def _check25_tolerance_word_without_numeric_band(context) -> list:
     return findings
 
 
+def _pytest_args(stage):
+    """The arguments after ``pytest`` in a stage, or None when the stage does
+    not run pytest. ``python -m pytest``, ``uv run pytest`` and a path-prefixed
+    ``pytest`` all count."""
+    for index, token in enumerate(stage[:6]):
+        if token.replace("\\", "/").rsplit("/", 1)[-1] in ("pytest", "py.test"):
+            return stage[index + 1:]
+    return None
+
+
+def _pytest_selector_and_verbosity(args):
+    """Walk pytest arguments once. Return ``(selector, quiet, verbose)``: the
+    ``-k`` expression (or None) and how many ``-q`` and ``-v`` flags appear.
+    A value-taking letter ends its cluster, so ``-kq`` is the selector ``q``."""
+    selector = None
+    quiet = verbose = 0
+    index = 0
+    while index < len(args):
+        token = args[index]
+        index += 1
+        if token == "--":
+            break
+        if token in ("--quiet", "--verbose"):
+            quiet += token == "--quiet"
+            verbose += token == "--verbose"
+            continue
+        if token.startswith("--") or not re.fullmatch(r"-[A-Za-z].*", token):
+            continue
+        for position, letter in enumerate(token[1:], start=1):
+            if letter not in _PYTEST_VALUE_LETTERS:
+                quiet += letter == "q"
+                verbose += letter == "v"
+                continue
+            value = token[position + 1:]
+            if not value and index < len(args):
+                value = args[index]
+                index += 1
+            if letter == "k":
+                selector = value or None
+            break
+    return selector, quiet, verbose
+
+
+def _check39_pytest_quiet_with_verbose(context) -> list:
+    """Check 39 -- one pytest command carries both ``-q`` and ``-v``
+    (gate-command-semantics.md §10.9). The two flags move one shared verbosity
+    counter, so ``-q -v`` reads as the default level and a grep for ``PASSED``
+    over its output counts 0 on a passing test. WARNING.
+    """
+    findings = []
+    for command in context.commands:
+        if command.is_placeholder:
+            continue
+        for stages in _command_pipelines(command):
+            hit = False
+            for stage in stages:
+                args = _pytest_args(stage)
+                if args is None:
+                    continue
+                _, quiet, verbose = _pytest_selector_and_verbosity(args)
+                if quiet and verbose:
+                    findings.append(_finding(
+                        check=39, severity=SEVERITY_WARNING, file=command.file,
+                        line=command.line, command=command.command,
+                        message=(
+                            "This pytest command carries both -q and -v. They move one "
+                            "shared verbosity counter and cancel, so a count of PASSED "
+                            "lines reads 0 on a passing test. Use -v alone, or read the "
+                            "summary line, and prove the anchor on a passing run and on "
+                            "a forced failure"
+                        ),
+                    ))
+                    hit = True
+                    break
+            if hit:
+                break
+    return findings
+
+
+def _listed_test_names(path) -> set:
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return set()
+    return {name for name in _TEST_NAME_RE.findall(text) if not name.endswith("_")}
+
+
+def _check40_selector_paired_with_pass_count(context) -> list:
+    """Check 40 -- a pytest ``-k`` selector gated on ``N passed``
+    (gate-command-semantics.md §10.9). The selector keeps only the tests whose
+    name holds the token, so a module-level count of N fails on a correct
+    module when fewer names match. WARNING when N equals the number of test
+    names the task file lists that hold the token. ERROR when N equals the
+    number of names the file lists but fewer hold the token, the signature of
+    a module-level count copied onto a selector. UNCERTAIN otherwise: the
+    selector is not one plain token, the file lists no names, no listed name
+    holds the token (a class or module selector), or the list may be partial.
+    """
+    findings = []
+    for command in context.commands:
+        if command.is_placeholder:
+            continue
+        stated = _PASSED_COUNT_RE.search(f"{command.comment} {command.annotation}")
+        if not stated:
+            continue
+        selector = None
+        for stages in _command_pipelines(command):
+            for stage in stages:
+                args = _pytest_args(stage)
+                if args is not None:
+                    selector, _, _ = _pytest_selector_and_verbosity(args)
+                    if selector is not None:
+                        break
+            if selector is not None:
+                break
+        if selector is None:
+            continue
+        expected = int(stated.group(1))
+        names = _listed_test_names(command.path)
+        if not _SIMPLE_SELECTOR_RE.fullmatch(selector) or not names:
+            severity = SEVERITY_UNCERTAIN
+            detail = (
+                "The selector is not one plain token, so the check cannot count the "
+                "matching names." if names else
+                "The task file lists no test names, so the check cannot count the "
+                "matching names."
+            )
+        else:
+            matched = sum(1 for name in names if selector.lower() in name.lower())
+            if matched == expected:
+                severity = SEVERITY_WARNING
+                detail = (
+                    f"The count {expected} equals the {matched} listed names that hold "
+                    f"{selector!r}, so it holds only while no name is renamed or replaced."
+                )
+            elif matched and len(names) == expected:
+                severity = SEVERITY_ERROR
+                detail = (
+                    f"The count {expected} is the number of listed test names, but only "
+                    f"{matched} of them hold {selector!r}. A correct module prints "
+                    f"{matched} passed and {len(names) - matched} deselected."
+                )
+            else:
+                severity = SEVERITY_UNCERTAIN
+                detail = (
+                    f"The task file lists {len(names)} test names and {matched} hold "
+                    f"{selector!r}. The check cannot tell whether {expected} is right, "
+                    "because the list may be partial or the selector may name a class "
+                    "or a module."
+                )
+        findings.append(_finding(
+            check=40, severity=severity, file=command.file, line=command.line,
+            command=command.command,
+            message=(
+                f"A -k {selector!r} selector is gated on '{expected} passed'. {detail} "
+                "Gate on the whole module and state module-level counts. Prefix each "
+                "test name with its half, so two tasks cannot define one name twice"
+            ),
+        ))
+    return findings
+
+
+def _check41_star_import_then_private_name(context) -> list:
+    """Check 41 -- a command line imports with ``from X import *`` and then
+    uses a name that starts with one underscore (gate-command-semantics.md
+    §10.9). A star import never binds underscore names, so the smoke raises
+    NameError on a correct module. An explicit import of the name, or an
+    assignment to it, clears the finding. ERROR. The check reads one command
+    line, not a following line of the same block.
+    """
+    findings = []
+    for command in context.commands:
+        if command.is_placeholder:
+            continue
+        star = _STAR_IMPORT_RE.search(command.command)
+        if not star:
+            continue
+        tail = command.command[star.end():]
+        unbound = []
+        for match in _PRIVATE_NAME_RE.finditer(tail):
+            name = match.group(0)
+            explicit = re.search(rf"\bimport\b[^;\n]*(?<![\w]){name}\b", command.command[:star.start()] + tail)
+            assigned = re.search(rf"(?<![\w.]){name}\s*=(?!=)", command.command)
+            if not explicit and not assigned and name not in unbound:
+                unbound.append(name)
+        if unbound:
+            findings.append(_finding(
+                check=41, severity=SEVERITY_ERROR, file=command.file,
+                line=command.line, command=command.command,
+                message=(
+                    f"This command runs 'import *' and then uses {', '.join(unbound)}. "
+                    "A star import never binds a name that starts with an underscore, "
+                    "so the smoke raises NameError on a correct module. Import every "
+                    "asserted name explicitly"
+                ),
+            ))
+    return findings
+
+
 CHECKS = [
     _check18_diff_property_gate_over_untracked_path,
     _check19_intent_to_add_before_comment_only_diff,
@@ -922,4 +1140,7 @@ CHECKS = [
     _check23_keyword_count_coverage_denominator,
     _check24_basic_grep_escaped_plus_header_filter,
     _check25_tolerance_word_without_numeric_band,
+    _check39_pytest_quiet_with_verbose,
+    _check40_selector_paired_with_pass_count,
+    _check41_star_import_then_private_name,
 ]

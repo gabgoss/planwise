@@ -78,7 +78,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - For Auto Mode behavior (how a step behaves when `AskUserQuestion` cannot be answered non-interactively): Read `references/auto-mode-policy.md`
 - In loop mode, or on `--loop-resume`: Read `handlers/backlog-Part-2-LoopMode.md`
 - With `--answer`: Read `handlers/backlog-Part-3-Answers.md`
-- With `--refine`: Read `handlers/backlog-Part-4-Refine.md`
+- With `--refine`, or when the Phase 3 refine offer is accepted: Read `handlers/backlog-Part-4-Refine.md`
 - When filing or refining items: Read `references/backlog-creation-process.md`
 
 ---
@@ -187,6 +187,24 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
 
 1. Get the item's file paths from the JSON data (the `files` array)
 2. Read each backlog item file (files have YAML frontmatter with `created`, `blocks`, and `status` fields)
+
+   **Refine offer.** Skip this block in loop mode and on `--loop-resume`. Read the `Answer:` lines under the item's `## Open Questions`.
+   - An empty `Answer:` line: make no offer. Print one hint line: run `/planwise backlog --answer {item_id}` first.
+   - Otherwise, when the item is `refined: false`, or `refined: true` with a filled `Answer:` line, make the offer below. A refined item with no filled `Answer:` line gets none.
+
+   <!-- AUTO-MODE: convenience -->
+   <!-- Default: per references/auto-mode-policy.md § Inference Defaults, row "Phase 3 refine offer (backlog.md Phase 3 step 2)". -->
+   Use `AskUserQuestion`: "Refine {item_id} first?"
+   - Option 1: Refine first (preflight, planner, author, then show the design)
+   - Option 2: Route on the current text
+   - Option 3: Skip
+
+   Recommend Option 1 when a filled `Answer:` line exists. Otherwise recommend Option 2.
+
+   - Refine first: run `handlers/backlog-Part-4-Refine.md` Steps 1 to 7 for this one id, then discard the hand-over directory as Step 8 says. Show the item's `## Resolution` and `## Verification`, then ask "Triage now" or "Stop here". If Step 6 closed the item, stop for this item. Triage now re-reads the item and continues at step 3.
+   - Stop here and Skip: restore the item's `status` from the Phase 1 JSON with `update_backlog.py --status`, regenerate the index, and stop for this item.
+   - Route on the current text: continue at step 3.
+
 3. **Pre-Routing Existence Gates** (run before the Citation-Freshness Preflight — two sequential checks with separate applicability conditions, never merged):
    - **3a. Pivot check** (High-priority / top-scored / aged items, or multi-item cohorts): skim `git log --oneline -20` for domains adjacent to the item and ask the framing question if a signal lights up, per `references/backlog-triage-pivot-detection.md` §1. If a pivot is confirmed, sweep the cohort to BLOCKED per that reference's §2 and STOP for this item — do not proceed to 3b or to step 4.
    - **3b. Existence-premise probe** (items whose deliverable applies a re-alignment verb — reconcile, re-target, re-align, align to the live shape, update to match — to a target outside the repo): probe the family (bare target, representative variants, siblings) before accepting the re-target framing, per `references/verify-backlog-citation-freshness.md` §11. If the premise fails (bare target and all variants absent), route to SURFACE — commit the probe evidence and route the scope decision to the user — and STOP for this item.
@@ -201,6 +219,11 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
 
 5. **Staleness check:** If the item has measurable acceptance criteria (counts, percentages, coverage targets), run `{build_command}` (from config.yaml `build_commands.default`) *before* routing. If criteria are already met or nearly met, present a "Close as COMPLETE" option instead of routing through a fix workflow. In loop mode, when every criterion is already met, close the item without asking per Part 2 § Unattended close; when any criterion is unmet, continue to step 6.
    - If the BLI's motivating driver is a runtime symptom (keywords: collision, race, hang, missing endpoint, intermittent), run a `grep -rn` for the symptom in `src/` and cross-check against recent session summaries in `Plans/**/Sessions/**/Outputs/`. If the driver is no longer active (no recent matches, fix landed), mark the BLI as STALE per `verify-backlog-citation-freshness.md §3h` and skip routing. Include §3h.untested-axes and §3h.cluster signal checks per the same reference.
+   - **Conditional check (Progress and Notes):** Read the item's Progress and Notes for a conditional the author left for a later pass. Look for "only if", "otherwise close", "matter only if", and "decide … before starting".
+     - Write the cheapest read-only check that decides each conditional, such as a `Grep`, a `Glob`, or a `git log` line. Run it.
+     - Report one line per conditional before step 6: `Conditional: "{quoted text}" -- {check} -> {result} -> RESOLVED | OPEN`.
+     - A RESOLVED conditional whose branch says close adds a "Close as CLOSED — condition resolved" option per `verify-backlog-citation-freshness.md §3h`. In loop mode this case is a documented skip, and the evidence is the `Conditional:` lines.
+     - Check a blocker chain blocker-first. When an open item lists this one in `blocks:`, or the body says it was filed from another item's follow-up, run the blocker's check first. A closed blocker often lets the dependent's check reuse the same evidence.
 
 6. **Assess the item's scope: run the mechanical signals, then reconcile the stored hint.** The [Routing Decision Tree](#routing-decision-tree) below is the source of the logic; the script applies it without modification.
 

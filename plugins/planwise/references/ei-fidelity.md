@@ -1,6 +1,6 @@
 ---
-description: EI fidelity across scaffolding tiers — source preservation, threshold alignment, and UNCONFIRMED caveat enforcement (§1-§4; §5-§11 split to sibling files)
-consult-when: Checking EI fidelity across scaffolding tiers — source preservation, thresholds, UNCONFIRMED caveats (anchor file)
+description: EI fidelity across scaffolding tiers — source preservation, threshold alignment, UNCONFIRMED caveat enforcement, and one execution of every executable check an EI carries (§1-§4; §5-§11 split to sibling files)
+consult-when: Checking EI fidelity across scaffolding tiers — source preservation, thresholds, UNCONFIRMED caveats, and whether each query or command an EI carries was executed once (anchor file)
 ---
 
 # EI Fidelity (Cross-Tier Preservation)
@@ -18,6 +18,7 @@ consult-when: Checking EI fidelity across scaffolding tiers — source preservat
   - [3.1 Algorithm-Sprint Retention-Band Calibration](#31-algorithm-sprint-retention-band-calibration)
 - [4. UNCONFIRMED Caveats — Four-Site Redundant Enforcement](#4-unconfirmed-caveats--four-site-redundant-enforcement)
 - [4.5 Hedge Preservation — Compression Must Not Flatten a Qualifier Into a Fact](#45-hedge-preservation--compression-must-not-flatten-a-qualifier-into-a-fact)
+- [4.6 Executable Checks — Run Each One Before It Ships in an Execution Input](#46-executable-checks--run-each-one-before-it-ships-in-an-execution-input)
 
 ### Segment Index — This File Was Split 4 Ways (2026-08-10)
 
@@ -358,6 +359,57 @@ Red flags during review:
 File: {EI/plan file path} | Location: {row/section}
 Issue: source hedge "{hedge phrase}" dropped; compressed row states the claim as settled fact with no cited resolution
 Fix: Restore the hedge or cite the resolving measurement, per references/ei-fidelity.md §4.5 | Confidence: MEDIUM
+```
+
+---
+
+## 4.6 Executable Checks — Run Each One Before It Ships in an Execution Input
+
+> [!constraint] An executable check in an EI MUST be executed once before a later task or signoff runs it verbatim
+> A check written into an EI is code. This covers a query, a shell command, a `Grep` call and an assertion snippet. The author often writes it before the inspected object exists, and nobody runs it because it is "just the check".
+>
+> One EI specified a SQL check that compared a view's settled outcome against the same outcome computed in Python. It was meant to return 0. It used `ISNULL(col, -1)` as a NULL sentinel on a column whose type cannot hold -1. It raised an arithmetic overflow against the deployed view, even over 0 rows. A task near the end of the sprint hit the error, retried once with a cast, and got 0. A 0 from a query that first raised is a VACUOUS pass. The signoff would have quoted the original query verbatim and stopped at the error on its evidence anchor.
+>
+> Rules:
+>
+> 1. **Execute at scaffold time.** Run the check once against the deployed object. When the object is not deployed yet, run it against a derived-table form of the planned body. Stamp the result beside the check: `Executed {date} against {object}: returned {value}`.
+> 2. **Route a check that cannot run yet.** When the object cannot exist at scaffold time, mark the check UNVERIFIED and carry the mark through the four sites in §4. The first task that deploys the object runs every such check once, read-only. That task records any correction as a flag.
+> 3. **Treat a query that raised as an unrun gate.** It is never a VACUOUS pass. A changed-query retry that returns 0 is not evidence. Correct the EI text at the source.
+> 4. **Apply the rule to all executable text.** A shell command, a `Grep` call or an assertion snippet that a signoff runs verbatim follows the same rules.
+>
+> WRONG — the EI carries a never-run query:
+> ```
+> Agreement check (expect 0):
+> SELECT COUNT(*) FROM {view} WHERE ISNULL(a, -1) <> ISNULL(b, -1);   -- a, b are a small unsigned type
+> ```
+> CORRECT — the EI carries a query that was executed once, and the deploying task runs it again:
+> ```
+> Agreement check (expect 0). Executed {date} against {view}: returned 0.
+> SELECT COUNT(*) FROM {view} WHERE ISNULL(CAST(a AS INT), -1) <> ISNULL(CAST(b AS INT), -1);
+> ```
+
+How to apply during scaffolding:
+
+- List every executable snippet in the EI that a task or a signoff quotes. Run each one, or mark it UNVERIFIED with the name of the task that deploys its object.
+- Read the stamp as the evidence. A stamp whose value came from a retry with a changed query is not a stamp for the original text.
+
+Red flags during review:
+
+- A query, command or assertion in the EI carries no `Executed` stamp and no UNVERIFIED mark.
+- An UNVERIFIED check names no deploying task, or the deploying task never runs it.
+- The recorded value is 0 and the check raised on its first run.
+
+#### Reviewer Check 117 — Executable EI Check Never Executed
+
+- **Severity / Role / Type:** ERROR | EI Reviewer | NEW
+- **What:** Every query, shell command, `Grep` call or assertion snippet in an EI that a later task or signoff runs verbatim MUST carry an `Executed {date} against {object}: returned {value}` stamp, or an UNVERIFIED mark that names the deploying task. A query that raised is an unrun gate, never a pass.
+- **Detection:** List each executable snippet that a task file or signoff quotes from the EI. Flag a snippet that has neither the stamp nor the UNVERIFIED mark. Flag a stamp whose value came from a changed-query retry after the first run raised. Flag an UNVERIFIED mark with no deploying task that runs the check. → ERROR.
+- **Finding template:**
+```
+[ERROR] Executable EI check never executed
+File: {EI file path} | Location: {section and check}
+Issue: The check "{quoted check text}" has no Executed stamp and no UNVERIFIED mark, or it raised before a changed retry returned 0
+Fix: Execute the check once, stamp the result or mark it UNVERIFIED with its deploying task, and correct the text at the source, per references/ei-fidelity.md §4.6 | Confidence: HIGH
 ```
 
 ---

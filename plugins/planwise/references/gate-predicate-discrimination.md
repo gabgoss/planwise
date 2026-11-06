@@ -1,6 +1,6 @@
 ---
-description: A gate whose pattern is narrower than the claim it is cited to support returns its PASS value against known-bad input. Covers the paired-input control taken from version control, the three ways a pattern ends up narrower than its claim, case blindness in both directions, asserting a negative from a pattern shaped for a different positive, why a wrong figure in a briefing costs more than a wrong gate, the diff-filter character class that silently drops a whole syntactic population, and the pinned pattern that must run against the real expected-hit line (a verbatim fixture row) with a passing branch shown reachable on known-good input, and the "count unchanged" gate that an addition sharing its vocabulary makes unsatisfiable (pin a baseline diff, the old line's full shape, or a predicted total), the delivered gate that compares a PRE-edit constant and passes only before the work it verifies (read its code, prove it on the state it will gate, make it two-mode), the enforcer that decides on one measurement and asserts on another (decide and assert on the same measurement), and two instruments that disagree on one member (locate the member in the source, never pick the instrument that keeps the assertion green), the mutation proof whose assertion must sit on the branch the mutated symbol gates, one minimal input per guard so an earlier guard cannot shadow a later one, and the keyed read that hides a duplicate row (count rows before keying). Consult when about to cite a grep, a count, or a diff filter as proof.
-consult-when: About to cite a match pattern, count, or diff filter as proof — pair the anchor against its known-bad state from git, match the claim rather than one phrasing, never assert an absence from a pattern shaped for a different positive, anchor a diff filter on the sign alone, never write `\+` in a basic-syntax header filter or trust an empty pipe without counting its stream, run a pinned pattern against the real expected-hit line as a verbatim fixture row with a passing branch shown reachable on known-good input, and never gate "count unchanged" with a bare count when the addition shares the pattern's vocabulary — pin a baseline diff, the old line's full shape, or a predicted total, read a delivered gate's code and prove it on the state it will gate (a PRE-constant gate passes only before the work), decide and assert on one measurement so no window refuses correct input, and when two instruments disagree on one member locate the member in the source rather than keeping the instrument that leaves the assertion green, a mutation proof asserts on the branch the mutated symbol gates, give each guard one minimal input so an earlier guard cannot shadow it, and count rows before keying a dict so a duplicate row is reported
+description: A gate whose pattern is narrower than the claim it is cited to support returns its PASS value against known-bad input. Covers the paired-input control taken from version control, the three ways a pattern ends up narrower than its claim, case blindness in both directions, asserting a negative from a pattern shaped for a different positive, why a wrong figure in a briefing costs more than a wrong gate, the diff-filter character class that silently drops a whole syntactic population, and the pinned pattern that must run against the real expected-hit line (a verbatim fixture row) with a passing branch shown reachable on known-good input, and the "count unchanged" gate that an addition sharing its vocabulary makes unsatisfiable (pin a baseline diff, the old line's full shape, or a predicted total), the delivered gate that compares a PRE-edit constant and passes only before the work it verifies (read its code, prove it on the state it will gate, make it two-mode), the enforcer that decides on one measurement and asserts on another (decide and assert on the same measurement), and two instruments that disagree on one member (locate the member in the source, never pick the instrument that keeps the assertion green), the mutation proof whose assertion must sit on the branch the mutated symbol gates, one minimal input per guard so an earlier guard cannot shadow a later one, and the keyed read that hides a duplicate row (count rows before keying), and the gate that never executes the defective part of its artifact (certify through the consumer's shape and run every gate on known-good input, §9.2 and §17). Consult when about to cite a grep, a count, or a diff filter as proof.
+consult-when: About to cite a match pattern, count, or diff filter as proof — pair the anchor against its known-bad state from git, match the claim rather than one phrasing, never assert an absence from a pattern shaped for a different positive, anchor a diff filter on the sign alone, never write `\+` in a basic-syntax header filter or trust an empty pipe without counting its stream, run a pinned pattern against the real expected-hit line as a verbatim fixture row with a passing branch shown reachable on known-good input, and never gate "count unchanged" with a bare count when the addition shares the pattern's vocabulary — pin a baseline diff, the old line's full shape, or a predicted total, read a delivered gate's code and prove it on the state it will gate (a PRE-constant gate passes only before the work), decide and assert on one measurement so no window refuses correct input, and when two instruments disagree on one member locate the member in the source rather than keeping the instrument that leaves the assertion green, a mutation proof asserts on the branch the mutated symbol gates, give each guard one minimal input so an earlier guard cannot shadow it, and count rows before keying a dict so a duplicate row is reported, and certify an artifact through the shape its real consumer uses, never a bare `COUNT(*)`, running every gate on known-good input before it ships
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Gate Predicate Discrimination — a Pattern Narrower Than Its Claim Passes Against Known-Bad Input
@@ -25,7 +25,7 @@ This is the predicate half of a two-part problem. [`measurement-discipline.md`](
 - [8. The Author of a Check Cannot Be Its Auditor](#8-the-author-of-a-check-cannot-be-its-auditor)
 - [9. A Pinned Pattern Runs Against the Real Line, and Its Passing Branch Is Reachable](#9-a-pinned-pattern-runs-against-the-real-line-and-its-passing-branch-is-reachable)
   - [9.1 The real expected-hit line is a verbatim fixture row](#91-the-real-expected-hit-line-is-a-verbatim-fixture-row)
-  - [9.2 A gate whose passing value is 0 is run once on known-good input and shown to print 0](#92-a-gate-whose-passing-value-is-0-is-run-once-on-known-good-input-and-shown-to-print-0)
+  - [9.2 A gate is shown reachable in both branches: run every gate on known-good input before it ships](#92-a-gate-is-shown-reachable-in-both-branches-run-every-gate-on-known-good-input-before-it-ships)
 - [10. A "Count Unchanged" Gate Shares Vocabulary With the Addition It Must Exclude](#10-a-count-unchanged-gate-shares-vocabulary-with-the-addition-it-must-exclude)
 - [11. Read a Delivered Gate's Code, and Prove It on the State It Will Gate](#11-read-a-delivered-gates-code-and-prove-it-on-the-state-it-will-gate)
 - [12. Decide and Assert on the Same Measurement](#12-decide-and-assert-on-the-same-measurement)
@@ -33,6 +33,7 @@ This is the predicate half of a two-part problem. [`measurement-discipline.md`](
 - [14. A Mutation Proof Asserts on the Branch the Mutated Symbol Gates](#14-a-mutation-proof-asserts-on-the-branch-the-mutated-symbol-gates)
 - [15. One Minimal Input Per Guard: a Real-Body Fixture Proves the Corpus, Not the Guard](#15-one-minimal-input-per-guard-a-real-body-fixture-proves-the-corpus-not-the-guard)
 - [16. A Keyed Read Hides a Duplicate: Count Rows Before Keying](#16-a-keyed-read-hides-a-duplicate-count-rows-before-keying)
+- [17. A Gate Certifies Through the Shape a Real Consumer Uses](#17-a-gate-certifies-through-the-shape-a-real-consumer-uses)
 
 ---
 
@@ -261,10 +262,19 @@ This section is deliberately written without a mechanical gate. "Have a differen
 > Fixture:  the decision's line verbatim, asserted under the report-only classification
 > ```
 
-### 9.2 A gate whose passing value is 0 is run once on known-good input and shown to print 0
+### 9.2 A gate is shown reachable in both branches: run every gate on known-good input before it ships
 
 > [!constraint] Show both branches of a gate reachable
 > **Rule.** A gate has two branches, and each must be shown reachable. Run it against known-bad input to prove it can fail, and against known-good input to prove it can return its passing value. A gate that can only fail teaches its operators to explain the failure away.
+>
+> **Every gate, not only a passing value of 0.** Run every gate against known-good input before it ships. A gate proven only against known-bad input is unverified in the direction that matters. It may fail on correct work, and nobody can tell a real defect from a broken gate. A gate that fails on correct work leaves two exits, and both damage:
+>
+> | Exit | Consequence |
+> |------|-------------|
+> | Reshape the artifact until the gate passes | The artifact serves the gate, and the protected invariant may be violated |
+> | Weaken or delete the criterion | A real check is retired for every future artifact |
+>
+> A known-good run closes both exits. It shows the gate accepts correct work before anyone is tempted to bend the work or the gate.
 >
 > **Table-cell gates.** Exclude the header and separator rows before counting. Anchor on the data-row shape, such as a leading ID. Then prove both runs: known-good prints 0, and a planted annotated cell prints 1.
 >
@@ -515,6 +525,37 @@ Three operative points:
 - **Test a parity check with the corruption it exists for.** A row-count check can see only a duplicate, so test it with a duplicate.
 
 The rule applies to any reader that builds a map from a sequence with a supposedly unique key: index tables, config lists, manifest entries, CSV imports.
+
+---
+
+## 17. A Gate Certifies Through the Shape a Real Consumer Uses
+
+§1 to §16 ask whether a gate can discriminate. This section asks whether the gate evaluates the defect at all. A gate can pass an artifact because it never executes the part that fails.
+
+> [!constraint] A gate that never runs the defective part of an artifact passes the defect
+> **Rule.** Certify an artifact through the shape its real consumer uses. A row count or a one-column probe may never compile or run the part that fails.
+>
+> A SQL view passed its gate `SELECT COUNT(*)` and raised an error on every `SELECT *`. Two aggregate calls with different `ORDER BY` lists shared one `GROUP BY` scope. SQL Server prunes unreferenced CTE columns, so an unprojected aggregate is never compiled. Measured: `COUNT(*)` passed, each aggregate alone passed, both together failed, and `SELECT *` failed.
+>
+> WRONG - certify the view by counting its rows:
+> ```
+> SELECT COUNT(*) FROM v_totals;    -- passes: the unreferenced aggregate columns are pruned and never compiled
+> ```
+> CORRECT - project every derived column through the consumer's shape:
+> ```
+> SELECT * FROM v_totals;           -- fails on the defective view, as the gate should
+> -- or: SELECT <every derived column> FROM v_totals;
+> ```
+
+Five operative points:
+
+- **Project every derived column.** Certify a view with `SELECT *` or an explicit projection of every derived column. Never certify it with `COUNT(*)` alone.
+- **Compare completeness against the live source.** A completeness gate that compares against the handed input file passes when that file is stale. One such gate was short by five live rows.
+- **A constraint spanning two columns cannot see a consistent pair change.** A MERGE nulled a value and its provenance column together. The CHECK constraint spanning both passed, and about a hundred values were destroyed with exit 0. Test the pair with a change that moves both columns.
+- **Ask what the check never executes.** The test question is: "What part of this artifact does my check never execute?" Name the part, then add a check that runs it.
+- **Spend one check on a shape no gate used.** When an orchestrator verifies a delegated artifact, it runs one check through a shape that none of the task's gates used. §9.2 requires the matching known-good run for every gate.
+
+The rule applies to any artifact with a consumer that exercises more of it than the gate does: a view, a function with optional parameters, a config read by a loader, a template rendered by a tool.
 
 ---
 

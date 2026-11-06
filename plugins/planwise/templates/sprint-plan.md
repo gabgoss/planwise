@@ -66,7 +66,10 @@ sprint's write-set can be checked against it, independent of landing order.
 
 <!-- Prefer a relationship the pipeline maintains (after == before, "equals the count the
      upstream step disposed X") over a literal. If a literal is used, cite the measurement
-     that produced it in the same bullet. -->
+     that produced it in the same bullet. A gate target that other sprints regenerate is
+     shared: assert after == before + n with before derived in the same run, and record a
+     new baseline for drift outside this sprint's Write-Set. See
+     references/gate-pre-edit-baseline.md §10.1.2. -->
 
 <!-- DRY-RUN AT SCAFFOLD CLOSE. Run every criterion's check against the PRE-CHANGE tree and
      record what it returned, inline. A criterion that already PASSES pre-change is a
@@ -101,14 +104,17 @@ sprint's write-set can be checked against it, independent of landing order.
      the creator artifact (schema/DDL, migration, generator, packaging declaration) is the member
      whose omission silently undoes the retirement. -->
 
-| # | Deliverable | Class | Description |
-|---|-------------|-------|-------------|
-| 1 | {Deliverable 1} | edit | {What will be produced} |
-| 2 | {Deliverable 2} | create | {What will be produced} |
-| 3 | {Deliverable 3} | verified-absent | {What is deliberately NOT taken, and the check that proves it absent} |
+| # | Deliverable | Class | Producer | Description |
+|---|-------------|-------|----------|-------------|
+| 1 | {Deliverable 1} | edit | {task-id} | {What will be produced} |
+| 2 | {Deliverable 2} | create | {task-id} | {What will be produced} |
+| 3 | {Deliverable 3} | verified-absent | n/a | {What is deliberately NOT taken, and the check that proves it absent} |
 
 > [!constraint] A row that lands new behaviour names its production caller
 > For a `create` (or `edit`) row that adds a function, an optional parameter, a CLI flag, a config key, an event subscription or a guarded branch, `Description` also states where production invokes it — the call site that supplies the activating argument, the parser registration, the subscription. At signoff that row anchors on a call-site search over production paths, never on the definition; a definition no production caller reaches is not a landed deliverable, and a runner's "dormant until a follow-up wires it" is PARTIAL, not COMPLETE. See `references/verify-caller-before-complete.md`.
+
+> [!constraint] An artifact a Deliverable or Signoff anchor names has exactly one producer
+> A `Producer` cell names the task whose `**Output:**` line lists the artifact, or the one Orchestration Post-Session Checklist step that assembles a rollup at signoff. That step states the record format and the merge rule. An artifact a Signoff anchor reads that no task lists in its `**Output:**` gets its own Deliverables row. See `references/artifact-producer-resolution.md` §1.
 
 **Total: {N} deliverables** — count the rows above.
 

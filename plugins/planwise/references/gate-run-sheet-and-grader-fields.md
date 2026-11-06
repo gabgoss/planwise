@@ -1,19 +1,20 @@
 ---
-description: A run sheet pins the field the observed mechanism reads, not the flag whose name matches the sheet's intent — a flag nothing reads is documentation, not control (§13); and a grader that reads a numeric field from a module's log fails on null, because a null where a number belongs is a failed measurement and a "row present" predicate passes a row whose every numeric field is null (§14); a driver or grader never defaults a missing input to 0, because an absent transcript, log or result file is a failed measurement (§14).
-consult-when: Writing a run sheet or probe driver that pins flags, or a grader over a numeric log field — pin the field the hook reads, not the flag whose name matches the intent (§13); a null numeric field is a failed measurement (§14); a driver or grader never defaults a missing input to 0 (§14)
+description: A run sheet pins the field the observed mechanism reads, not the flag whose name matches the sheet's intent — a flag nothing reads is documentation, not control (§13); and a grader that reads a numeric field from a module's log fails on null, because a null where a number belongs is a failed measurement and a "row present" predicate passes a row whose every numeric field is null (§14); a driver or grader never defaults a missing input to 0, because an absent transcript, log or result file is a failed measurement (§14); a gate row a person runs names every valid mode and records the mode that ran, because a row that pins one mode makes a correct run disagree with its ledger (§15).
+consult-when: Writing a run sheet or probe driver that pins flags, or a grader over a numeric log field — pin the field the hook reads, not the flag whose name matches the intent (§13); a null numeric field is a failed measurement (§14); a driver or grader never defaults a missing input to 0 (§14); a gate row a person runs accepts every valid mode and records the mode that ran (§15)
 paths: {planwise_root}/{plans_dir}/**
 ---
 
 # Gate Run-Sheet Control and Grader Fields
 
-**Purpose:** Two rules about the join between a sheet or grader and the mechanism it claims to control or measure. Every line of a sheet can run without error while its predicate stays unreachable, and every run can grade PASS while every measurement is unmeasured. Split from `verification-gates.md` on 2026-10-08. Section numbers are kept from that reference, so an existing `verification-gates.md §N` citation translates by filename alone. The family index is `verification-gates.md`.
+**Purpose:** Three rules about the join between a sheet or grader and the mechanism it claims to control or measure. Every line of a sheet can run without error while its predicate stays unreachable, and every run can grade PASS while every measurement is unmeasured. A row a person runs can also pin one mode of a multi-mode run, so a correct run disagrees with its ledger. Split from `verification-gates.md` on 2026-10-08. Section numbers are kept from that reference, so an existing `verification-gates.md §N` citation translates by filename alone. The family index is `verification-gates.md`.
 
-**Read this when** you write a run sheet, a probe driver or a test fixture that pins flags on a reset or launch line, two clean runs of a sheet give the same wrong outcome, or you write a grader predicate over a numeric field in a log or a driver that counts from a transcript or result file.
+**Read this when** you write a run sheet, a probe driver or a test fixture that pins flags on a reset or launch line, two clean runs of a sheet give the same wrong outcome, or you write a grader predicate over a numeric field in a log or a driver that counts from a transcript or result file. Read it also when you write a gate row that a person runs in one of several valid modes.
 
 ## Table of Contents
 
 - [13. A Run Sheet Pins the Field the Hook Reads](#13-a-run-sheet-pins-the-field-the-hook-reads)
 - [14. A Grader Treats a Null Numeric Field as a Failed Measurement](#14-a-grader-treats-a-null-numeric-field-as-a-failed-measurement)
+- [15. A Human Gate Row Accepts Every Valid Mode and Records the One That Ran](#15-a-human-gate-row-accepts-every-valid-mode-and-records-the-one-that-ran)
 
 ---
 
@@ -104,6 +105,42 @@ File: {plan or task file path} | Location: {gate or grader line}
 Issue: "{expression}" turns a missing {input} into 0, so a run with no {input} can pass
 Fix: Exit non-zero with "input missing: {path}" before reading the value, per references/gate-run-sheet-and-grader-fields.md §14 | Confidence: HIGH
 ```
+
+## 15. A Human Gate Row Accepts Every Valid Mode and Records the One That Ran
+
+> [!constraint] A gate row a person runs names every valid mode, not the one its author expected
+> A row that pins one mode of a multi-mode run predicts what the operator will do. The operator runs the committed default, the evidence no longer matches the row, and the ledger needs hand reconciliation.
+
+**Scenario.** A backfill gate row told the operator to run three notebooks with `SOURCE_MODE="local"` and to paste each summary into the ledger. The operator ran the committed defaults, where `SOURCE_MODE` is `"download"`, the nightly path. The summaries went into chat. Seven of 55 partitions were skipped on resume, so each ledger held 48 rows. Throughput was bound by the download, not by the local read.
+
+The data was correct. Three things still needed hand reconciliation at the next preflight: the mode that ran, the place the summaries were pasted and the row count.
+
+> [!constraint] The row names every valid mode, and the run records which one ran
+> ```
+> WRONG — the row pins one mode and one paste location, and the verifying task counts ledger rows:
+> row:       run the three notebooks with SOURCE_MODE="local"; paste each summary into the ledger
+> verifier:  expect 55 ledger rows per notebook; compute throughput from the ledger
+>
+> CORRECT — the row accepts every valid mode and records the one that ran:
+> row:       run the three notebooks with SOURCE_MODE="local" or SOURCE_MODE="download"
+>            record the mode that ran, the date and the resume-skipped partitions
+>            paste each summary into the ledger or into chat
+> ledger:    one row per partition, with a source-of-marker column
+> preflight: accepts either paste location and writes the canonical ledger copy itself
+> verifier:  take denominators from the rows that carry seconds; verify by query against the store
+> ```
+
+Five rules follow.
+
+1. **Name every valid mode on the row.** List each value the run accepts. Pin one mode only when the others are invalid for this gate, and say so on the row.
+2. **Record what ran.** The row holds the mode that ran, the date and the resume-skipped units. A reader can then tell what the evidence covers.
+3. **Give the ledger one row per unit and a source-of-marker column.** The column records where each row's completion marker came from, such as this run or an earlier resumed pass.
+4. **Accept either paste location.** The next preflight reads the ledger or the chat paste and writes the canonical copy itself. The operator does not own that reconciliation.
+5. **Take denominators from measured rows, and verify by query.** Count only the rows that carry a measured value, such as seconds. A resume-skipped unit has none. Query the store for the result. The ledger row count records what was pasted, not what exists.
+
+**Applies to** any gate row, run sheet or checklist step that a person runs, where the run has more than one valid mode or more than one place to record its result.
+
+**Sibling rule.** Section 13 pins the field the hook reads. This section keeps the row from pinning a mode the operator may reasonably not run.
 
 ---
 

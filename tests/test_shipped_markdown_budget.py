@@ -60,6 +60,7 @@ WORKLIST_LINE = "Backlog filing worklist — {n} file(s) at Warn or worse requir
 # Preflight that the pin still holds (MUST print nothing):
 #   git -C <plugin repo> log --oneline becccfe..HEAD -- plugins/planwise/references plugins/planwise/handlers plugins/planwise/templates plugins/planwise/agents plugins/planwise/skills
 WARN_ALLOWLIST = frozenset({
+    "agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md",  # 23,367 (2026-11-06: the long-running-commands subsection crossed the line; it stood at 21,997)
     "backlog.md",                                              # 22,231 (2026-11-02: the --refine-max Arguments row crossed the line by 77; the three --refine hooks added 154)
     "exit-criteria-fidelity.md",                               # 24,006
     "measurement-discipline.md",                               # 22,450

@@ -207,8 +207,6 @@ Agent(
   subagent_type: "planwise:rule-comparator",
   description: "Compare {filename} (installed vs shipped)",
   prompt: |
-    First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any file.
-
     Compare ONE artifact pair and return a semantic verdict.
     filename:       {filename}
     kind:           rule
@@ -220,13 +218,14 @@ Agent(
     Return ONE fenced json verdict in the StructuralVerdict shape with
     source:"agent", filename, and a home_hints map.
     Step 3b grants a bounded read: at most 3 siblings the shipped text names, depth 1, read by path. Report any block found there under relocated_blocks. Keep tolerated_fragments and rationale in the verdict: the writer reads them.
+    Delivery: this spawn names no SendMessage recipient. Do not load or call SendMessage. Return the verdict in your final response.
     End with: "Comparator complete: {filename} → {classification}"
 )
 ```
 
-Collect the N verdicts (each comparator's returned/`SendMessage`d JSON). Each comparator ends in one of three modes:
+Collect the N verdicts (each comparator's final-response JSON). Each comparator ends in one of three modes:
 
-- **Returned.** The comparator sent its verdict JSON.
+- **Returned.** The comparator returned its verdict JSON in its final response.
 - **Failed.** The comparator errored or stayed silent after its one resume. Fall back to the inline primitive for that file and omit it from `verdicts.json`.
 - **Late.** Every sibling has returned, and this comparator has sent no verdict. Its final message is idle, or it ends mid-narration.
 

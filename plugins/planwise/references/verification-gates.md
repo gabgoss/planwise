@@ -27,7 +27,7 @@ paths: {planwise_root}/{plans_dir}/**
 | [gate-diff-baseline-pinning.md](gate-diff-baseline-pinning.md) | §8-§8.6, Check 077 | you write, review or run any gate built on `git diff`, or pin a sprint or series base. This file defines `$..._BASE` |
 | [gate-instrument-proof-obligations.md](gate-instrument-proof-obligations.md) | §10, Checks 087, 088 | a deliverable is a gate, guard, hook, linter or validation pass, or a criterion cites a gate run as proof |
 | [gate-change-vs-state-detecting.md](gate-change-vs-state-detecting.md) | §11-§11.5 | you compose a battery, a change adds a member to an enumerated set, or you write or accept an extractor that anchors on a string |
-| [gate-run-sheet-and-grader-fields.md](gate-run-sheet-and-grader-fields.md) | §13, §14 | you write a run sheet or probe driver that pins flags, or a grader predicate over a numeric log field |
+| [gate-run-sheet-and-grader-fields.md](gate-run-sheet-and-grader-fields.md) | §13, §14, §15 | you write a run sheet or probe driver that pins flags, a grader predicate over a numeric log field, or a gate row a human runs in one of several valid modes |
 
 ---
 

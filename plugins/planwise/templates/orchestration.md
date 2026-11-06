@@ -109,7 +109,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 
 ## Dispatch Layers <!-- REQUIRED for DELEGATED mode -->
 
-**Declared layers:** L1 = {1, 2} · L2 = {3} · L3 = {4, 5}
+**Declared layers:** L1 = {1, 2} · L2 = {3} · L3 = {4, 5} · L4 = {6, 7}
 
 <!-- A layer is the set of tasks whose `Depends On` are all satisfied at the same
      point. Multi-member layers dispatch in parallel, so each one needs its
@@ -118,13 +118,14 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 
 ### Computed Write-Target Intersection <!-- REQUIRED for DELEGATED mode -->
 
-Collect every member task's `**Output:**` paths; intersect them pairwise. Show the result for every layer, including the empty ones — an `∅` is as much a computation as a conflict, and leaving it implicit is what makes the claim unfalsifiable.
+Collect every member task's `**Output:**` paths; intersect them pairwise. Also collect each member's Required Context and step text, and list every layer-mate `**Output:**` path it reads. Show the result for every layer, including the empty ones — an `∅` is as much a computation as a conflict, and leaving it implicit is what makes the claim unfalsifiable.
 
-| Layer | Members | Member write-targets | Intersection | Verdict |
-|-------|---------|----------------------|--------------|---------|
-| L1 | {1, 2} | `{path-a}` / `{path-b}` | ∅ | ✅ disjoint — parallel stands |
-| L2 | {3} | `{path-c}` | ∅ | ✅ single member |
-| L3 | {4, 5} | `{path-d}`, `{path-e}` / `{path-e}` | `{path-e}` | ❌ NOT disjoint — serialized: 5 after 4 on `{path-e}` |
+| Layer | Members | Member write-targets | Intersection | Reads from a layer-mate's Output | Verdict |
+|-------|---------|----------------------|--------------|----------------------------------|---------|
+| L1 | {1, 2} | `{path-a}` / `{path-b}` | ∅ | ∅ | ✅ disjoint — parallel stands |
+| L2 | {3} | `{path-c}` | ∅ | n/a | ✅ single member |
+| L3 | {4, 5} | `{path-d}`, `{path-e}` / `{path-e}` | `{path-e}` | ∅ | ❌ NOT disjoint — serialized: 5 after 4 on `{path-e}` |
+| L4 | {6, 7} | `{path-f}` / `{path-g}` | ∅ | 7 reads `{path-f}` (Task 6's Output) | ❌ NOT parallel — 7 moved to a later layer, Depends On: 6 |
 
 <!-- A non-empty intersection has exactly four dispositions, per
      references/agent-orchestration-delegated.md §1.13: serialize the pair,
@@ -199,6 +200,7 @@ you ARE the task-runner.
 Task file:        {task-file-absolute-path}
 Session ID:       {Abbrev}-S{XX}-{YY}
 Plugin root:      {value of config.yaml plugin_root, read at dispatch}
+Project root:     {project root absolute path, resolved at dispatch}
 Output directory: {output-dir-absolute-path}
 Base commit:      {ABBREV}_S{NN}_BASE={resolved SHA literal}  (omit when no task gate runs git diff)
 Census:           {name}={session-base value}, ...  (omit when no task gate names a census row)
@@ -208,7 +210,7 @@ Execute ONLY {task-id}. Do not start any other task in the session even if the
 Recovery file lists it as PENDING. Files you may write: {explicit list from the
 task file's Output}.
 
-1. Modify ONLY files listed in this task's Required Context — no other files
+1. Modify ONLY the files named on this task's Output line. Every other Required Context file is read-only.
 2. Do NOT read files not listed in Required Context. The `Base commit:` and `Census:`
    values above are authoritative as given: never read them from Recovery or any other file
 3. Do NOT spawn sub-agents or create teams
@@ -234,7 +236,8 @@ Where a Verification Command in the task file holds the literal `{plugin_root}`,
 <!-- Add when the project declares an isolated environment (§1.27): an
      ENVIRONMENT DISCIPLINE block naming interpreter/linter/runner paths in the
      platform-matched form, plus a first-spawn interpreter diagnostic on the
-     session's first dispatch only.
+     session's first dispatch only. A runner given the `Project root:` line and no
+     interpreter falls back to the project `.venv` when one exists.
      Add when the task needs path-scoped rules (§1.6): inject the rule content
      as a literal — a spawned context inherits no path triggers.
      Add when the layer dispatches 3+ runners in parallel (§1.13): the PARALLEL
@@ -248,13 +251,14 @@ Run this against **every** returned dispatch, before reconciling Recovery and be
 
 ### Step 1 — Classify the return
 
-Per `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17.1. Classify by the final-message voice and the working-tree state, and note that three of the four states are failures:
+Per `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17.1. Classify by the final-message voice and the working-tree state, and note that four of the five states are failures:
 
 | Signal | Diagnosis | Action |
 |--------|-----------|--------|
 | Fast return, dispatch-voice reply ("I've dispatched the task-runner… I'll report back"), clean tree | Self-delegation — it spawned a nested duplicate instead of executing | Resume the SAME agent with the execute-yourself directive |
 | Mid-work narration ending in a colon or next-step phrase, dirty tree with genuine partial edits | Message-boundary stall — it executed part-way, then ended its message at a narration checkpoint | Resume the SAME agent with a continuation message enumerating only the remaining work |
 | `completed` return whose final message ends mid-action ("Now let me…", "Next I'll…") or omits required report fields | Mid-action stall masquerading as completion | Run Step 2's gate, then resume the SAME agent to finish |
+| No completion report and no named permission denial, a near-clean tree, no dispatch voice, Bash-only deliverables absent on disk | Silently auto-denied tool permission — a spawn-prompt tool path matches no allow entry | Compare the prompt's tool paths against the project's allow entries BEFORE any resume, then resume the SAME agent with paths in a granted form |
 | Structured completion report whose deliverables verify on disk | Real completion | Reconcile normally |
 
 **On every failure state, resume the SAME agent — never dispatch a fresh one.** Its context already holds the task; a fresh runner re-reads everything and can race or duplicate the first one's partial work.
@@ -270,6 +274,9 @@ A harness `completed` status means the agent stopped with no live children. It i
 - [ ] Every required status-block field is present and non-empty (a blanked field is not a short one)
 - [ ] If the Orchestration promised to re-verify a runner's own verdict, run the replay command named in the producing task's Output (for example `<gate_script>.py --self-test`). Do not rebuild the fixtures yourself (`references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §19)
 - [ ] If the Expected Output declared required headings or table-column headers, Grep the produced file for every one of them
+- [ ] If a later task also edits a file this dispatch edited, run `{lint-cmd}` on that file before the next dispatch. On a failure, halt and record it in Recovery (`references/agent-orchestration-delegated.md` §1.4)
+- [ ] Recompute the runner's verdict label from its reported counts with the producing task's rule. On a mismatch, log it in Recovery and act on the recomputed label (`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.16.1)
+- [ ] If a runner reported a defective gate: the defect is reproduced from the runner's verbatim output, and the same command shape is swept across the undispatched briefs before the next dispatch (§1.16.6)
 
 ### Step 3 — Scan the return for a stalled tail
 

@@ -1291,6 +1291,15 @@ def main():
 
     items, frontmatters, scores, open_item_ids = load_scored_items(config)
 
+    # Local import: a module-level one closes the cycle described in the
+    # `parse_index_table` docstring.
+    from parse_backlog import duplicate_row_ids, duplicate_row_ids_message
+
+    duplicates = duplicate_row_ids(items)
+    if duplicates:
+        print(duplicate_row_ids_message(duplicates), file=sys.stderr)
+        sys.exit(1)
+
     if not items:
         print("No items found in backlog index.", file=sys.stderr)
         sys.exit(1)

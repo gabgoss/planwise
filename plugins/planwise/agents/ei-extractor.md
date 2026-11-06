@@ -64,10 +64,11 @@ Read every `source_map` file in full, Tier 1 included. Page a file with `Read` `
 2. **Extraction is not summarization.** Copy substantive content verbatim: tables, code blocks, field definitions, constraints. Reorganize by sprint scope only. Never compress or paraphrase. From a cross-sprint reference part, take only the decisions and conventions this sprint's tasks need.
 3. **One section per id, in id order.** Write one section per `ei_sections` row. Never renumber, add or drop an id. Each section heading names the tasks that use it, from that row's task ids.
 4. **A planned section with no source content** keeps its heading and takes the body `none`. List its id in `EMPTY_SECTIONS`, and write one `ISSUES` line naming the id and the sources searched. Never renumber the ids that follow.
-5. **Before a section is final, apply three binding checks:**
+5. **Before a section is final, apply four binding checks:**
    - (a) A row that cites a backlog item or a prior review as authority for a conclusion: read that authority's corrections and acceptance criteria before extracting. An authority that revised the claim is a HALT, not a footnote. Return `BLOCKED` and name it.
    - (b) Keep hedge language verbatim ("may", "likely", "unmeasured"). Never promote a hedge to a fact. If you measured something that resolves the hedge, record the measurement beside it.
    - (c) A row that asserts a state, not just a path: re-run the assertion against the live artifact with `Read`, `Grep` or `Glob`. Record the measured value and today's date inline.
+   - (d) A row that carries an executable check (a query, shell command, `Grep` call or assertion snippet) that a later task or signoff runs verbatim: execute it once against the deployed object when you can reach it. Stamp `Executed {date} against {object}: returned {value}` beside it. When the object does not exist yet, write `UNVERIFIED` and name the task that deploys it. A check that raised is an unrun gate, never a pass.
 6. **Count a table before carrying a count stated over it.** A caption such as "nine required edits" is a claim about the rows beneath it. Count the rows. On disagreement the table wins: record the measured row count with its date, and note that the caption is superseded.
 7. **Measure every token figure** with the plugin's measuring script. Write a figure that cannot be measured as `unmeasured ({reason})`.
 

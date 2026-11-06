@@ -2,6 +2,7 @@
 
 import copy
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -75,6 +76,16 @@ def test_fill_invariant_clean_render(rendered):
 def test_fill_invariant_fires_on_known_bad_line():
     assert sp.unmasked_braces("plain {leaked} text\n") == ["leaked"]
     assert sp.unmasked_braces("ok <!-- FILL: {fine} --> text\n") == []
+
+
+def test_rendered_task_carries_the_verdict_contract(rendered):
+    tasks = {rel: text for rel, text in rendered.items()
+             if re.search(r"-S\d{2}-\d{2}-\d{2}-(Sonnet|Opus|Haiku)-", rel)}
+    assert len(tasks) == 4
+    for rel, text in tasks.items():
+        section = text.split("## Verification Commands", 1)[1].split("\n## ", 1)[0]
+        for needle in ("[UNCERTAIN]", "count-equality", "never PASS"):
+            assert needle in section, (rel, needle)
 
 
 # ---- lint-spec
@@ -212,6 +223,45 @@ def test_check_headings_ignores_h2_inside_a_fence():
     patterns, catch = sp.template_heading_sets(TEMPLATES)["task"]
     text = "## Objective\n\n```markdown\n## Not A Section\n```\n\n## Notes for Agent\n"
     assert sp.check_text(text, patterns, catch) == (2, [])
+
+
+# ---- check-scope-line
+
+SCOPE_CLAUSE = "Execute ONLY"
+ORCH_DELEGATED = "Sprint-01-LedgerCore/Session-01-ReadPath/QZX-S01-01-Orchestration.md"
+ORCH_DIRECT = "Sprint-01-LedgerCore/Session-02-WritePath/QZX-S01-02-Orchestration.md"
+
+
+def test_check_scope_line_fresh_render_passes_and_skips_direct(tmp_path, rendered):
+    out = _write(tmp_path, rendered)
+    results = sp.check_scope_lines([out])
+    assert [(Path(r["path"]).name, r["count"]) for r in results] == [("QZX-S01-01-Orchestration.md", 1)]
+    assert sp.main(["check-scope-line", str(out)]) == 0
+
+
+def test_check_scope_line_flags_a_removed_clause(tmp_path, rendered):
+    out = _write(tmp_path, rendered)
+    target = out / ORCH_DELEGATED
+    target.write_bytes(target.read_bytes().replace(SCOPE_CLAUSE.encode(), b"Run"))
+    assert sp.check_scope_lines([target])[0]["count"] == 0
+    assert sp.main(["check-scope-line", str(out)]) == 1
+
+
+def test_check_scope_line_flags_a_duplicated_clause(tmp_path, rendered):
+    out = _write(tmp_path, rendered)
+    target = out / ORCH_DELEGATED
+    target.write_bytes(target.read_bytes() + b"\n" + SCOPE_CLAUSE.encode() + b" QZX-S01-01-01.\n")
+    assert sp.check_scope_lines([target])[0]["count"] == 2
+    assert sp.main(["check-scope-line", str(out)]) == 1
+
+
+def test_check_scope_line_skips_a_direct_orchestration_and_reports_a_missing_path(tmp_path, rendered):
+    out = _write(tmp_path, rendered)
+    direct = out / ORCH_DIRECT
+    direct.write_bytes(direct.read_bytes().replace(SCOPE_CLAUSE.encode(), b"Run"))
+    assert sp.check_scope_lines([direct]) == []
+    assert sp.main(["check-scope-line", str(direct)]) == 0
+    assert sp.main(["check-scope-line", str(tmp_path / "no-such-folder")]) == 2
 
 
 # ---- file set

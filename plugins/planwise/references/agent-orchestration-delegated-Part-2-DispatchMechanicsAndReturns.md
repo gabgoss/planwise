@@ -1,5 +1,5 @@
 ---
-description: DELEGATED dispatch discipline, Part 2 of 3. This file holds §1.14–§1.22, dispatch mechanics and post-return handling, including gating a runner's sweep table on its control rows (§1.16.5) and the idle-while-waiting-on-a-background-command stall (§1.17.1, §1.17.3). Part 1 of 3 is agent-orchestration-delegated.md.
+description: DELEGATED dispatch discipline, Part 2 of 3. This file holds §1.14–§1.22, dispatch mechanics and post-return handling, including gating a runner's sweep table on its control rows (§1.16.5), sweeping sibling briefs after a runner-reported gate defect (§1.16.6) and the idle-while-waiting-on-a-background-command stall (§1.17.1, §1.17.3). Part 1 of 3 is agent-orchestration-delegated.md.
 consult-when: Dispatching a task-runner or handling its return in a DELEGATED session — orchestrator-only review commands, build ordering, recomputing a delegated verdict from primary evidence, dispatch failure modes, model-tier gating, gating a runner's sweep table on its control rows, and the idle wait on a background command
 ---
 
@@ -79,6 +79,8 @@ If the task-runner edits after building (whether by accident or because the spaw
 ## 1.16 Recompute Delegated Verdicts from Primary Evidence — Both Directions
 
 Any session that delegates structured classification — a verdict label, a severity tag, a readiness state — to a sub-agent MUST recompute that classification from the agent's reported raw evidence before consuming the label. Two failure modes bound the gap symmetrically: **under-classification** (the sub-agent softens the verdict against its own enumerated counts) and **over-classification** (the sub-agent manufactures a finding on incomplete cross-file evidence). Capability does not prevent either — a smaller-tier agent (e.g. Sonnet) systematically under-classifies, and a frontier-tier agent (e.g. Opus) can over-classify on cross-file control-flow claims; the rule applies to ALL agent tiers and must not be scoped to one model. The orchestrator, holding the full evidence set, is the only reliable recompute site.
+
+The recompute has a boundary. Recomputing a runner's verdict from its reported evidence does not validate that the evidence answers the criterion. Re-running the task's own gate reproduces the task's own blind spot. Reconciling the gate against the criterion it discharges belongs to review (Check 112, `references/gate-anchor-outcome-set.md` §10.11).
 
 ### 1.16.1 Under-classification — recompute verdict from finding counts
 
@@ -199,9 +201,36 @@ Measured case. A sweep reported a write-set constant at six paths. On disk it he
 
 **Applies to** surface sweeps, enumeration sweeps, and any task that classes each hit as stale or current.
 
+### 1.16.6 A runner-reported gate defect: hold "defect in the brief" as live, then sweep the sibling briefs
+
+When a runner reports that a verification command fails, the orchestrator holds two hypotheses. "Defect in the work" is the runner's default. "Defect in the brief" stays live beside it, because a gate the runner reproduces can still be wrong. The orchestrator acts on neither until the evidence arrives.
+
+> [!constraint] Prove a brief defect from the runner's own output, then sweep before the next dispatch
+> - **Require the failing command and its verbatim output.** A runner that calls a gate broken pastes the command and what it printed. A paraphrase is a claim, not proof.
+> - **Re-running the runner's assertions proves only that they reproduce.** Reproduction shows the gate fails. It does not show whether the gate or the work is at fault. Test the gate against an artifact known to be correct.
+> - **On a confirmed brief defect, search every undispatched sibling brief for the same command shape.** Use `Grep` on the session's task files for the failing operator, comparison or query form. Fix every hit in the same pass, before the next dispatch.
+> - **Rank the hits by the invariant each gate guards.** A gate that guards a purity or idempotency claim comes first. Its failure message tells a runner that correct work corrupted data, and the runner may revert that work.
+>
+> WRONG — fix the reported brief and dispatch the next task:
+> ```
+> runner (task 3): "assert r == (157, 347, 179) fails: Row.__eq__ against a tuple is always False"
+> orchestrator: fix task 3's brief -> dispatch task 4
+> task 4 brief, unswept: the same assert, guarding "row count unchanged, the move was pure"
+> ```
+> CORRECT — prove the defect, sweep the siblings, fix every hit, then dispatch:
+> ```
+> runner (task 3): pastes the failing command and its verbatim output
+> orchestrator: confirm against a known-good row -> Grep the undispatched briefs for the row-to-tuple compare
+>               -> task 4 is a hit, ranked first because it guards purity -> fix both briefs -> dispatch task 4
+> ```
+
+Worked case. A four-task session shipped three gates that failed against correct artifacts. The runner for task three reported a driver-row defect. The same assertion sat unfixed in task four's brief, where it guarded the purity of a refactor. Its message, "row count changed, the move was not pure", would have led a runner to conclude that a correct refactor had corrupted data.
+
+**Applies to** any DELEGATED session where a runner reports a failing verification command, a gate that fails on an artifact it should accept, or a gate that passes on one it should reject.
+
 ## 1.17 Task-Runner Dispatch Failure Modes and Resume Protocol
 
-A dispatched task-runner has four post-return states — three failure modes and one real completion. Before dispatching the next task — or before treating a "completed" notification as done — classify the return by the final-message voice and the working-tree state; and when the return *reads* as complete, gate acceptance on **on-disk deliverable evidence** before believing it — a stall can masquerade as completion (§1.17.4). For every failure state of the unit of work in hand the corrective is the same: **resume the SAME agent** (its context already holds the full task), never dispatch a fresh runner for that same unit of work. A fresh runner re-reads everything and can race or duplicate the first one's partial work. A new round of work is a different case and gets a fresh runner (§1.17.7).
+A dispatched task-runner has five post-return states — four failure modes and one real completion. Before dispatching the next task — or before treating a "completed" notification as done — classify the return by the final-message voice and the working-tree state; and when the return *reads* as complete, gate acceptance on **on-disk deliverable evidence** before believing it — a stall can masquerade as completion (§1.17.4). For every failure state of the unit of work in hand the corrective is the same: **resume the SAME agent** (its context already holds the full task), never dispatch a fresh runner for that same unit of work. A fresh runner re-reads everything and can race or duplicate the first one's partial work. A new round of work is a different case and gets a fresh runner (§1.17.7).
 
 ### 1.17.1 Diagnosis table
 
@@ -213,9 +242,10 @@ Classify every returned runner against this table before acting on its result:
 | Mid-work narration ending in a colon or next-step phrase ("Now let's rewrite each. First, `test_conflict…`:"), dirty tree with genuine partial edits on disk | Message-boundary stall — the runner executed part-way, then ended its message at a narration checkpoint | Resume the SAME agent with a continuation message (§1.17.3); its context holds the full task state |
 | Idle, final message says the runner is "waiting on" a background job or command, dirty tree | Message-boundary stall — the job's completion reached the runner's harness and never woke the runner | Resume the SAME agent (§1.17.3), instruct a foreground re-run with a long timeout |
 | `completed` return whose final message ends mid-action ("Now let me…", "Next I'll…") or omits required report fields — reads as done, but deliverables are not yet on disk | Mid-action stall masquerading as completion — the `completed` status is not a deliverable check | Run the on-disk acceptance gate, then resume the SAME agent to finish (§1.17.4) |
+| No completion report and no named permission denial, a near-clean tree, no dispatch voice and no narration tail, Bash-only deliverables absent on disk | Silently auto-denied tool permission — a spawn-prompt tool path matches no allow entry and the runner cannot prompt (§1.21) | Compare the spawn prompt's tool paths against the project's allow entries BEFORE any resume, then resume the SAME agent with paths in a granted form. If no form is granted, surface the gap to the user, because a resume with the same paths reproduces the failure |
 | Structured completion report (status + verification results) whose deliverables verify on disk | Real completion | Reconcile normally |
 
-The three failure modes are genuinely distinct: self-delegation is a **clean** tree + **dispatch** voice (the runner never executed); a message-boundary stall is a **dirty** tree + **executor** voice that ends visibly mid-work (the runner executed part-way); a mid-action stall masquerading as completion **reads** as done — a structured-looking report or a clean final line — yet its deliverables are not on disk (§1.17.4). The shared corrective is "resume the same agent," but the resume *message* — and, for the masquerade case, the on-disk check that exposes it — differs; see below.
+The four modes are genuinely distinct: self-delegation is a **clean** tree + **dispatch** voice (the runner never executed); a message-boundary stall is a **dirty** tree + **executor** voice that ends visibly mid-work (the runner executed part-way); a mid-action stall masquerading as completion **reads** as done — a structured-looking report or a clean final line — yet its deliverables are not on disk (§1.17.4); a silently auto-denied runner returns no report and names no denial, with a near-clean tree and its Bash-only deliverables absent on disk (§1.21). Deliverables absent on disk mark that row. Deliverables verified on disk mark a real completion, even with no report. The shared corrective is "resume the same agent," but the resume *message* — and, for the masquerade case, the on-disk check that exposes it — differs; see below.
 
 ### 1.17.2 Self-delegation resume
 
@@ -286,6 +316,8 @@ This is distinct from the two voice+tree failure modes above: those announce the
 - `git status --short` — confirm the expected file set is dirty and nothing unexpected changed.
 - A collection / parse check where applicable (the produced file parses; the test file collects).
 - Confirm the Recovery step row for the task flipped to its completed state.
+- Recompute the expected member count from the task's own pattern or member table, never from the brief, the Success Criteria or the runner's report. Expand every placeholder in the pattern, count the members it reaches, and compare that figure with the evidence-row count. A pattern over 13 URLs in 2 redirect modes expects 26 rows, so a report of 18 rows fails even when it reads N/N. See `gate-input-set-and-compared-window.md` §16 and Reviewer Check 110.
+- Treat an `ISSUES: out of scope` line about a file the task owns as a request for a ruling, not a note. Run the task's own verify criteria against that file. Then rule before accepting: widen the scope with a Scope-Expansion Decisions row, or narrow the criterion. See [gate-satisfiability.md §6](gate-satisfiability.md#6-an-absence-check-must-match-the-edit-scope-of-its-own-brief).
 
 On any miss, resume the SAME agent to finish (never re-dispatch a fresh one while the runner is inside the §1.17.7 size ceiling), then re-run the checks before accepting.
 
@@ -463,7 +495,7 @@ Applies to every DELEGATED task-runner launch, sequential or parallel; uses the 
 Governs whether a DELEGATED task-runner launches in foreground or background.
 
 > [!constraint] Write-Producing Agents MUST Run in Foreground
-> Background subagents auto-deny any permission not explicitly pre-approved at launch — including Write, Edit, and Bash. The `bypassPermissions` mode does NOT override this gate. Tool calls fail silently: the agent continues executing but produces no output files.
+> Background subagents auto-deny any permission not explicitly pre-approved at launch — including Write, Edit, and Bash. The `bypassPermissions` mode does NOT override this gate. Tool calls fail silently: the agent continues executing but produces no output files. A Bash call whose tool path matches no allow entry is denied the same way, and [Part 3 §1.27](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) requires spawn-prompt tool paths in a granted form.
 >
 > WRONG: Launch task-runner in background when it writes output files:
 > ```
@@ -503,6 +535,7 @@ Quick-reference checklist for common DELEGATED-mode mistakes; several map to ful
 > - **Allow parallel task-runners to write Recovery:** Last-write-wins races silently drop completion rows (full rule: §1.13)
 > - **Orchestrator produces task outputs:** Context accumulates; no fresh budget benefit
 > - **Infer DELEGATED at runtime:** Planning should have set this; warn user and re-plan if needed (full rule: §1.1)
+> - **Dispatch a sibling with an unswept known-bad gate:** A runner reported a defective gate, and the same command shape sat in an undispatched brief. Sweep the siblings and fix every hit before the next dispatch (full rule: §1.16.6)
 
 ---
 

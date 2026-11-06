@@ -121,11 +121,33 @@ Applies to:
 - Meta-Plan Discovery phases that identify corruption scope
 - Execution Inputs referencing record subsets by count
 
+#### A Picker Query Is Run at Scaffold Time and Its Returned Id Is Written Into the Brief
+
+A deterministic picker satisfies the rule above and can still return no row. The runner then chooses a substitute by judgement. The plan no longer decides which row the step means.
+
+- Show each picker query non-empty at scaffold time by running it, and write the returned id into the brief.
+- Keep the query beside the id as the reproduction path.
+- Treat an empty result as a plan defect. Fix the query before the brief ships.
+- State a contrast as a predicate the runner asserts on the returned row, such as `{secondary_count} = 0`.
+- A substitute is then checked against the intent and is never chosen by resemblance.
+
+WRONG — the query alone, with the contrast stated as resemblance:
+```sql
+-- second sample: "a row like the first, but with no secondary record"
+SELECT TOP (1) {id_col} FROM {table} WHERE {criterion} AND {id_col} <> {first_id} ORDER BY {id_col}
+```
+CORRECT — the returned id, the reproduction path and an assertable predicate:
+```sql
+-- picked {second_id}, run {date}: returned 1 row
+SELECT TOP (1) {id_col} FROM {table} WHERE {criterion} AND {id_col} <> {first_id} ORDER BY {id_col}
+-- assert on the returned row: {secondary_count} = 0. Zero rows returned is a plan defect: stop.
+```
+
 #### Reviewer Check 041 — §15.2 Persist IDs Not Just Counts
 
 - **Severity / Role / Type:** BLOCKER | Coverage Reviewer | NEW
-- **What:** Discovery outputs MUST persist actual IDs/keys (not just counts) for downstream tasks to dereference.
-- **Detection:** "N matches" without enumerated ID list → BLOCKER.
+- **What:** Discovery outputs MUST persist actual IDs/keys (not just counts) for downstream tasks to dereference. A picker query MUST sit beside its returned id, and a contrast MUST be an assertable predicate.
+- **Detection:** "N matches" without enumerated ID list → BLOCKER. A picker query with no returned id beside it → BLOCKER. A contrast stated as resemblance, not as a predicate → BLOCKER.
 - **Finding template:**
 ```
 [BLOCKER] Discovery output persists count without IDs

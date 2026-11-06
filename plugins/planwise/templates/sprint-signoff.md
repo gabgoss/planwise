@@ -76,14 +76,18 @@ For each exit criterion, document the mechanical anchor (grep / SQL / file prese
 > [!constraint] New behaviour anchors on a production caller, never on a definition
 > For a criterion that lands a new function, optional parameter, CLI flag, config key, event subscription or guarded branch, the Mechanical Anchor is a call-site search over production paths that names the activating argument or the registration, and the Result cell quotes the site as `{file}:{line}`. A definition search, a unit test that supplies the argument itself, and documentation of the flag all measure presence and stay green on code production never reaches; a criterion whose only anchor is one of those is not PASS. See `references/verify-caller-before-complete.md`.
 
+> [!constraint] Each anchor names the phase that produces its subject, and a stale anchor is widened
+> A subject that a closeout step creates does not exist at verdict time, so its anchor cannot pass. Tag it `closeout (post-verdict)` in the Phase column, name the step after which it re-runs, and record that result. A closeout anchor with no post-verdict re-run is a defect. When an anchor pattern is stale against a committed artifact, widen the pattern. Never edit the artifact to match it. See `references/gate-anchor-outcome-set.md` §10.7.1-§10.7.2.
+
 Before recording any Result, check each anchor's command against the four traps in `references/gate-command-semantics.md` §10.8: `grep -c` counts matching **lines** rather than matches, `-B1`/`-A1` emit the match line itself, a set-membership claim must not become a count equality, and every path MUST resolve from the cwd this table's own header declares.
 
-| # | Exit Criterion (verbatim) | Mechanical Anchor | Pre-Change | Branches | Result |
-|---|---------------------------|-------------------|-----------|----------|--------|
-| 1 | {Criterion 1 verbatim} | `grep -c "{pattern}" {file}` (expect: ≥ 1) | 0 | 2/2 | PASS / FAIL |
-| 2 | {Criterion 2 verbatim} | `SELECT COUNT(*) FROM {table} WHERE …` (expect: ≥ {N}) | {measured} | {a}/{b} | PASS / FAIL |
-| 3 | {Criterion 3 verbatim} | File exists: `{path}` | absent | 1/1 | PASS / FAIL |
+| # | Exit Criterion (verbatim) | Mechanical Anchor | Phase | Pre-Change | Branches | Result |
+|---|---------------------------|-------------------|-------|-----------|----------|--------|
+| 1 | {Criterion 1 verbatim} | `grep -c "{pattern}" {file}` (expect: ≥ 1) | task | 0 | 2/2 | PASS / FAIL |
+| 2 | {Criterion 2 verbatim} | `SELECT COUNT(*) FROM {table} WHERE …` (expect: ≥ {N}) | review | {measured} | {a}/{b} | PASS / FAIL |
+| 3 | {Criterion 3 verbatim} | File exists: `{path}` | closeout (post-verdict) | absent | 1/1 | PASS / FAIL |
 
+**Phase** — the phase that produces the anchor's subject: `task`, `review` or `closeout`. A `closeout` anchor cannot pass at verdict time. Write it as `closeout (post-verdict)`, name the step after which it re-runs, and record that result.
 **Pre-Change** — the value the anchor returned against the pre-change tree, or `invariant: {N}` for a preservation anchor. A value that already satisfies the anchor's expectation is a failure to fix, not a result to record.
 **Branches** — `{outcomes this anchor accepts}/{terminal branches the owning task defines}`. The two MUST be equal.
 

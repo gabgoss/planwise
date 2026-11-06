@@ -49,11 +49,11 @@ INSTRUMENT_MIN = 100
 # EXAMPLE = quoted or worked example citation; LABEL = a check title or label,
 # not a pointer; CONSUMER = a section of a document the consumer generates.
 LEDGERED_PLUGIN = (
-    ("references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md", 511, "§12"),  # HISTORY: extraction note
-    ("references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md", 537, "§12"),  # HISTORY: extraction note
+    ("references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md", 544, "§12"),  # HISTORY: extraction note
+    ("references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md", 627, "§12"),  # HISTORY: extraction note
     ("references/agent-orchestration-delegated.md", 2, "§12"),  # HISTORY: frontmatter provenance
     ("references/agent-orchestration-delegated.md", 8, "§12"),  # HISTORY: provenance of the extraction
-    ("references/agent-orchestration-delegated.md", 507, "§12"),  # HISTORY: extraction note
+    ("references/agent-orchestration-delegated.md", 509, "§12"),  # HISTORY: extraction note
     ("references/discovery-and-exit-criteria.md", 10, "§16"),  # HISTORY: records the three-way split
     ("references/discovery-and-exit-criteria.md", 10, "§17"),  # HISTORY: records the three-way split
     ("references/discovery-and-exit-criteria.md", 10, "§21"),  # HISTORY: records the three-way split
@@ -77,12 +77,12 @@ LEDGERED_PLUGIN = (
     ("references/ei-completeness.md", 192, "§4"),  # EXAMPLE: prose about an example input's sections
     ("references/ei-fidelity.md", 2, "§5"),  # HISTORY: records sections that left the file
     ("references/ei-fidelity.md", 2, "§11"),  # HISTORY: records sections that left the file
-    ("references/ei-fidelity.md", 24, "§9.1"),  # EXAMPLE: example citation forms
-    ("references/ei-fidelity.md", 24, "§10.2"),  # EXAMPLE: example citation forms
+    ("references/ei-fidelity.md", 25, "§9.1"),  # EXAMPLE: example citation forms
+    ("references/ei-fidelity.md", 25, "§10.2"),  # EXAMPLE: example citation forms
     ("references/ei-source-promise-integrity.md", 2, "§10"),  # HISTORY: frontmatter provenance
     ("references/ei-source-promise-integrity.md", 2, "§11"),  # HISTORY: frontmatter provenance
-    ("handlers/plan-Part-3-VerifyConfirmAndReview.md", 57, "§ Decisions"),  # CONSUMER: a section of the generated master plan
-    ("agents/plan-reviewer.md", 160, "§15"),  # LABEL: check title copied from its canonical heading
+    ("handlers/plan-Part-3-VerifyConfirmAndReview.md", 59, "§ Decisions"),  # CONSUMER: a section of the generated master plan
+    ("agents/plan-reviewer.md", 178, "§15"),  # LABEL: check title copied from its canonical heading
     ("agents/review-discovery.md", 78, "§4"),  # CONSUMER: a section of the generated fact sheet
     ("agents/review-discovery.md", 158, "§4"),  # CONSUMER: a section of the generated fact sheet
     ("references/exit-criteria-fidelity.md", 397, "§15"),  # LABEL: the canonical check-title heading
@@ -93,8 +93,8 @@ LEDGERED_PLUGIN = (
     ("references/read-confirm-act-protocol.md", 117, "§12"),  # EXAMPLE: a wrong example about another document's sections
     ("references/read-confirm-act-protocol.md", 117, "§13"),  # EXAMPLE: a wrong example about another document's sections
     ("references/read-confirm-act-protocol.md", 117, "§9"),  # EXAMPLE: a wrong example about another document's sections
-    ("references/read-confirm-act-protocol.md", 551, "§1.15"),  # EXAMPLE: quotes a wrong entry in an incident table
-    ("references/read-confirm-act-protocol.md", 551, "§1.18"),  # EXAMPLE: quotes a wrong entry in an incident table
+    ("references/read-confirm-act-protocol.md", 553, "§1.15"),  # EXAMPLE: quotes a wrong entry in an incident table
+    ("references/read-confirm-act-protocol.md", 553, "§1.18"),  # EXAMPLE: quotes a wrong entry in an incident table
     ("references/task-content-fidelity.md", 466, "§3"),  # EXAMPLE: sample status cell citing an example artifact
     ("references/verify-anchor-against-artifact.md", 12, "§9.B"),  # LABEL: names a numbering series, not a pointer
     ("references/verify-anchor-against-artifact.md", 64, "§1.18"),  # EXAMPLE: incident narrative quoting lifted citations
@@ -126,8 +126,8 @@ LEDGERED_OUTER = (
 # These stay two-field: they assert that a line still yields some finding,
 # they subtract nothing, so no citation can hide behind them.
 FORM_EXAMPLES = (
-    ("file in code span then section", "handlers/backlog.md", 191),
-    ("plain path-prefixed", "agents/plan-reviewer.md", 183),
+    ("file in code span then section", "handlers/backlog.md", 209),
+    ("plain path-prefixed", "agents/plan-reviewer.md", 202),
     ("link text", "references/session-planning-protocol.md", 313),
     ("link then section", "references/gate-old-home-citation-sweep.md", 76),
     ("table cell", "references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md", 14),
@@ -135,13 +135,13 @@ FORM_EXAMPLES = (
     ("heading words", "handlers/doctor-Part-3-TokenSaverAndBookkeepingReadGates.md", 74),
     ("heading words holding a comma", "handlers/lessons.md", 83),
     ("stage heading", "references/session-context-budget.md", 516),
-    ("step heading with a dash title", "agents/rule-comparator.md", 73),
+    ("step heading with a dash title", "agents/rule-comparator.md", 76),
     ("three-level number", "references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md", 2),
     ("letter series", "references/verify-against-shipped-artifact.md", 308),
     ("letter series with a number", "references/verify-before-cite.md", 30),
     ("letter series with a suffix", "references/verify-backlog-citation-freshness.md", 8),
-    ("bare continuation", "agents/plan-reviewer.md", 160),
-    ("section then file", "references/gate-predicate-discrimination.md", 41),
+    ("bare continuation", "agents/plan-reviewer.md", 178),
+    ("section then file", "references/gate-predicate-discrimination.md", 42),
     ("wrapped across a line break", "handlers/init.md", 54),
     ("frontmatter description", "references/gate-old-home-citation-sweep.md", 2),
 )

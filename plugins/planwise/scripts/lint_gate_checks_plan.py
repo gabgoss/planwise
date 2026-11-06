@@ -15,7 +15,8 @@ The command-text parsers (``_tokens``, ``_pipelines``, ``_diff_parts``,
 imports nothing from the linter either, so the import adds no cycle.
 
 These checks read files the command extractor never opens: a Signoff's anchor
-tables, a sibling task's ``**Output:**`` line, and a sprint's Recovery files.
+tables, a sibling task's ``**Output:**`` line, a task file's Verification Commands
+section, and a sprint's Recovery files.
 Each reads them itself from ``markdown_files()``. Nothing here runs a command.
 
 A sprint folder is a directory named ``Sprint-NN-{Name}``; a task file is a
@@ -272,21 +273,26 @@ def _resolve_dir(declared: str, plan_root: Path):
     return None
 
 
+def _relative_paths(tokens):
+    """Relative path tokens among command tokens. A token qualifies when every
+    segment holds a letter and it ends in a file extension or a slash;
+    placeholders, flags and absolute paths are skipped."""
+    for token in tokens:
+        if token.startswith(("-", "/", "~")) or "://" in token or _has_placeholder(token):
+            continue
+        if "/" not in token or not _PATH_TOKEN_RE.match(token):
+            continue
+        segments = [s for s in token.split("/") if s]
+        if not all(s in (".", "..") or re.search(r"[A-Za-z]", s) for s in segments):
+            continue
+        if token.endswith("/") or "." in segments[-1].lstrip("."):
+            yield _norm(token)
+
+
 def _anchor_paths(text: str):
-    """Relative path tokens inside the inline code of an anchor cell. A token
-    qualifies when every segment holds a letter and it ends in a file
-    extension or a slash; placeholders, flags and absolute paths are skipped."""
+    """Relative path tokens inside the inline code of an anchor cell."""
     for span in _INLINE_CODE_RE.findall(text):
-        for token in _tokens(span) or []:
-            if token.startswith(("-", "/", "~")) or "://" in token or _has_placeholder(token):
-                continue
-            if "/" not in token or not _PATH_TOKEN_RE.match(token):
-                continue
-            segments = [s for s in token.split("/") if s]
-            if not all(s in (".", "..") or re.search(r"[A-Za-z]", s) for s in segments):
-                continue
-            if token.endswith("/") or "." in segments[-1].lstrip("."):
-                yield _norm(token)
+        yield from _relative_paths(_tokens(span) or [])
 
 
 def _resolves(cwd: Path, token: str) -> bool:
@@ -589,9 +595,181 @@ def _check29_sprint_base_not_pinned(context) -> list:
     return findings
 
 
+# ---------------------------------------------------------------------------
+# Verification Commands working directory (Check 34)
+# ---------------------------------------------------------------------------
+
+_H2_RE = re.compile(r"^##\s")
+_VERIFICATION_HEADING_RE = re.compile(r"^##\s+Verification Commands\b")
+_FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
+_WORKING_DIRECTORY_RE = re.compile(r"\*\*Working directory:\*\*\s*`([^`]+)`")
+_SESSION_RELATIVE_RE = re.compile(r"^(?:Outputs/|\.\./)")
+_COMMENT_RE = re.compile(r"\s#.*$")
+
+
+def _repo_root(path: Path):
+    """The nearest ancestor of ``path`` that holds a ``.git`` entry, else None."""
+    for base in path.resolve().parents:
+        if (base / ".git").exists():
+            return base
+    return None
+
+
+def _resolves_from(base: Path, token: str) -> bool:
+    """``_resolves`` for a path below a base. A ``..`` path must exist today:
+    the folder above the base always exists, so the lenient rule cannot see a
+    wrong depth."""
+    if Path(token).parts[0] == "..":
+        return (base / token).exists()
+    return _resolves(base, token)
+
+
+def _verification_sections(lines: list) -> list:
+    """Each ``## Verification Commands`` section of a task file as a dict:
+    ``field`` is ``(declared directory, line)`` from its first
+    ``**Working directory:** `<dir>``` line outside a fence, or None, and
+    ``commands`` lists ``(line, text)`` for every line inside a fenced block.
+    Prose is not read, because a callout that describes the rule would
+    otherwise match it."""
+    sections, current, fence = [], None, None
+    for number, raw in enumerate(lines, 1):
+        stripped = _unquote(raw).strip()
+        marker = _FENCE_RE.match(stripped)
+        if marker:
+            token = marker.group(1)
+            if fence is None:
+                fence = token
+            elif token[0] == fence[0] and len(token) >= len(fence) and stripped == token:
+                fence = None
+            continue
+        if fence is not None:
+            if current is not None:
+                current["commands"].append((number, stripped))
+            continue
+        if _H2_RE.match(raw):
+            current = None
+            if _VERIFICATION_HEADING_RE.match(raw):
+                current = {"field": None, "commands": []}
+                sections.append(current)
+            continue
+        if current is not None and current["field"] is None:
+            declared = _WORKING_DIRECTORY_RE.search(stripped)
+            if declared:
+                current["field"] = (declared.group(1).strip(), number)
+    return sections
+
+
+def _section_paths(commands: list) -> list:
+    """``(line, token)`` for each relative path in a section's command lines."""
+    found, seen = [], set()
+    for number, text in commands:
+        if text.startswith("#"):
+            continue
+        for token in _relative_paths(_tokens(_COMMENT_RE.sub("", text)) or []):
+            if (number, token) not in seen:
+                seen.add((number, token))
+                found.append((number, token))
+    return found
+
+
+def _declared_base_findings(path, rel, root, repo, field, tokens) -> list:
+    declared, field_line = field
+    if not tokens:
+        return []
+    base = repo if declared == "." else _resolve_dir(declared, root)
+    if base is None:
+        return [_finding(
+            check=34, severity=SEVERITY_UNCERTAIN, file=rel, line=field_line, command=declared,
+            message=(
+                f"The Verification Commands block declares the working directory {declared!r}, "
+                "which does not resolve to a folder, so its paths were not checked"
+            ),
+        )]
+    findings = []
+    for number, token in tokens:
+        if _resolves_from(base, token):
+            continue
+        elsewhere = [
+            _rel(other, root) or "."
+            for other in (path.parent, root)
+            if other != base and _resolves_from(other, token)
+        ]
+        hint = f" It resolves from {elsewhere[0]!r} instead." if elsewhere else ""
+        findings.append(_finding(
+            check=34, severity=SEVERITY_WARNING, file=rel, line=number, command=token,
+            message=(
+                f"The path {token!r} does not resolve from the declared working directory "
+                f"{declared!r}, so this command fails on every run.{hint} Write the path from "
+                "the declared base, or change the declared base"
+            ),
+        ))
+    return findings
+
+
+def _mixed_base_findings(path, rel, root, repo, tokens) -> list:
+    repo_side = [
+        token for _, token in tokens
+        if not _SESSION_RELATIVE_RE.match(token)
+        and _resolves(repo, token) and not _resolves(path.parent, token)
+    ]
+    if not repo_side:
+        return []
+    findings = []
+    for number, token in tokens:
+        if not _SESSION_RELATIVE_RE.match(token) or _resolves_from(repo, token):
+            continue
+        elsewhere = [
+            _rel(other, root) or "."
+            for other in (path.parent, root)
+            if other != repo and _resolves_from(other, token)
+        ]
+        hint = f" It resolves from {elsewhere[0]!r}." if elsewhere else ""
+        findings.append(_finding(
+            check=34, severity=SEVERITY_WARNING, file=rel, line=number, command=token,
+            message=(
+                f"This block mixes the repo-root path {repo_side[0]!r} with the session-relative "
+                f"path {token!r} and declares no working directory, so no one directory "
+                f"satisfies both.{hint} Add a **Working directory:** line (`.` is the default) "
+                "and write every path from it"
+            ),
+        ))
+    return findings
+
+
+def _check34_verification_path_outside_working_directory(context) -> list:
+    """Check 34 -- a path in a task file's Verification Commands block does
+    not resolve from the block's working directory (gate-command-semantics.md
+    §10.8 trap 4). The command lines are the fenced lines of the section, and
+    prose is not read. With a ``**Working directory:**`` line the base is that
+    directory (``.`` is the repo root: the nearest ancestor holding ``.git``),
+    and each relative path token must resolve from it. A ``..`` path must
+    exist today, which catches ``../../X`` written for ``../../../X``; any
+    other path may be created later when its first segment exists. WARNING;
+    UNCERTAIN when the declared base itself does not resolve. With no line, a
+    block is flagged when a token resolves only from the repo root and a bare
+    ``Outputs/`` or ``../`` token does not: no one directory satisfies both.
+    A no-line block that keeps to one base stays silent. WARNING.
+    """
+    root = Path(context.plan_root)
+    findings = []
+    for path in context.markdown_files():
+        if not _is_task_file(path):
+            continue
+        rel = _rel(path, root)
+        repo = _repo_root(path)
+        for section in _verification_sections(_lines(path)):
+            tokens = _section_paths(section["commands"])
+            if section["field"]:
+                findings.extend(_declared_base_findings(path, rel, root, repo, section["field"], tokens))
+            elif repo is not None:
+                findings.extend(_mixed_base_findings(path, rel, root, repo, tokens))
+    return findings
+
+
 CHECKS = [
     _check26_anchor_branch_count,
     _check27_anchor_path_outside_declared_cwd,
     _check28_count_over_sibling_output,
     _check29_sprint_base_not_pinned,
+    _check34_verification_path_outside_working_directory,
 ]

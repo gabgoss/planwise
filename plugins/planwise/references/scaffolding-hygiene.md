@@ -643,6 +643,7 @@ Fix: Re-run the assertion against the live artifact and record the measured valu
 > - [ ] Each correction records the **cause**, not just the new value ("14 — two sub-rules entered the anchor after scaffolding", not "14, not 3").
 > - [ ] Every figure with **no derivation in its own text** traced to an origin, or demoted to advisory. A figure whose only stated authority is another flag has been forwarded, not verified.
 > - [ ] Any figure that IS derived checked against decisions taken since its as-of date. An approved change that adds mass to the measured artifact invalidates the number without touching it.
+> - [ ] Every figure is a measurement with its observed output shape, taken at scaffold time. A deferral such as "measure at execution" is not a figure (`gate-pre-edit-baseline.md` §10.1).
 
 The longer the gap between scaffolding and dispatch, the more of the plan is fiction. A plan scaffolded for many sprints in one pass carries the widest gap on its last sprint, which is also the sprint whose figures nobody re-reads.
 
@@ -720,7 +721,7 @@ Applies to:
 - **Severity / Role:** ERROR — BLOCKER when a discharge is recorded with no re-measurement | Scaffolding Hygiene Reviewer | NEW
 - **What:** A multi-sprint plan that adopted any convention, or landed any review fix, after its first scaffold pass MUST carry a convention register. Each sprint's pre-run review MUST discharge every open entry against that sprint by running the entry's predicate. A prose note in the Master Plan is not a register. A discharge citing the entry's `basis` field instead of a fresh run is not a discharge.
 - **Detection:**
-  1. Read the Master Plan for adopted conventions, and for review findings repaired at one sprint's own sites only. Each one is an owed register entry.
+  1. Read the Master Plan for adopted conventions, and for review findings repaired at one sprint's own sites only. Each one is an owed register entry. So is a lesson or recovery note that names a brief-level fix, and its predicate checks mechanically that the fix reached every brief.
   2. Assert a register exists carrying `id`, `adopted-at`, `requires`, `predicate` and `basis` per entry. Prose carrier only → ERROR.
   3. For each open entry, run its `predicate` against the sprint under review and compare the result with the review's recorded discharge.
   4. A discharge recorded with no run output, or one whose only stated authority is the entry's `basis` field → BLOCKER. The entry's claim is a snapshot and expires exactly as §12.3 describes.

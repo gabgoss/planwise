@@ -1,6 +1,6 @@
 ---
-description: Conventions for authoring .claude/rules/ files — frontmatter, path scoping, and pre-authoring scan workflow — plus the writer-or-gate rule for any artifact sentence that states a format, cap or threshold (§7)
-consult-when: Authoring `.claude/rules/*.md` — frontmatter and path-scoping conventions, and (§7, for any reference, template, agent or handler sentence) a format, cap or threshold needs a writer that emits it or a gate that rejects the wrong form, never prose alone
+description: Conventions for authoring .claude/rules/ files — frontmatter, path scoping, and pre-authoring scan workflow — plus the writer-or-gate rule for any artifact sentence that states a format, cap or threshold (§7), and the capability, per-actor instance and prohibition reason a rule that names a tool must carry (§8)
+consult-when: Authoring `.claude/rules/*.md` — frontmatter and path-scoping conventions, and (§7, for any reference, template, agent or handler sentence) a format, cap or threshold needs a writer that emits it or a gate that rejects the wrong form, never prose alone, and (§8) a rule names a specific tool that a dispatched runner or CI may be unable to reach, so it needs a stated capability, an instance for each bound actor and the reason for each prohibition
 ---
 
 # Rule Authoring Conventions
@@ -344,6 +344,56 @@ A gate that exists but never ran, or that ran and asked the wrong question, is a
 File: {deliverable or artifact path} | Location: {sentence}
 Issue: "{sentence}" states a {format|cap|threshold}; no writer emits it and no gate rejects the wrong form
 Fix: Name the enforcing writer or add a gate beside the line it governs, per references/rule-authoring.md §7 | Confidence: HIGH
+```
+
+## 8. A Rule That Names a Tool States the Capability, an Instance for Each Actor and the Reason for Each Prohibition
+
+A rule that mandates a specific tool binds every actor that does the work. The actors are the human, the orchestrator, a subagent and CI. A tool that one actor cannot reach leaves that actor without a path.
+
+In one reported run, a project rule required a desktop IDE extension for schema changes and forbade the Python driver for DDL. A dispatched runner could not call the extension. It found the installed command-line batch client, which runs the same execution path, and recorded the substitution. That outcome was luck. The rule gave the runner no way to tell an acceptable substitute from a breach.
+
+> [!constraint] A rule that names a tool answers three questions at authoring time
+> A bare tool name gives an actor that cannot reach it two bad options. It can stall, or it can guess a substitute.
+>
+> WRONG — one tool that only a human can reach, and a prohibition with no reason:
+> ```markdown
+> Use the IDE extension for schema changes. Never use the driver for DDL.
+> ```
+> CORRECT — the capability, an instance for each actor, and the reason for the prohibition:
+> ```markdown
+> Run schema changes through a batch processor for the language: the IDE extension
+> (interactive) or the CLI client with fail-on-error and file-input flags (agent, CI).
+> Never use the driver for DDL, because it mishandles batch boundaries.
+> ```
+
+1. **Ask who executes the tool.** List every actor the rule binds. Confirm each one can reach the named tool. Name a per-actor instance for each actor that cannot.
+2. **State the capability behind the tool.** "A batch processor for the language" tells an actor which substitutes qualify. Without it, an actor facing an unreachable tool cannot judge a candidate.
+3. **State what is forbidden and why.** The reason lets an actor judge a candidate substitute against the prohibition. A bare prohibition gives it nothing to judge.
+
+### 8.1 The runner's side: a mandated tool it cannot reach
+
+A runner that cannot reach a mandated tool neither substitutes silently nor stalls silently. Two branches apply.
+
+- **The rule states the capability.** The runner uses an installed tool that is an instance of that capability and respects the stated prohibition. It records the substitution.
+- **The rule states no capability.** The runner stops and returns the `BRIEF COLLISION` block with the proposed substitute as the proposed change. It applies nothing.
+
+The record names the unreachable tool, the rule and the reasoning. The runner also returns it as a `FLAG:` bullet that names the sibling tasks bound by the same rule. The orchestrator then routes it into the plan as a coordination flag. The block format lives in `agents/task-runner.md` section 3.
+
+#### Reviewer Check 121 — Dispatched Runner Bound to a Rule Naming a Human-Only Tool
+
+- **Severity / Role / Type:** WARNING | Task Reviewer | NEW
+- **What:** A task dispatched to a runner, subagent or CI actor MUST NOT be bound to a rule that names a tool only a human can reach, unless the rule states the capability behind the tool and an instance that actor can reach.
+- **Detection:**
+  1. List each rule file, Required Context rule and Execution Input constraint that binds a dispatched task and names a specific tool for a step the task performs.
+  2. Flag a rule whose named tool needs a desktop application, a graphical client or an interactive session, when a runner, subagent or CI actor performs the step.
+  3. Flag a rule that states no capability behind the tool, no instance for the dispatched actor, or a prohibition with no reason.
+  4. A rule that states the capability, names an instance the dispatched actor can reach and gives the reason for each prohibition is not a finding. A step a human performs is not a finding.
+- **Finding template:**
+```
+[WARNING] Dispatched runner bound to a rule naming a human-only tool
+File: {task file path} | Location: {the rule reference or the step}
+Issue: The rule "{quoted rule sentence}" names "{tool}", which {a runner|CI} cannot reach, and states {no capability|no instance for that actor|no reason for the prohibition}
+Fix: State the capability behind the tool, add an instance for each bound actor and give the reason for each prohibition, per references/rule-authoring.md §8 | Confidence: HIGH
 ```
 
 ---

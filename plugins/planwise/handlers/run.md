@@ -135,6 +135,7 @@ Read these files completely (not skim):
 1. Orchestration file (already read in Phase 0)
 2. Recovery file -- check for resumption state. Distrust a `-` commit pin or missing `GATE_PENDING` row: check `git log`, fix Recovery first ([protocol](../references/session-execution-protocol.md))
 3. All task files listed in the Task Files table (read file headers, objectives, agents)
+4. The measurements those task files assert. Re-run each task file's Before commands at the session base, then compare each reading with the task's `# pre-edit:` annotation and its "does not exist yet" claims. A changed reading is a Step 1.2a structural finding. See [gate-diff-baseline-pinning.md §8.6](../references/gate-diff-baseline-pinning.md#86-a-base-is-a-statement-about-one-moment-commits-after-it-inside-the-gates-paths-break-every-delta-gate)
 
 While reading, watch for structural findings beyond the literal task scope -- latent defects in adjacent sections, anchors, or enumerations that the directive did not name but that the minimum coherent fix requires touching. See [read-confirm-act-protocol.md §1.2](../references/read-confirm-act-protocol.md#12-structural-findings-beyond-literal-scope) for the full rule.
 
@@ -150,10 +151,14 @@ While reading, watch for structural findings beyond the literal task scope -- la
 >   - [ ] The sprint plan's `## Carried-Forward Coordination Flags` section (if present)
 >   - [ ] The Master Plan's `## Carried-Forward Coordination Flags` section (if present)
 > - [ ] Diff the union of those four against what actually appears in the task files. A flag with no task-file hit is unrouted, however many plan files mention it
+> - [ ] **Check every destination, not only the session.** For each flag, list every task whose deliverable the flag's text names, plus every task its front-door entry names. Each listed task file must carry the flag itself. A hit in a sibling task file does not count
+> - [ ] **Treat a leftover `*(none yet)*` placeholder as a claim to verify.** Run `Grep pattern='none yet' path='{session_dir}' glob='*-0*-*.md' output_mode='count'`. A count above zero beside an upstream session marked COMPLETE is a routing question. Answer it before CONFIRM, and never read it as proof that the upstream session raised no flag
 > - [ ] **Match on the flag's SUBJECT, never on its id alone**, at every step of that diff. Ids are sender-scoped and collide freely, so a destination already carrying that id makes a missing flag look present — and a sender's own "delivered" record is written in the same pass that performs or fails the write, so it is never evidence. Recover a zero-hit flag, renumber it if its id is occupied rather than overwriting the occupant, and record the propagation gap as a finding rather than a silent patch. See [dispatch-boundary-evidence.md §5](../references/dispatch-boundary-evidence.md#5-a-flag-the-sender-says-it-delivered-is-a-claim-only-the-destination-file-is-evidence)
 > - [ ] Route each missing flag: write it into the affected task file(s) under `## Pre-Known Cross-Task Coordination Flags`, and carry it into that task's spawn prompt at dispatch
 > - [ ] **Re-derive every value the flag supplies before acting on it** — its counts, its scope forecast, its classification, and its prescribed remedy. The location is usually still good; the values are expired. A flag's own supplied verify gate is the most dangerous artifact it carries, because a stale gate fails correct work and reads as "your fix is broken". See [read-confirm-act-protocol.md §1.4.C–§1.4.D](../references/read-confirm-act-protocol.md#14-reconciling-an-inherited-flag-receiver-side)
-> - [ ] Record the routing as a **table** in Recovery — one row per flag: `Flag | Source file | Destination task | Disposition` — so the count is auditable rather than asserted. Add the Change Log row alongside it ("flag preflight — N flags routed to tasks X, Y")
+> - [ ] **Count every absence check against the whole target before routing it.** A routed flag or an orchestrator-authored delta may carry a check such as "this pattern MUST match 0 times". Record the before-count in the delta. Map each hit to an in-scope edit, a recorded Scope-Expansion Decisions row, or a check narrowed to the in-scope region. A hit outside the scope is a sibling finding. See [gate-satisfiability.md §6](../references/gate-satisfiability.md#6-an-absence-check-must-match-the-edit-scope-of-its-own-brief)
+> - [ ] **When a commit lands between CONFIRM and the first dispatch** (including the commit CONFIRM asked for), re-verify each routed flag's factual claim at the new HEAD: backlog status, named-symbol existence, figures. Record the correction beside the sender's text per [§1.4.E](../references/read-confirm-act-protocol.md#14e-preserve-the-senders-text-record-the-correction-beside-it), and only then let a spawn prompt carry it. See [§1.4.C](../references/read-confirm-act-protocol.md#14c-treat-the-location-as-reliable-and-every-value-as-expired)
+> - [ ] Record the routing as a **table** in Recovery — one row per flag: `Flag | Source file | Destination task | Disposition` — so the count is auditable rather than asserted. The `Destination task` cell lists every task the flag names, each with its own disposition. Add the Change Log row alongside it ("flag preflight — N flags routed to tasks X, Y")
 > - [ ] Keep the sender's original wording; record any correction beside it with the measurement that settled it. A conditional flag whose condition was measured and NOT met is routed as *resolved, with its measurement* — never dropped, never left open
 > - [ ] If a routed flag CONTRADICTS an **Execution Step**, **Success Criterion**, **Schema Pin**, `Output:` line, or orchestration write-target row → structural finding: surface it in the CONFIRM block via the Step 1.2a Option A / Option B gate; do not dispatch first. Worked example: [read-confirm-act-protocol.md §1.4.K](../references/read-confirm-act-protocol.md#14k-a-flag-that-contradicts-a-task-file-step-is-a-structural-finding-not-a-delivery)
 > - [ ] A file / write / create flag is a write-set delta: count its produce-verbs against the `Output:` artifact count, and a mismatch is the finding. Read an ordering flag ("X before Y") against X's pinned command. See [flag authoring surfaces](../references/read-confirm-act-protocol-Part-2-FlagAuthoringSurfaces.md)
@@ -353,6 +358,7 @@ Agent(
     Session ID: {session-id}
     Abbreviation: {abbrev}
     Plugin root: {config.yaml plugin_root, read at dispatch}
+    Project root: {absolute path of the folder that holds the planwise folder, resolved at dispatch}
     Recovery file: {recovery-file-absolute-path}
     Output directory: {output-dir-absolute-path}
 
@@ -362,20 +368,25 @@ Agent(
 
     (If the project declares an isolated environment, add:)
     ## ENVIRONMENT DISCIPLINE
-    Do not change directory — pass absolute paths, or `git -C {repo-path}`
-    for git, so a bare tool name resolves against the paths given, not a
-    changed working directory. Use these paths — a bare tool name
-    resolves to the platform default, not this project's environment:
+    Do not change directory — pass absolute paths for file arguments, or
+    `git -C {repo-path}` for git, so a bare tool name resolves against the
+    paths given, not a changed working directory. Use these tool paths
+    exactly as written — a bare tool name resolves to the platform
+    default, not this project's environment:
       interpreter:  {env-interpreter-path}
       linter:       {env-linter-path}
       test/notebook runner: {env-runner-path}
+      (each project-relative, in a form an allow entry grants)
     Confirm connectivity/setup with `{env-interpreter-path} {project-precheck}`
     BEFORE doing dependent work.
 
     (On this session's first dispatch only, add:)
-    First-spawn diagnostic — run `{env-interpreter-path} -c "import sys;
-    print(sys.executable)"` and HALT if the output does not resolve inside
-    the project environment.
+    First-spawn diagnostic — run one probe per tool class this task invokes.
+    HALT if a probe is denied, or if the interpreter output does not resolve
+    inside the project environment:
+      {env-interpreter-path} -c "import sys; print(sys.executable)"
+      {env-linter-path} --version
+      {env-runner-path} --version
 
     Return after writing the single expected output file. Do NOT proceed to
     task {n+1}.
@@ -384,9 +395,11 @@ Agent(
 
 **Plugin root:** Read `plugin_root` from `config.yaml` at dispatch and write it as the `Plugin root:` line of every spawn prompt. The value never comes from a path inside a task file.
 
+**Project root:** The project root is the directory that holds the folder Step 1 resolved `config.yaml` from. Write its absolute path as the `Project root:` line of every spawn prompt. A runner given no interpreter uses it to find a project `.venv`.
+
 **Model override:** The `model:` parameter in the Agent tool call MUST match the Agent field declared in the task file (e.g., if task file says `Agent: Haiku`, use `model: "haiku"`) — except when `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.19 (Model-Floor Bridge) or §1.20 (1M-Exception Dispatch) raises it for this dispatch only; log the raise per those sections, never silent.
 
-**Parallel dispatch (3+ tasks):** launch all task-runners in the layer in a single message (multiple Agent tool calls in one assistant turn — they run concurrently). Include the PARALLEL DISPATCH addendum and Status Block format from `references/agent-orchestration-delegated.md` §1.13 in each spawn prompt, and omit the `Recovery file:` parameter — parallel runners must not touch Recovery. Before dispatch, repeat the called-symbol grep on each brief, routed flags included (`references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §17.4): a layer-mate's symbol makes the layer sequential. After all runners return, classify each per `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17, then reconcile Recovery centrally per §1.13's orchestrator contract and Step 3.3's "After a parallel batch" instructions below.
+**Parallel dispatch (3+ tasks):** launch all task-runners in the layer in a single message (multiple Agent tool calls in one assistant turn — they run concurrently). Include the PARALLEL DISPATCH addendum and Status Block format from `references/agent-orchestration-delegated.md` §1.13 in each spawn prompt, and omit the `Recovery file:` parameter — parallel runners must not touch Recovery. Before dispatch, repeat the called-symbol grep on each brief, routed flags included (`references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §17.4): a layer-mate's symbol makes the layer sequential, and so does a read of a layer-mate's Output path (same §17.4). After all runners return, classify each per `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17, then reconcile Recovery centrally per §1.13's orchestrator contract and Step 3.3's "After a parallel batch" instructions below.
 
 Every parallel spawn prompt names the **delivery channel** as well as the block's format. A named runner's plain-text final message reaches you only after your turn ends, inside an idle notification, so a prompt giving the shape alone produces a block you cannot use in time (`references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.29.1). Add these two lines above the Status Block format in each parallel spawn prompt:
 
@@ -671,7 +684,7 @@ Ask the user: "Were any lessons learned during this session?"
 
    | Downstream Consumer | Propagate To |
    |---------------------|--------------|
-   | A specific named task in a later session, already scaffolded | That session's orchestration file under `## Pre-Known Cross-Task Coordination Flags`, naming the task — the receiver routes it into the task file at Step 1.1a |
+   | A specific named task in a later session, already scaffolded | That session's orchestration file under `## Pre-Known Cross-Task Coordination Flags`, naming every task whose deliverable the flag's text names — the receiver routes it into each task file at Step 1.1a |
    | A whole session (consumer task unclear) | That session's orchestration file under `## Pre-Known Cross-Task Coordination Flags` |
    | A future sprint, downstream sessions NOT yet scaffolded on disk | That sprint plan's `## Carried-Forward Coordination Flags` section |
    | A future sprint whose downstream session is ALREADY scaffolded on disk | That session's orchestration file under `## Pre-Known Cross-Task Coordination Flags` (the sprint-plan `Carried-Forward` entry remains as the record) |
@@ -682,9 +695,9 @@ Ask the user: "Were any lessons learned during this session?"
 
 3. Use the Propagated Flag Block format from `references/read-confirm-act-protocol.md` §1.3 — group flags under `### From {source-session-id} ({source-session-name}) — recorded {YYYY-MM-DD}` and reserve a `### From {next-source-session-id} — to be appended when session completes` placeholder so later closeouts know where to append.
 4. If the destination file does not yet have a `## Pre-Known Cross-Task Coordination Flags` (or `## Carried-Forward Coordination Flags`) section, create it; if it does, append under it.
-5. Name the consuming task in the entry whenever it is known, so the receiving orchestrator routes it at Step 1.1a without re-deriving the consumer; it stamps the entry `✅ ROUTED {date} into {task file}` once routed (`references/read-confirm-act-protocol.md` §1.3).
+5. Name every consuming task in the entry whenever any is known. Naming one representative task per downstream session does not satisfy this. The receiving orchestrator then routes it at Step 1.1a without re-deriving the consumers. It stamps the entry `✅ ROUTED {date} into {task file}` once routed (`references/read-confirm-act-protocol.md` §1.3).
 6. Update the Summary file's `Cross-Task Coordination Flags` block (in Context Notes) to fill the `Propagated To` column with the destination path for every flag.
-7. Verify: every Recovery flag row now has a non-empty `Propagated To` entry in the Summary. A flag with no destination is a closeout error — return to step 2 and route it.
+7. Verify: every Recovery flag row now has a non-empty `Propagated To` entry in the Summary. A flag with no destination is a closeout error — return to step 2 and route it. Also check that every task named in a flag's text appears in that flag's entry.
 
 ### Step 4.5: Git Commit
 

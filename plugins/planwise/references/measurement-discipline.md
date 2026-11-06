@@ -179,6 +179,8 @@ Fix: Sanity-check up front per references/measurement-discipline.md §8.3; execu
 >
 > This matters most when the same deliverable can be shipped through more than one route — a plan session AND a backlog-triage route (direct fix, an in-session task list, a direct commit). A plan's status fields are written only by its own session closeout; a plan whose deliverables were satisfied through a different route is left live and independently runnable, its stale "append N" steps now aimed at already-satisfied state.
 >
+> A second twin case involves no plan at all. A parallel rebuild can satisfy an open item's intent through a different artifact than the one the item names. For example, an item says to re-point a legacy notebook onto new readings, and a rebuild already implements that decision in a new consumer. The item stays open, ranks high, and routes to a fix nobody needs. Detection: search the rebuilt tree for the item's consumer and intent, not only for the artifact the item names. Reconciliation: when the rebuild satisfies the intent, close the open item as stale and record the search evidence.
+>
 > WRONG — close the backlog item, leave the twin plan alone → `/planwise run` starts it → a task step "append 10 rows" runs against 10 rows that already exist → 10 duplicate rows, or a duplicate `## 9` section colliding with the shipped `## 8`:
 > ```text
 > plan step T04: "append 10 Rule-Promotion-Log rows"   # authored when 0 existed

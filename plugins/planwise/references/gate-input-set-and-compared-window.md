@@ -1,21 +1,23 @@
 ---
-description: A diff-pinned or sweep-based criterion records the spanned-file count and the untracked count beside its own verdict, because an empty result reads the same whether the predicate inspected the work or inspected nothing (§10.6); a verbatim-literal proof extracts from the function body only, excludes by the exact token and not a bare word, and prints the compared-set size beside the difference count (§12); a selection pattern that defines a task's scope is dry-run against known-bad input and its count is checked by an independent non-empty assertion (§14); and a fixed context window around a structured entry is sized from the schema's maximum (§15).
-consult-when: A criterion is fed by a pinned diff or a sweep, a proof compares string literals, a task selects its own work with a pattern and measures success against that pattern's count, or a pull uses a fixed -B or -A window around a structured entry — record the spanned-file and untracked counts beside the verdict (§10.6), extract from the body and print the compared-set size (§12), dry-run the selection pattern and assert a non-empty input independently (§14), size the window from the schema maximum (§15)
+description: A diff-pinned or sweep-based criterion records the spanned-file count and the untracked count beside its own verdict, because an empty result reads the same whether the predicate inspected the work or inspected nothing (§10.6); a verbatim-literal proof extracts from the function body only, excludes by the exact token and not a bare word, and prints the compared-set size beside the difference count (§12); a selection pattern that defines a task's scope is dry-run against known-bad input and its count is checked by an independent non-empty assertion (§14); a fixed context window around a structured entry is sized from the schema's maximum (§15); and a Verification Command's match set covers the whole population its comment or criterion names (§16).
+consult-when: A criterion is fed by a pinned diff or a sweep, a proof compares string literals, a task selects its own work with a pattern and measures success against that pattern's count, or a pull uses a fixed -B or -A window around a structured entry — record the spanned-file and untracked counts beside the verdict (§10.6), extract from the body and print the compared-set size (§12), dry-run the selection pattern and assert a non-empty input independently (§14), size the window from the schema maximum (§15); a comment or criterion names a population (N files, every row, fixtures B and C) and a Verification Command matches it — expand the pattern and compare its match set to the named population (§16)
 paths: {planwise_root}/{plans_dir}/**
 ---
 
 # Gate Input Set and Compared Window
 
-**Purpose:** Four rules about what a gate or a task was permitted to look at. §10.6 covers the input set a diff or sweep criterion ran over, recorded before the edit. §12 covers the window an extractor reads and the set size it reports after. §14 covers the pattern that selects a task's own work, and §15 covers the fixed context window that pulls each selected entry. A green result over a smaller set than the criterion names is not the proof the criterion asked for. Split from `verification-task-authoring.md` on 2026-10-08. Section numbers are kept from that reference, so an existing `verification-task-authoring.md §N` citation translates by filename alone. The family index is `verification-task-authoring.md`.
+**Purpose:** Five rules about what a gate or a task was permitted to look at. §10.6 covers the input set a diff or sweep criterion ran over, recorded before the edit. §12 covers the window an extractor reads and the set size it reports after. §14 covers the pattern that selects a task's own work, and §15 covers the fixed context window that pulls each selected entry. §14.1 extends §14 to a relational criterion that passes on two empty sides. §16 covers the match set a Verification Command reaches against the population its comment or criterion names. A green result over a smaller set than the criterion names is not the proof the criterion asked for. Split from `verification-task-authoring.md` on 2026-10-08. Section numbers are kept from that reference, so an existing `verification-task-authoring.md §N` citation translates by filename alone. The family index is `verification-task-authoring.md`.
 
-**Read this when** a verification report carries a criterion fed by a pinned diff or an on-disk sweep, a proof script compares string literals between two sources and reports a difference count, a task selects its own work with a pattern and checks success against the count that pattern returned, or a task pulls a structured entry with a fixed `-B` or `-A` window.
+**Read this when** a verification report carries a criterion fed by a pinned diff or an on-disk sweep, a proof script compares string literals between two sources and reports a difference count, a task selects its own work with a pattern and checks success against the count that pattern returned, a task pulls a structured entry with a fixed `-B` or `-A` window, or a Verification Command sits beside a comment or criterion that names a population (a file list, "every row", a headline count) the command's pattern may match only in part.
 
 ## Table of Contents
 
   - [10.6 A diff-pinned or sweep-based criterion records its input-set counts](#106-a-diff-pinned-or-sweep-based-criterion-records-its-input-set-counts)
 - [12. A Verbatim-Literal Proof Extracts From the Body, Excludes by Exact Token, and Prints the Compared-Set Size](#12-a-verbatim-literal-proof-extracts-from-the-body-excludes-by-exact-token-and-prints-the-compared-set-size)
 - [14. A Selection Pattern Is Dry-Run Before Its Count Becomes a Denominator](#14-a-selection-pattern-is-dry-run-before-its-count-becomes-a-denominator)
+- [14.1 A Relational Criterion Prints Its Vacuity](#141-a-relational-criterion-prints-its-vacuity)
 - [15. A Context Window Around a Structured Entry Is Sized From the Schema's Maximum](#15-a-context-window-around-a-structured-entry-is-sized-from-the-schemas-maximum)
+- [16. A Verification Command's Match Set Covers the Population Its Criterion Names](#16-a-verification-commands-match-set-covers-the-population-its-criterion-names)
 
 ---
 
@@ -127,6 +129,32 @@ Issue: "{criterion}" compares an output count to a count that "{query}" derived 
 Fix: Dry-run the selection pattern against a known-bad input and assert the input count against an independent source, per references/gate-input-set-and-compared-window.md §14 | Confidence: HIGH
 ```
 
+### 14.1 A Relational Criterion Prints Its Vacuity
+
+The §14 non-empty assertion has a relation form. An anchor such as `mem == db` compares two sides, and two empty sides are equal. The relation passes vacuously, and the printed line reads the same as a real match.
+
+> [!constraint] Print the vacuity, record PASS (vacuous), and schedule a DEFERRED measurement
+> **Rule.** A relational anchor printed `{} {} MATCH` because the table held 0 rows in every season. The plan's Dependencies row said "populated". The anchor never compared a single row.
+>
+> Four operative points:
+>
+> 1. **Print the vacuity.** When both sides are empty, the anchor prints `MATCH (VACUOUS: 0 rows)`, never a bare `MATCH`.
+> 2. **Record the verdict as PASS (vacuous).** It is not a full PASS, because the relation was never exercised.
+> 3. **Add a DEFERRED measurement.** The task schedules a re-run of the anchor on the first day the inputs are non-empty.
+> 4. **Paste the measured count beside a "populated" claim.** A Dependencies row that says "populated" carries the measured `COUNT(*)` and its date.
+>
+> WRONG — the anchor prints one word for a real match and for two empty sides:
+> ```
+> print("MATCH" if mem == db else "DIFF")      # {} {} MATCH, on 0 rows
+> ```
+> CORRECT — the anchor prints the vacuity, and the verdict records it:
+> ```
+> print("MATCH (VACUOUS: 0 rows)" if not mem and not db else "MATCH" if mem == db else "DIFF")
+> # verdict: PASS (vacuous)   DEFERRED: re-run on the first non-empty day
+> ```
+
+**Applies to** any criterion that asserts two sides equal, one set contains another, or a join returns no unmatched rows. Cross-reference: §14 covers the selection pattern that feeds a task's scope. This section covers the relation between two sides that may both be empty.
+
 ## 15. A Context Window Around a Structured Entry Is Sized From the Schema's Maximum
 
 A fixed `-B N` or `-A N` window pulls the lines around a match. It captures a structured entry only when the entry fits inside the window. A schema that permits variable-length fields makes the entry's extent vary, so a fixed N is a guess about the longest case.
@@ -163,6 +191,63 @@ A fixed `-B N` or `-A N` window pulls the lines around a match. It captures a st
 File: {task file path} | Location: {pull command}
 Issue: "{window}" pulls an entry whose schema permits a {field} of up to {max} lines, and N is not derived from that maximum, so the entry's ID heading can fall outside the window
 Fix: Derive N from the schema maximum or cut by entry boundary, and dry-run the window at the maximum, per references/gate-input-set-and-compared-window.md §15 | Confidence: MEDIUM
+```
+
+## 16. A Verification Command's Match Set Covers the Population Its Criterion Names
+
+A task's comment or criterion often names a population: four files, every row, fixtures B and C, nine URLs. The Verification Command beside it then matches some set. When that set is smaller than the named population, the command passes on the part it reaches and says nothing about the rest. The result reads green because the command ran, not because the population was checked.
+
+> [!constraint] Compare the command's match set to the population the criterion names
+> **Rule.** Five shapes of the same defect were reported against shipped plans:
+>
+> - **N-1 alternation.** A comment names four files, `alpha.md beta.md gamma.md delta.md`. The pattern lists three branches, `alpha|beta|gamma`. The command passes while `delta.md` goes unchecked.
+> - **One row under an all-rows criterion.** The criterion reads "no row is left pending". The command reads one named row.
+> - **"N files" over an N+6 population.** The criterion says "all 12 files carry the header". The directory holds 18 such files. The command passes on the 12 it was written for, and the six others go unchecked.
+> - **A subset of a named pair.** The criterion names fixtures B and C. The command checks B only.
+> - **A headline count beside a `{placeholder}` pattern.** A task states nine URLs and pins a pattern with a `{host}` placeholder. Expanded, the pattern implies 13 URLs. The stated count and the pattern disagree, and the command cannot tell which is right.
+>
+> Four operative points:
+>
+> 1. **Enumerate the named population first.** List every member the comment or criterion names, as a table with one row per member. The command is written second.
+> 2. **Expand the pattern and compare.** Write out every branch of an alternation and every value a `{placeholder}` takes. The expansion MUST equal the member list, no more and no fewer.
+> 3. **Derive the count from the table.** The stated count is the number of rows in the one-row-per-member table. Never write the table to fit a count that was typed first.
+> 4. **Dry-run the command against a copy with one member removed.** The command MUST fail on that copy. A command that still passes cannot see the missing member.
+>
+> WRONG — the comment names four files and the alternation reaches three:
+> ```
+> # checks alpha.md beta.md gamma.md delta.md
+> Grep  pattern='alpha|beta|gamma'  path='{files}'  output_mode='count'   # expect 3
+> ```
+> CORRECT — the table lists four members, the pattern has four branches, and the count is the row count:
+> ```
+> # members: alpha.md, beta.md, gamma.md, delta.md   (4 rows)
+> Grep  pattern='alpha|beta|gamma|delta'  path='{files}'  output_mode='count'   # expect 4
+> # dry run: copy with delta.md removed -> count 3, the gate fails
+> ```
+>
+> The one-row shape has the same fix. A criterion that reads "no row is left pending" points its command at the whole ledger with `pattern='pending'`, never at one named row such as `row-07.*pending`.
+
+**Applies to** any Verification Command whose comment, criterion or headline count names a population the command's own pattern, path or glob must reach. Cross-reference: [gate-denominator-integrity.md](gate-denominator-integrity.md) covers the external denominator a coverage gate takes. This section covers the narrower case where the task states the population in prose and the command reaches less.
+
+#### Reviewer Check 110 — Match Set Narrower Than the Population Its Criterion Names
+
+- **Severity / Role / Type:** WARNING (HIGH confidence) | Verification-Gate Reviewer | NEW
+- **What:** A Verification Command whose match set is narrower than the population its adjacent comment or criterion names passes without checking the rest. Flag a command whose pattern, path or glob reaches fewer members than the text names.
+- **Detection:** Read each task's Verification Commands beside the comment and the Success Criteria checkbox they serve.
+  1. Extract the named population: a file list, "every row", "all N files", a pair such as "fixtures B and C", or a stated count.
+  2. Expand the command's reach. Write out each branch of an alternation, each file a glob matches, and each value a `{placeholder}` takes.
+  3. Compare the two sets. Flag the shapes below, each as one finding:
+     - An alternation with fewer branches than the comment names members (N-1 alternation).
+     - A command that reads one row, file or fixture under a criterion that says every, all or a named pair.
+     - A criterion that states "N files" or "N rows" while the glob or path reaches a different number.
+     - A headline count stated beside a `{placeholder}` pattern, where the expanded pattern implies a different count than the stated one.
+  4. For a flagged command, look for a one-row-per-member table or a dry run against a copy with one member removed. A command with either is clear.
+- **Finding template:**
+```
+[WARNING] Match set narrower than the population the criterion names
+File: {task file path} | Location: {command line}
+Issue: "{command}" reaches {M} of the {N} members that "{comment or criterion}" names ({missing members}), so it passes while the rest go unchecked
+Fix: List the named population as one row per member, expand the pattern to cover every row, derive the count from the table, and dry-run the command against a copy with one member removed, per references/gate-input-set-and-compared-window.md §16 | Confidence: HIGH
 ```
 
 ---

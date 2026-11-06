@@ -171,6 +171,8 @@ Step 5 repeats for every sprint; Steps 6-7 repeat for every session of every spr
 
 After rendering and filling (or after the fallback writes), run `python -B "{plugin_root}/scripts/scaffold_plan.py" check-headings {plans_dir}/{PlanName}`. Exit 1 lists each stray H2. Move each one under the catch-all as an H3 before Step 9.
 
+Then run `python -B "{plugin_root}/scripts/scaffold_plan.py" check-scope-line {plans_dir}/{PlanName}`. The command counts the `Execute ONLY` clause in every DELEGATED Orchestration. Each file must hold it exactly once. Exit 1 lists each file with a count of 0 or 2. Restore the template's HARD CONSTRAINTS sentence in each listed file with a whole-file `Write`. Run the check again before Step 9.
+
 ### Step 8: Generate Task Files
 
 **Steps 8 through 8e repeat for EVERY Orchestration file created in Step 6 — every session of every sprint, not one per sprint.** Finish one session's task files before moving to the next, and one sprint's sessions before moving to the next sprint. Step 8d (Update Plans Index) is the one exception: it runs once, after every sprint has been scaffolded.
@@ -271,7 +273,7 @@ When the effective `token_saver` is `true`, after the bottom-up estimate above, 
 python "{plugin_root}/scripts/token_saver.py" --scan --plan {plan_path} --config {config} [--json]
 ```
 
-It walks every task file under `{plan_path}`, reads each task's assigned **Agent**, resolves every Required Context row to a path, classifies it, prints one recommendation block per Warn-or-worse file with the citing tasks, prints the backlog filing worklist, and **exits non-zero when any file lands Warn or worse**. Add `--projected {path}={bytes}` for a file this plan will grow. Rows that are not files — a command corpus, a not-yet-written output, a glob — are reported by reason rather than classified.
+It walks every task file under `{plan_path}`, reads each task's assigned **Agent**, resolves every Required Context row to a path, classifies it, prints one recommendation block per Warn-or-worse file with the citing tasks, prints the backlog filing worklist, and **exits non-zero when any file lands Warn or Critical without a handled row**. A `read`-reason Critical row is handled only when its task records `exception: paged-read (read)` and the row carries `⚠ PAGED`. A handled row stays in the report and leaves the worklist. Add `--projected {path}={bytes}` for a file this plan will grow. Rows that are not files — a command corpus, a not-yet-written output, a glob — are reported by reason rather than classified.
 
 Run it rather than reproducing it by judgement. Why a *correct* hand-written annotation is the worst case, with the WRONG/CORRECT pair, is [`references/task-content-fidelity.md`](../references/task-content-fidelity.md) §9.A.15.
 

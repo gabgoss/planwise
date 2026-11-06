@@ -254,7 +254,7 @@ A flag reaches an executing task in **two hops**, and each hop has exactly one o
 
 | Downstream Consumer | Propagate To |
 |---------------------|--------------|
-| A specific named task in a later session that is already scaffolded on disk | That session's orchestration file under a `## Pre-Known Cross-Task Coordination Flags` section, naming the consuming task — the receiver routes it into that task's file at Step 1.1a |
+| A specific named task in a later session that is already scaffolded on disk | That session's orchestration file under a `## Pre-Known Cross-Task Coordination Flags` section, naming every consuming task whose deliverable the flag names — the receiver routes it into each task's file at Step 1.1a |
 | A whole session (consumer task unclear) | That session's orchestration file under a `## Pre-Known Cross-Task Coordination Flags` section |
 | A future sprint (downstream session not yet scaffolded on disk) | The sprint plan's `## Carried-Forward Coordination Flags` section, to be re-propagated when tasks are scaffolded |
 | A follow-up plan not yet written | The current Master Plan's `## Carried-Forward Coordination Flags` section + the rollup/handoff task file |
@@ -269,13 +269,15 @@ A flag reaches an executing task in **two hops**, and each hop has exactly one o
 
 Each propagated entry MUST be tagged with the source session ID and the surface date so the downstream agent can age it for staleness. A carried measurement is binding as a record: the receiver re-measures it for staleness (§1.4.C) and never re-argues it. A carried inference, recommendation or stated "because" is an input that a named downstream gate may overturn (§1.4.D).
 
+A numeric flag about a live artifact (a line count, a byte count, a row count) expires when the artifact changes, and the sender's own closeout commit can change it. The sender re-measures each such figure at its closing HEAD before propagating. The header then stamps what the figure was read from, as `measured against {artifact} {N lines|bytes|count} at {commit}`. The receiver re-measures at dispatch, because the baseline moves with the source. Prefer to state the invariant the consumer needs over the proxy figure. "Differs only in Zones 1 and 3" never goes stale, and a line count does.
+
 > [!template] Propagated Flag Block
 > ```markdown
 > ## Pre-Known Cross-Task Coordination Flags
 >
-> These flags were surfaced and reconciled by upstream session orchestrators. Treat each carried measurement as a validated record: re-measure it for staleness, never re-argue it. Treat each carried inference or recommendation as an input that a downstream gate may overturn.
+> These flags were surfaced and reconciled by upstream session orchestrators. Treat each settled measurement as a validated record: re-measure it for staleness, never re-argue it. Treat each figure about a live artifact as a baseline that moves with the source: re-measure at dispatch. Treat each carried inference or recommendation as an input that a downstream gate may overturn.
 >
-> ### From {source-session-id} ({source-session-name}) — recorded {YYYY-MM-DD}
+> ### From {source-session-id} ({source-session-name}) — recorded {YYYY-MM-DD} — measured against {artifact} {N lines|bytes|count} at {commit}
 >
 > 1. **{Short flag headline}.** {Paragraph describing the constraint / dependency / opportunity and the recommended action.}
 > 2. **{Short flag headline}.** {...}
@@ -285,7 +287,7 @@ Each propagated entry MUST be tagged with the source session ID and the surface 
 > *(none yet)*
 > ```
 
-The reserved placeholder for later sources is intentional — it tells future closeout orchestrators where to append without re-deriving the section structure.
+The reserved placeholder for later sources is intentional — it tells future closeout orchestrators where to append without re-deriving the section structure. A placeholder still present beside a COMPLETE upstream source is a claim the receiver verifies at Step 1.1a. It is not evidence that the source raised no flag.
 
 #### Shared-File Flags Must Be Reciprocal
 
@@ -357,9 +359,9 @@ The preflight's first step is to enumerate its sources, not to open one file. A 
 >
 > | Flag | Source file | Destination task | Disposition |
 > |---|---|---|---|
-> | {headline} | {upstream Recovery / sprint plan / orchestration / Master Plan} | {task-id}, or "none — no consumer in this session" | routed / already present / resolved-with-measurement / no consumer |
+> | {headline} | {upstream Recovery / sprint plan / orchestration / Master Plan} | every named {task-id}, each with its disposition, or "none — no consumer in this session" | routed / already present / resolved-with-measurement / no consumer |
 >
-> **A flag with no task-file hit is unrouted, however many plan files mention it.** Presence in a plan file is not routing.
+> **A flag with no task-file hit is unrouted, however many plan files mention it.** Presence in a plan file is not routing. Every task the flag names needs its own hit, because a hit in a sibling task file routes the flag to no one else.
 
 The upstream Recovery table is the source most often left out, and it carries the highest-value class: flags discovered by doing the work, which no planner could have written at scaffold time. In one measured preflight nine flags had reached zero task files. Five of them — every flag raised by the immediately preceding session — lived only in that session's Recovery. One of the five recorded a measurement that **resolved** a conditional blocker; without it the downstream battery would have recorded a passing criterion as BLOCKED against a user decision that was never required. Another assigned a fourth work item no task owned, against criteria reading "all 3 sites".
 
@@ -444,22 +446,22 @@ So the upstream Recovery sweep in §1.4.A is not a convenience. It is the only p
 >
 > Nothing in a reproducing measurement reports which object it measured. The confirmation therefore reads identically whether the referent was right or wrong.
 >
-> ```bash
-> # WRONG — confirms the claim inside the scope the claim chose:
-> grep -n '<positional-label>' <the-one-file-the-claim-named>   # → nothing. Claim "confirmed".
+> ```text
+> WRONG — confirms the claim inside the scope the claim chose:
+> Grep  pattern='<positional-label>'  path='<the-one-file-the-claim-named>'   # → nothing. Claim "confirmed".
 >
-> # CORRECT — asks whether the SUBJECT is referenced anywhere at all:
-> grep -rn '<subject-symbol>' <whole-tree> | grep -v '<subject-own-file>'
+> CORRECT — asks whether the SUBJECT is referenced anywhere at all, then drops the subject's own file by exact path:
+> Grep  pattern='<subject-symbol>'  path='<whole-tree>'  output_mode='files_with_matches'
 > ```
 >
-> Both greps are correct. Both return what they should. The referent table is what makes the failure legible:
+> Both searches are correct. Both return what they should. The referent table is what makes the failure legible:
 >
 > | | The claim | What was checked | Verdict |
 > |---|---|---|---|
 > | Referent | "the agent is dispatched from nowhere" | the one handler the claim named | correctly identified as dispatching nothing |
 > | Referent actually needed | the same agent | the *other* handler, carrying its own route of the same name | never looked at |
 >
-> **The CORRECT grep excludes the subject's own file, and that exclusion is load-bearing.** A definition site is not a caller. The subject's own file always contains the symbol, so leaving it in the result set guarantees at least one hit — which turns an absence check into a tautology.
+> **The CORRECT search excludes the subject's own file, and that exclusion is load-bearing.** A definition site is not a caller. The subject's own file always contains the symbol, so leaving it in the result set guarantees at least one hit — which turns an absence check into a tautology. Drop the file by its exact path, never by a substring filter over result lines. A search that prints `path:line:` prefixes starts each line with its path, so a substring filter also drops every other file whose path or matched line carries the name. The extractor-pitfalls table in `gate-instrument-proof-obligations.md` §10 has the full case.
 
 Three corollaries follow.
 

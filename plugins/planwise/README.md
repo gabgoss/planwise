@@ -240,6 +240,10 @@ Opens an interactive view of all your tracked items, scored and prioritized. For
 /planwise backlog BUG-042
 ```
 
+#### Refining named items
+
+`/planwise backlog --refine <ids>` takes one item id or a comma-separated list. It runs the creation process's preflight, planner and author on the named items and asks any planner question in the same run. It then stops, so you read `git diff -- <item>` before triage. It commits nothing and sets no status except an already-met close. It is a different flag from the loop's `--refine-max N`.
+
 #### Loop mode
 
 Loop mode works through several items without you at the keyboard. Each session triages exactly one item. Then the plugin's hooks module compacts the context and re-enters `/planwise backlog` for the next item.

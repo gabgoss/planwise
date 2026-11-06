@@ -61,12 +61,14 @@ The script prints the numbered stages except Stage 18, which you perform. Steps 
 python "{plugin_root}/scripts/init_project.py" --doctor --project-root "{project_root}"
 ```
 
-If `python` is not found, try `python3`.
+If `python` is not found, try `python3`. When `$ARGUMENTS` contains `--verbose`, append `--verbose` to the command.
 
 > [!constraint] Read-Only — Never Mutates
 > `--doctor` runs the version-state gate followed by `lint_rule_overscope()` standalone (no `--upgrade`, no `--migrate`). It only READS `config.yaml`, `.claude-plugin/plugin.json`, and `.claude/rules/**`, then prints a report; it writes nothing and changes no files. It exits 0 in every state — version drift and flagged rules are reported, not failed.
 
 The linter flags any `.claude/rules/**` file whose `paths:` target plan/backlog/lessons directories (e.g., `planwise/Plans/**`) rather than code paths. For each flagged rule it reports the path, byte size, line count, approximate token cost (bytes ÷ the conservative bytes-per-token ratio), and the matched glob.
+
+A project-owned rule that is plan-scoped on purpose can say so with a one-line frontmatter key, for example `overscope-ack: needed while plans are authored`. The key holds the reason. An empty value, or a value that spans several lines, does not count as an acknowledgement. An acknowledged rule leaves the row list and appears in one footer line. Plugin-managed rules are scoped to `.claude/**` and never need the key, so do not add it to one. The key changes no injection: the total budget and the injection families below still count an acknowledged rule, because it still loads.
 
 ### Step 2: Present the report verbatim
 
@@ -81,6 +83,10 @@ Over-scoped rules (injection-budget risk):
       size:          {N} lines (~{X}K tokens)
       re-scope hint: narrow paths: to the code dirs this rule actually governs,
                      or load it on demand (handler / references) instead of installing it path-scoped
+
+{N} acknowledged plan-scoped rule(s), ~{X} tokens — listed by /planwise doctor --verbose
+    - {path} ({N} lines, ~{X} tokens; matches {glob})        (only with --verbose)
+        reason: {the overscope-ack text}
 
 Total flagged injection budget: ~{X}K tokens across {N} rule(s)
 

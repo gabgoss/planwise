@@ -67,7 +67,7 @@ On a refusal, show the message, fix the text with the user and run the call agai
 
 Print one line per item: the id, the blocks answered and the blocks skipped.
 
-- An unrefined item with every block answered is eligible on the next loop run.
-- A refined item with an answered block fails the shape gate until the refine path folds the answer into `## Resolution`. On the next loop run, pick the item in Q2 specific mode (`--mode specific`), or start the run with `/planwise backlog --refine-max N`.
+- An unrefined item with every block answered is eligible on the next loop run. Or refine it now with `/planwise backlog --refine {id}`.
+- A refined item with an answered block fails the shape gate until the refine path folds the answer into `## Resolution`. Run `/planwise backlog --refine {id}` to fold it now. On the next loop run, pick the item in Q2 specific mode (`--mode specific`), or start the run with `/planwise backlog --refine-max N`.
 
 Do not set `refined`, change a status or commit. The user triages the item through the normal route.

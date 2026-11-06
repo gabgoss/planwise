@@ -194,6 +194,7 @@ Two rules follow, and a handler must satisfy both:
 | Answer open questions (`backlog.md --answer`, Part 3) | Critical. Auto Mode lists the unanswered questions and asks nothing. No answer is inferred. |
 | Refine mode question round-trip (backlog-Part-4-Refine.md, `--refine`) | Ask nothing. A `QUESTIONS` design is written into the item per the unattended branch of `references/backlog-creation-process.md` § 5, and the item stays `refined: false`. |
 | Refine mode ALREADY_MET close (backlog-Part-4-Refine.md, `--refine`) | Close without asking, as the loop's unattended close does: run `update_backlog.py --status COMPLETE` and regenerate the index. |
+| Phase 3 refine offer (backlog.md Phase 3 step 2) | Route on the current text. Ask nothing and refine nothing. The user runs `/planwise backlog --refine {id}` to refine the item. |
 | Reciprocal-edge migration questions (upgrade.md Step 2.3b) | Answer nothing. Write no answers file and run Step 2.4 without `--migration-answers`. An edge direction cannot be inferred safely. The migrator refuses only the unanswered family and writes nothing for it, and the chat summary names that family as action required. |
 | Stale mirror prune question (upgrade handler, orphaned agent mirrors banner) | Do not prune. Deleting files is never inferred. The `REMOVABLE` rows stay in place and the banner keeps listing them. |
 | Plan status anomaly question (upgrade handler, Plans anomalies) | Keep the status as is. The inference is logged and the anomaly stays reported. |

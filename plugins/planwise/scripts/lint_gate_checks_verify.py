@@ -10,9 +10,10 @@ the lint context duck-typed -- it reads only ``commands``, ``plan_root`` and
 linter's ``make_finding`` writes. The severity strings equal the linter's
 ``SEVERITY_*`` constants. A test pins both agreements.
 
-Every check here is static: none runs a command. Checks 30 and 31 are
-heuristic, because what counts as a gate anchor or a status gate is a
-judgment, so they report at WARNING and never decide a verdict alone.
+Every check here is static: none runs a command. Checks 30, 31 and 35 to 38 are
+heuristic, because what counts as a gate anchor, a status gate, a documenting
+sentence or an extraction step is a judgment, so they report at WARNING and
+never decide a verdict alone.
 """
 
 import re
@@ -22,6 +23,7 @@ from lint_gate_checks_commands import (
     _grep_pattern_and_target,
     _is_task_file,
     _pipelines,
+    _short_flags,
     _tokens,
 )
 from lint_gate_tool_calls import GREP_TOOL_CALL_RE
@@ -73,6 +75,38 @@ _WRITER_FLAGS = ("--write", "--fix", "--apply", "--upgrade")
 _NO_WRITE_FLAGS = frozenset({"--dry-run", "--check", "--diff", "-n"})
 # A token that names a scratch target.
 _SCRATCH_RE = re.compile(r"scratch|\btmp\b|\btemp\b|/tmp/|mktemp|\$TMP|\$TEMP", re.IGNORECASE)
+
+# A gate note that expects an absence count: ``expect 0``, ``== 0``, ``MUST be 0``.
+_ZERO_EXPECT_RE = re.compile(
+    r"\bexpect(?:ed|s)?\s*[:=]?\s*(?:==\s*)?0(?![\d.])|==\s*0(?![\d.])|\bMUST\s+be\s+0(?![\d.])|\bzero\b",
+    re.IGNORECASE,
+)
+# Targets that can carry prose a brief tells the author to write.
+_PROSE_BEARING_SUFFIXES = frozenset({".py", ".sql", ".ipynb", ".md", ".sh", ".js", ".ts"})
+# A pattern is literal when it holds no regex operator once ``\.`` is read as ``.``.
+_REGEX_OPERATOR_RE = re.compile(r"[\[\](){}*+?|^$\\]")
+# A sentence that tells the author to write prose about a token.
+_DOCUMENTING_VERB_RE = re.compile(
+    r"\b(?:explain|explains|document|documents|docstring|comment|describe|describes|mention|mentions)\b|\bnote\s+why\b",
+    re.IGNORECASE,
+)
+
+# A repeated character class, as an extraction regex writes it. A negated class
+# and a POSIX class are skipped.
+_CHAR_CLASS_RE = re.compile(r"\[(?![\^:])([^\[\]]+)\](?=[+*]|\{\d)")
+_CLASS_LETTERS_RE = re.compile(r"a-z|A-Z")
+_CLASS_DIGITS_RE = re.compile(r"0-9|\\d|\\w|:digit:|:alnum:")
+# A split result indexed as a parser: ``.split(...)[1]``. A path split on a
+# slash is a basename idiom, not a parser.
+_SPLIT_INDEX_RE = re.compile(
+    r"\.split\((?!\s*['\"][/\\]['\"]\s*[,)])[^()]*\)\s*\[\s*-?\d+\s*\]"
+)
+# A grep that starts each match with its file path: a recursive or with-filename flag.
+_PREFIX_LONG_FLAGS = frozenset({"--recursive", "--with-filename"})
+_PREFIX_SHORT_FLAGS = "rRH"
+# An exclusion pattern anchored at the line start, at the colon that ends the
+# path (a leading or trailing colon), or past the ``:NN:`` prefix.
+_PREFIX_ANCHORED_RE = re.compile(r"^\^|^:|:$|:\[0-9\]|:\\d")
 
 
 def _finding(*, check, severity, file, line, command, message) -> dict:
@@ -330,9 +364,257 @@ def _check33_writer_command_without_scratch_target(context) -> list:
     return findings
 
 
+def _literal_token(pattern):
+    """The literal text of a grep pattern, or None when it holds regex syntax."""
+    if not pattern:
+        return None
+    token = pattern.replace("\\.", ".")
+    if _REGEX_OPERATOR_RE.search(token):
+        return None
+    return token
+
+
+def _absence_grep_token(command):
+    """The literal token of a zero-expected grep over a prose-bearing target,
+    or None when the command is not that shape."""
+    note = f"{command.comment} {command.annotation}"
+    if "WRONG" in command.command or "WRONG" in note or not _ZERO_EXPECT_RE.search(note):
+        return None
+    tokens = _tokens(command.command)
+    if not tokens:
+        return None
+    for stages in _pipelines(tokens):
+        first = stages[0]
+        if first[0] != "grep":
+            continue
+        pattern, target = _grep_pattern_and_target(first)
+        literal = _literal_token(pattern)
+        if literal and target and Path(target).suffix.lower() in _PROSE_BEARING_SUFFIXES:
+            return literal
+    return None
+
+
+def _check35_absence_gate_over_mandated_prose(context) -> list:
+    """Check 35 -- a zero-expected grep over a prose-bearing file, while the
+    same task file tells the author to write prose about that token
+    (gate-absence-and-consistency.md §8.4, "A comment-strip pre-filter sees only
+    whole-line comments"). A docstring, a markdown cell and a trailing comment
+    are invisible to a line-anchored comment filter, so the brief demands text
+    that the gate then counts. A gate here is a non-placeholder, non-WRONG
+    command whose note expects 0, whose grep stage has a literal pattern, and
+    whose target ends in a prose-bearing suffix. The mandate is a line outside
+    any fenced block that holds the same token, a documenting verb and no
+    ``grep``. Heuristic, so WARNING: it reports and never gates alone.
+    """
+    prose_by_file = {}
+    for rel, lines in _task_files(context):
+        prose_by_file[rel] = [
+            line for _number, line in _unfenced(lines)
+            if _DOCUMENTING_VERB_RE.search(line) and "grep" not in line and "WRONG" not in line
+        ]
+    findings = []
+    for command in context.commands:
+        if command.is_placeholder or not command.is_gate:
+            continue
+        token = _absence_grep_token(command)
+        if token is None or not any(token in line for line in prose_by_file.get(command.file, ())):
+            continue
+        findings.append(_finding(
+            check=35, severity=SEVERITY_WARNING, file=command.file, line=command.line,
+            command=command.command,
+            message=(
+                f"This gate expects {token!r} to be absent, and the same task tells the author "
+                "to write prose about it. A comment-strip pre-filter sees only whole-line "
+                "comments, so a docstring, a markdown cell or a trailing comment keeps the "
+                "token in the count. Reword the prose with a synonym that keeps the meaning, "
+                "or replace the instrument with an `ast` or `nbformat` parse "
+                "(gate-absence-and-consistency.md, \"A comment-strip pre-filter sees only "
+                "whole-line comments\")"
+            ),
+        ))
+    return findings
+
+
+def _is_wrong(command) -> bool:
+    """True when the command or its note labels the line a deliberate WRONG example."""
+    return "WRONG" in f"{command.command} {command.comment} {command.annotation}"
+
+
+def _digitless_class(text):
+    """The first repeated character class in ``text`` that holds letters and an
+    underscore but no digit, or None."""
+    for match in _CHAR_CLASS_RE.finditer(text):
+        body = match.group(1)
+        if "_" in body and _CLASS_LETTERS_RE.search(body) and not _CLASS_DIGITS_RE.search(body):
+            return match.group(0)
+    return None
+
+
+def _check36_digitless_identifier_class(context) -> list:
+    """Check 36 -- a verification command extracts with a repeated character
+    class that holds letters and an underscore but no digit
+    (gate-instrument-proof-obligations.md §10, the extractor-pitfalls table).
+    Against ``country_3_code`` such a class drops the line or truncates the
+    capture to ``country_``, and the two lists a gate then compares disagree on
+    correct work. A negated class and a class without a repeat are skipped.
+    Heuristic, so WARNING: it reports and never gates alone.
+    """
+    findings = []
+    for command in context.commands:
+        if command.is_placeholder or _is_wrong(command):
+            continue
+        found = _digitless_class(command.command)
+        if found is None:
+            continue
+        findings.append(_finding(
+            check=36, severity=SEVERITY_WARNING, file=command.file, line=command.line,
+            command=command.command,
+            message=(
+                f"This extraction pattern repeats the class {found}, which holds letters and "
+                "an underscore and no digit. An identifier such as country_3_code then drops "
+                "the whole line or truncates the capture to country_. Use [a-z0-9_]+ or \\w+, "
+                "and assert the length of each derived list before comparing two of them "
+                "(gate-instrument-proof-obligations.md, \"Extractor pitfalls\")"
+            ),
+        ))
+    return findings
+
+
+def _file_operand_count(stage) -> int:
+    """The number of file operands a grep stage names."""
+    positionals = []
+    has_pattern_flag = False
+    skip = False
+    for token in stage[1:]:
+        if skip:
+            skip = False
+            continue
+        if token in ("-e", "--regexp"):
+            has_pattern_flag = True
+            skip = True
+            continue
+        if token in ("-A", "-B", "-C", "-m", "-f"):
+            skip = True
+            continue
+        if token.startswith("-") and token != "-":
+            continue
+        positionals.append(token)
+    return len(positionals) if has_pattern_flag else max(len(positionals) - 1, 0)
+
+
+def _prints_prefix(stage) -> bool:
+    """True when a grep stage starts each match with a file path: a recursive
+    or with-filename flag, or two or more file operands. ``-n`` alone prints
+    only a line number, so a content filter after it is sound."""
+    if stage[0] != "grep":
+        return False
+    if "--no-filename" in stage[1:] or "h" in _short_flags(stage):
+        return False
+    if _PREFIX_LONG_FLAGS.intersection(stage[1:]):
+        return True
+    if any(letter in _short_flags(stage) for letter in _PREFIX_SHORT_FLAGS):
+        return True
+    return _file_operand_count(stage) >= 2
+
+
+def _is_inverted(stage) -> bool:
+    return "v" in _short_flags(stage) or "--invert-match" in stage[1:]
+
+
+def _exclusion_over_prefix(stages):
+    """The pattern of the first inverting grep stage that follows a stage that
+    starts each match with a file path, or None. A pattern anchored at the
+    start of the line, at the colon that ends the path, or past the ``:NN:``
+    prefix is exempt."""
+    prefixed = False
+    for stage in stages:
+        if stage[0] != "grep":
+            continue
+        if prefixed and _is_inverted(stage):
+            pattern, _target = _grep_pattern_and_target(stage)
+            if pattern is not None and not _PREFIX_ANCHORED_RE.search(pattern):
+                return pattern
+        if _prints_prefix(stage):
+            prefixed = True
+    return None
+
+
+def _check37_exclusion_over_path_prefix(context) -> list:
+    """Check 37 -- an inverting grep follows a grep that starts each match with
+    a file path, and its pattern is not anchored past that path
+    (gate-instrument-proof-obligations.md §10, the extractor-pitfalls table).
+    ``grep -rn X | grep -v NAME`` also drops every file whose path carries
+    NAME, so the sweep reports fewer problems and reads as better. A path
+    prefix comes from a recursive or with-filename flag, or from two or more
+    file operands. A pattern that starts with ``^`` or ``:``, ends with ``:``,
+    or carries ``:[0-9]`` or ``:\\d`` is exempt.
+    Heuristic, so WARNING: it reports and never gates alone.
+    """
+    findings = []
+    for command in context.commands:
+        if command.is_placeholder or _is_wrong(command):
+            continue
+        tokens = _tokens(command.command)
+        if not tokens:
+            continue
+        pattern = next(
+            (found for stages in _pipelines(tokens)
+             if (found := _exclusion_over_prefix(stages)) is not None),
+            None,
+        )
+        if pattern is None:
+            continue
+        findings.append(_finding(
+            check=37, severity=SEVERITY_WARNING, file=command.file, line=command.line,
+            command=command.command,
+            message=(
+                f"This pipeline filters prefixed grep output with an exclusion on {pattern!r}. "
+                "The prefix starts with the file path, so the exclusion also drops every other "
+                "file whose path carries the name. Anchor past the prefix with :[0-9]+:.*TOKEN, "
+                "match executable syntax, or exclude by exact file path, and require the repaired "
+                "form to return more matches than the broken one "
+                "(gate-instrument-proof-obligations.md, \"Extractor pitfalls\")"
+            ),
+        ))
+    return findings
+
+
+def _check38_split_slice_as_parser(context) -> list:
+    """Check 38 -- a verification command indexes the result of ``.split(...)``,
+    which uses string slicing as a parser
+    (gate-instrument-proof-obligations.md §10, the extractor-pitfalls table).
+    The slice stops at the first delimiter that belongs to something else, so a
+    count taken from it can be a third of the true count. Heuristic, so
+    WARNING: it reports and never gates alone.
+    """
+    findings = []
+    for command in context.commands:
+        if command.is_placeholder or _is_wrong(command):
+            continue
+        match = _SPLIT_INDEX_RE.search(command.command)
+        if match is None:
+            continue
+        findings.append(_finding(
+            check=38, severity=SEVERITY_WARNING, file=command.file, line=command.line,
+            command=command.command,
+            message=(
+                f"This command slices text with {match.group(0)!r} and uses the piece as a parser. "
+                "The slice stops at the first delimiter that belongs to something else. "
+                "Parse with ast.parse or the format's real parser, and run the gate once on a "
+                "known-good and a known-bad input "
+                "(gate-instrument-proof-obligations.md, \"Extractor pitfalls\")"
+            ),
+        ))
+    return findings
+
+
 CHECKS = [
     _check30_gate_anchor_without_verified_marker,
     _check31_status_gate_names_no_artifact,
     _check32_file_producing_task_without_size_gate,
     _check33_writer_command_without_scratch_target,
+    _check35_absence_gate_over_mandated_prose,
+    _check36_digitless_identifier_class,
+    _check37_exclusion_over_path_prefix,
+    _check38_split_slice_as_parser,
 ]

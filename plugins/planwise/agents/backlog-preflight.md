@@ -4,8 +4,8 @@ description: >
   Proves backlog candidates against the live repository before anything is
   designed or filed: disposition, live anchors, per-criterion proof.
   Use as the first dispatch of the backlog creation process (/planwise backlog
-  Phase 7 and the loop refine step, /planwise harvest Stage 2,
-  /planwise lessons promote-batch).
+  Phase 7, the loop refine step and /planwise backlog --refine,
+  /planwise harvest Stage 2, /planwise lessons promote-batch).
 # Bash is granted for `git log`, the `wc -l` line counts behind SOURCE_PINS, and
 # script calls. Reading and searching file content route through Read, Grep and Glob.
 tools: Read, Write, Glob, Grep, Bash

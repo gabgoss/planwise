@@ -19,15 +19,17 @@ This module has two halves.
     comment, and adjacent annotation line.
 
 ``run_command``
-    Runs a command only when its executable is one of four read-only names.
-    Anything else is refused, reported, and never run.
+    Runs a command only when its executable is one of five read-only names, and
+    a ``git`` command only when ``lint_gate_git_policy`` admits its subcommand
+    and flags. Anything else is refused, reported, and never run.
 
 The executor is a security boundary, not a convenience. Its input is command
 text lifted verbatim out of markdown that a person or an agent wrote, which
 makes it untrusted by construction however trustworthy the author was. The
 rules are absolute:
 
-* Four bare executable names are allowed. Nothing else, ever.
+* Five bare executable names are allowed. Nothing else, ever. ``git`` is
+  allowed only for the read-only queries its policy module names.
 * Refusal is the default. The predicate is "is this on the allowlist?", never
   "is this on a denylist?". A path form of an allowed name is refused too, so
   the allowlist cannot be widened by spelling.
@@ -44,9 +46,9 @@ rules are absolute:
   inspected, which is the single failure mode that makes the whole tool
   unsound.
 
-Every allowed executable reads and none writes, so read-only behaviour follows
-from the allowlist itself rather than from anything this module has to remember
-to do at call time.
+Four allowed executables read and none writes, so their read-only behaviour
+follows from the allowlist itself. ``git`` can write, so it runs with the
+hardened argument vector and environment from ``lint_gate_git_policy``.
 
 The checks are registered separately in ``CHECK_REGISTRY``; this module
 supplies the extraction and execution substrate they are built on.
@@ -63,6 +65,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
+from lint_gate_git_policy import git_refusal, hardened_git_argv_env
+from lint_gate_grep_tool import measured_value as grep_tool_measured_value
+from lint_gate_grep_tool import parse_grep_call, run_grep_call
 from lint_gate_tool_calls import (
     GLOB_FOLDER_LED_MESSAGE,
     GREP_ALTERNATION_MESSAGE,
@@ -72,9 +77,12 @@ from lint_gate_tool_calls import (
 )
 from markdown_parser import is_section_boundary
 
-# The whole allowlist. Four bare names, each of which only ever reads.
+# The whole allowlist. Five bare names, each of which only ever reads. Four of
+# them read by construction. ``git`` reads only through the subcommand-and-flag
+# policy in ``lint_gate_git_policy``, which ``_argv_refusal`` applies.
 ALLOWED_EXECUTABLES = frozenset(
     {
+        'git',
         'grep',
         'wc',
         'ls',
@@ -498,10 +506,12 @@ def _argv_refusal(argv) -> str | None:
     if "/" in executable or "\\" in executable:
         return (
             f"{executable!r} is a path rather than a bare name, and the "
-            "allowlist admits four bare names only"
+            "allowlist admits bare names only"
         )
     if executable not in ALLOWED_EXECUTABLES:
-        return f"{executable!r} is not one of the four allowed read-only executables"
+        return f"{executable!r} is not on the read-only allowlist"
+    if executable == "git":
+        return git_refusal(argv)
     return None
 
 
@@ -526,9 +536,14 @@ def run_command(argv, *, cwd=None, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> di
     if refusal is not None:
         return _refused(refusal)
 
+    run_argv, run_env = list(argv), None
+    if argv[0] == "git":
+        run_argv, run_env = hardened_git_argv_env(argv)
+
     try:
         completed = subprocess.run(
-            list(argv),
+            run_argv,
+            env=run_env,
             cwd=str(cwd) if cwd is not None else None,
             capture_output=True,
             text=True,
@@ -556,6 +571,14 @@ def execute_command(command: ExtractedCommand, *, plan_root=None,
     argv, refusal = resolve_argv(command.command)
     if argv is None:
         return _refused(refusal)
+    if argv[0] == "Grep":
+        # A native tool call, not an executable: it is decided in-process and
+        # never reaches the allowlist or a subprocess of its own.
+        params, refusal = parse_grep_call(argv)
+        if params is None:
+            return _refused(refusal)
+        result, refusal = run_grep_call(params, cwd=plan_root, timeout=timeout)
+        return result if result is not None else _refused(refusal)
     return run_command(argv, cwd=plan_root, timeout=timeout)
 
 
@@ -661,6 +684,26 @@ def lint_plan(plan_root, execute: bool = True) -> list:
     return findings
 
 
+def gate_counts(context: LintContext) -> tuple:
+    """Return ``(total, checked)`` for the gates of a lint run.
+
+    ``total`` counts gates that are not placeholders. ``checked`` counts the
+    ones the executor ran. The coverage line and the exit code both read this
+    one count, so the line and the code cannot disagree.
+    """
+    gates = [c for c in context.commands if c.is_gate and not c.is_placeholder]
+    checked = sum(1 for c in gates if c.result and c.result["executed"])
+    return len(gates), checked
+
+
+def none_ran(context: LintContext) -> bool:
+    """Say whether execution was on, gates exist, and the executor ran none."""
+    if not context.execute:
+        return False
+    total, checked = gate_counts(context)
+    return bool(total) and not checked
+
+
 def coverage_line(context: LintContext) -> str:
     """Say how many gates the executor actually ran, in one line.
 
@@ -670,11 +713,9 @@ def coverage_line(context: LintContext) -> str:
     the allowlist turned away. When gates exist and none ran, the line starts
     with ``NOT CHECKED``.
     """
-    gates = [c for c in context.commands if c.is_gate and not c.is_placeholder]
-    total = len(gates)
+    total, checked = gate_counts(context)
     if not context.execute:
         return f"Coverage: execution disabled; {total} gates not run."
-    checked = sum(1 for c in gates if c.result and c.result["executed"])
     refused = total - checked
     if total and not checked:
         return (
@@ -689,9 +730,11 @@ def coverage_line(context: LintContext) -> str:
 #
 # Checks 2-6 are static: they read extracted command text (and, where a check
 # needs cross-file reasoning, sibling file content) and never run anything.
-# Check 8 is static too, but reads markdown lines directly: a native tool call
-# never becomes an extracted command, because the extractor reads only fenced
-# blocks and lowercase shell verbs.
+# Check 8 is static too, but reads markdown lines directly, because a native
+# tool call in a table row never becomes an extracted command. The extractor
+# reads only fenced blocks and lowercase shell verbs. A ``Grep`` call on its own
+# line in a fenced gate block is extracted, and the executor decides it
+# in-process (``lint_gate_grep_tool``).
 # Checks 1 and 7 read the ``result`` the executor already stored on a command
 # in ``_run_gates`` -- they never execute a command themselves, so a refused
 # command they cannot reason about is simply skipped, and its own UNCERTAIN
@@ -708,6 +751,14 @@ def coverage_line(context: LintContext) -> str:
 # measurement, so it is accepted too. The note may hold anything except a
 # closing parenthesis. Matching stays case-sensitive.
 _PRE_EDIT_RE = re.compile(r"pre-edit(?:\s*\([^)]*\))?:")
+# A deferral phrase where the measured value belongs records no measurement.
+# It is matched at the start of the text after the ``pre-edit:`` token.
+_PRE_EDIT_DEFERRAL_RE = re.compile(
+    r"\s*(?:measure[ds]?\s+(?:at|during)\s+(?:execution|run[\s-]?time)"
+    r"|(?:at|during)\s+(?:execution|run[\s-]?time)"
+    r"|tbd\b|todo\b|to\s+be\s+(?:measured|determined))",
+    re.IGNORECASE,
+)
 _INVARIANT_TOKEN = "invariant:"
 _BASELINE_RE = re.compile(r"baseline:\s*(\d+)", re.IGNORECASE)
 
@@ -892,6 +943,10 @@ def _measured_value(command: ExtractedCommand):
     stdout = result.get("stdout", "")
     lines = stdout.splitlines()
 
+    if executable == "Grep":
+        params, _ = parse_grep_call(argv)
+        return grep_tool_measured_value(params, stdout)
+
     if executable == "wc":
         first = next((line for line in lines if line.strip()), "")
         token = first.strip().split()[0] if first.strip() else None
@@ -1071,15 +1126,36 @@ def _check1_vacuous_after_gate(context: LintContext) -> list:
 
 def _check2_missing_pre_edit_baseline(context: LintContext) -> list:
     """Check 2 -- an After-block gate with no inline pre-edit annotation
-    beside its expectation. The gate may be fine; nothing in the artifact
-    establishes that, which is indistinguishable from an author who never
-    measured at all.
+    beside its expectation, or whose annotation defers the measurement
+    ("measure at execution", "TBD"). The gate may be fine; nothing in the
+    artifact establishes that, which is indistinguishable from an author who
+    never measured at all.
     """
     findings = []
     for command in context.commands:
         if command.block != BLOCK_AFTER or command.is_placeholder or not command.is_gate:
             continue
-        if _PRE_EDIT_RE.search(command.annotation):
+        match = _PRE_EDIT_RE.search(command.annotation)
+        if match and _PRE_EDIT_DEFERRAL_RE.match(command.annotation, match.end()):
+            findings.append(
+                make_finding(
+                    check=2,
+                    severity=SEVERITY_WARNING,
+                    file=command.file,
+                    line=command.line,
+                    command=command.command,
+                    message=(
+                        "This After-block gate defers its pre-edit "
+                        "measurement ('measure at execution', 'TBD' and "
+                        "similar are not values). Run the command against "
+                        "the pre-edit tree and write the measured value "
+                        "after 'pre-edit:', with the output shape it "
+                        "counts"
+                    ),
+                )
+            )
+            continue
+        if match:
             continue
         findings.append(
             make_finding(
@@ -1923,24 +1999,28 @@ CHECK_REGISTRY.extend(_VERIFY_CHECKS)
 #
 # Invocation:  python lint_verification_gates.py {plan_root} [--no-execute]
 #
-# Exit codes distinguish three outcomes a caller must be able to tell apart
+# Exit codes distinguish the outcomes a caller must be able to tell apart
 # without parsing output text:
 #   0  no findings at all.
 #   1  findings present, none at ERROR -- WARNING and UNCERTAIN advise only.
 #   2  at least one finding at ERROR -- the caller should halt.
 #   3  the linter itself crashed. The report is incomplete, so a caller must
 #      not read it as a clean or advisory-only scan. The traceback is on stderr.
+#   4  execution was on, gates exist, the executor ran none of them, and no
+#      finding is at ERROR. The scan decided nothing about the gates.
 #
 # The first line of stdout is always a ``Coverage:`` line. It starts with
 # ``Coverage: NOT CHECKED`` when gates exist and the executor ran none of them.
-# That case still exits 1 (all findings are UNCERTAIN), so the line is the only
-# signal that separates it from a scan that found real advisory findings.
+# That case exits 4, unless a finding at ERROR exists: an ERROR still exits 2,
+# because the caller should halt on it. The same helper feeds the line and the
+# code, so the two cannot disagree.
 # ---------------------------------------------------------------------------
 
 EXIT_NO_FINDINGS = 0
 EXIT_ADVISORY_ONLY = 1
 EXIT_ERROR_PRESENT = 2
 EXIT_INTERNAL_ERROR = 3
+EXIT_NOT_CHECKED = 4
 
 
 def _use_utf8_stdio() -> None:
@@ -1999,12 +2079,14 @@ def _run_cli() -> None:
 
     if not findings:
         print("No findings.")
-        sys.exit(EXIT_NO_FINDINGS)
+        sys.exit(EXIT_NOT_CHECKED if none_ran(context) else EXIT_NO_FINDINGS)
 
     _print_findings(findings)
 
     if any(finding["severity"] == SEVERITY_ERROR for finding in findings):
         sys.exit(EXIT_ERROR_PRESENT)
+    if none_ran(context):
+        sys.exit(EXIT_NOT_CHECKED)
     sys.exit(EXIT_ADVISORY_ONLY)
 
 

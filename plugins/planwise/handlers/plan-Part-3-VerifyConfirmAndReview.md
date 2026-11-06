@@ -44,7 +44,9 @@ Commands Plan-Review Enforcement table; `templates/task-file.md` §Per-File-Type
    `templates/task-file.md` `> [!verify] Before / After Commands` block + Per-File-Type
    Commands table — substitute every `{placeholder}` with a concrete shell invocation for a
    build, test, lint, or database check, or a named native tool call (`Read`, `Grep`, or
-   `Glob`) for a file-read or content-search check.
+   `Glob`) for a file-read or content-search check. Declare the `**Working directory:**` line
+   above the block, `.` unless the task states another base, and write every plan-internal path
+   from it.
 4. **Ensure all three command types appear** (connectivity / pre-condition, lint or format,
    exec or smoke test). A task missing one of these types uses the `<!-- NEEDS-COMMAND -->`
    marker carried in the `> [!verify]` skeleton (`templates/task-file.md`) in place of that
@@ -87,6 +89,8 @@ A planner writes `{plugin_root}` into a task file as the literal token and never
 > three command types (precheck + lint/format + exec):
 > ```markdown
 > ## Verification Commands
+> **Working directory:** `.`
+>
 > > [!verify] Before / After Commands
 > > **Before:**
 > > ```
@@ -293,6 +297,7 @@ Before completing `/planwise plan`, verify:
 [ ] Plans index regenerated (generate_plans_index.py --write; no hand-written row)
 [ ] Session token estimates validated (< `practical_session_limit` per session — 100K on Pro, 400K on Max; see `references/session-context-budget.md` §5)
 [ ] Each task has a bottom-up estimate: (Required Context tokens) + (output tokens) <= task estimate
+[ ] Every file a task's Execution Steps read has a measured Required Context row, a prior Recovery.md read included (references/task-content-fidelity.md §9.A.17, Check 123)
 [ ] If DELEGATED: each task estimate + 54K overhead < `context_window` (200K on Pro, 1M on Max)
 [ ] Execution Strategy declared in Orchestration (DIRECT or DELEGATED)
 [ ] If 2+ Opus tasks or META session -> Strategy is DELEGATED

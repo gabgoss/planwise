@@ -73,8 +73,10 @@ try:
     from doctor_sweeps import (
         compute_injection_families,
         format_bytes,
+        format_overscope_ack_footer,
         lint_installed_divergence,
         lint_rule_overscope,
+        split_acknowledged,
         sweep_orphaned_agent_mirrors,
         sweep_stale_descoped_rules,
         sweep_upgrade_leftovers,
@@ -882,13 +884,17 @@ def _sweep_thrifty_sonic(cfg: "InitConfig") -> list[dict]:
     return findings
 
 
-def _run_doctor(cfg: "InitConfig") -> int:
+def _run_doctor(cfg: "InitConfig", verbose: bool = False) -> int:
     """Run the read-only overscope linter + stale-rule sweep and print a report.
 
     Standalone diagnostic — does not require or perform an upgrade. Walks the
     installed rules, flags any scoped to plan/backlog/lessons globs, and prints
     one row per flagged rule with its size, a re-scope hint, and a total
-    always-on injected-budget line. When any rule is flagged, also prints the
+    always-on injected-budget line. A rule that carries an `overscope-ack:`
+    frontmatter marker leaves the row list and appears in one footer line;
+    `verbose=True` (the `--verbose` flag) lists each acknowledged rule with its
+    reason. The total and the families below still count every flagged rule,
+    because an acknowledged rule still injects. When any rule is flagged, also prints the
     per-glob-family worst-case injection rollup (compute_injection_families())
     — every rule sharing a glob co-injects on one path match — flagging any
     family over the configurable `context.token_saver_injection_ceiling`
@@ -956,14 +962,24 @@ def _run_doctor(cfg: "InitConfig") -> int:
         print("All installed path-scoped rules are scoped to code paths (.claude/** or narrower).")
     else:
         total_tokens = sum(item["approx_tokens"] for item in overscoped)
+        unacked, acked = split_acknowledged(overscoped)
         print(f"Flagged {len(overscoped)} rule(s) scoped to plan/backlog/lessons globs:")
         print()
-        for item in overscoped:
+        for item in unacked:
             print(
                 f"  ~ {item['path']} ({item['line_count']} lines, "
                 f"~{item['approx_tokens']} tokens; matches {item['matched_glob']})"
             )
             print("      hint: re-scope to code paths or convert to a handler-loaded reference")
+        if acked:
+            print(f"  {format_overscope_ack_footer(acked)}")
+            if verbose:
+                for item in acked:
+                    print(
+                        f"    - {item['path']} ({item['line_count']} lines, "
+                        f"~{item['approx_tokens']} tokens; matches {item['matched_glob']})"
+                    )
+                    print(f"        reason: {item['ack_reason']}")
         print()
         print(f"Total always-on injected budget from flagged rules: ~{total_tokens} tokens")
 

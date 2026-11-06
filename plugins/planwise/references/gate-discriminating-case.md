@@ -165,3 +165,7 @@ Three practices close the hole.
 > The answer is no in four places. Those places are the boundary (§1), the scope (§2), the threshold (§3) and the provenance (§4). A gate exercised only on input it accepts has been demonstrated, not tested.
 
 Keep all four places in view together. A reader who meets only the scope case does not learn to look for the threshold case. The value of the list is the enumeration.
+
+---
+
+*Cross-references: [gate-instrument-proof-obligations.md](gate-instrument-proof-obligations.md) §10 (the extractor-pitfalls table under Obligation C: a digit-less character class, an exclusion over the path prefix, string slicing as a parser).*

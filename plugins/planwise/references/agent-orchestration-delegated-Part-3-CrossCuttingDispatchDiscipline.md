@@ -1,6 +1,6 @@
 ---
-description: DELEGATED dispatch discipline, Part 3 of 3. This file holds §1.23–§1.32, the cross-cutting dispatch-prompt and orchestrator discipline, including pinning foreground execution and a long timeout for a long suite (§1.27.1) and deriving a remediation brief's write set from where each fix lands (§1.32). Part 1 of 3 is agent-orchestration-delegated.md.
-consult-when: Writing any DELEGATED spawn prompt or checking the orchestrator's own conduct — triple-scoping a single-task dispatch, pinning foreground execution and a long timeout for a long suite, the status-block return contract, establishing that a silent runner is dead, and deriving a remediation brief's write set from where each fix lands
+description: DELEGATED dispatch discipline, Part 3 of 3. This file holds §1.23–§1.32, the cross-cutting dispatch-prompt and orchestrator discipline, including pinning foreground execution and a long timeout for a long suite (§1.27.1), polling a background command's independent progress signal and halting after two stalled polls (§1.27.2), deriving a remediation brief's write set from where each fix lands (§1.32), and pinning a target over a stored corpus with a census, a fallback ceiling and a NONE sentinel (§1.31.1). Part 1 of 3 is agent-orchestration-delegated.md.
+consult-when: Writing any DELEGATED spawn prompt or checking the orchestrator's own conduct — triple-scoping a single-task dispatch, pinning foreground execution and a long timeout for a long suite, the status-block return contract, establishing that a silent runner is dead, deriving a remediation brief's write set from where each fix lands, and pinning a paid or irreversible step's target over a stored corpus with a census, a fallback ceiling and a NONE sentinel
 ---
 
 # DELEGATED Dispatch Discipline — Part 3: Cross-Cutting Dispatch Discipline
@@ -191,30 +191,37 @@ When the project declares an isolated environment, **every** DELEGATED spawn pro
 
 ```markdown
 ## ENVIRONMENT DISCIPLINE
-Do not change directory — pass absolute paths, or `git -C {repo-path}` for
-git, so a bare tool name resolves against the paths given, not a changed
-working directory. Use these paths — a bare tool name resolves to the
-platform default, not this project's environment:
+Do not change directory — pass absolute paths for file arguments, or
+`git -C {repo-path}` for git, so a bare tool name resolves against the
+paths given, not a changed working directory. Use these paths — a bare
+tool name resolves to the platform default, not this project's environment:
   interpreter:  {env-interpreter-path}
   linter:       {env-linter-path}
   test/notebook runner: {env-runner-path}
+  (each project-relative, in a form an allow entry grants)
 Confirm connectivity/setup with `{env-interpreter-path} {project-precheck}` BEFORE
 doing dependent work.
 Run every {suite} invocation in the FOREGROUND, with a timeout up to 600000 ms.
 The full suite takes about {N} minutes. Never background it and wait.
+A command over the ceiling: background it, poll {progress-probe} every 60-90 s,
+and halt and report after two consecutive polls with no advance.
 ```
 
-Emit the POSIX (`./.venv/bin/{tool}`) or the Windows (`.\.venv\Scripts\{tool}.exe`) form per the project's platform; do not emit both and leave the runner to choose.
+Emit the form for the project's platform, not both: POSIX `./.venv/bin/{tool}`, or Windows `.venv/Scripts/{tool}.exe` (Git Bash strips a backslash).
+
+Each tool path MUST match a form a permission allow entry grants. A path no allow entry grants is denied silently when the runner cannot prompt ([Part 2 §1.21](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md)). If no entry grants a needed tool, tell the user before dispatch.
 
 **Spawn prompts are not the only surface.** A task file's own **Verification Commands** carry the project-relative interpreter path too — a dispatched bare interpreter resolves against the subagent's ambient environment wherever it appears, and a command copied out of a brief inherits that defect verbatim. Long-lived repository scripts SHOULD additionally self-heal: when a script detects it is running under the wrong interpreter, it re-executes itself under the project's rather than failing or, worse, succeeding against the wrong one.
 
-**First-spawn diagnostic.** The first dispatch of a session confirms its interpreter before doing other work — one line, once per session, that converts a silent gap into a loud one:
+**First-spawn diagnostic.** The first dispatch of a session probes one command per tool class the task invokes, so a silent gap becomes a loud one:
 
 ```
 {env-interpreter-path} -c "import sys; print(sys.executable)"
+{env-linter-path} --version
+{env-runner-path} --version
 ```
 
-HALT if the output does not resolve inside the project environment.
+An interpreter probe clears only the interpreter. HALT if a probe is denied or resolves outside the project environment. The shipped task-runner also detects `{Project root}/.venv/pyvenv.cfg` when the prompt names no interpreter, and runs the same `sys.executable` confirmation. That fallback does not replace the ENVIRONMENT DISCIPLINE block.
 
 **Treat an "environment unavailable" report as UNVERIFIED, not as a completed check.** Before accepting one, confirm the runner was given an interpreter path at all. A runner claiming a verification *could not* run deserves the scrutiny of one claiming it *failed* — the second is loud, the first is silent, and both leave the same gate unrun.
 
@@ -230,16 +237,16 @@ HALT if the output does not resolve inside the project environment.
 > CORRECT — the prompt names the paths and the first dispatch proves them:
 > ```
 > "## ENVIRONMENT DISCIPLINE
->  interpreter: {env-interpreter-path} … Confirm with
->  `{env-interpreter-path} -c \"import sys; print(sys.executable)\"` and HALT
->  if it does not resolve inside the project environment."
+>  interpreter: {env-interpreter-path} … Confirm one probe per tool class
+>  (`{env-linter-path} --version`, `{env-runner-path} --version`) and HALT if
+>  a probe is denied or resolves outside the project environment."
 > # Cost: ~50 tokens per dispatch. Cost of omitting it: one lost verification
 > # cycle per dispatch, plus a false PASS on every gate that silently did not run.
 > ```
 
 ### 1.27.1 Pin foreground execution and a long timeout for any suite longer than about a minute
 
-A backgrounded long command turns "waiting" into "stopped" for a dispatched runner. The runner cannot poll without spending turns. A background job's completion reaches the runner's own harness, not the orchestrator. The idle notification reads like progress ("waiting on it"), so it is easy to mistake for a live task. §1.21 of Part 2 covers how the orchestrator launches the runner. This subsection covers a command the runner backgrounds itself.
+A backgrounded long command turns "waiting" into "stopped" for a dispatched runner. Polling costs the runner turns, so it is reserved for a command over the foreground ceiling (§1.27.2). A background job's completion reaches the runner's own harness, not the orchestrator. The idle notification reads like progress ("waiting on it"), so it is easy to mistake for a live task. §1.21 of Part 2 covers how the orchestrator launches the runner. This subsection covers a command the runner backgrounds itself.
 
 > [!constraint] Pin the execution mode and the timeout in the spawn prompt
 > - **State the foreground requirement in the ENVIRONMENT DISCIPLINE block of every spawn prompt whose task runs a suite longer than about one minute.** Give the expected duration too, so the runner sizes its timeout and does not reach for the background.
@@ -259,6 +266,42 @@ A backgrounded long command turns "waiting" into "stopped" for a dispatched runn
 Measured case. The suite held about 1,950 tests and took about 4 minutes. The first runner backgrounded it, ended its turn with "The full suite is still running, so I'm waiting on it", and stalled with a dirty tree and a draft summary. The resume cost one round trip and one duplicated 4-minute run. After the pinned lines entered every later spawn prompt, five further runners and two fix rounds did not repeat the stall.
 
 **Applies to** DELEGATED task-runner spawn prompts and to any task whose verification includes a multi-minute suite, build or migration run. The orchestrator-side classification and resume of a runner that stalled this way is Part 2 §1.17.1 and §1.17.3.
+
+### 1.27.2 Long-running commands: foreground under the ceiling, poll above it
+
+A backgrounded child does not outlive the session that launched it. A stall inside a backgrounded job also looks like progress, because a stalled process never sends the completion notification. The pattern "wait for the notification" has no timeout. §1.27.1 covers a command that fits the foreground ceiling. This subsection covers a command that cannot.
+
+> [!constraint] Choose the pattern by run length, and make the work resumable in both
+> | Run length | Pattern |
+> |---|---|
+> | Fits the foreground ceiling (600000 ms) | Run in the foreground. A stall surfaces as a timeout. |
+> | Longer | Run in the background. Poll a progress signal that does not depend on the job every 60-90 s. Halt and report when it fails to advance across two consecutive polls. |
+> | Either | Make the work resumable. Assert the landed delta, never the exit code. |
+>
+> - **The progress signal does not depend on the job.** A row count and a latest-timestamp query over a per-fetch audit table qualify. A line the job writes to its own log does not, because a stalled job writes nothing.
+> - **Resumability has three parts.** Use a natural key with a UNIQUE constraint, an idempotent merge, and a resume filter that reads what is already stored.
+> - **Assert the landed delta.** The exit code of a piped command is the status of its last stage, so a pipe into `tail` always exits 0.
+> - **Write resume state before a session ends with a job in flight.** Record what landed, what remains, and the exact next command.
+> - **Check for a live process id before ordering a restart.** A duplicate launch spends the budget twice.
+> - **Verify the landed set is coherent before adopting it as a baseline.**
+>
+> WRONG — launch in the background and wait for a notification that a stalled job never sends:
+> ```
+> run ingestion in the background -> "waiting on the completion notification"
+> # the job stalls, the session ends, the log holds one line: [killed]
+> # no status block returns, and the Recovery file stays PENDING
+> ```
+> CORRECT — poll a signal the job does not own, and halt on a stall:
+> ```
+> run ingestion in the background
+> poll: SELECT COUNT(*), MAX(ingestion_timestamp) FROM {audit-table}   # every 60-90 s
+> stall: the pair is unchanged across two consecutive polls -> halt and report
+> before the session ends: write what landed, what remains, and the exact next command
+> ```
+
+Measured case. A run of 1,393 items was forecast at about 13 minutes. The runner launched it in the background and waited. The last fetch landed after 976 items persisted, then 50 minutes passed with no fetch, no error and no log line. The session ended and the job log held `[killed]`. The next day the database held 39,159 rows against a recorded baseline of 120. Recovery took a forensic pass over two transcripts, the job log and a live re-measure. During diagnosis the orchestrator briefly ordered a re-run. The runner refused and cited the live process id, which was the right behaviour.
+
+**Applies to** DELEGATED task-runner spawn prompts and to any task whose verification includes a command expected to exceed the 600000 ms foreground ceiling.
 
 ## 1.28 Status-Block Return Contract
 
@@ -500,6 +543,53 @@ The same defect reaches the producing task's own first step whenever that step a
 **Why the eligibility check missed it.** Every task in the measured batch honestly declared no dependency, because the *file write-sets* really were disjoint — and disjoint write-sets are the criterion the parallel-eligibility check applies. The dependency was on a **shared variable**, and no field in the task schema represents one. Disjoint outputs are **necessary but not sufficient** for parallel dispatch: a shared input that one member generates serialises the layer exactly as hard as a shared output file does. So apply the check by reading the layer, not by trusting the field.
 
 [`scaffolding-hygiene-Part-2-DerivationAndParallelism.md`](scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §17 computes a layer's write-target intersection at scaffold time, and §17.2 covers the sibling case where the shared object is an **allocation** — a next-free number — rather than a path. Those are the plan-time gates. This section is the dispatch-time obligation, and it stands whether or not the plan carried one.
+
+### 1.31.1 A target pin over a stored corpus carries a census, a fallback ceiling and a NONE sentinel
+
+A target pin is a precondition the orchestrator resolves before dispatch. Some pins name a record that a runner reads from a stored data corpus, such as a database, an archive or a backfilled table. A recency-ordered query assumes the corpus is dense up to its newest timestamp. Real corpora are not dense. A backfill stops where its budget stopped. A list endpoint may write future-dated rows. Some periods hold one record per day.
+
+In one reported run, a paid smoke test needed one past record that resolves in a stored corpus. The orchestrator pinned the target with a recency-ordered query and a bounded fallback of "step back one date, at most 3 tries". The corpus stopped well before its newest timestamp. All three tries fell into the same gap, and the first resolvable candidate was the query's 13th. The runner wrote the sentinel `NONE` with the reason, measured two alternatives with read-only queries and returned. The run spent no paid credits to learn this. The orchestrator then re-pinned the target.
+
+> [!constraint] A pin over a stored corpus is checked against the corpus before dispatch
+> A recency order and a short fallback together assume a dense corpus. Nothing in the pin tests that assumption.
+>
+> WRONG — recency order, a fallback shorter than the gap, and no existence assertion:
+> ```text
+> Target: the newest {record} in {corpus}, ordered by {timestamp} descending.
+> Fallback: if the candidate is unresolved, step back one date, at most 3 tries.
+> ```
+> CORRECT — a census in the delta, a ceiling above the gap, an existence assertion and the sentinel:
+> ```text
+> Census ({corpus}, {date}): {GROUP BY month result, with the empty months named}.
+> Target: the newest {record} in {corpus} at or before {date before the gap}, and the query asserts
+>         the record exists in the corpus the runner reads.
+> Fallback: step back one date, at most {N above the largest known gap} tries.
+> If no candidate resolves, write NONE with the reason, measure alternatives with read-only
+> queries, and substitute no other target.
+> ```
+
+1. **Run a census first.** Run one `GROUP BY` over the corpus, by month or another coarse bucket. It takes seconds and shows the gap that the recency order falls into. Cite the census in the delta as a dated row, per [verify-before-cite.md](verify-before-cite.md) §9.B.24.
+2. **Set the fallback ceiling above the largest known gap, or make the query skip the gap.** A limit of three tries suits a name mismatch. It cannot cross a two-month coverage hole.
+3. **Keep the `NONE` sentinel and the "measure, don't substitute" instruction.** The runner records `NONE` with the reason and measures alternatives with read-only queries. It has no permission to pick another target. This turns a miss into a free finding instead of a mis-targeted paid call.
+4. **Assert the target exists in the corpus the runner reads.** Ordering by recency does not assert that. Add the existence condition to the pin query.
+
+#### Reviewer Check 120 — Corpus Target Pin With No Census, Fallback Ceiling or NONE Sentinel
+
+- **Severity / Role / Type:** ERROR | Task Reviewer | NEW
+- **What:** A paid or irreversible step whose target is pinned by a recency-ordered query over a stored corpus MUST cite a census of the corpus, set a fallback ceiling above the largest known gap, and keep the `NONE` sentinel with the "measure, don't substitute" instruction.
+- **Detection:**
+  1. List each Execution Input, delta or task step that pins a target for a paid or irreversible step by querying a stored corpus.
+  2. Flag a pin ordered by recency whose delta cites no census of the corpus.
+  3. Flag a bounded fallback ("step back one date, at most N tries") whose limit the plan never compares with the largest known gap.
+  4. Flag a pin that carries no `NONE` sentinel or no "measure, don't substitute" instruction, and a pin query that does not assert the target exists in the corpus the runner reads.
+  5. A pin that cites a census, sets the ceiling above the gap or skips it, keeps the sentinel and asserts existence is not a finding. A free and reversible step is not a finding.
+- **Finding template:**
+```
+[ERROR] Corpus target pin with no census, fallback ceiling or NONE sentinel
+File: {task or Execution Input file path} | Location: {the pin or delta line}
+Issue: The pin "{quoted pin}" orders {corpus} by recency for a paid or irreversible step and {cites no census | bounds the fallback at N tries with no comparison to the largest gap | gives the runner no NONE sentinel}
+Fix: Add the census to the delta, set the ceiling above the largest known gap, and keep the NONE sentinel with the measure-don't-substitute instruction, per references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md §1.31.1 | Confidence: HIGH
+```
 
 ## 1.32 Derive a Remediation Brief's Write Set From Where Each Fix Lands
 

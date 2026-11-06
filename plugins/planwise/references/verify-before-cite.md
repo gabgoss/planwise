@@ -1,6 +1,6 @@
 ---
-description: Verify-before-cite discipline (lesson IDs, schema files, field names, facade re-exports, upsert helper design, examples-repo version pinning, helper enumeration, field-mapping tables, tiered-fetch tactics, splitting an exemplar comparison into shape rows judged against the exemplar and data rows judged against the live source, and tracing each hazard a guard names to a mechanism in code before the guard is retired) for planwise task files and DELEGATED dispatch prompts
-consult-when: A task brief cites a lesson ID, schema file, or field name — open and skim it before citing, split an exemplar comparison into shape rows and data rows, trace each hazard before retiring a guard
+description: Verify-before-cite discipline (lesson IDs, schema files, field names, facade re-exports, upsert helper design, examples-repo version pinning, helper enumeration, field-mapping tables, tiered-fetch tactics, splitting an exemplar comparison into shape rows judged against the exemplar and data rows judged against the live source, tracing each hazard a guard names to a mechanism in code before the guard is retired, stating the signature outcome when a documentation check shows an inherited parameter is unsupported, and checking a brief's claim about an external source's coverage against the probe document it cites) for planwise task files and DELEGATED dispatch prompts
+consult-when: A task brief cites a lesson ID, schema file, or field name — open and skim it before citing, split an exemplar comparison into shape rows and data rows, trace each hazard before retiring a guard, state the signature outcome when a documentation check shows an inherited parameter is unsupported, check a brief's claim about an external source's coverage against the probe document it cites
 ---
 
 # Verify-Before-Cite
@@ -21,7 +21,7 @@ The cost is one Read + one Grep per cited artifact. The savings are at minimum o
 
 | Contract Type | Artifact | What "verify" means |
 |---------------|----------|---------------------|
-| Database schema | `CREATE TABLE` / `ALTER TABLE` DDL | Column names, types, constraints exist as cited |
+| Database schema | `CREATE TABLE` / `ALTER TABLE` DDL | Column names, types, constraints exist as cited. For a column the brief filters with a literal, the literal sits in the measured value vocabulary (`schema-pin-requirement.md` §5.1) |
 | OpenAPI / Swagger spec | `openapi.yaml` / `swagger.json` | Path, operation, request/response schema exist as cited |
 | protobuf / gRPC | `.proto` definition | Message, field number/name, service method exist as cited |
 | GraphQL SDL | schema `.graphql` | Type, field, query/mutation exist as cited |
@@ -509,6 +509,89 @@ Two checks apply before a guard is removed.
 
 The generic pin rule is in `measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md` §8.11.
 
+### 9.B.25 A planner-authored citation is opened in the named file before it ships
+
+> [!constraint] A citation from an audit or from memory is verified like a user-cited one
+> §9.B.1 verifies the artifacts a user cites. A planner or an audit cites too: a test name, an `except` clause, a helper, a rule file's size. Each is a claim about one named file at one moment. A path Glob proves none of them. Five sprints scaffolded in one pass from an audit shipped all four shapes below.
+>
+> WRONG — cite from the audit's wording after the path check passed:
+> ```
+> Step: "update test_upgrade_messages in tests/test_upgrade.py"   # the test lives in tests/test_upgrade_flow.py
+> Step: "change `except ValueError as exc:`"                      # live code: `except (ValueError, TypeError, AttributeError): return None`, no binding
+> Context: "reuse make_fixture from tests/helpers.py"             # defined in tests/fixtures_util.py; the only match in helpers.py is a parametrize tuple
+> Context: "rules/foo.md, about 4K tokens"                        # measured 12K tokens after three sections landed
+> ```
+> CORRECT — open the named file and write the reading beside the citation:
+> ```
+> Read  file_path='tests/test_upgrade.py'  offset=<cited line>  limit=20
+> Grep  pattern='def test_upgrade_messages'  path='tests/test_upgrade.py'  output_mode='count'   # 0 -> wrong module; find the real home first
+> Grep  pattern='except \(ValueError'  path='<module>.py'  output_mode='content'  -n=true       # quote the live clause, not the paraphrase
+> python -B scripts/measure_files.py rules/foo.md                                               # fresh size, not the audit's
+> ```
+
+1. **Open the named file at the cited line.** Treat the line number as a hint and read the text around it.
+2. **Search each cited symbol, test name and quoted code line inside that file, never repo-wide.** A symbol found only in a sibling file is a wrong citation, not a pass.
+3. **Take a fresh size reading for each cited rule file.** Use `measure_files.py` or `wc -c`. The method is in [task-content-fidelity.md](task-content-fidelity.md) §9.A.14.
+4. **Quote the live clause.** Copy the exact `except` clause, signature or heading from the file, so the step cannot narrow or widen it by paraphrase.
+
+### 9.B.26 A documentation check on an inherited parameter changes the signature, not only the audit value
+
+> [!constraint] A verify-before-send rule answers what goes on the wire. The brief must also answer what the signature promises
+> A plan decision gave two new client methods the same keyword parameters as a sibling method, including a `{filter}` parameter and a boolean flag. The task brief then added a rule: send each parameter only if the endpoint's reference document lists it. If the document does not list it, do not send it. Record the audit value as `False` or `None` and say so in the findings.
+>
+> Neither endpoint document listed the parameters. The runner followed the brief exactly. The result was two public methods that accept `{filter}="x"` and silently ignore it. The caller pays for every default value, while the audit row truthfully records `None`. The plan review rated this HIGH. The type checker had flagged both parameters as "not accessed" all along.
+>
+> WRONG — the brief changes the audit value and leaves the signature spec alone:
+> ```text
+> if a flag is not documented there, do not send it, record the audit value as False/None,
+> and say so in the findings
+> ```
+> CORRECT — the brief names one of two signature outcomes, and the audit column records what was sent:
+> ```text
+> if a parameter is not documented there, do not send it. Signature outcome: {remove it from the
+> signature spec | keep it for parity with {sibling} and raise on a non-default value}.
+> The audit column records what was sent.
+> ```
+
+1. **Treat "undocumented" as a signature finding.** When the documentation check says the endpoint does not take a parameter, the brief changes the signature spec. Changing only the audit value is not enough.
+2. **Name one of two outcomes.** If the endpoint does not take the parameter, it is not a parameter, so the brief removes it from the signature spec. If the parameter must stay for parity with a sibling, the brief requires that a non-default value raise an error. The caller asked for something the method cannot do.
+3. **Record what was sent in the audit column.** Nothing else was possible, so the column no longer hides a dead parameter.
+4. **Read two mechanical tells as proof the wrong shape landed.** The type checker reports `"<param>" is not accessed` on a public method's parameter. A test passes a non-default value and asserts its absence on the wire. That test is correct, but a correct signature would not have needed it.
+
+#### Reviewer Check 118 — Documentation Check on an Inherited Parameter With No Signature Outcome
+
+- **Severity / Role / Type:** ERROR | Task Reviewer | NEW
+- **What:** A brief that sends an inherited parameter only when the endpoint's reference document lists it MUST also state the signature outcome for the unlisted case. The outcome is either removal from the signature spec or a raise on a non-default value. A brief that only records `False` or `None` as the audit value leaves a silently ignored public parameter.
+- **Detection:** Search task briefs and Execution Steps for a rule shaped "send only if documented", "if it is not listed, do not send it" or "record the audit value as False/None". For each hit, read the same brief for a signature outcome. Flag a brief with neither a removal from the signature spec nor a raise on a non-default value. Flag a public parameter the brief leaves unread by the method body. → ERROR.
+- **Finding template:**
+```
+[ERROR] Inherited-parameter documentation check with no signature outcome
+File: {task file path} | Location: {Execution Step or Notes for Agent line}
+Issue: The brief sends "{parameter}" only when the endpoint document lists it and records {False/None} otherwise, but it states no signature outcome, so the public method accepts and ignores the parameter
+Fix: State one outcome, either remove "{parameter}" from the signature spec or raise on a non-default value, per references/verify-before-cite.md §9.B.26 | Confidence: HIGH
+```
+
+### 9.B.27 A brief's claim about an external source's coverage is checked against the probe document it cites
+
+> [!constraint] A coverage claim in a brief is checked against the probe document, never written from memory
+> A brief said an external source's listing "may return 0 entries" before a given date. The probe document in the same brief's Required Context already recorded the real coverage rule. The planner wrote the sentence from memory and never opened the document. The sprint's sequencing then depended on a case the plan had not written down.
+>
+> WRONG — coverage asserted from memory beside a probe document that states the rule:
+> ```text
+> Required Context: {probe document}
+> Note: the source begins listing on {date}. Before that the listing may return 0 entries.
+> ```
+> CORRECT — the rule is quoted from the document, with the probe date:
+> ```text
+> Required Context: {probe document}
+> Source coverage ({probe document}, probed {date}): {the rule, quoted}.
+> ```
+
+1. **Open the cited probe document at scaffold time.** A date, a coverage window or a "may return nothing" caveat about an external source is a claim about that document.
+2. **Quote the rule and record the probe date.** A paraphrase can narrow or widen the rule.
+3. **Reconcile every sentence about the source.** When the brief and the document disagree, the document wins until a fresh probe says otherwise. Correct the brief at its source.
+4. **Pair the claim with a criterion that names every cell.** A criterion over the source's listing follows [gate-anchor-outcome-set.md](gate-anchor-outcome-set.md) §10.12.
+
 ---
 
 ## Plan-Review Enforcement Summary (Verify-Before-Cite)
@@ -524,6 +607,9 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 | 5 | Missing Schema Pin OR Pre-SQL Schema Verification on SQL-emitting task | A task file's Execution Steps include SQL-emitting verbs against project tables AND the file has neither a Schema Pin section nor a `Pre-SQL Schema Verification` block in Notes for Agent | §9.B.5 |
 | 6 | Target structure assumed from siblings | A row specifying an edit "in native format" / "matching the existing" / naming a section of its target carries no locator evidence measured against that target; or the live locator returns 0 and the row states no fallback form | §9.B.21 |
 | 7 | Live-tree figure pinned as a literal | A task gate or step asserts a file count, split boundary, scan-set size, line number or line-ending tally as a bare literal, with no census row naming its artifact, commit and date | §9.B.24 |
+| 8 | Planner-authored citation not opened in the named file | A task cites a test, symbol, quoted code line or rule-file size taken from a planner or an audit, and the row records no reading from the named file (a symbol found only in a sibling file, or a size not freshly measured) | §9.B.25 |
+| 9 | Documentation check on an inherited parameter states no signature outcome | A brief sends an inherited parameter only when the endpoint document lists it, records `False` or `None` otherwise, and neither removes the parameter from the signature spec nor raises on a non-default value | §9.B.26 |
+| 10 | Coverage claim about an external source not checked against the probe document | A brief states a date, a coverage window or a "may return nothing" caveat for an external source, and its row quotes no rule from the probe document the brief cites | §9.B.27 |
 
 ---
 

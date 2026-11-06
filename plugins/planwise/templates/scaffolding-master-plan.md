@@ -108,14 +108,14 @@ Assigns a global number to each spec output for cross-EI traceability. Execution
 ## Success Criteria
 
 ### Sprint-01 Complete When:
-- [ ] {Measurable criterion from Part's "What This Enables"}
-- [ ] {Measurable criterion}
+- [ ] {Measurable criterion from Part's "What This Enables"} — Owner: {task-id}
+- [ ] {Measurable criterion} — Owner: {task-id}
 
 ### Project Complete When:
-- [ ] All sprints complete
-- [ ] {Final deliverable criterion}
-- [ ] All Consolidated Context part content implemented
-- [ ] Every item in **Resolves:** is COMPLETE with a dated resolution note (or Resolves is "none")
+- [ ] All sprints complete — Owner: {sprint signoff or closeout task-id}
+- [ ] {Final deliverable criterion} — Owner: {task-id}
+- [ ] All Consolidated Context part content implemented — Owner: {closeout task-id}
+- [ ] Every item in **Resolves:** is COMPLETE with a dated resolution note (or Resolves is "none") — Owner: {closeout task-id}
 
 ---
 

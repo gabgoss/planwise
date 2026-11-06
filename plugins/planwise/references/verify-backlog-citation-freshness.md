@@ -115,6 +115,7 @@ The originating session may have fixed a BLI as collateral before its formal clo
 | `Surfaced by:` references a session that is IN_PROGRESS or in EVIDENCE_WRITING phase | Read the session's Recovery file Current Step + Phase |
 | Multiple BLIs share the same Sprint+Session in `Surfaced by:`, same `created:` date, adjacent IDs | A cluster filed in a single triage pass often gets fixed in a single Step |
 | Recovery file mentions the BLI ID in Step Completion or Key Findings | The originating session referenced the BLI during execution |
+| Blocker chain: another open item lists this one in `blocks:`, or the body says it was filed from another item's follow-up | Check the blocker first. Closing a stale blocker often makes the dependent's own condition re-checkable with the same evidence |
 
 **Operational rule — two-part driver-recheck for cluster signals:**
 

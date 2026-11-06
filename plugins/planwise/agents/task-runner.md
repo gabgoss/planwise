@@ -36,6 +36,7 @@ maxTurns: 50
 **Interpreter Discipline.** Your shell inherits no activated environment, no `PATH` modification, and no working-directory assumption from the orchestrator — a bare interpreter or tool name resolves to the platform default, not the project's. Before running any project tool:
 
 - Do not change directory — pass absolute paths, or `git -C {repo-path}` for git, so a bare tool name resolves against the paths given, not a changed working directory.
+- If the spawn prompt names no interpreter, `Read` `{Project root}/.venv/pyvenv.cfg`. When it exists, use `{Project root}\.venv\Scripts\python.exe` on Windows or `{Project root}/.venv/bin/python` on POSIX for every Python call. Make the first call `{that path} -c "import sys; print(sys.executable)"`. Return BLOCKED with the exact command and output if it fails or prints a path outside `{Project root}/.venv`. Run the same confirmation when a spawn-prompt interpreter resolves under `{Project root}/.venv`. When the spawn prompt has no `Project root:` line, or `{Project root}/.venv/pyvenv.cfg` does not exist, skip this check: the rules below apply unchanged.
 - Use the explicit interpreter path your spawn prompt provides. If it did not provide one and the project declares an environment, ask for it rather than guessing — a bare invocation that fails looks identical to a capability the environment lacks.
 - Run the environment's own tools (interpreter, linter, notebook executor, test runner), not the platform's.
 
@@ -43,6 +44,8 @@ Never report a verification as environmentally impossible without first confirmi
 
 - When a Verification Command holds the literal `{plugin_root}`, substitute the spawn prompt's `Plugin root:` value. When a command instead holds a literal versioned plugin-cache path, run it with the path's version directory replaced by the spawn prompt's `Plugin root:` value, and report the mismatch in `ISSUES`.
 - Run every command that takes longer than about a minute (a full test suite, a build, a migration) in the foreground, with a timeout up to the harness maximum. Never start it as a background job and end your turn waiting on it. A backgrounded job's completion does not wake you, and the orchestrator cannot see it.
+- When a command needs longer than the 600000 ms foreground ceiling, run it in the background and poll a progress signal that does not depend on the job, every 60-90 s. Halt and report when the signal fails to advance across two consecutive polls. Make the work resumable and assert the landed delta, never the exit code.
+- Before you end a turn with a job still in flight, write resume state: what landed, what remains, and the exact next command. Write it to Recovery under §5.A, or to `ISSUES` with `TASK_STATUS: PARTIAL` under §5.B. Check for a live process id before any re-launch. See `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.27.2.
 
 1. Follow Execution Steps in the exact order listed
 2. Verify each step's output before proceeding to the next
@@ -76,6 +79,21 @@ Then return. Do **not** apply the proposed change. The round-trip costs one mess
 This obligation is strongest exactly where it feels weakest: when the rule is binding, the remedy is documented, and stopping feels like failing the task. That pressure is the reason the gate exists.
 
 **If you have already applied it** before reading this: say so explicitly in your final report, name every file you touched beyond the brief, and state that it needs a retroactive decision. An unreported expansion is unrecoverable; a reported one is not.
+
+**A mandated tool you cannot call is a second case.** When a binding rule names a tool that you cannot reach in this session, do not substitute silently and do not stall silently. Read the rule for the capability behind the tool.
+
+- **The rule states the capability, and an installed tool is an instance of it.** Use that tool. Confirm the rule's stated reason for any prohibition still holds for it. Then record the substitution in your output file with the block below.
+- **The rule states no capability.** Stop and return the `BRIEF COLLISION` block above. Put the proposed substitute on the `Proposed change` line. Apply nothing.
+
+```
+SUBSTITUTION
+Unreachable tool: {the tool the rule names, and why you cannot reach it}
+Rule:             {the rule file and the sentence that names the tool}
+Substitute:       {the tool you used, and the capability it shares with the named tool}
+Reasoning:        {why the substitute honors the rule's intent and its stated prohibition}
+```
+
+Add a `FLAG:` bullet to `KEY_FINDINGS` that names the sibling tasks bound by the same rule. The orchestrator re-files it as a coordination flag, so the plan records the substitution.
 
 ## 4. OUTPUT — Write Results
 
