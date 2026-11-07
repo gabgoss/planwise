@@ -83,7 +83,7 @@ If validation fails, ask user to correct.
 
 ### Step 3: Create Folder Structure
 
-On the default path of [Steps 4-7](#steps-4-7-generate-files), `scaffold_plan.py render` creates this whole tree, so create no folder here and go to Steps 4-7. On the fallback path, create the following structure under the configured `{plans_dir}`. **Two nested loops, both bound in Step 1:** repeat the `Sprint-{XX}-{SprintName}/` block for every sprint (`{XX}` = `01` … `{sprint_count}`), and inside each one repeat the `Session-{YY}-{SessionName}/` block for every session of that sprint (`{YY}` = `01` … `{session_count[XX]}`). Do not stop after the first sprint, and do not stop after each sprint's first session.
+On the default path of [Steps 4-7](#steps-4-7-generate-files), `plan_build.py build` creates this whole tree, so create no folder here and go to Steps 4-7. On the fallback path, create the following structure under the configured `{plans_dir}`. **Two nested loops, both bound in Step 1:** repeat the `Sprint-{XX}-{SprintName}/` block for every sprint (`{XX}` = `01` … `{sprint_count}`), and inside each one repeat the `Session-{YY}-{SessionName}/` block for every session of that sprint (`{YY}` = `01` … `{session_count[XX]}`). Do not stop after the first sprint, and do not stop after each sprint's first session.
 
 ```
 {plans_dir}/{PlanName}/
@@ -134,26 +134,37 @@ Worked example — 2 sprints, the second with 2 sessions (`{sprint_count}` = 2, 
 Read `context.plan_authoring` once, before any file is generated, through `scripts/config_loader.py::get_token_saver_extension_config()` — never hardcode it. The accessor returns `inline` or `delegated`, and any other value reads as `inline`.
 
 - **`inline`** (the default, and the value when the key is absent): the steps below run as written, and this session writes every body.
-- **`delegated`**: applies on the default path only, because the agent fills a rendered skeleton. On the fallback path, run inline. After item 5's render, item 6 covers only the files that are not task files: this session fills every FILL marker in the Master Plan, each Sprint Plan, and each Orchestration and Recovery file inline. The agent writes only a session's task files, so this loop fills the task files' FILL markers:
-  1. Write `{plans_dir}/{PlanName}/{Abbrev}-PlanNotes.md` from [`templates/plan-notes.md`](../templates/plan-notes.md). It holds the measured facts and decisions from Steps 1-2 and the lessons search, every question only the user can answer, one `## Authoring Progress` row per session reading `pending`, and a boundary note that names the first session.
-  2. For each session in order, dispatch `planwise:plan-author` once through the Agent tool, in the foreground. Pass `run_in_background: false`, because an omitted flag runs the agent in the background. Never set it to `true`, which silently denies the agent's writes. The prompt passes `plugin_root`, `planwise_root`, the session id, the spec path, that session's task file paths, the notes path and the Master Plan path. It also passes the current timestamp for the notes file's `**Written At:**` line, because the agent has no clock. It states that the agent reads **and writes** the notes file: the agent updates it with `Edit` after each task file.
-  3. Act on the agent's status block, using the fields `agents/plan-author.md` defines (`TASK_STATUS`, `OUTPUT_FILES`, `ISSUES`, `NOTES_PATH`, `OPEN_QUESTIONS`). Never ask the agent for another block shape.
+- **`delegated`**: applies on the default path only, because the agent writes a bodies file that `plan_build.py build` consumes. On the fallback path, run inline. The order is `keys`, then the agent per session, then `build`. After item 3's `keys`, this session writes `{Abbrev}-bodies-plan.md` inline, with the `MASTER` and sprint documents. The agent writes one bodies file per session, `{Abbrev}-bodies-S{XX}-{YY}.md` in `{bodies_dir}`, for that session's Orchestration, Recovery and task documents. An overflow goes to `{Abbrev}-bodies-S{XX}-{YY}-part{n}.md`, with `n` from 2. The agent never writes a task file or the Master Plan. This loop replaces item 4's session bodies:
+  1. Write `{bodies_dir}/{Abbrev}-PlanNotes.md` from [`templates/plan-notes.md`](../templates/plan-notes.md). Keep it out of `{plans_dir}/{PlanName}/`, because `build` refuses a folder that holds files and no manifest. It holds the measured facts and decisions from Steps 1-2 and the lessons search, every question only the user can answer, one `## Authoring Progress` row per session reading `pending`, and a boundary note that names the first session.
+  2. For each session in order, dispatch `planwise:plan-author` once through the Agent tool, in the foreground. Pass `run_in_background: false`, because an omitted flag runs the agent in the background. Never set it to `true`, which silently denies the agent's writes. The prompt passes `plugin_root`, `planwise_root`, the session id in the `S{XX}-{YY}` form, the spec path, the `keys` output or command, `{bodies_dir}`, the notes path and the plan bodies file, `{bodies_dir}/{Abbrev}-bodies-plan.md`, which the agent reads for context only. The prompt also passes the current timestamp for the notes file's `**Written At:**` line, because the agent has no clock. It states that the agent reads **and writes** the notes file: the agent updates it with `Edit` after each lint run.
+  3. Act on the agent's status block, using the fields `agents/plan-author.md` defines (`TASK_STATUS`, `OUTPUT_FILES`, `KEYS_MISSING`, `ISSUES`, `NOTES_PATH`, `OPEN_QUESTIONS`). Never ask the agent for another block shape.
      - `BLOCKED`: put each open question from `ISSUES` to the user. Write each answer under the notes file's `## Decisions` and reset `## Open Questions` to `none`. Only then dispatch again for the same session. When `ISSUES` names a missing input instead, restore the input, then dispatch again. When `ISSUES` names a cited heading or symbol that no longer resolves, correct the spec or the Execution Input, then dispatch again. Do not put either of these two causes to the user as an open question.
-     - `COMPLETE`: go to the next session.
-     - `PARTIAL`: dispatch again for the same session. The agent resumes from the notes file's `## Authoring Progress` row. If a re-dispatch returns `PARTIAL` and its `OUTPUT_FILES` lists no file the previous dispatch did not, finish that session's remaining bodies inline, set its progress row to `complete`, and go to the next session.
+     - `COMPLETE`: the session's lint shows `keys_missing=0` and `errors=0`, so go to the next session.
+     - `PARTIAL`: dispatch again for the same session. The agent resumes from the notes file's `## Authoring Progress` row. If a re-dispatch returns `PARTIAL` and its `KEYS_MISSING` is not lower than the previous dispatch's, finish that session's bodies file inline, set its progress row to `complete`, and go to the next session. Read `KEYS_MISSING: unknown` as not lower.
 
-  When the loop ends, with every session `COMPLETE` or finished inline, continue exactly as the inline path does: run `check-headings` below, then Step 8b, then Step 8c.
+  When the loop ends, with every session `COMPLETE` or finished inline, continue exactly as the inline path does: run item 4's whole-plan `lint`, then items 5 and 6, then Step 8b, then Step 8c.
 
-**Default path: one spec Write, one script render.** The index-shape gate in the router's `## Workflow` has already run, so every write below sits behind it. One metadata-only spec and one `scaffold_plan.py` render produce every file of Steps 3-8. The model then writes only the prose bodies:
+**Default path: one spec Write, `plan_build.py keys`, bodies Writes, `plan_build.py build`.** The index-shape gate in the router's `## Workflow` has already run, so every write below sits behind it. One metadata-only spec and the bodies files produce every file of Steps 3-8. The model writes only the prose bodies, and the script writes every plan file:
 
-1. Run Step 8's lessons search first, so its hits reach the spec's Required Context rows or the task bodies.
-2. `Write` ONE spec JSON, outside `{plans_dir}/{PlanName}/`, holding the plan, sprint, session and task metadata bound in Steps 1-2. The spec names no heading, because the templates carry every heading. Its fields are defined once, in the module docstring of `scaffold_plan.py` (section "Spec format").
-3. Write each Required Context row as a typed row. `kind` `"path"` (the default) takes `priority`, `path`, `kib`, `tokens_k` and `purpose`. `kind` `"span"` takes the same fields plus `span` (for example `"lines 1-80"`). `kind` `"command"` takes `priority`, `command`, `lines`, `bytes`, `kib`, `tokens_k` and `purpose`, and no `path`. Write a command-corpus row or a span row in its typed form in the spec. Never hand-fill one into the rendered table afterwards. The renderer writes a resolution record line beneath the table for each span or command row.
-4. Run `python -B "{plugin_root}/scripts/scaffold_plan.py" lint-spec --spec {spec}`. Exit 0 prints `lint=clean`. Exit 1 prints one `LINT:` line per error, quoting the row or key: fix the spec and re-run. A prose `path`, an unknown key and a malformed typed row are lint errors.
-5. Run `python -B "{plugin_root}/scripts/scaffold_plan.py" render --spec {spec} --out {plans_dir}/{PlanName}`. It refuses an `--out` folder that is not empty, so do not pre-create the Step 3 tree. It writes the Master Plan, every Sprint Plan, every Orchestration and Recovery pair, every task file with its Task Files table row, and every `Outputs/.gitkeep`, then prints `rendered <n> files to <out>; fill_markers=<k>; surviving_placeholders=<m>`.
-6. Replace every `<!-- FILL: {name} -->` marker with model-written text. The script writes metadata and derived tables only, and every body stays model-written.
+1. Run Step 8's lessons search first, so its hits reach the spec's Required Context rows or the bodies.
+2. `Write` ONE spec JSON, outside `{plans_dir}/{PlanName}/`, holding the plan, sprint, session and task metadata bound in Steps 1-2. Its folder is `{bodies_dir}`, which also holds the bodies files and the build manifest. The spec names no heading, because the templates carry every heading. Its core fields are defined once, in the module docstring of `scaffold_plan.py` (section "Spec format"). The keys `meta`, `omit_sections`, `output_k` and `working_k` are defined once, in the module docstring of `plan_build.py` (section "Build spec format"). A plan-level `meta` is a JSON boolean.
 
-**Fallback: the per-template steps.** When `scaffold_plan.py` is absent, or `render` exits non-zero (1: a placeholder survived outside a FILL marker; 2: refused), generate the files with the table below and Step 8's task-file steps. An exit 1 has already written the tree, so write each fallback file over its rendered copy.
+   Write each Required Context row as a typed row. `kind` `"path"` (the default) takes `priority`, `path`, `kib`, `tokens_k` and `purpose`. `kind` `"span"` takes the same fields plus `span` (for example `"lines 1-80"`). `kind` `"command"` takes `priority`, `command`, `lines`, `bytes`, `kib`, `tokens_k` and `purpose`, and no `path`. Write a command-corpus row or a span row in its typed form in the spec. Never hand-fill one into the rendered table afterwards. The renderer writes a resolution record line beneath the table for each span or command row.
+3. Run `python -B "{plugin_root}/scripts/plan_build.py" keys --spec {spec}`. It prints each document's markers and headings, which are the keys the bodies must cover. Exit 2 prints `LINT:` or `REFUSED:` lines, quoting the row or key: fix the spec and re-run. A prose `path`, an unknown key and a malformed typed row are lint errors.
+4. `Write` `{bodies_dir}/{Abbrev}-bodies-plan.md` and one `{bodies_dir}/{Abbrev}-bodies-S{XX}-{YY}.md` per session, from the `keys` output. The plan file holds the `MASTER` and sprint documents. Each session file holds that session's Orchestration, Recovery and task documents. The directives are defined once, in the module docstring of `plan_build.py` (section "Bodies format"). A body must not repeat a marker a spec key fills, because that is a lint error. Then run `python -B "{plugin_root}/scripts/plan_build.py" lint --spec {spec} --bodies-dir {bodies_dir}`, with no `--session`. Lint exits 1 on a missing key and 2 on an error. Repair the bodies until the first summary line reads `plan missing=0`, because the plan does not count as built before that.
+5. Run `python -B "{plugin_root}/scripts/plan_build.py" build --spec {spec} --bodies-dir {bodies_dir} --out {plans_dir}/{PlanName} --config "{planwise_root}/config.yaml"`. For a Meta plan, `--out` still names the parent folder: `build` appends `Meta-{Abbrev}/`, and an `--out` already ending in that folder exits 2. A folder that holds files and no manifest refuses too, so do not pre-create the Step 3 tree. `build` writes the Master Plan, every Sprint Plan, every Orchestration and Recovery pair, every task file with its Task Files table row, and every `Outputs/.gitkeep`. It writes `{Abbrev}-build-manifest.json` beside the spec, or `{Abbrev}-META-build-manifest.json` for a Meta plan. It then runs its five gates and prints the report.
+6. Act on the report by editing the bodies or the spec, then run `build` again. The script writes metadata and derived tables only, and every body stays model-written. The plan is built when the report ends in `fill_remaining=0` and `exit=0`. Read these report lines:
+   - `fill_remaining=<n>`: `n` markers have no body, so add each body.
+   - `gate=headings`: `stray=` counts an H2 outside the template set. Move each one under the catch-all as an H3.
+   - `gate=deviations`: `A=`, `B=` and `C=` count the template deviations, and the detail lines name them. Repair each one.
+   - `gate=estimates` and `gate=scan`: Step 8c reads these two lines.
+   - `gate=index`: this gate is Step 8d's generator run, so skip Step 8d when it reads `ok`. A `finding` includes a written index with no row for the abbreviation. Route a `finding` by Step 8d's causes.
+   - `delta task=<SXX-YY-ZZ> spec=<n> measured=<n>`: this line is information and never a failure. A pair that differs is the signal to read.
+   - `STALE: <path>`: the spec no longer renders this file, and a rebuild never deletes it. Remove the file when the spec dropped it on purpose.
+
+   Exit 1 built the tree with a marker left, a placeholder surviving or a gate finding. Exit 2 wrote nothing. Its `LINT:` lines name a spec or bodies error. Its `CHANGED:` lines name a built file that differs from the manifest: move that edit into the bodies or the spec, then re-run with `--force`. Exit 3 means a write failed, and the `FAILED:` line gives the reason: clear the cause and re-run.
+
+**Fallback: the per-template steps.** When `plan_build.py` or `scaffold_plan.py` is absent, or `keys` or `build` still exits 2 after the repairs above, generate the files with the table below and Step 8's task-file steps. An exit 2 wrote nothing, so write each fallback file over any copy an earlier build left.
 
 Use templates from `{plugin_root}/templates/`:
 
@@ -167,11 +178,11 @@ Use templates from `{plugin_root}/templates/`:
 
 Step 5 repeats for every sprint; Steps 6-7 repeat for every session of every sprint. Their cardinality is **not** the sprint count — a 3-sprint plan whose second sprint has 3 sessions produces 3 Sprint Plans and **5** Orchestration/Recovery pairs. Do not stop after Sprint-01, and do not stop after each sprint's Session-01.
 
-**A section no template heading covers goes under `## Plan-Specific Sections`, as an `###` H3.** Never add it as a new H2. The catch-all is the last H2 of every plan template, and the render omits it unless the document's `optional_sections` list in the spec names `"Plan-Specific Sections"`. When the need appears after the render, add the heading from the template by hand. For each new H3 heading text, draft one `idea` through `mcp__planwise__draft_feedback`, as [`references/feedback-drafting.md`](../references/feedback-drafting.md) § Triggers describes. With `feedback.drafts` set to `off`, write no draft.
+**A section no template heading covers goes under `## Plan-Specific Sections`, as an `###` H3.** Never add it as a new H2. The catch-all is the last H2 of every plan template, and the render omits it unless the document's `optional_sections` list in the spec names `"Plan-Specific Sections"`. When the need appears after the build, name it in that list and rebuild. On the fallback path, add the heading from the template by hand. For each new H3 heading text, draft one `idea` through `mcp__planwise__draft_feedback`, as [`references/feedback-drafting.md`](../references/feedback-drafting.md) § Triggers describes. With `feedback.drafts` set to `off`, write no draft.
 
-After rendering and filling (or after the fallback writes), run `python -B "{plugin_root}/scripts/scaffold_plan.py" check-headings {plans_dir}/{PlanName}`. Exit 1 lists each stray H2. Move each one under the catch-all as an H3 before Step 9.
+On the default path, `build` has run this check as `gate=headings`. After the fallback writes, run `python -B "{plugin_root}/scripts/scaffold_plan.py" check-headings {plans_dir}/{PlanName}`. Exit 1 lists each stray H2. Move each one under the catch-all as an H3 before Step 9.
 
-Then run `python -B "{plugin_root}/scripts/scaffold_plan.py" check-scope-line {plans_dir}/{PlanName}`. The command counts the `Execute ONLY` clause in every DELEGATED Orchestration. Each file must hold it exactly once. Exit 1 lists each file with a count of 0 or 2. Restore the template's HARD CONSTRAINTS sentence in each listed file with a whole-file `Write`. Run the check again before Step 9.
+Then run `python -B "{plugin_root}/scripts/scaffold_plan.py" check-scope-line {plans_dir}/{PlanName}`. The command counts the `Execute ONLY` clause in every DELEGATED Orchestration. Each file must hold it exactly once. Exit 1 lists each file with a count of 0 or 2. On the default path, restore the template's HARD CONSTRAINTS sentence in the bodies file and rebuild. On the fallback path, restore it in each listed file with a whole-file `Write`. Run the check again before Step 9.
 
 ### Step 8: Generate Task Files
 
@@ -193,7 +204,7 @@ The payoff scales with repetition: a plan that repeats one task chain across sev
 
 **CRITICAL:** Create ONE task file per task in the Orchestration task list.
 
-On the default path of Steps 4-7, `render` has already written one task file per task and its Task Files table row, so fill each task file's FILL markers. The steps below are the fallback.
+On the default path of Steps 4-7, `build` has already written one task file per task and its Task Files table row, and each task's text lives in its session's bodies file. The steps below are the fallback.
 
 For each task, create a file using the [task-file.md](../templates/task-file.md) template.
 
@@ -201,16 +212,16 @@ For each task, create a file using the [task-file.md](../templates/task-file.md)
 
 After creating task files, update the Orchestration file's Task Files table with links.
 
-> [!constraint] Repair a Generated File With One Whole-File Write
-> WRONG — a file needs several repairs after the fill, a lint or a scan, and each repair is its own `Edit`:
+> [!constraint] Repair a Built File in Its Bodies File, Then Rebuild
+> WRONG — a built file needs several repairs after a lint or a scan, and each repair is its own `Edit` on that file. The next `build` prints `CHANGED:` and exits 2:
 > ```
 > Edit {Abbrev}-Master-Plan.md  … Edit {Abbrev}-Master-Plan.md   # one tool use per repair
 > ```
-> CORRECT — read the file once, then `Write` the whole corrected file once:
+> CORRECT — edit the bodies file or the spec, then run `plan_build.py build` once:
 > ```
-> Read {Abbrev}-Master-Plan.md → Write {Abbrev}-Master-Plan.md   # all repairs in one write
+> Edit {Abbrev}-bodies-plan.md → plan_build.py build   # all repairs in one build
 > ```
-> Never apply the whole-file Write to a file listed under a Sprint Plan's `## Cross-Sprint File Touches`, because a whole-file write discards a co-writer's change. Repair that file with targeted `Edit` calls. The rule's acceptance counts two figures, each with its basis: repair tool uses (each `Edit` or `Write` call) and distinct requests (each model response, which can carry several tool calls). Several `Edit` calls can share one request, so a whole-file Write can save tool uses and no requests.
+> A file no bodies file feeds takes the whole-file rule: `Read` the file once, then `Write` the whole corrected file once. Never apply the whole-file Write or `build --force` to a file listed under a Sprint Plan's `## Cross-Sprint File Touches`, because either discards a co-writer's change. Repair that file with targeted `Edit` calls. The rule's acceptance counts two figures, each with its basis: repair tool uses (each `Edit` or `Write` call) and distinct requests (each model response, which can carry several tool calls). Several `Edit` calls can share one request, so a whole-file Write can save tool uses and no requests.
 
 ### Step 8b: Keep the Template's Lessons Item in the Post-Session Checklist
 
@@ -228,13 +239,9 @@ The next lesson id, the lesson file template and the required frontmatter are ru
 
 **Shared-context pre-pass (measure once, fan out):** Before computing per-task estimates, build the set of files cited in the Required Context of **two or more** tasks (group Required Context rows by file path across the whole session). For each such shared file, measure it **ONCE** — `measure_files.py` on the live file — and record its KiB and tokens once; then write the **IDENTICAL** `KiB` / `~Tokens` values into every citing task's row. A multiply-cited file's size is a single source of truth, never a per-task guess — otherwise one estimation error replicates silently into every citing task's Context subtotal and header `Estimated Tokens`. If a shared doc is edited during authoring, re-measure it and re-fan the new value into all citing rows, then re-roll the affected subtotals, headers, and session totals. The drift is direction-agnostic: an over-estimate merely inflates budgets, but an under-estimate can mis-route a file in the Token Saver Large-File Scan below or under-budget a DELEGATED dispatch.
 
-**Default path: the scan writes the estimates.** After the session's task files are filled, run once per session, from the project root, naming every task file of the session with its own `--task`:
+**Default path: the build report carries the estimates.** The `estimates` gate of `plan_build.py build` runs the `--scan --write-estimates` write-back once per session, so run no scan command here. Read the `gate=estimates` line and its `sessions=`, `tasks=` and `failed=` figures. A `failed=` above 0 counts as a non-zero exit in the fallback below, and one detail line names each failure.
 
-```bash
-python "{plugin_root}/scripts/token_saver.py" --scan --plan {plan_path} --write-estimates --task {task file} [--task {task file} ...]
-```
-
-The scan owns the content-class decision: it prices each row from the live file under the class its suffix gives, so a code file prices at the code ratio. It writes each resolvable row's `KiB` and `~Tokens` cells, every task's Context subtotal and `Estimated Tokens` header, the Orchestration Session Task List cell and `**Total Estimated:**`, and the Sprint Plan Sessions row. It prices every citing row from the same file, so the shared-context pre-pass above holds by construction. It leaves command-corpus, plan-output, missing, prose and qualified rows as authored, and reports each one. `--dry-run` prints the changes and writes nothing. Exit 0 is success with or without changes. Exit 2 is a usage error (no `--task` refuses, as does a `--task` outside `{plan_path}`). Exit 3 is a failed write. This mode computes no Warn levels, so the Token Saver Large-File Scan below still runs. Then apply items 2-5 below to the written figures.
+The scan owns the content-class decision: it prices each row from the live file under the class its suffix gives, so a code file prices at the code ratio. It writes each resolvable row's `KiB` and `~Tokens` cells, every task's Context subtotal and `Estimated Tokens` header, the Orchestration Session Task List cell and `**Total Estimated:**`, and the Sprint Plan Sessions row. It prices every citing row from the same file, so the shared-context pre-pass above holds by construction. It leaves command-corpus, plan-output, missing, prose and qualified rows as authored, and reports each one. This mode computes no Warn levels. The `scan` gate of `build` runs the Token Saver Large-File Scan below, so read `gate=scan` for its result. Run that scan's command by hand only on the fallback path. Then apply items 2-5 below to the written figures.
 
 **Fallback: the per-task measure loop.** When the script is absent or exits non-zero, measure with the steps below. For a row the scan left as authored, measure only that row with item 1.
 
@@ -246,7 +253,7 @@ For each task in the session, compute a bottom-up token estimate:
 4. **Compare:** If the bottom-up estimate exceeds the qualitative category estimate ([Task Sizing Categories](#task-sizing-categories) below), use the higher number
 5. **DELEGATED check:** For DELEGATED tasks, verify `(task estimate + injected path-rule tokens + 54K overhead) < the dispatched model's window` per subagent. A subagent's window is set by its **dispatched model** (Sonnet/Haiku 200K, Opus 1M), NOT the parent tier — a Sonnet runner is 200K even when the orchestrator is on Max. See `references/session-context-budget.md` [§ Subagent Context Window](../references/session-context-budget.md#subagent-context-window).
 
-On the fallback path, update the task's `Estimated Tokens` field and the Orchestration Session Task List with the validated estimates. On the default path, the scan wrote them, so edit a figure only where items 3-5 raise it.
+On the fallback path, update the task's `Estimated Tokens` field and the Orchestration Session Task List with the validated estimates. On the default path, the build wrote them. Where items 3-5 raise a figure, raise the task's `output_k` or `working_k` in the spec and rebuild.
 
 #### Task Sizing Categories
 

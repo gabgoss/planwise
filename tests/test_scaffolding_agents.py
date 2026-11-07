@@ -7,7 +7,8 @@ prose, so the field names one party writes and the next reads can drift apart
 with no error. These tests pin the model and effort values, the prohibitions
 every agent states in words, the status-block fields, the handoff fields each
 agent reads, the template headings the scaffolder carries, and the gate the
-harmonizer names.
+harmonizer names. PlanAuthorContractTests pins the plan-author agent's bodies-file
+contract the same way, because the plan handler reads its status block.
 
 Test-only override: the environment variable PLANWISE_TEST_AGENTS_DIR
 redirects ONLY the agents directory, so a mutation run reads a scratch copy.
@@ -33,6 +34,7 @@ TEMPLATES = PLUGIN / "templates"
 EXTRACTOR = AGENTS / "ei-extractor.md"
 SCAFFOLDER = AGENTS / "sprint-scaffolder.md"
 HARMONIZER = AGENTS / "scaffold-harmonizer.md"
+PLAN_AUTHOR = AGENTS / "plan-author.md"
 ALL_AGENTS = [EXTRACTOR, SCAFFOLDER, HARMONIZER]
 
 # agent file -> (model, effort)
@@ -201,6 +203,53 @@ class ScaffoldingAgentContractTests(unittest.TestCase):
         text = _read(HARMONIZER)
         self.assertIn("scripts/scaffold_deviations.py", text)
         self.assertIn("deviations: A=", text)
+
+
+class PlanAuthorContractTests(unittest.TestCase):
+    """The plan handler dispatches this agent and parses its status block."""
+
+    def test_writes_one_bodies_file_per_session(self):
+        text = _read(PLAN_AUTHOR)
+        self.assertIn("`{Abbrev}-bodies-S{XX}-{YY}.md`", text)
+        self.assertRegex(text, r"Write the whole bodies file in one `Write`")
+        self.assertIn("`{Abbrev}-bodies-S{XX}-{YY}-part{n}.md`", text)
+
+    def test_runs_the_session_lint_and_reads_its_line(self):
+        text = _read(PLAN_AUTHOR)
+        self.assertRegex(
+            text,
+            r'python -B "\{plugin_root\}/scripts/plan_build\.py" lint --spec \S+ --bodies-dir \S+ '
+            r"--session S\{XX\}-\{YY\}",
+        )
+        self.assertIn("session=S{XX}-{YY} keys_missing=<n> errors=<n>", text)
+
+    def test_status_block_reports_keys_missing(self):
+        status_block = _section(_read(PLAN_AUTHOR), "## Status Block")
+        for field in (
+            "TASK_STATUS", "TASK_ID", "OUTPUT_FILES", "LINES_PRODUCED", "KEYS_MISSING", "KEY_FINDINGS",
+            "ISSUES", "NOTES_PATH", "OPEN_QUESTIONS",
+        ):
+            with self.subTest(field=field):
+                self.assertRegex(status_block, rf"(?m)^{field}:")
+        self.assertRegex(status_block, r"`COMPLETE` .*`keys_missing=0` and `errors=0`")
+
+    def test_old_task_file_contract_is_gone(self):
+        text = _read(PLAN_AUTHOR)
+        for literal in ("Write each task file whole", "Skeleton task files", "Grep the written file for `FILL`"):
+            with self.subTest(literal=literal):
+                self.assertNotIn(literal, text)
+
+    def test_never_writes_a_task_file_or_the_master_plan(self):
+        constraints = _section(_read(PLAN_AUTHOR), "## Constraints")
+        self.assertRegex(constraints, r"Never write a task file\b.*the Master Plan")
+
+    def test_frontmatter_keeps_the_dispatch_name_and_inherited_effort(self):
+        keys = _frontmatter_keys(PLAN_AUTHOR)
+        self.assertEqual(keys.get("name"), "plan-author")
+        self.assertEqual(keys.get("model"), "opus")
+        self.assertNotIn("effort", keys)
+        self.assertNotIn("background", keys)
+        self.assertIn("bodies file", keys.get("description", ""))
 
 
 if __name__ == "__main__":

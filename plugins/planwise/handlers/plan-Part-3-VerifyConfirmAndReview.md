@@ -60,6 +60,9 @@ Commands Plan-Review Enforcement table; `templates/task-file.md` §Per-File-Type
    Re-check the tree identity at each dispatch. See `references/gate-pre-edit-baseline.md`
    §10.1.1 Scope the measurement to the gate's population.
 
+On the default path, the Per-File-Type rows are bodies, so write and repair them in the session's
+bodies file, then rebuild.
+
 **Per-File-Type Command Map** (mirrors `templates/task-file.md` §Per-File-Type Commands):
 
 | File Type | Lint / Format | Exec / Smoke | Notes |

@@ -131,12 +131,7 @@ flowchart LR
 /planwise plan my-new-feature
 ```
 
-This walks you through creating a structured session plan. Claude will ask about:
-- What abbreviation to use (like `APP` for app features, `BUG` for bug fixes)
-- How many sprints you need
-- What tasks go in each session
-
-Your plan gets saved as organized markdown files you can review anytime.
+Claude asks for an abbreviation (like `APP` or `BUG`), the sprints, and the tasks in each session. It writes one metadata spec, then `plan_build.py keys` lists the sections that need prose. Claude writes those bodies, and `plan_build.py build` renders every plan file and prints a gate report. Claude edits the bodies until the report ends in `fill_remaining=0`. If the script is missing or `build` keeps failing, Claude writes the files from the per-template steps.
 
 > **What's a sprint?** A group of related work sessions. If your feature is small, one sprint with one session is enough. Bigger features might need multiple sprints.
 
@@ -624,7 +619,7 @@ planwise uses thirteen specialized AI agents behind the scenes:
 | **backlog-preflight** | Proves backlog candidates against the live repository before anything is designed or filed |
 | **backlog-planner** | Designs the solution for one backlog item: approach, numbered steps, verification, or the questions only the user can answer; never authors a session plan |
 | **backlog-author** | Files or rewrites backlog items from the planner's designs, writes the executable sections and the `refined` flag, and regenerates the index |
-| **plan-author** | Fills one plan session's rendered task files from the metadata spec and the plan-notes state file when plan authoring is delegated; stops with the open questions when any remain |
+| **plan-author** | Writes one plan session's bodies file from the metadata spec, the `plan_build.py keys` output and the plan-notes state file when plan authoring is delegated, then lints it; stops with the open questions when any remain |
 | **ei-extractor** | Extracts one sprint's Execution Input and its Deferred / Out-of-Scope Log from the Meta-plan's discovery sources when `/planwise plan --scaffold` fans out, copying content verbatim and reporting measured retention |
 | **sprint-scaffolder** | Fills one sprint's rendered plan files (Sprint Plan, Orchestration and Recovery files, task files, Sprint Signoff) from the metadata spec and the sprint's Execution Input; returns BLOCKED on a missing input and never executes the plan |
 | **scaffold-harmonizer** | Runs once after every sprint is filled, restores template wording for each deviation the gate reports until it reports zero, and reports everything else to the caller |

@@ -194,7 +194,7 @@ Fill the files in this order: the Sprint Plan, then for each session its Orchest
 
 1. Read the file's spec entry, the Execution Input sections it cites, and the rendered file.
 2. Fill every FILL marker. Keep the header lines, the Required Context table, the heading text and the section order exactly as rendered. Check each heading against the file kind's list in `## Mandated Headers`.
-3. Write each plan file whole, in one `Write`, as `agents/plan-author.md` Step 2 does. Never repair a file with a chain of edits. If a body is wrong, compose it again and write the whole file again.
+3. Write each plan file whole, in one `Write`. Never repair a file with a chain of edits. If a body is wrong, compose it again and write the whole file again.
 4. Use `Grep` for `FILL` in the written file. The count must be 0 before the next file starts.
 
 The scaffolding rules each file obeys:

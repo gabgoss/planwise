@@ -153,6 +153,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 126 — Table-Shaped Output Estimate With No Column Term → references/task-content-fidelity.md §9.A.18
 - Check 129 — Correction Leaves an Uncorrected Sibling Copy → references/dispatch-edit-surface-sweep.md §14
 - Check 130 — Unmodified-Tests Criterion Beside a Behaviour-Changing Default → references/verify-caller-before-complete.md §7
+- Check 131 — Authorized Omission (an `<!-- OMITTED: … (spec omit_sections) -->` line in place of a CONDITIONAL section is an authorized omission, not a finding. A section removed with no OMITTED line is template drift.) → references/scaffolding-hygiene.md
 
 ### Dependency Reviewer
 

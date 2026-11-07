@@ -81,7 +81,7 @@ LEDGERED_PLUGIN = (
     ("references/ei-source-promise-integrity.md", 2, "§10"),  # HISTORY: frontmatter provenance
     ("references/ei-source-promise-integrity.md", 2, "§11"),  # HISTORY: frontmatter provenance
     ("handlers/plan-Part-3-VerifyConfirmAndReview.md", 59, "§ Decisions"),  # CONSUMER: a section of the generated master plan
-    ("agents/plan-reviewer.md", 183, "§15"),  # LABEL: check title copied from its canonical heading
+    ("agents/plan-reviewer.md", 184, "§15"),  # LABEL: check title copied from its canonical heading
     ("agents/review-discovery.md", 79, "§4"),  # CONSUMER: a section of the generated fact sheet
     ("agents/review-discovery.md", 167, "§4"),  # CONSUMER: a section of the generated fact sheet
     ("references/exit-criteria-fidelity.md", 397, "§15"),  # LABEL: the canonical check-title heading
@@ -126,7 +126,7 @@ LEDGERED_OUTER = (
 # they subtract nothing, so no citation can hide behind them.
 FORM_EXAMPLES = (
     ("file in code span then section", "handlers/backlog.md", 207),
-    ("plain path-prefixed", "agents/plan-reviewer.md", 207),
+    ("plain path-prefixed", "agents/plan-reviewer.md", 208),
     ("link text", "references/session-planning-protocol.md", 313),
     ("link then section", "references/gate-old-home-citation-sweep.md", 76),
     ("table cell", "references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md", 14),
@@ -139,7 +139,7 @@ FORM_EXAMPLES = (
     ("letter series", "references/verify-against-shipped-artifact.md", 308),
     ("letter series with a number", "references/verify-before-cite.md", 30),
     ("letter series with a suffix", "references/verify-backlog-citation-freshness.md", 8),
-    ("bare continuation", "agents/plan-reviewer.md", 183),
+    ("bare continuation", "agents/plan-reviewer.md", 184),
     ("section then file", "references/gate-predicate-discrimination.md", 42),
     ("wrapped across a line break", "handlers/init.md", 54),
     ("frontmatter description", "references/gate-old-home-citation-sweep.md", 2),
