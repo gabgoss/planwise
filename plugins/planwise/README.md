@@ -131,7 +131,7 @@ flowchart LR
 /planwise plan my-new-feature
 ```
 
-Claude asks for an abbreviation (like `APP` or `BUG`), the sprints, and the tasks in each session. It writes one metadata spec, then `plan_build.py keys` lists the sections that need prose. Claude writes those bodies, and `plan_build.py build` renders every plan file and prints a gate report. Claude edits the bodies until the report ends in `fill_remaining=0`. If the script is missing or `build` keeps failing, Claude writes the files from the per-template steps.
+Claude asks for an abbreviation (like `APP` or `BUG`), the sprints, and the tasks in each session. It writes one metadata spec, then `plan_build.py keys` lists the sections that need prose. Claude writes those bodies, and `plan_build.py build` renders every plan file and prints a gate report. Claude edits the bodies or the spec until the plan is built: the report shows `fill_remaining=0` with `exit=0`, or with exit 1 from a recorded large-file scan finding alone. If the script is missing or `build` keeps failing, Claude writes the files from the per-template steps.
 
 > **What's a sprint?** A group of related work sessions. If your feature is small, one sprint with one session is enough. Bigger features might need multiple sprints.
 

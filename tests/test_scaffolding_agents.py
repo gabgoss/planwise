@@ -233,6 +233,14 @@ class PlanAuthorContractTests(unittest.TestCase):
                 self.assertRegex(status_block, rf"(?m)^{field}:")
         self.assertRegex(status_block, r"`COMPLETE` .*`keys_missing=0` and `errors=0`")
 
+    def test_plan_specific_body_needs_the_heading_in_keys(self):
+        text = _read(PLAN_AUTHOR)
+        self.assertRegex(text, r"write that body only when `keys` lists that heading")
+        self.assertRegex(text, r"Otherwise return `BLOCKED` and name the section in `ISSUES`")
+        failures = _section(text, "## Failure Semantics")
+        self.assertRegex(failures, r"`## Plan-Specific Sections` and `keys` does not list .*\| `BLOCKED`, naming the section")
+        self.assertRegex(failures, r"`optional_sections` in the spec, then dispatches again")
+
     def test_old_task_file_contract_is_gone(self):
         text = _read(PLAN_AUTHOR)
         for literal in ("Write each task file whole", "Skeleton task files", "Grep the written file for `FILL`"):

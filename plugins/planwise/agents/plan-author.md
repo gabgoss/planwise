@@ -74,7 +74,7 @@ Author the whole session into `{Abbrev}-bodies-S{XX}-{YY}.md` in the bodies fold
    - Write no `##` line outside a fence.
    - Never let a section body overlap another body. Its text replaces every marker under its heading, so a fill inside that span is an error.
    - A marker in the kept text of `Schema Pin` or `Cross-Sprint Prerequisite` needs its own body, because a section body stops at that text.
-4. Put a section that no template heading covers in the body of `## Plan-Specific Sections`, as an `###` H3.
+4. Put a section that no template heading covers in the body of `## Plan-Specific Sections`, as an `###` H3, but write that body only when `keys` lists that heading for the document. Otherwise return `BLOCKED` and name the section in `ISSUES`, so the caller adds it to `optional_sections`. This agent never writes the spec.
 5. Measure every size figure the body states with the plugin's measuring script, a shell call. Write a figure you cannot obtain as `unmeasured ({reason})`:
    ```
    python "{plugin_root}/scripts/measure_files.py" {files...}
@@ -141,7 +141,7 @@ OPEN_QUESTIONS:   {count of open questions in the notes file}
 Each status applies in one case:
 
 - `COMPLETE` — the lint line of this session shows `keys_missing=0` and `errors=0`, and `OPEN_QUESTIONS` is 0.
-- `BLOCKED` — Open Questions was not empty at Step 1, a question was added in Step 2, or an input is missing.
+- `BLOCKED` — Open Questions was not empty at Step 1, a question was added in Step 2, a section needs a heading `keys` does not list, or an input is missing.
 - `PARTIAL` — the turn budget ran out, or the bodies file could not be finished. `OUTPUT_FILES` lists the files written so far.
 
 ## Failure Semantics
@@ -151,6 +151,7 @@ Each status applies in one case:
 | Open Questions is not `none` at Step 1 | `BLOCKED`, each question in `ISSUES`, no bodies file | Asks the user, writes the answers into the notes file, and dispatches again |
 | A user-only choice appears while authoring | `BLOCKED`, the new question in `ISSUES`, any bodies file written so far | Same as the row above. The new dispatch resumes from `## Authoring Progress` |
 | The spec, the bodies folder, the notes file or the plan bodies file is missing, or the lint prints `REFUSED:` | `BLOCKED`, naming the path | Restores the input, then dispatches again |
+| A section needs `## Plan-Specific Sections` and `keys` does not list that heading for the document | `BLOCKED`, naming the section and the document in `ISSUES`, the progress row `partial` | Adds `"Plan-Specific Sections"` to that document's `optional_sections` in the spec, then dispatches again |
 | A cited heading or symbol no longer resolves | Re-locate it once with `Grep`. If that fails, `BLOCKED`, naming it | Corrects the spec or the Execution Input, then dispatches again |
 | The lint still shows a missing key or an error when the work must stop | `PARTIAL`, the bodies file, each `LINT:` line in `ISSUES`, the progress row `partial` | Dispatches again for the same session |
 | The work would exceed `maxTurns` | `PARTIAL`, the files written so far, the progress row `partial` | Dispatches again for the same session |

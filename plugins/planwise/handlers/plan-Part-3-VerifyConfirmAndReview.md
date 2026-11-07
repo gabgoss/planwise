@@ -168,6 +168,8 @@ For each path with two or more writing sprints, emit all three of these — none
 >
 > Add the co-writer content assertion to each writing task's Verification Commands as well: a path-scoped diff count verifies the presence of that task's own edit and can never show the absence of another writer's loss, so it cannot be the control for a shared file no matter how rigorously it is applied.
 
+On the default path of [Steps 4-7](plan-Part-2-GatherAndGenerate.md#steps-4-7-generate-files), put the emitted rows, gates and ordering edges in the bodies files or the spec, then rebuild. Never edit a built file, because the next `build` prints `CHANGED:` and exits 2. `--force` is not the route, because it discards that edit. On the fallback path and on a scaffold pass, no build manifest guards the files, so write the emissions into the plan files as the table says.
+
 Record the matrix's outcome — the shared paths found and how each pair was closed, or `no shared paths` — in the Step 9 confirmation block.
 
 ### Step 9b: Post-Pass Harmonization
@@ -183,6 +185,8 @@ Sweep this pass's own output for all three classes, then harmonize what surfaces
 | **A — section-header drift** | The gate grades each `##` heading the orchestration, sprint plan and task-file templates mark with a bare `<!-- REQUIRED -->`. `Grep` the rest across every Orchestration, Sprint Plan and task file this pass authored: each conditional `##` heading in the files where its condition holds (for example `## Dispatch Layers` in a DELEGATED Orchestration), and each template `###` heading. A heading whose hit count is below that file count is missing from the remainder | The template's exact wording, restored in every file that dropped it |
 | **B — template lines omitted** | The gate reports each missing template line, counted outside code fences: `**Total Estimated:**` and `**Mode:**` in an Orchestration, `**Total Sessions:**` in a Master Plan, and each `- [ ] **{Label}**` item of the Orchestration template's `## Post-Session Checklist`. A checked box still counts, and a reworded label counts as missing | The line restored wherever it is absent, with the template's wording |
 | **C — `Scaffold-{Abbrev}/` absent** | `Glob` for `Exec-{Abbrev}/` first: absent ⇒ the plan is still at Discovery and this class does not apply. Present ⇒ `Glob` for `Scaffold-{Abbrev}/` | The folder created, per `scaffolding-hygiene.md` §8 Class C |
+
+On the default path of [Steps 4-7](plan-Part-2-GatherAndGenerate.md#steps-4-7-generate-files), put each repair in the bodies files or the spec, then rebuild. Never edit a built file, and `--force` is not the route, for the reasons Step 9a gives. On the fallback path and on a scaffold pass, repair the files in place as the table says.
 
 **A script runs the Class B and Class C sweeps and the graded part of Class A, on every pass.** On the fan-out path, the orchestrator dispatches `planwise:scaffold-harmonizer` (`handlers/plan-scaffolding.md` Step 4, Fan-Out Path). The harmonizer runs the gate below and harmonizes what it reports. On the inline path, the orchestrator runs the same command itself:
 
