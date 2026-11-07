@@ -79,10 +79,11 @@ The user answers from what the dialog shows. Give them the same context triage g
 | `AskUserQuestion` field | Value |
 |---|---|
 | `header` | `Q{n} {id}`, 12 characters at most. Shorten the id, never the Q number |
-| `question` | `{id} — {title}.` Then one sentence from `summary`. Then the question text. Then `Why: {context or evidence}` when either is present. Four sentences at most |
+| `question` | `{id} — {title}.` Then one sentence from `summary`. Then the question text. Then `Why: {context or evidence}`, or `Why: {the first sentence of problem}` when both are null. Four sentences at most |
+| option `label` | `({letter}) {choice text}`. The dialog shows a label on one line, so when the choice text runs past eight words, shorten it and open that option's `description` with the full choice text |
 | option order | the recommended choice first with ` (Recommended)` appended to its label, then the other choices in letter order, then `Skip this question` |
-| recommended option `description` | `reason` |
-| other option `description` | the choice text, or `No recommendation recorded.` when `recommended` is null |
+| recommended option `description` | `reason`, after the full choice text when its label was shortened |
+| other option `description` | the full choice text when its label was shortened. Otherwise `Not the planner's choice.`, or `No recommendation recorded.` when `recommended` is null |
 | `Skip this question` `description` | `Leaves Answer: empty. The item stays excluded from the loop.` |
 | `preview` | none. The context sits in the question and the descriptions |
 
