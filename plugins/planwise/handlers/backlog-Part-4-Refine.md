@@ -48,8 +48,8 @@ Take the `HOLDS` ids one at a time. Dispatch `planwise:backlog-planner` in the f
 
 On a `QUESTIONS` return, run the interactive branch of `references/backlog-creation-process.md` § 5 The QUESTIONS round-trip:
 
-1. Read the questions from the design file.
-2. Ask one `AskUserQuestion` per question, with the planner's options and recommendation.
+1. Read the questions from the design file, and the item's `title` and `## Summary` (or `## Problem`).
+2. Print the briefing and ask one `AskUserQuestion` per question, per the Question briefing of `references/backlog-creation-process.md` § 5.
 3. Send all the answers with `SendMessage` to `planner-{item-id}`.
 4. When that dispatch cannot be reached, start a fresh planner dispatch with the same item and an `answers:` line that holds the answers keyed by question number.
 

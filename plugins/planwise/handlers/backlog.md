@@ -560,7 +560,7 @@ For the accepted candidate set — the gate below applies per candidate, the han
 
 1. Dispatch `backlog-preflight` once in `file` mode, one block per candidate. It runs the pre-filing re-verification gate above, so a candidate that no longer holds returns as a retirement.
 2. Dispatch `backlog-planner` once per `HOLDS` block, named `planner-{id-or-label}`.
-3. On a `QUESTIONS` return, ask each question with one `AskUserQuestion` call. Then send the answers with `SendMessage` to the planner's dispatch name (`references/backlog-creation-process.md` §5).
+3. On a `QUESTIONS` return, brief the user and ask each question per the Question briefing of `references/backlog-creation-process.md` §5, using the candidate's title, problem and preflight `EVIDENCE` line as context. Then send the answers with `SendMessage` to the planner's dispatch name (`references/backlog-creation-process.md` §5).
 4. Dispatch `backlog-author` once in `file` mode after the last planner returns. It files the batch and regenerates the index. It sets no status: a status change runs through `update_backlog.py --status` here.
 
 > [!constraint] One dispatch, never a fan-out
