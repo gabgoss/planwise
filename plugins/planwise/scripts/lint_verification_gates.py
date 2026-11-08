@@ -1993,6 +1993,10 @@ from lint_gate_checks_verify import CHECKS as _VERIFY_CHECKS
 
 CHECK_REGISTRY.extend(_VERIFY_CHECKS)
 
+from lint_gate_checks_dispatch import CHECKS as _DISPATCH_CHECKS
+
+CHECK_REGISTRY.extend(_DISPATCH_CHECKS)
+
 
 # ---------------------------------------------------------------------------
 # CLI
