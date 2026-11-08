@@ -58,6 +58,9 @@ _SOURCE_CMD_RE = re.compile(
     r"measure_files|\bwc\s+-|\b(?:Grep|grep|Glob|git|python|pytest|suite\.py)\b", re.IGNORECASE
 )
 _SEPARATOR_CELL_RE = re.compile(r"^:?-{2,}:?$")
+# A row that labels its figure a projection describes a file that does not exist yet,
+# so no command can measure it and no measurement date can be stamped.
+_PROJECTED_RE = re.compile(r"\bprojected\b", re.IGNORECASE)
 
 # --- Check 45: a re-measure instruction without threshold and action (dispatch-preflight-claim-expiry.md §6) ---
 _REMEASURE_RE = re.compile(r"\bre-?measure[sd]?\b", re.IGNORECASE)
@@ -70,15 +73,35 @@ _ACTION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# --- Check 46: an Expected Output with no literal label list (dispatch-batch-gate.md §4) ---
+_LABEL_FIELD_RE = re.compile(r"^\W*\*\*Required headings:\*\*(.*)$")
+_BULLET_RE = re.compile(r"^\s*[-*]\s+(.*)$")
+_COUNT_CLAIM_RE = re.compile(
+    r"\b(?:[2-9]|\d{2,}|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+"
+    r"(?:[\w-]+\s+){0,2}(?:sections?|files?|headings?|labels?)\b",
+    re.IGNORECASE,
+)
+_CONSUMER_RE = re.compile(
+    r"\bconsumed\s+(?:structurally\s+)?by\b|\bdownstream\s+tasks?\b|\bread\s+by\s+(?:the\s+)?(?:next|later)\s+task\b",
+    re.IGNORECASE,
+)
+_CODE_PATH_RE = re.compile(r"[\w./{}-]+\.(?:py|js|ts|sh|ps1)\b")
+
+# --- Check 47: a coordination-flag row with no routed stamp (dispatch-mandate-routing.md §1) ---
+_FLAG_SECTION = "pre-known cross-task coordination flags"
+_STAMP_RE = re.compile(r"^✅\s*ROUTED\s+\d{4}-\d{2}-\d{2}\s+into\s+\S")
+_EMPTY_ROW_WORDS = frozenset({"none", "n/a", "-", "—", "–"})
+
 
 def _strip_spans(line: str) -> str:
     return _CODE_SPAN_RE.sub("", line)
 
 
-def _section_lines(lines, names):
-    """Yield ``(number, line)`` for each unfenced line under a heading whose text
-    starts with one of ``names`` (lower case), down to the next heading of the same
-    or a higher level."""
+def _walk_section(lines, names, first_only=False):
+    """Yield ``(number, line, is_heading)`` for each unfenced line under a heading whose
+    text starts with one of ``names`` (lower case), down to the next heading of the
+    same or a higher level. The opening heading and any nested heading are yielded
+    with ``is_heading`` True. ``first_only`` stops after the first such section."""
     level = None
     for number, line, fenced in _fence_marked(lines):
         if fenced:
@@ -87,11 +110,24 @@ def _section_lines(lines, names):
         if heading:
             depth = len(heading.group(1))
             if level is not None and depth <= level:
+                if first_only:
+                    return
                 level = None
-            if level is None and heading.group(2).lower().lstrip("*0123456789. ").startswith(names):
-                level = depth
+            if level is None:
+                if heading.group(2).lower().lstrip("*0123456789. ").startswith(names):
+                    level = depth
+                    yield number, line, True
+            else:
+                yield number, line, True
             continue
         if level is not None:
+            yield number, line, False
+
+
+def _section_lines(lines, names):
+    """Yield ``(number, line)`` for each unfenced non-heading line of the section."""
+    for number, line, is_heading in _walk_section(lines, names):
+        if not is_heading:
             yield number, line
 
 
@@ -252,7 +288,10 @@ def _check44_figure_without_date_and_source(context) -> list:
     with neither cannot be re-taken when the gate clears. A source command is a
     measure_files run, a wc, or a named tool such as Grep or git. Advisory, so
     WARNING. It cannot see a figure stated outside a table, a date that is not the
-    measurement date, or a command that is not the figure's source.
+    measurement date, or a command that is not the figure's source. A row that
+    carries the word ``projected`` is skipped: its figure is an estimate for a file
+    that does not exist yet. The skip also hides a measured figure on a row that
+    happens to say ``projected``.
     """
     findings = []
     for rel, lines in _task_files(context):
@@ -260,6 +299,8 @@ def _check44_figure_without_date_and_source(context) -> list:
             if not _states_measured_figure(cells, header):
                 continue
             row = " ".join(cells)
+            if _PROJECTED_RE.search(_strip_spans(row)):
+                continue
             has_date = _DATE_RE.search(row) is not None
             has_source = _SOURCE_CMD_RE.search(row) is not None
             if has_date and has_source:
@@ -316,19 +357,220 @@ def _check45_remeasure_without_threshold_and_action(context) -> list:
     return findings
 
 
+def _section_with_heading(lines, name):
+    """Return ``(heading_number, body)`` for the first heading whose text starts with
+    ``name`` (lower case). ``body`` holds ``(number, line)`` for each unfenced line
+    down to the next heading of the same or a higher level. ``(None, [])`` when the
+    heading is absent."""
+    heading_number = None
+    body = []
+    for number, line, is_heading in _walk_section(lines, (name,), first_only=True):
+        if is_heading:
+            if heading_number is None:
+                heading_number = number
+        else:
+            body.append((number, line))
+    return heading_number, body
+
+
+def _strip_comments(body):
+    """Return ``body`` with ``<!-- ... -->`` text removed, single- and multi-line. A line
+    that held only a comment becomes empty."""
+    result = []
+    inside = False
+    for number, line in body:
+        text = ""
+        rest = line
+        while rest:
+            if inside:
+                end = rest.find("-->")
+                if end < 0:
+                    rest = ""
+                else:
+                    inside = False
+                    rest = rest[end + 3:]
+            else:
+                start = rest.find("<!--")
+                if start < 0:
+                    text += rest
+                    rest = ""
+                else:
+                    text += rest[:start]
+                    inside = True
+                    rest = rest[start + 4:]
+        result.append((number, text))
+    return result
+
+
+def _literal_label(text: str) -> bool:
+    """True when ``text`` holds a backticked span with no ``{`` or ``}`` placeholder."""
+    return any("{" not in span and "}" not in span for span in _CODE_SPAN_RE.findall(text))
+
+
+def _has_label_list(body) -> bool:
+    """True when the ``Required headings`` field carries at least one literal backticked
+    label, on the field line itself or in the bullet list that follows it. ``body``
+    has had its comments removed. One lead-in line may sit between the field and
+    its bullets."""
+    for index, (_number, line) in enumerate(body):
+        match = _LABEL_FIELD_RE.match(line.strip())
+        if match is None:
+            continue
+        if _literal_label(match.group(1)):
+            return True
+        lead_in_used = False
+        for _next_number, following in body[index + 1:]:
+            if not following.strip():
+                continue
+            bullet = _BULLET_RE.match(following)
+            if bullet is None:
+                if lead_in_used or following.strip().startswith("**"):
+                    break
+                lead_in_used = True
+                continue
+            if _literal_label(bullet.group(1)):
+                return True
+    return False
+
+
+def _expects_labels(body) -> bool:
+    """True when the section claims a count of sections, files, headings or labels,
+    or says a named later task consumes the output."""
+    return any(
+        _COUNT_CLAIM_RE.search(_strip_spans(line)) or _CONSUMER_RE.search(line) for _n, line in body
+    )
+
+
+def _check46_expected_output_without_label_list(context) -> list:
+    """Check 46 -- a task file's Expected Output claims a count of sections, files or
+    headings, or says a downstream task consumes it, and the ``Required headings``
+    field lists no backticked label (dispatch-batch-gate.md §4). A downstream
+    search then has no literal to match, and a short output passes unnoticed. A task
+    whose ``**Output:**`` field names a script or test file (code) is skipped, as is a
+    task with no Expected Output section. Advisory, so WARNING. It cannot see a
+    label list written in prose or in a fenced block (both count as absent), a
+    count worded without a digit or number word, nor a consumer named without one of
+    the phrases it knows. A task with both code and a report output is skipped.
+    """
+    findings = []
+    for rel, lines in _task_files(context):
+        heading_number, body = _section_with_heading(lines, "expected output")
+        if heading_number is None:
+            continue
+        body = _strip_comments(body)
+        output = _output_text(lines)
+        if output is not None and _CODE_PATH_RE.search(output):
+            continue
+        if not _expects_labels(body) or _has_label_list(body):
+            continue
+        findings.append(_finding(
+            check=46, severity=SEVERITY_WARNING, file=rel, line=heading_number,
+            command=lines[heading_number - 1].strip(),
+            message=(
+                f"The Expected Output section of {rel} claims a count or a downstream consumer "
+                "and lists no literal heading label under 'Required headings'. The consuming "
+                "task cannot search for a label it was never given. Add the field and one backticked "
+                "label per bullet (dispatch-batch-gate.md, \"Pin the Output Vocabulary Before Fan-Out\")"
+            ),
+        ))
+    return findings
+
+
+def _flag_tables(lines):
+    """Yield ``(header_cells, rows)`` for each table under the coordination-flag
+    heading, where ``rows`` holds ``(number, line, cells)`` for each data row."""
+    table = None
+    for number, line, is_heading in _walk_section(lines, (_FLAG_SECTION,)):
+        if is_heading:
+            if table is not None:
+                yield table
+                table = None
+            continue
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            if table is not None:
+                yield table
+                table = None
+            continue
+        cells = split_row_cells(stripped)
+        if all(_SEPARATOR_CELL_RE.match(cell) for cell in cells if cell):
+            continue
+        if table is None:
+            table = (cells, [])
+            continue
+        table[1].append((number, stripped, cells))
+    if table is not None:
+        yield table
+
+
+def _routed_column(header):
+    for index, cell in enumerate(header):
+        if cell.strip(" *`").lower().startswith("routed"):
+            return index
+    return None
+
+
+def _check47_flag_row_without_routed_stamp(context) -> list:
+    """Check 47 -- a row of an Orchestration's coordination-flag table has a ``Routed``
+    cell that is empty, reads ``pending`` or lacks the stamp form
+    ``✅ ROUTED {date} into {task file}`` (dispatch-mandate-routing.md §1). Trailing
+    text after the task file is accepted. A flag then reaches dispatch unrouted. A
+    table with no ``Routed`` column is not read at all, and a row whose first cell is
+    none, n/a or a dash, or whose cells are all empty, is skipped. Advisory, so
+    WARNING. It cannot see a flag table under another heading, a stamp whose date or
+    task file is wrong, or a routed flag the stamp does not mention.
+    """
+    findings = []
+    for rel, lines in _orchestration_files(context):
+        for header, rows in _flag_tables(lines):
+            column = _routed_column(header)
+            if column is None:
+                continue
+            for number, line, cells in rows:
+                if cells and cells[0].strip().lower() in _EMPTY_ROW_WORDS:
+                    continue
+                cell = cells[column].strip() if column < len(cells) else ""
+                if _STAMP_RE.match(cell.strip("`").replace("️", "").strip()):
+                    continue
+                state = "is empty" if not cell else f"reads {cell!r}"
+                findings.append(_finding(
+                    check=47, severity=SEVERITY_WARNING, file=rel, line=number, command=line,
+                    message=(
+                        f"The Routed cell of this flag row {state}, not a stamp. The flag reaches "
+                        "dispatch with no record that its consuming task holds it. Route the flag "
+                        "and write '✅ ROUTED {date} into {task file}' in the cell "
+                        "(dispatch-mandate-routing.md, \"A Repair Is Not Delivered Until Its Consumer Can Reach It\")"
+                    ),
+                ))
+    return findings
+
+
 def subject_counts(context) -> dict:
     """Return how many subjects each check examined: files and lines read.
 
     Keys: ``task_files``, ``orchestration_files``, ``brief_lines`` (checks 42, 43),
-    ``context_rows`` (check 44) and ``unfenced_lines`` (check 45). A caller prints
-    these before the verdict, so an empty input reads differently from a clean one."""
+    ``context_rows`` (check 44), ``unfenced_lines`` (check 45),
+    ``expected_output_sections`` (check 46), ``flag_tables``,
+    ``flag_tables_without_routed_column`` (reported as column absent) and
+    ``flag_rows`` (check 47). A caller prints these before the verdict, so an empty
+    input reads differently from a clean one."""
     tasks = list(_task_files(context))
+    tables = [
+        table for _rel, lines in _orchestration_files(context) for table in _flag_tables(lines)
+    ]
+    with_column = [table for table in tables if _routed_column(table[0]) is not None]
     return {
         "task_files": len(tasks),
         "orchestration_files": sum(1 for _ in _orchestration_files(context)),
         "brief_lines": sum(1 for _ in _brief_lines(context)),
         "context_rows": sum(1 for _rel, lines in tasks for _row in _required_context_rows(lines)),
         "unfenced_lines": sum(1 for _rel, lines in tasks for _row in _unfenced(lines)),
+        "expected_output_sections": sum(
+            1 for _rel, lines in tasks if _section_with_heading(lines, "expected output")[0] is not None
+        ),
+        "flag_tables": len(tables),
+        "flag_tables_without_routed_column": len(tables) - len(with_column),
+        "flag_rows": sum(len(table[1]) for table in with_column),
     }
 
 
@@ -337,4 +579,6 @@ CHECKS = [
     _check43_step_writes_outside_output,
     _check44_figure_without_date_and_source,
     _check45_remeasure_without_threshold_and_action,
+    _check46_expected_output_without_label_list,
+    _check47_flag_row_without_routed_stamp,
 ]

@@ -120,12 +120,14 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 
 Collect every member task's `**Output:**` paths; intersect them pairwise. Also collect each member's Required Context and step text, and list every layer-mate `**Output:**` path it reads. Show the result for every layer, including the empty ones — an `∅` is as much a computation as a conflict, and leaving it implicit is what makes the claim unfalsifiable.
 
-| Layer | Members | Member write-targets | Intersection | Reads from a layer-mate's Output | Verdict |
-|-------|---------|----------------------|--------------|----------------------------------|---------|
-| L1 | {1, 2} | `{path-a}` / `{path-b}` | ∅ | ∅ | ✅ disjoint — parallel stands |
-| L2 | {3} | `{path-c}` | ∅ | n/a | ✅ single member |
-| L3 | {4, 5} | `{path-d}`, `{path-e}` / `{path-e}` | `{path-e}` | ∅ | ❌ NOT disjoint — serialized: 5 after 4 on `{path-e}` |
-| L4 | {6, 7} | `{path-f}` / `{path-g}` | ∅ | 7 reads `{path-f}` (Task 6's Output) | ❌ NOT parallel — 7 moved to a later layer, Depends On: 6 |
+In `Allocates from`, name each shared next-free namespace a member takes a value from (a reviewer-check number, a catalog row, a section number), or write `∅`. Two members that name one namespace collide even when their write-targets are disjoint.
+
+| Layer | Members | Member write-targets | Intersection | Reads from a layer-mate's Output | Allocates from | Verdict |
+|-------|---------|----------------------|--------------|----------------------------------|----------------|---------|
+| L1 | {1, 2} | `{path-a}` / `{path-b}` | ∅ | ∅ | ∅ | ✅ disjoint — parallel stands |
+| L2 | {3} | `{path-c}` | ∅ | n/a | `{namespace}` | ✅ single member |
+| L3 | {4, 5} | `{path-d}`, `{path-e}` / `{path-e}` | `{path-e}` | ∅ | ∅ | ❌ NOT disjoint — serialized: 5 after 4 on `{path-e}` |
+| L4 | {6, 7} | `{path-f}` / `{path-g}` | ∅ | 7 reads `{path-f}` (Task 6's Output) | ∅ | ❌ NOT parallel — 7 moved to a later layer, Depends On: 6 |
 
 <!-- A non-empty intersection has exactly four dispositions, per
      references/agent-orchestration-delegated.md §1.13: serialize the pair,
@@ -135,9 +137,10 @@ Collect every member task's `**Output:**` paths; intersect them pairwise. Also c
 
      A shared next-free IDENTIFIER (reviewer-check number, catalog row, section
      number) is a write target too, even when the tasks write different files:
-     both members read the same live maximum and allocate the same value. Either
-     resolve each member's number pre-dispatch and inject it as a literal (§1.6),
-     or serialize the allocating tasks. -->
+     both members read the same live maximum and allocate the same value. The
+     `Allocates from` column above records it. Either resolve each member's number
+     pre-dispatch and inject it as a literal (§1.6), or serialize the allocating
+     tasks. -->
 
 > [!constraint] Per-task gates are scoped to that task's own outputs
 > The working tree accumulates every layer member's edits with no commit between dispatches. A count asserted repo-wide by a task that edited some of them false-fails — and inside a parallel layer the reading depends on completion order, so it false-fails non-deterministically, which reads as flakiness rather than as a defect.
@@ -173,6 +176,8 @@ Every figure a task gate or step asserts about the live tree (a file count, a sp
 | `{crlf_tally}` | {CRLF files / LF-only files} | {references/*.md} | {short SHA} | {YYYY-MM-DD} | {runnable command that prints the tally} | substitute |
 
 Before the first dispatch the orchestrator runs every row's command at the session base and writes `CENSUS {name} = {session-base value} (scaffold {value}; {artifact} at {commit}; {date})` to Recovery Key Findings. A `substitute` row takes the session-base value. A `halt` row whose value moved is a structural finding at CONFIRM, because the figure decides a task's Output paths or a layer's write-target intersection. Two tasks that split one list read the same row.
+
+Before each dispatch the orchestrator runs the preflight set checks, each exiting 0 when clean and 1 with the difference listed: `python -B "{plugin_root}/scripts/dispatch_preflight.py" overlap --candidate {task file} --running {running task files}` (Output paths shared with a running task), `prereq --sprint-plan {Sprint Plan} --sprint-folder {sprint folder}` (enumerated prerequisites against the derived member set), `siblings --since {scaffold date} --recoveries {closed sibling Recovery files} --edit-set {file naming the edit and sweep paths}` (sibling Files Modified that meet the edit set), and `decomposition --matrix {surface matrix} --output {consolidated output}` (matrix rows against output sections, both ways).
 
 ---
 
@@ -216,11 +221,18 @@ task file's Output}.
 3. Do NOT spawn sub-agents or create teams
 4. If you encounter an ambiguity requiring a file not in Required Context, STOP
    and report it; do NOT expand scope
+5. Permitted per Execution Step (no constraint above forbids these): Step {n}:
+   launches {commands}, writes {paths}, fetches {URLs or "none"}; one entry per step
+6. Deferral: a shared identifier you defer (a check number, a catalog row, a
+   section number) is returned as draft text with no number assigned. Parallel
+   runners read the same live maximum, so a self-assigned number collides
 
 ## SCOPE BOUNDARY
 This task operates within:
 - **In scope:** {files/modules this task modifies}
 - **Out of scope:** {adjacent files/modules this task must NOT touch}
+- **Decision branches:** {one entry per branch of the task's decision rule:
+  "{condition} → {permitted write, or STOP and escalate}"}
 
 ## Status Block delivery (REQUIRED)
 Deliver your status block by calling the SendMessage tool with to="main".
@@ -229,6 +241,10 @@ Plain-text output does NOT reach the orchestrator.
 
 Return after writing the single expected output file. Do NOT proceed to task
 {n+1}.
+
+Resume clause (a resume message to a returned runner only, never a first dispatch):
+Findings to fix: {finding id} at `{file}:{line}` — {what is wrong}; one line per
+finding. An Output path alone is not a finding list.
 ```
 
 Where a Verification Command in the task file holds the literal `{plugin_root}`, substitute the `Plugin root:` value above. Never copy a plugin path out of the task file. Where a gate holds `{census:<name>}`, substitute that name's value from the `Census:` line above.
@@ -278,6 +294,9 @@ A harness `completed` status means the agent stopped with no live children. It i
 - [ ] If a later task also edits a file this dispatch edited, run `{lint-cmd}` on that file before the next dispatch. On a failure, halt and record it in Recovery (`references/agent-orchestration-delegated.md` §1.4)
 - [ ] Recompute the runner's verdict label from its reported counts with the producing task's rule. On a mismatch, log it in Recovery and act on the recomputed label (`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.16.1)
 - [ ] If a runner reported a defective gate: the defect is reproduced from the runner's verbatim output, and the same command shape is swept across the undispatched briefs before the next dispatch (§1.16.6)
+- [ ] Once every member of a parallel layer has returned, run `python -B "{plugin_root}/scripts/batch_gate.py" labels {the layer's output files}`: exit 0 means one section-label set, exit 1 lists the labels per file. Where the outputs must cover a required id list, run `python -B "{plugin_root}/scripts/batch_gate.py" items --ids {file of one id per line} {output files}`: exit 1 prints the `MISSING` and `DUPLICATE` ids
+- [ ] If a status block is lost or disputed, run `python -B "{plugin_root}/scripts/extract_status_block.py" --pattern '{field regex}' {agent-*.jsonl transcript}`: exit 0 prints the last status-block match, exit 1 means no line matched
+- [ ] Run `python -B "{plugin_root}/scripts/outputs_coverage.py" named --side {producer|receiver} --outputs {Outputs folder} --tasks {task files}`: exit 0 means a Required Context row names every listed file, exit 1 lists the unnamed files (`producer` checks this session's Outputs against the consumer task files; `receiver` checks the upstream Outputs against this session's task files, advisory). `count` with the same `--outputs` and `--tasks` exits 1 when a count claim differs from the file count
 
 ### Step 3 — Scan the return for a stalled tail
 
@@ -326,14 +345,16 @@ See `agents/task-runner.md` §5.B for the runnable schema.
 
 <!-- Include when an upstream session's closeout routed coordination flags to this session.
      Omit the section when none arrived. Add one H3 block per source session, and append to
-     an existing block rather than opening a second one. The run handler's flag preflight
-     reads this section and routes each flag into the consuming task file before dispatch. -->
+     an existing block rather than opening a second one. Before dispatch the receiving orchestrator
+     routes each flag into its consuming task file. In the same edit it replaces `pending` in that
+     row's Routed cell with `✅ ROUTED {YYYY-MM-DD} into {task file}` (trailing text is allowed).
+     A row whose Routed cell still reads `pending` at dispatch was never routed. -->
 
 ### From {source-session-id} — recorded {date}
 
-| Flag # | Source Task | Consuming Task | Observation | Recommended Action |
-|--------|-------------|----------------|-------------|--------------------|
-| {n} | {source-task-id} | {task-id, or "session" when the consumer is unclear} | {observation} | {recommended action} |
+| Flag # | Source Task | Consuming Task | Observation | Recommended Action | Routed |
+|--------|-------------|----------------|-------------|--------------------|--------|
+| {n} | {source-task-id} | {task-id, or "session" when the consumer is unclear} | {observation} | {recommended action} | {pending, or ✅ ROUTED {YYYY-MM-DD} into {task file}} |
 
 ---
 

@@ -73,7 +73,7 @@ Copy these headings byte for byte, in this order, with their markers. Each list 
 
 Formatting lines: `**Sprint ID:** {ABBREV}-S{XX}`, `**Status:** PLANNED`, `**Estimated Tokens:** ~{XX}K total across all sessions` (equal to the sum of the Sessions table), and `**Total: {N} deliverables**` under the Deliverables table, counted from its rows. The Deliverables table header is `| # | Deliverable | Class | Producer | Description |`, and each row's `Producer` cell names one task id, one Post-Session Checklist step, or `n/a` for a `verified-absent` row. Repeat the `### Session {NN}:` H3 once per session.
 
-### Orchestration — `templates/orchestration.md` (360 lines)
+### Orchestration — `templates/orchestration.md` (385 lines)
 
 ```
 ## Session Objective <!-- REQUIRED -->
@@ -108,6 +108,8 @@ The Spawn-Prompt Skeleton's fenced block holds three `##` lines. They are body t
 ```
 
 Formatting lines: `**Mode:** {DIRECT | DELEGATED}` as the first line of `## Execution Strategy`, followed by `**Reason:**`. `**Total Estimated:** ~{XX}K tokens` directly after the Session Task List table, equal to that table's sum and to the session's row in the Sprint Plan Sessions table. `**Declared layers:**` opens `## Dispatch Layers`. The two OPTIONAL positions: `## Pre-Known Cross-Task Coordination Flags` sits after `## Task Files`, and `## Plan-Specific Sections` is the last H2.
+
+Columns and slots the headings above do not show. The `### Computed Write-Target Intersection` table carries an `Allocates from` column. The flag table under `## Pre-Known Cross-Task Coordination Flags` carries a `Routed` column, `pending` until the stamp `✅ ROUTED {YYYY-MM-DD} into {task file}` replaces it. The skeleton's `## HARD CONSTRAINTS` holds a `Permitted per Execution Step` line and a deferral line that says `no number assigned`. Its `## SCOPE BOUNDARY` holds a `Decision branches` line. A `Resume clause` with `Findings to fix:` closes the fence. `## Session Start Census` and Step 2 of the checklist carry the `{plugin_root}` caller lines of `dispatch_preflight.py`, `batch_gate.py`, `extract_status_block.py` and `outputs_coverage.py`.
 
 `## Post-Session Checklist` carries these six items verbatim, in this order:
 
@@ -146,7 +148,7 @@ The template document also carries three sections after its fenced body. They de
 ## Change Log Status Values
 ```
 
-### Task file — `templates/task-file.md` (488 lines)
+### Task file — `templates/task-file.md` (495 lines)
 
 ```
 ## Objective <!-- REQUIRED -->
@@ -169,7 +171,7 @@ The template document also carries three sections after its fenced body. They de
 ## Plan-Specific Sections <!-- OPTIONAL -->
 ```
 
-Formatting lines: the header lines `**Task ID:**`, `**Agent:**`, `**Estimated Tokens:**`, `**Depends On:**`, `**Output:**`, and `**Context subtotal:**` under the Required Context table, whose total equals `**Estimated Tokens:**`. Keep a "Required when" H3 only when its condition holds.
+Formatting lines: the header lines `**Task ID:**`, `**Agent:**`, `**Estimated Tokens:**`, `**Depends On:**`, `**Output:**`, and `**Context subtotal:**` under the Required Context table, whose total equals `**Estimated Tokens:**`. Keep a "Required when" H3 only when its condition holds. `## Expected Output` holds two slots: `**Required headings:**`, the label list with one literal heading per line, and `**Sweep counts:**`, the sweep-task field (found, corrected, left with reason), kept only for a sweep task.
 
 The template document also carries two sections after its fenced body. They describe the template and are never written into a task file:
 

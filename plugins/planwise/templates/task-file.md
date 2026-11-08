@@ -231,6 +231,13 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
      here as an explicit checklist. State that the post-dispatch acceptance step greps the
      produced file for these headings/columns before accepting it. -->
 
+**Required headings:** <!-- one literal label per line, copied byte for byte into the output. A fan-out task lists the labels, never only their count and meaning, so every output of one layer carries one label set. -->
+- `{## Heading 1}`
+- `{## Heading 2}`
+
+**Sweep counts:** <!-- sweep tasks only: a task that finds and corrects every occurrence of a pattern -->
+found {N} · corrected {N} · left {N}, each left occurrence as `{location} — {reason}`
+
 ### References Moved That May Now Be False (Required when the task moves or splits text)
 
 Where the task moves, splits or relocates text (a module split, a file move, a section relocation), the output MUST carry a short slot named "references I moved that may now be false". List each comment, docstring or prose pointer the task moved but did not fix, in the form `{symbol or location} — "{quoted text}" — {why it may now be false}`. Write `none` when there are none. A blank slot reads as work not done.
