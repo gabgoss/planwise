@@ -63,6 +63,10 @@ The shell line under Routing renders the `list` answer before you run. Check rul
 4. **Reconcile on consent.** The writer is `reconcile_plans.py --write`, and it regenerates the whole plans index. Run it only after the user agrees. A permission prompt on this path is acceptable. [handlers/list.md](../../handlers/list.md) gives the exit-code meanings.
 5. **Typed flags.** If the `ARGUMENTS:` line holds `--active` or `--no-check`, ignore any injected block. The shell line passes only the subcommand, so that block is unfiltered and always checked. Take the one-call route of rule 3 with those flags.
 
+## Plan
+
+If a `<!-- planwise:plan:begin -->` block above carries a `NEXT:` line, the plan handler's Config Gate takes every field from the block, and the default path follows the NEXT commands. A `PLANWISE_PLAN_FALLBACK:` line keeps the handler's steps 1-2.
+
 ## Upgrade
 
 If a `<!-- planwise:upgrade:begin -->` block appears above, follow its NEXT block exactly and read nothing else.

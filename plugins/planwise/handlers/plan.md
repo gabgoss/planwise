@@ -30,7 +30,7 @@ Reading order by mode: Standard mode reads this file, then Part 2, then Part 3. 
 ## Config Gate (Auto-Init Fallback)
 
 0. Read the injected block first. `scripts/skill_preflight.py` renders this gate through the skill's shell line, between `<!-- planwise:plan:begin -->` and `<!-- planwise:plan:end -->`. Route by what the block holds:
-   - A `config:` line and the field lines, no fallback line: take the config path and the five fields from the block, and continue to Required References. Read no file. A ` (default)` suffix marks a value `config.yaml` does not set, and ` (missing on disk)` marks a configured `plugin_root` that does not exist.
+   - A `config:` line and the field lines, no fallback line: take the config path, the five fields and the card fields from the block (`context.plan_authoring`, `token_saver`, `index_shape`, `abbreviations_in_use`, `fill_inventory`), and continue to Required References. Read no file. When the block ends in a `NEXT:` list, the default path follows its numbered commands and sentences in place of re-reading `config.yaml` or the plans index. A ` (default)` suffix marks a value `config.yaml` does not set, and ` (missing on disk)` marks a configured `plugin_root` that does not exist.
    - A `PLANWISE_PLAN_FALLBACK:` line reading `config.yaml not found`: go to step 3.
    - A `PLANWISE_PLAN_FALLBACK:` line reading `parse error`: apply the Config Malformed gate below.
    - Any other fallback line, no block, or `[shell command execution disabled by policy]`: follow steps 1-2 as written.

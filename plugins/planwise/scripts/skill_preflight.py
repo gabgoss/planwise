@@ -25,8 +25,11 @@ lessons directories resolved as `{planwise_root}/{dir_name}`. It finds the
 config in the handler's order: `planwise/config.yaml`, then a marked
 `*/config.yaml` one level down. A field line prints the value config.yaml
 holds, marked ` (default)` when the file does not set it, or
-` (missing on disk)` for a stale `plugin_root`. It imports neither
-`list_plans` nor `upgrade_preflight`. When no config is found, or the config
+` (missing on disk)` for a stale `plugin_root`. The card then adds the
+plan-authoring mode, the effective Token Saver value, the index-shape verdict,
+the abbreviations in use, the per-kind FILL inventory and a NEXT block, all
+from `plan_preflight`, which is imported only for that subcommand. It imports
+neither `list_plans` nor `upgrade_preflight`. When no config is found, or the config
 cannot be read or parsed, or anything else fails, the block holds one
 `PLANWISE_PLAN_FALLBACK: <type>: <message>` line and the end marker. Extra
 words after `plan` are ignored.
@@ -111,11 +114,19 @@ def plan_config_path(root: Path, config_loader) -> Path | None:
 
 
 def plan_block_lines(root: Path) -> list[str]:
-    """Return the lines between the plan markers. Raises when no config is found.
+    """Return the eight Config Gate lines, or one parse-error fallback line. Raises when no config is found."""
+    return plan_gate(root)[0]
 
-    Each field line prints the value config.yaml holds. A field the file does
-    not set prints its default plus ` (default)`. A configured `plugin_root`
-    that does not exist prints the configured value plus ` (missing on disk)`.
+
+def plan_gate(root: Path) -> tuple[list[str], Path | None, dict | None, str | None]:
+    """Return (lines, config path, config, plans_path), loading config.yaml once.
+
+    `lines` are the eight Config Gate lines. Each field line prints the value
+    config.yaml holds. A field the file does not set prints its default plus
+    ` (default)`. A configured `plugin_root` that does not exist prints the
+    configured value plus ` (missing on disk)`. When the file exists but does
+    not read as config, `lines` is one fallback line and the other three items
+    are None. Raises when no config is found.
     """
     import contextlib
     import io
@@ -131,7 +142,7 @@ def plan_block_lines(root: Path) -> list[str]:
         with contextlib.redirect_stderr(io.StringIO()):  # stderr would merge into the injected text
             config = config_loader.load_config(config_path=path)
     except unreadable as exc:  # the file exists but does not read as config
-        return [f"{PLAN_FALLBACK} {type(exc).__name__}: config.yaml parse error at {path}: {_one_line(exc)}"]
+        return [f"{PLAN_FALLBACK} {type(exc).__name__}: config.yaml parse error at {path}: {_one_line(exc)}"], None, None, None
     project = config_loader._project_block(config)
     index_files = project.get("index_files")
 
@@ -153,7 +164,7 @@ def plan_block_lines(root: Path) -> list[str]:
     lessons_index = config_loader._nonempty_str(index_files.get("lessons")) if isinstance(index_files, dict) else None
     plans_path = config_loader.resolve_index_dir(config, "plans", planwise_root, "Plans")
     lessons_path = config_loader.resolve_index_dir(config, "lessons", planwise_root, "") if lessons_dir else "(not set)"
-    return [
+    lines = [
         f"config: {path}",
         f"plugin_root: {plugin_root}",
         f"project.planwise_root: {shown(raw_field('planwise_root'), planwise_root)}",
@@ -163,6 +174,7 @@ def plan_block_lines(root: Path) -> list[str]:
         f"plans_path: {plans_path}",
         f"lessons_path: {lessons_path}",
     ]
+    return lines, path, config, plans_path
 
 
 def run(argv: list[str]) -> int | None:
@@ -181,9 +193,16 @@ def run(argv: list[str]) -> int | None:
     if tokens and tokens[0] == "plan":
         try:
             sys.path.insert(0, str(Path(__file__).resolve().parent))
-            lines = plan_block_lines(Path.cwd())  # lazy imports: nothing loads for other subcommands
+            lines, path, config, plans_path = plan_gate(Path.cwd())  # lazy imports: nothing loads for other subcommands
         except Exception as exc:  # noqa: BLE001 - contract: one fallback line, exit 0
-            lines = [f"{PLAN_FALLBACK} {type(exc).__name__}: {_one_line(exc)}"]
+            lines, config = [f"{PLAN_FALLBACK} {type(exc).__name__}: {_one_line(exc)}"], None
+        if config is not None:
+            try:
+                import plan_preflight  # lazy: loads for `plan` only, and only after the gate read the config
+
+                lines = [*lines, *plan_preflight.card_lines(path, config, plans_path)]
+            except Exception as exc:  # noqa: BLE001 - the eight gate lines survive a card failure
+                lines = [*lines, f"plan_card: (unavailable: {type(exc).__name__})"]
         _write_utf8([PLAN_BEGIN, *lines, PLAN_END])
         return 0
     if not tokens or tokens[0] != "list":
