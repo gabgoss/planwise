@@ -1586,8 +1586,10 @@ class TestCreateFilesPathResolution(_UpdateBacklogFixtureBase):
         self.assertIsNone(code)
         rendered = (self.backlog_dir / self.ITEM).read_text(encoding="utf-8")
         self.assertIn(f"- [{self.ITEM}]({self.ITEM}) - file for this item", rendered)
-        self.assertIn("- [src/a/B.cs](src/a/B.cs) - file for this item", rendered)
-        self.assertIn("- [docs/c.md](docs/c.md) - file for this item", rendered)
+        self.assertIn("- `src/a/B.cs` - affected file", rendered)
+        self.assertIn("- `docs/c.md` - affected file", rendered)
+        self.assertNotIn("[src/a/B.cs]", rendered)
+        self.assertNotIn("[docs/c.md]", rendered)
 
     def test_help_states_the_accepted_form_of_the_first_entry(self):
         out, _err, _code = self._run_main(["--help"])
