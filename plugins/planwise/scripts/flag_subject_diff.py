@@ -16,7 +16,7 @@ Method:
 
 * Carried rows are the table rows inside the sprint plan's Carried-Forward
   section whose consuming-session column (a header cell containing
-  "consum") mentions ``--session``, case-insensitively.
+  "consum") names ``--session`` as a whole token, case-insensitively.
 * A row's subject is the cell under a header named "Subject", "Observation"
   or "Topic". A table with none of those headers takes the first cell after
   the id cell.
@@ -41,6 +41,7 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 
+from dispatch_preflight import unfenced
 from markdown_parser import split_row_cells
 
 CARRIED_HEADING = "carried-forward coordination flags"
@@ -49,7 +50,6 @@ SUBJECT_HEADERS = ("subject", "observation", "topic")
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)")
 _SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?\Z")
-_FENCE_RE = re.compile(r"^\s*(```|~~~)")
 _SPACE_RE = re.compile(r"\s+")
 
 
@@ -58,14 +58,25 @@ def normalise(text: str) -> str:
     return _SPACE_RE.sub(" ", text).strip().casefold()
 
 
+def names_session(cell: str, session: str) -> bool:
+    """True when ``session`` appears in ``cell`` as a whole token.
+
+    A prefix such as ``ABC-`` may precede it. A word character or a dash and a
+    digit may not follow it, so ``AB-1`` never selects ``AB-10`` or ``AB-1-02``.
+    """
+    pattern = r"(?<!\w)" + re.escape(normalise(session)) + r"(?!\w|-\d)"
+    return re.search(pattern, normalise(cell)) is not None
+
+
 def section_lines(text: str, heading: str) -> list[str] | None:
     """Return the lines under the first heading whose text contains ``heading``.
 
     The section ends at the next heading of the same or a higher level, so
-    nested subsections stay inside it. Fenced code is dropped. ``None`` means
+    nested subsections stay inside it. Fenced code is dropped before the
+    heading search, so a heading inside a fence is never found. ``None`` means
     the heading is absent.
     """
-    lines = text.splitlines()
+    lines = unfenced(text.splitlines())
     start = level = None
     for i, line in enumerate(lines):
         m = _HEADING_RE.match(line)
@@ -75,13 +86,7 @@ def section_lines(text: str, heading: str) -> list[str] | None:
     if start is None:
         return None
     out: list[str] = []
-    in_fence = False
     for line in lines[start:]:
-        if _FENCE_RE.match(line):
-            in_fence = not in_fence
-            continue
-        if in_fence:
-            continue
         m = _HEADING_RE.match(line)
         if m and len(m.group(1)) <= level:
             break
@@ -116,7 +121,6 @@ def subject_index(header: list[str]) -> int:
 
 def carried_rows(lines: list[str], session: str) -> tuple[list[tuple[str, str]], int]:
     """Return ``([(id, subject)], skipped table count)`` for one session."""
-    want = normalise(session)
     rows: list[tuple[str, str]] = []
     skipped = 0
     for header, body in tables(lines):
@@ -128,7 +132,7 @@ def carried_rows(lines: list[str], session: str) -> tuple[list[tuple[str, str]],
         for cells in body:
             if len(cells) <= max(consumer, subj):
                 continue
-            if want in normalise(cells[consumer]):
+            if names_session(cells[consumer], session):
                 rows.append((cells[0], cells[subj]))
     return rows, skipped
 

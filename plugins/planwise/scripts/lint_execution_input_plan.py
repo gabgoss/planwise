@@ -108,6 +108,7 @@ FIRST_STEP_RE = re.compile(r"[ \t]*1\.[ \t]")
 PATH_TOKEN_RE = re.compile(r"`(?P<path>[^`\s*{}<>]+)`")
 FILE_EXTENSION_RE = re.compile(r"\.[A-Za-z0-9]+")
 PATH_PREFIXES = ("cloned-repos/planwise/", "plugins/planwise/", "./")
+ALIAS_LEGEND_RE = re.compile(r"`(?P<alias>[A-Za-z][A-Za-z0-9]{0,3})`[ \t]*=[ \t]*`(?P<prefix>[^`\s]+/)`")
 UNORDERED_RE = re.compile(r"unordered|concurren|\bnone\b", re.IGNORECASE)
 NOT_CONCURRENT_RE = re.compile(r"MUST NOT run concurrently")
 
@@ -137,6 +138,7 @@ CONSOLIDATED_RE = re.compile(r"Consolidated-Context", re.IGNORECASE)
 DRIVING_RE = re.compile(r"[*_ \t]*Driving Findings:[*_ \t]*(?P<rest>[^\r\n]*)", re.IGNORECASE)
 DEFERRED_MARKER_RE = re.compile(r"\[(?:source-doc-only|deferred)", re.IGNORECASE)
 CODE_SPAN_RE = re.compile(r"`(?P<inner>[^`\r\n]+)`")
+SOURCE_FILENAME_RE = re.compile(r"[A-Za-z0-9_./\\-]*[A-Za-z0-9_-]\.(?:md|py)\b")
 IDENTIFIER_CUT_RE = re.compile(r"[ \t]*(?:§|\(|\[|—|:)")
 
 core: Any = None  # the lint_execution_input module, bound by rules()
@@ -632,10 +634,42 @@ def check_size_band_derivation(ctx: Any) -> Any:
     return result
 
 
+def _alias_legend(lines: list[str], span: range) -> dict[str, str]:
+    """Alias to prefix pairs a Write-Set section states in prose: "`S` = `plugins/planwise/scripts/`"."""
+    legend: dict[str, str] = {}
+    for index in span:
+        if lines[index].lstrip().startswith("|"):
+            continue
+        for match in ALIAS_LEGEND_RE.finditer(lines[index]):
+            legend.setdefault(match["alias"], match["prefix"])
+    return legend
+
+
+def _plan_legend(doc: Any) -> dict[str, str]:
+    """The alias legend every Write-Set section of a plan states, merged."""
+    legend: dict[str, str] = {}
+    for span in core.ranges_titled(doc.lines, WRITE_SET_TITLE_RE):
+        for alias, prefix in _alias_legend(doc.lines, span).items():
+            legend.setdefault(alias, prefix)
+    return legend
+
+
+def _expand_alias(path: str, legend: dict[str, str]) -> str:
+    head, slash, rest = path.partition("/")
+    return legend[head] + rest if slash and head in legend else path
+
+
 def _write_set(doc: Any) -> list[tuple[int, str, list[str]]]:
-    """(row index, path, task ids) for each path of the first Write-Set table."""
+    """(row index, path, task ids) for each path of the first Write-Set table.
+
+    A path written with an alias the section's own legend defines ("`S` =
+    `plugins/planwise/scripts/`") is expanded to the full path. A plan that uses
+    an alias and states no legend keeps the alias, and its rows match only paths
+    written the same way.
+    """
     entries = []
     for span in core.ranges_titled(doc.lines, WRITE_SET_TITLE_RE):
+        legend = _alias_legend(doc.lines, span)
         header, rows = core.first_table(doc.lines, span)
         path_at = _column_index(header, r"path|file") or 0
         task_at = _column_index(header, r"task")
@@ -643,7 +677,7 @@ def _write_set(doc: Any) -> list[tuple[int, str, list[str]]]:
             if path_at >= len(cells):
                 continue
             tasks = TASK_ID_RE.findall(cells[task_at]) if task_at is not None and task_at < len(cells) else []
-            entries += [(index, path, tasks) for path in _paths(cells[path_at])]
+            entries += [(index, _expand_alias(path, legend), tasks) for path in _paths(cells[path_at])]
         break
     return entries
 
@@ -686,8 +720,12 @@ def check_cross_sprint_touch(ctx: Any) -> Any:
     (the first task id in its Write-Set row) whose Execution Step 1 names a grep,
     and, when the row's Ordering cell says the pair is unordered, a 'MUST NOT
     run concurrently' line naming the file in a Master Plan file beside the
-    sprint folders. Cannot see: a file a Write-Set table does not list, a later
-    sprint's obligations, or whether the grep gate names the prior task's marker.
+    sprint folders. Write-Set paths written with an alias are expanded through
+    the legend the Write-Set section states ("`S` = `plugins/planwise/scripts/`").
+    Cannot see: a file a Write-Set table does not list, an alias the plan uses
+    without stating a legend (such a path matches no full-path row, so it reads
+    as undeclared), a later sprint's obligations, or whether the grep gate names
+    the prior task's marker.
     """
     word = "cross-sprint-touch"
     result = core.RuleResult()
@@ -698,13 +736,14 @@ def check_cross_sprint_touch(ctx: Any) -> Any:
         return result
     touch_rows = []
     for plan in ctx.sprint_plans:
+        legend = _plan_legend(plan)  # a touch row may use the Write-Set's aliases too
         for span in core.ranges_titled(plan.lines, CROSS_SPRINT_TITLE_RE):
             header, rows = core.first_table(plan.lines, span)
             file_at = _column_index(header, r"file|path") or 0
             order_at = _column_index(header, r"order")
             for index, cells in rows:
                 ordering = cells[order_at] if order_at is not None and order_at < len(cells) else ""
-                files = _paths(cells[file_at]) if file_at < len(cells) else []
+                files = [_expand_alias(p, legend) for p in _paths(cells[file_at])] if file_at < len(cells) else []
                 touch_rows += [(plan, index, path, ordering) for path in files]
     master_lines = [
         line
@@ -867,17 +906,44 @@ def _items(text: str) -> list[str]:
     return [piece.strip() for chunk in text.split(";") for piece in chunk.split(",") if piece.strip()]
 
 
+def _source_identifiers(chunk: str) -> list[str]:
+    """Identifier-shaped items of a Source-cell chunk: code spans, 'Spec #N' tokens, filenames.
+
+    Free prose yields nothing. A filename is reduced to its basename, whether it
+    is bare or the whole of a code span (`references/x.md` matches a body that
+    says x.md).
+    """
+    found = []
+    for match in CODE_SPAN_RE.finditer(chunk):
+        inner = match["inner"].strip()
+        whole_name = SOURCE_FILENAME_RE.fullmatch(inner)
+        found.append(Path(inner.replace("\\", "/")).name if whole_name else inner)
+    rest = CODE_SPAN_RE.sub(" ", chunk)
+    found += [match.group(0) for match in SPEC_NUMBER_RE.finditer(rest)]
+    found += [Path(match.group(0).replace("\\", "/")).name for match in SOURCE_FILENAME_RE.finditer(rest)]
+    return [item for item in dict.fromkeys(found) if re.search(r"[A-Za-z]", item)]
+
+
+def _named_in(identifier: str, lines: list[str]) -> bool:
+    pattern = re.compile(re.escape(identifier) + (r"(?![0-9])" if identifier[-1].isdigit() else ""))
+    return any(pattern.search(line) for line in lines)
+
+
 def check_body_citation_presence(ctx: Any) -> Any:
     """Every finding a Consolidated Context part names has body prose or a marker.
 
     The parts are the 'Consolidated-Context' files the Part 1 'Extracted from:'
     line cites, found by name under --plan-root. A finding is each comma- or
-    semicolon-separated item of the Driving Findings line and of the
-    Cross-References Source cell; its identifier is its first code span or its
-    text up to the first '§', '(', '[' or ':'. The body is every line outside
-    the header block, the Driving Findings line and the Cross-References
-    section. Cannot see: prose that names the finding in other words, or a
-    finding item that itself holds a comma.
+    semicolon-separated item of the Driving Findings line (its identifier is
+    its first code span or its text up to the first '§', '(', '[' or ':'), and
+    each identifier-shaped item of a Cross-References Source cell: a code span,
+    a 'Spec #N' token, or a '.md' or '.py' filename (by basename). A
+    '[source-doc-only' or '[deferred' marker covers every item of its
+    semicolon-separated chunk. The body is every line outside the header block,
+    the Driving Findings line and the Cross-References section. Cannot see: a
+    finding a Source cell names in free prose (prose yields no item, so it can
+    never fire), prose that names a finding in other words, or a Driving
+    Findings item that itself holds a comma.
     """
     word = "body-citation-presence"
     result = core.RuleResult()
@@ -902,22 +968,28 @@ def check_body_citation_presence(ctx: Any) -> Any:
             continue
         doc = core.read_doc(path)
         excluded = {index for index, _line in core._header_block(doc)}
-        promised: list[tuple[int, str]] = []
+        promised: list[tuple[int, str, bool]] = []
         for index, line in enumerate(doc.lines):
             driving = DRIVING_RE.match(line)
             if driving:
                 excluded.add(index)
-                promised += [(index, item) for item in _items(driving["rest"])]
+                promised += [
+                    (index, _identifier(item), DEFERRED_MARKER_RE.search(item) is not None)
+                    for item in _items(driving["rest"])
+                ]
         for span in core.ranges_titled(doc.lines, core.CROSS_REF_TITLE_RE):
             excluded.update(span)
-        promised += [(index, item) for index, _section, source in core._cross_reference_rows(doc) for item in _items(source)]
+        for index, _section, source in core._cross_reference_rows(doc):
+            for chunk in source.split(";"):
+                marked = DEFERRED_MARKER_RE.search(chunk)
+                named = chunk[: marked.start()] if marked else chunk
+                promised += [(index, identifier, marked is not None) for identifier in _source_identifiers(named)]
         body = [line for index, line in enumerate(doc.lines) if index not in excluded]
-        for index, item in promised:
-            identifier = _identifier(item)
+        for index, identifier, covered in promised:
             if not identifier or not re.search(r"[A-Za-z]", identifier):
                 continue
             result.subjects += 1
-            if DEFERRED_MARKER_RE.search(item) or any(identifier in line for line in body):
+            if covered or _named_in(identifier, body):
                 continue
             result.findings.append(
                 _finding(

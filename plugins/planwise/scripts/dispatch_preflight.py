@@ -50,7 +50,7 @@ from markdown_parser import split_row_cells
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)")
 _SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?\Z")
-_FENCE_RE = re.compile(r"^\s*(```|~~~)")
+_FENCE_OPEN_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)")
 _SPACE_RE = re.compile(r"\s+")
 _CODE_SPAN_RE = re.compile(r"`([^`]+)`")
 _OUTPUT_LINE_RE = re.compile(r"^\s*\*\*Output:\*\*")
@@ -60,11 +60,15 @@ _PREREQ_LINE_RE = re.compile(r"\b(prerequisites?|depends on)\b", re.IGNORECASE)
 _QUANTIFIER_RE = re.compile(r"\b(all|every|any)\b", re.IGNORECASE)
 _PRIOR_RE = re.compile(r"\b(prior|earlier|preceding|before)\b", re.IGNORECASE)
 _SPRINT_LIST_RE = re.compile(
-    r"\bSprints?[\s-]*((?:\d+(?:\s*[–—-]\s*\d+)?(?:\s*(?:,|&|\band\b)\s*)?)+)",
+    r"\bSprints?[\s-]*((?:\d+(?:\s*(?:[–—-]|\bto\b)\s*\d+)?(?:\s*(?:,|&|\band\b)\s*)?)+)",
     re.IGNORECASE,
 )
-_SHORT_SPRINT_RE = re.compile(r"\bE?S(\d{1,2})\b")
-_RANGE_RE = re.compile(r"(\d+)(?:\s*[–—-]\s*(\d+))?")
+# A short form (S01, ES7) stands alone: never the segment of a hyphenated task
+# id such as ABC-S04-01. A second short form after a dash or "to" closes a range.
+_SHORT_SPRINT_RE = re.compile(
+    r"(?<![\w-])E?S(\d{1,2})(?!\w|-\d)(?:\s*(?:[–—-]|\bto\b)\s*E?S(\d{1,2})(?!\w|-\d))?"
+)
+_RANGE_RE = re.compile(r"(\d+)(?:\s*(?:[–—-]|\bto\b)\s*(\d+))?", re.IGNORECASE)
 _FOLDER_RE = re.compile(r"^Sprint-(\d+)")
 _SECTION_NUMBER_RE = re.compile(r"^\d+(?:\.\d+)*\.?\s+")
 
@@ -94,14 +98,24 @@ def looks_like_path(token: str) -> bool:
 
 
 def unfenced(lines: list[str]) -> list[str]:
-    """Drop fenced code blocks."""
-    out, in_fence = [], False
+    """Drop fenced code blocks, fence lines included.
+
+    CommonMark rule: a fence opens on three or more backticks or tildes, indented
+    at most three spaces. Only a run of the same character, at least as long and
+    followed by nothing but spaces, closes it. A backtick opener whose info string
+    holds a backtick is not a fence. An unclosed fence runs to the end of input.
+    """
+    out: list[str] = []
+    fence: str | None = None
     for line in lines:
-        if _FENCE_RE.match(line):
-            in_fence = not in_fence
-            continue
-        if not in_fence:
+        m = _FENCE_OPEN_RE.match(line)
+        if fence is None:
+            if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
+                fence = m.group(1)
+                continue
             out.append(line)
+        elif m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not m.group(2).strip():
+            fence = None
     return out
 
 
@@ -195,7 +209,10 @@ def enumerated_sprints(line: str) -> set[int]:
             lo = int(r.group(1))
             hi = int(r.group(2)) if r.group(2) else lo
             found.update(range(min(lo, hi), max(lo, hi) + 1))
-    found.update(int(m.group(1)) for m in _SHORT_SPRINT_RE.finditer(line))
+    for m in _SHORT_SPRINT_RE.finditer(line):
+        lo = int(m.group(1))
+        hi = int(m.group(2)) if m.group(2) else lo
+        found.update(range(min(lo, hi), max(lo, hi) + 1))
     return found
 
 

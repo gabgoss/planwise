@@ -151,6 +151,20 @@ ELISION_PREFIXES = ("…", "...")
 MARKER_MENTION_RE = re.compile(
     r"\bUNCONFIRMED[ \t]+(?:caveats?|claims?|markers?|items?|occurrences?|tags?)\b"
 )
+# Pieces dropped from the text before a marker when its subject phrase is taken.
+BOLD_LABEL_RE = re.compile(r"\*\*[^*\r\n]+:\*\*")
+QUOTED_PIECE_RE = re.compile(r'"[^"\r\n]*"|“[^”\r\n]*”')
+PAREN_PIECE_RE = re.compile(r"\([^()\r\n]*\)")
+CLAUSE_BREAK_RE = re.compile(r"[;:,|]|\.[ \t]|[—–]")
+SUBJECT_LEAD_WORDS = frozenset({"the", "a", "an", "that", "which", "this", "these", "its"})
+SUBJECT_TRAIL_WORDS = frozenset({"is", "are", "was", "were", "stays", "remains", "marked", "flagged", "as", "still"})
+SUBJECT_MAX_WORDS = 6
+KEY_MIN_CHARS = 4
+KEY_STOP_WORDS = frozenset(
+    {"a", "an", "the", "it", "its", "this", "that", "these", "those", "they", "them", "there", "here",
+     "which", "what", "who", "is", "are", "was", "were", "be", "and", "or", "of", "to", "in", "on",
+     "for", "with", "as", "at", "by", "still", "also", "some", "each", "every"}
+)
 HEDGE_MARKERS = (
     "most likely",
     "probably",
@@ -503,11 +517,64 @@ def _callout_lines(lines: list[str]) -> set[int]:
     return found
 
 
+def _blank(match: re.Match[str]) -> str:
+    return " " * len(match.group(0))
+
+
+def marker_position(line: str) -> int | None:
+    """Column of the first UNCONFIRMED used as a claim, or None when every one is a mention."""
+    masked = MARKER_MENTION_RE.sub(_blank, CODE_SPAN_RE.sub(_blank, line))
+    found = MARKER_RE.search(masked)
+    return found.start() if found else None
+
+
+def key_is_specific(key: str) -> bool:
+    """True when a key holds two content words, or one content word of four or more characters."""
+    words = [word for word in key.split() if word.casefold().strip(".,;:!?") not in KEY_STOP_WORDS]
+    return len(words) >= 2 or any(len(word) >= KEY_MIN_CHARS for word in words)
+
+
+def carries(text: str, key: str) -> bool:
+    """True when `text` holds `key` as whole words, case-folded, any run of whitespace between them."""
+    pattern = r"\s+".join(re.escape(word) for word in key.casefold().split())
+    return re.search(r"(?<!\w)" + pattern + r"(?!\w)", text.casefold()) is not None
+
+
+def claim_key(line: str, marker_at: int) -> str | None:
+    """The text a site must carry for the claim the marker on `line` caveats, or None.
+
+    The first code span anywhere on the line wins, unless it holds the marker
+    itself. Otherwise the key is the subject phrase before the marker: bold
+    labels, quoted and parenthesised pieces dropped, the last clause kept,
+    leading articles and a trailing 'is'/'stays' trimmed, at most the last six
+    words. A key that fails key_is_specific is no key: the caller reports the
+    line as unkeyable. The marker word is never a key.
+    """
+    for span in CODE_SPAN_RE.finditer(line):
+        inner = span.group(0).strip("`").strip()
+        if inner and not MARKER_RE.search(inner) and key_is_specific(inner):
+            return inner
+    before = line[:marker_at]
+    text = BOLD_LABEL_RE.sub(" ", CODE_SPAN_RE.sub(" ", before))
+    text = QUOTED_PIECE_RE.sub(" ", text)
+    while PAREN_PIECE_RE.search(text):
+        text = PAREN_PIECE_RE.sub(" ", text)
+    clause = CLAUSE_BREAK_RE.split(text)[-1]
+    words = [word.strip("*_>#\"'[]") for word in clause.split()]
+    words = [word for word in words if word]
+    while words and words[0].lower() in SUBJECT_LEAD_WORDS:
+        words.pop(0)
+    while words and words[-1].lower() in SUBJECT_TRAIL_WORDS:
+        words.pop()
+    key = " ".join(words[-SUBJECT_MAX_WORDS:])
+    return key if key and key_is_specific(key) else None
+
+
 def _key_in(docs: list[Doc], key: str, title_re: re.Pattern[str], checkbox_counts: bool) -> bool:
     for doc in docs:
         spans = ranges_titled(doc.lines, title_re)
         for index, line in enumerate(doc.lines):
-            if key not in line:
+            if not carries(line, key):
                 continue
             if in_ranges(index, spans) or (checkbox_counts and CHECKBOX_RE.match(line)):
                 return True
@@ -517,11 +584,14 @@ def _key_in(docs: list[Doc], key: str, title_re: re.Pattern[str], checkbox_count
 def check_four_site_caveat(ctx: Context) -> RuleResult:
     """Each bare UNCONFIRMED claim reaches the four sites; no practice callout carries one.
 
-    The claim's key is the first code span on its line, or the marker itself
-    when the line has none. A marker inside a code span or fence, or followed by
-    a word such as 'caveat' or 'claim' ('each UNCONFIRMED caveat'), is a
-    mention, not a claim. Cannot see: a claim phrased as such a mention; a site
-    that names the item with other words; whether an Orchestration criterion
+    Each site check looks for the claim's key (see claim_key) as whole words,
+    case-folded, never for the marker word: a site restates the claim, it need
+    not repeat the marker. A claim with no specific key is reported as
+    unkeyable rather than passed. A marker inside a code span or fence, or followed by a word
+    such as 'caveat' or 'claim' ('each UNCONFIRMED caveat'), is a mention, not
+    a claim. Cannot see: a claim phrased as such a mention; a site that names
+    the item with other words than the subject phrase; a subject longer than
+    six words, which is cut to its last six; whether an Orchestration criterion
     actually enforces the exclusion.
     """
     result = RuleResult()
@@ -533,8 +603,8 @@ def check_four_site_caveat(ctx: Context) -> RuleResult:
             mask = fenced_mask(part.lines)
             practice = _callout_lines(part.lines)
             for index, line in enumerate(part.lines):
-                bare = MARKER_MENTION_RE.sub("", CODE_SPAN_RE.sub("", line))
-                if mask[index] or not MARKER_RE.search(bare):
+                marker_at = marker_position(line)
+                if mask[index] or marker_at is None:
                     continue
                 result.subjects += 1
                 if index in practice:
@@ -550,11 +620,22 @@ def check_four_site_caveat(ctx: Context) -> RuleResult:
                     continue
                 if in_ranges(index, caveat_spans):
                     continue  # a Data Quality Caveats line is a site, not a claim
-                span = CODE_SPAN_RE.search(line)
-                key = span.group(0).strip("`") if span and span.group(0).strip("`") else "UNCONFIRMED"
+                key = claim_key(line, marker_at)
+                if key is None:
+                    result.findings.append(
+                        Finding(
+                            "four-site-caveat",
+                            BLOCKER,
+                            part.path,
+                            index + 1,
+                            "unkeyable UNCONFIRMED caveat: no code span and no subject phrase of two "
+                            "content words or one word of four or more letters, so no site can be checked",
+                        )
+                    )
+                    continue
                 missing = []
                 in_caveats = any(
-                    key in doc.lines[i] for doc, spans in caveat_docs for s in spans for i in s
+                    carries(doc.lines[i], key) for doc, spans in caveat_docs for s in spans for i in s
                 )
                 if not in_caveats:
                     missing.append("EI Data Quality Caveats")

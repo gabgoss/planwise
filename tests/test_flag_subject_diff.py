@@ -76,6 +76,27 @@ def test_no_carried_rows_prints_zero_count(tmp_path, capsys):
     assert "carried rows for session XYZ-09: 0" in capsys.readouterr().out
 
 
+def test_session_matches_as_whole_token_only():
+    assert not fsd.names_session("S04-10, S04-12", "S04-1")
+    assert not fsd.names_session("S04-1-02", "S04-1")
+    assert fsd.names_session("S04-1 and S04-10", "S04-1")
+    assert fsd.names_session("ABC-S04-1", "s04-1")
+
+
+def test_session_prefix_selects_no_longer_ids(tmp_path, capsys):
+    plan = PLAN.replace("| ABC-02 |", "| ABC-020 |").replace("| abc-02 |", "| ABC-021 |")
+    assert fsd.main(_write(tmp_path, plan, ORCH_ID_COLLISION)) == 0
+    assert "carried rows for session ABC-02: 0" in capsys.readouterr().out
+
+
+def test_heading_inside_a_fence_is_not_the_section(tmp_path, capsys):
+    """A fenced example heading, with a tilde run inside a backtick fence, is skipped."""
+    fenced = "```\n~~~\n## Pre-Known Cross-Task Coordination Flags\n~~~\n```\n\n"
+    assert fsd.main(_write(tmp_path, PLAN, "# Orchestration\n\n" + fenced)) == 2
+    capsys.readouterr()
+    assert fsd.main(_write(tmp_path, PLAN, "# Orchestration\n\n" + fenced + ORCH_REPAIRED)) == 0
+
+
 def test_table_without_consumer_column_is_counted_as_skipped(tmp_path, capsys):
     plan = PLAN.replace("## Next Section", "| Flag | Note |\n|---|---|\n| X | y |\n\n## Next Section")
     fsd.main(_write(tmp_path, plan, ORCH_REPAIRED))

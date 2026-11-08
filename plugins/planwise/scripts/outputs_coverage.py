@@ -83,8 +83,14 @@ def required_context_cells(path: str) -> list[str]:
 
 
 def find_unnamed(names: list[str], task_files: list[str]) -> list[str]:
-    haystack = "\n".join(c for t in task_files for c in required_context_cells(t))
-    return [n for n in names if n not in haystack]
+    cells = [c for t in task_files for c in required_context_cells(t)]
+    unnamed = []
+    for n in names:
+        # A whole file token: not preceded or followed by another name character.
+        pat = re.compile(r"(?<![\w.-])" + re.escape(n) + r"(?![\w-]|\.\w)")
+        if not any(pat.search(c) for c in cells):
+            unnamed.append(n)
+    return unnamed
 
 
 def find_claims(task_files: list[str]) -> list[tuple[str, int, str, int]]:
@@ -124,7 +130,7 @@ def cmd_count(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap = argparse.ArgumentParser(description="Check an Outputs/ listing against the task files that consume it.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("named", help="every listed file is named by a Required Context row")
     p.add_argument("--outputs", required=True)
@@ -136,7 +142,11 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--tasks", nargs="+", required=True)
     c.set_defaults(func=cmd_count)
     args = ap.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except OSError as exc:
+        print(f"error: {exc}")
+        return 2
 
 
 if __name__ == "__main__":

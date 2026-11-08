@@ -84,6 +84,43 @@ def test_prereq_unquantified_line_is_not_checked(tmp_path, capsys):
     assert "quantified lines with an enumeration: 0" in capsys.readouterr().out
 
 
+def test_short_form_skips_task_id_segments():
+    assert dp.enumerated_sprints("consumes RFH-S04-01 output") == set()
+    assert dp.enumerated_sprints("consumes S04-01 output") == set()
+    assert dp.enumerated_sprints("needs S04 and ES7") == {4, 7}
+
+
+def test_short_form_range_expands():
+    assert dp.enumerated_sprints("all of S01–S03") == {1, 2, 3}
+    assert dp.enumerated_sprints("all of S01-S03") == {1, 2, 3}
+    assert dp.enumerated_sprints("all of S01 to S03") == {1, 2, 3}
+    assert dp.enumerated_sprints("Sprints 01 to 03") == {1, 2, 3}
+
+
+def test_prereq_short_range_known_bad_and_repaired(tmp_path):
+    plan, root = _plan_tree(tmp_path, "**Prerequisite:** all of S01-S03 and S05")
+    assert dp.main(["prereq", "--sprint-plan", str(plan), "--sprint-folder", str(root)]) == 1
+    plan, root = _plan_tree(tmp_path / "b", "**Prerequisite:** all of S01-S03, S05 and S08")
+    assert dp.main(["prereq", "--sprint-plan", str(plan), "--sprint-folder", str(root)]) == 0
+
+
+# --- fences -----------------------------------------------------------------
+
+
+def test_unfenced_follows_the_commonmark_close_rule():
+    lines = ["```", "~~~", "in fence", "~~~", "```", "out"]
+    assert dp.unfenced(lines) == ["out"]
+    assert dp.unfenced(["````", "```", "still in", "````", "out"]) == ["out"]
+    assert dp.unfenced(["~~~", "x", "~~~ info", "y", "~~~", "out"]) == ["out"]
+    assert dp.unfenced(["```py `x`", "not a fence"]) == ["```py `x`", "not a fence"]
+
+
+def test_heading_inside_fence_is_not_a_section():
+    text = "# R\n\n```\n~~~\n## Files Modified\n- `a/fake.md`\n~~~\n```\n"
+    assert dp.section_lines(text, "Files Modified") is None
+    assert dp.files_modified(text) == set()
+
+
 # --- siblings ---------------------------------------------------------------
 
 RECOVERY = """# Recovery

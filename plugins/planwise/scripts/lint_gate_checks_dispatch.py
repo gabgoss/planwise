@@ -160,20 +160,39 @@ def _output_text(lines) -> str | None:
     return None
 
 
+def _declared_paths(output: str) -> list:
+    """The whole path tokens the Output field names, as posix path parts."""
+    return [Path(token).parts for token in _PATH_TOKEN_RE.findall(output)]
+
+
+def _declared(token: str, declared) -> bool:
+    """True when ``token`` equals a declared path by its file name, or is the tail of one
+    (a step may name ``b/Core.md`` for a declared ``a/b/Core.md``). A file name that is
+    only a substring of a declared name does not match."""
+    parts = Path(token.rstrip(".")).parts
+    return any(
+        len(parts) <= len(path) and path[len(path) - len(parts):] == parts for path in declared
+    )
+
+
 def _check43_step_writes_outside_output(context) -> list:
     """Check 43 -- an Execution Step names a write (amend, absorb, stamp) to a path that
     the task's ``**Output:**`` field does not name (dispatch-decomposition-graph.md §2).
-    The task can then identify an amendment and cannot apply it. A path matches the
-    Output field by its file name. Lines that negate (never, do not, WRONG) are skipped,
+    The task can then identify an amendment and cannot apply it. A step path matches
+    a whole path token of the Output field, equal or as its trailing parts, never as
+    a substring of a longer name. Lines that negate (never, do not, WRONG) are skipped,
     and so is a task file with no Output field. Advisory,
     so WARNING. It cannot see a write phrased with another verb, a path without a file
-    extension, a path held in a variable, or a same-named file in another directory.
+    extension, a path held in a variable, or a declared directory that covers the file (a step
+    path under an Output directory is reported). A bare file name matches a declared
+    path with the same trailing name, so a same-named file in another directory passes.
     """
     findings = []
     for rel, lines in _task_files(context):
         output = _output_text(lines)
         if output is None:
             continue
+        declared = _declared_paths(output)
         for number, line in _section_lines(lines, ("execution steps",)):
             if _NEGATION_RE.search(line):
                 continue
@@ -182,7 +201,7 @@ def _check43_step_writes_outside_output(context) -> list:
                 continue
             missing = [
                 token for token in _PATH_TOKEN_RE.findall(line)
-                if Path(token.rstrip(".")).name not in output
+                if not _declared(token, declared)
             ]
             if not missing:
                 continue

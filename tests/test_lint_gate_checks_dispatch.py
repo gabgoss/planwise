@@ -75,6 +75,19 @@ class TestCheck43WriteOutsideOutput(unittest.TestCase):
     def test_good_path_added_to_output(self):
         self.assertEqual(_lint(43, _task(steps=self.BAD, output="`out/result.md`, `register/Part-1b.md`")), [])
 
+    def test_bad_name_is_only_a_substring_of_a_declared_path(self):
+        steps = "1. Amend `Core.md` with the result."
+        findings = _lint(43, _task(steps=steps, output="`Outputs/RFH-S04-01-02-EiLintCore.md`"))
+        self.assertEqual(len(findings), 1)
+
+    def test_good_declared_path_among_several(self):
+        steps = "1. Amend `Core.md` with the result."
+        self.assertEqual(_lint(43, _task(steps=steps, output="`a/Other.md`, `b/Core.md`")), [])
+
+    def test_good_declared_path_followed_by_punctuation(self):
+        steps = "1. Amend `b/Core.md`."
+        self.assertEqual(_lint(43, _task(steps=steps, output="`b/Core.md`; `a/Other.md`")), [])
+
     def test_good_step_without_write_verb(self):
         self.assertEqual(_lint(43, _task(steps="1. Read `register/Part-1b.md`.")), [])
 

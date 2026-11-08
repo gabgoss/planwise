@@ -390,6 +390,8 @@ Same checklist as standard mode, plus:
 [ ] If effective Token Saver on (plan Master-Plan `Token Saver:` field over the project `context.token_saver` default) — Token Saver large-file scan run over each task's cited EI sections + code refs; Warn+ files have a backlog item; cost-reason Critical tasks flagged 1M-exception (read-reason → paged-read/refactor, never 1M-exception); each sprint EI under the line/byte/token read gates (split into Parts if not)
 ```
 
+Run `python -B "{plugin_root}/scripts/lint_execution_input.py" --sprint {sprint folder} --master-plan {Master Plan path}` on each sprint's Execution Input. Exit 1 is a BLOCKER finding, exit 2 is a WARNING, and exit 3 means the lint did not run.
+
 ## Scaffolding Step 7: Output Confirmation
 
 Same as Step 9 in standard mode, plus include:

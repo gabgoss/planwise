@@ -366,6 +366,130 @@ def test_four_site_caveat_constraint_callout_is_clean(tmp_path, capsys):
     assert code == 0, out
 
 
+# The real header shape: a bold label, a subject phrase with a quoted parenthetical
+# holding a semicolon, and no code span. The sites restate the claim without the marker.
+PROSE_CLAIM = (
+    '**Caveat:** the pair-9 survivor ("the gate files hold the rule; the sweep keeps the table") '
+    "is UNCONFIRMED at its source. See §19.\n"
+)
+PROSE_PART_1 = PART_1.replace("**Tier 3: none produced.**", "**Tier 3: none produced.**\n" + PROSE_CLAIM.rstrip("\n"))
+PROSE_PART_1_BROKEN = PROSE_PART_1.replace(
+    "Nothing is caveated yet.", "The `other_item` field is UNCONFIRMED: keep it out."
+)
+PROSE_PART_1_REPAIRED = PROSE_PART_1.replace(
+    "Nothing is caveated yet.", "The pair-9 survivor waits on a body read. No compress cuts either side."
+)
+PROSE_ORCH = ORCHESTRATION + "- [ ] No task compresses the pair-9 survivor before its decision record.\n"
+PROSE_TASK = TASK_FILE + "- [ ] The pair-9 survivor decision record exists on disk.\n"
+PROSE_SITES = {PART_1_KEY: PROSE_PART_1_REPAIRED, ORCH_KEY: PROSE_ORCH, TASK_KEY: PROSE_TASK}
+
+
+def test_claim_key_takes_the_subject_phrase():
+    line = PROSE_CLAIM.rstrip("\n")
+    assert lint.claim_key(line, lint.marker_position(line)) == "pair-9 survivor"
+    coded = "The `api_flag` field is UNCONFIRMED — not in the response."
+    assert lint.claim_key(coded, lint.marker_position(coded)) == "api_flag"
+    assert lint.claim_key("UNCONFIRMED: no subject.", 0) is None
+
+
+def test_claim_key_takes_a_code_span_after_the_marker():
+    line = "UNCONFIRMED: `hooks/deny-cd.py` runs before the deny list"
+    assert lint.claim_key(line, lint.marker_position(line)) == "hooks/deny-cd.py"
+
+
+def test_claim_key_rejects_a_short_subject():
+    line = "It is UNCONFIRMED at its source."
+    assert lint.claim_key(line, lint.marker_position(line)) is None
+    assert lint.key_is_specific("CF-09 survivor") and lint.key_is_specific("cache item")
+    assert not lint.key_is_specific("It") and not lint.key_is_specific("the box")
+
+
+def test_carries_matches_whole_words_only():
+    assert not lint.carries("commit with item", "it")
+    assert lint.carries("The CF-09\tSurvivor stands.", "CF-09 survivor")
+    assert not lint.carries("the CF-09 survivors", "CF-09 survivor")
+
+
+def _claim_fixture(claim: str, caveat: str, site: str) -> dict[str, str]:
+    part = PART_1.replace("## Data Quality Caveats", f"\n{claim}\n\n## Data Quality Caveats").replace(
+        "Nothing is caveated yet.", caveat
+    )
+    return {
+        PART_1_KEY: part,
+        ORCH_KEY: ORCHESTRATION + f"- [ ] {site}\n",
+        TASK_KEY: TASK_FILE + f"- [ ] {site}\n",
+    }
+
+
+SPAN_AFTER = "UNCONFIRMED: `hooks/deny-cd.py` runs before the deny list."
+
+
+def test_four_site_caveat_span_after_marker_fires_when_sites_lack_it(tmp_path, capsys):
+    """A caveats line with the word 'unconfirmed' no longer satisfies a claim keyed on its path."""
+    sites = _claim_fixture(SPAN_AFTER, "Everything here stays unconfirmed until measured.", "The deny list ships.")
+    code, out = run(tmp_path, capsys, **sites)
+    assert code == 1
+    lines = finding_lines(out, "four-site-caveat")
+    assert len(lines) == 1 and "'hooks/deny-cd.py'" in lines[0] and "EI Data Quality Caveats" in lines[0]
+
+
+def test_four_site_caveat_span_after_marker_repaired_is_clean(tmp_path, capsys):
+    sites = _claim_fixture(
+        SPAN_AFTER, "The order of `hooks/deny-cd.py` waits on a probe.", "`hooks/deny-cd.py` order is probed."
+    )
+    code, out = run(tmp_path, capsys, **sites)
+    assert code == 0, out
+    assert finding_lines(out, "four-site-caveat") == []
+
+
+def test_four_site_caveat_short_subject_is_unkeyable(tmp_path, capsys):
+    """'It' would match 'with', 'item' and 'commit' on every site; the rule reports it instead."""
+    sites = _claim_fixture("It is UNCONFIRMED at its source.", "The item ships with the commit.", "Commit it with the item.")
+    code, out = run(tmp_path, capsys, **sites)
+    assert code == 1
+    lines = finding_lines(out, "four-site-caveat")
+    assert len(lines) == 1 and "unkeyable" in lines[0]
+
+
+def test_four_site_caveat_specific_subject_repaired_is_clean(tmp_path, capsys):
+    sites = _claim_fixture(
+        "The cache item is UNCONFIRMED at its source.",
+        "The cache item waits on a probe.",
+        "The cache item stays out of the schema.",
+    )
+    code, out = run(tmp_path, capsys, **sites)
+    assert code == 0, out
+    assert finding_lines(out, "four-site-caveat") == []
+
+
+def test_four_site_caveat_prose_claim_fires_when_caveats_lack_the_claim(tmp_path, capsys):
+    """The caveats section carries the marker for another item, never this claim: the site is missing."""
+    code, out = run(tmp_path, capsys, **{**PROSE_SITES, PART_1_KEY: PROSE_PART_1_BROKEN})
+    assert code == 1
+    lines = finding_lines(out, "four-site-caveat")
+    assert len(lines) == 1 and "'pair-9 survivor'" in lines[0] and "EI Data Quality Caveats" in lines[0]
+    assert "Orchestration" not in lines[0] and "task file" not in lines[0]
+
+
+@pytest.mark.parametrize(
+    ("broken", "missing"),
+    [({ORCH_KEY: ORCHESTRATION}, "Orchestration success criterion"), ({TASK_KEY: TASK_FILE}, "task file")],
+)
+def test_four_site_caveat_prose_claim_fires_on_other_missing_sites(tmp_path, capsys, broken, missing):
+    code, out = run(tmp_path, capsys, **{**PROSE_SITES, **broken})
+    assert code == 1
+    lines = finding_lines(out, "four-site-caveat")
+    assert len(lines) == 1 and missing in lines[0]
+
+
+def test_four_site_caveat_prose_claim_repaired_is_clean(tmp_path, capsys):
+    """Every site restates the claim and none repeats the marker word."""
+    code, out = run(tmp_path, capsys, **PROSE_SITES)
+    assert code == 0, out
+    assert finding_lines(out, "four-site-caveat") == []
+    assert "four-site-caveat: 1 subject(s), 0 finding(s)" in out
+
+
 def test_four_site_caveat_skips_mentions(tmp_path, capsys):
     mention = "\nPlace each UNCONFIRMED caveat at four sites, and never cite `UNCONFIRMED` as a claim.\n"
     part = PART_1.replace("## Data Quality Caveats", mention + "\n## Data Quality Caveats")

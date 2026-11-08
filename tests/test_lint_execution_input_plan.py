@@ -207,8 +207,15 @@ Beta-Finding: a stale entry is dropped on read.
 
 | Section | Source |
 |---|---|
-| Rules | Alpha-Finding §1; Gamma-Finding §2 [source-doc-only — see src/gamma.md] |
+| Rules | `Alpha-Finding` §1; `Gamma-Finding` §2 [source-doc-only — see src/gamma.md] |
 """
+
+# The shape of a real Consolidated Context Cross-References row whose Source cell is prose.
+PROSE_ROW = (
+    "| [Part 3](XYZ-Consolidated-Context-Part-3-Beta.md), with 3b | The verify, dispatch and ei families' "
+    "24 rows; the scaffolding rules' source; CF-01 to CF-14 |\n"
+)
+NAMED_ROW = "| Probes | The cache probe in `cache_probe` and its runner `probe_runner.py` |\n"
 
 KEYS = {
     "master": "plan/Exec-XYZ/XYZ-Master-Plan.md",
@@ -528,6 +535,57 @@ def test_cross_sprint_touch_unordered_pair_with_the_row_is_clean(tmp_path, capsy
     assert "cross-sprint-touch: 1 subject(s), 0 finding(s)" in out
 
 
+# The real shape: the Write-Set states an alias legend in prose and writes aliased paths,
+# while the Cross-Sprint File Touches table writes full paths.
+ALIASED = (
+    "## Write-Set\n\n| Path | Task |\n|---|---|\n| `tests/test_shared.py` | XYZ-S02-01-01 |\n",
+    (
+        "## Write-Set\n\nEvery path this sprint EDITS. `S` = `plugins/planwise/scripts/`, `T` = `tests/`, "
+        "all under `cloned-repos/planwise/`.\n\n| Path | Task |\n|---|---|\n"
+        "| `T/test_shared.py` (one entry removed) | XYZ-S02-01-01 |\n"
+    ),
+)
+NO_GATE = ("1. Grep `tests/test_shared.py`", "1. Open `tests/test_shared.py`")
+
+
+def test_cross_sprint_touch_aliased_write_set_fires_only_on_the_missing_gate(tmp_path, capsys):
+    code, out = run(tmp_path, capsys, edited(plan=ALIASED, task1=NO_GATE))
+    assert code == 1
+    lines = findings(out, "cross-sprint-touch")
+    assert len(lines) == 1 and "no Step-1 grep gate" in lines[0], out
+    assert "tests/test_shared.py: first writing task" in lines[0]
+
+
+def test_cross_sprint_touch_aliased_write_set_repaired_is_clean(tmp_path, capsys):
+    code, out = run(tmp_path, capsys, edited(plan=ALIASED))
+    assert code == 0, out
+    assert "cross-sprint-touch: 1 subject(s), 0 finding(s)" in out
+
+
+def test_cross_sprint_touch_aliased_touch_row_matches_the_aliased_write_set(tmp_path, capsys):
+    """Code review: a touch row written with the plan's alias is a declared row, not 'no row'."""
+    aliased_row = (TOUCH_ROW, TOUCH_ROW.replace("`tests/test_shared.py`", "`T/test_shared.py`"))
+    files = edited(plan=ALIASED)
+    files["plan"] = files["plan"].replace(*aliased_row)
+    code, out = run(tmp_path, capsys, files)
+    assert code == 0, out
+    assert findings(out, "cross-sprint-touch") == []
+    assert "cross-sprint-touch: 1 subject(s), 0 finding(s)" in out
+
+
+def test_cross_sprint_touch_alias_without_a_legend_reads_as_undeclared(tmp_path, capsys):
+    """The stated limit: with no legend, an aliased path matches no full-path row."""
+    no_legend = (ALIASED[0], ALIASED[1].replace("`S` = `plugins/planwise/scripts/`, `T` = `tests/`, ", ""))
+    earlier = (
+        "| `tests/test_shared.py` | XYZ-S01-02-04 |",
+        "| `T/test_shared.py` | XYZ-S01-02-04 |",
+    )
+    code, out = run(tmp_path, capsys, edited(plan=no_legend, earlier=earlier))
+    assert code == 1
+    lines = findings(out, "cross-sprint-touch")
+    assert len(lines) == 1 and "no Cross-Sprint File Touches row" in lines[0], out
+
+
 def test_cross_sprint_touch_repaired_is_clean(tmp_path, capsys):
     _code, out = run(tmp_path, capsys, edited())
     assert "cross-sprint-touch: 1 subject(s), 0 finding(s)" in out
@@ -598,6 +656,62 @@ def test_body_citation_presence_fires_on_a_driving_finding_without_prose(tmp_pat
 def test_body_citation_presence_repaired_is_clean(tmp_path, capsys):
     _code, out = run(tmp_path, capsys, edited())
     assert "body-citation-presence: 4 subject(s), 0 finding(s)" in out
+
+
+def test_body_citation_presence_ignores_a_prose_source_cell(tmp_path, capsys):
+    """Prose fragments of a Source cell are not findings (the real-run defect: 27 on one sprint)."""
+    last_row = "[source-doc-only — see src/gamma.md] |\n"
+    code, out = run(tmp_path, capsys, edited(consolidated=(last_row, last_row + PROSE_ROW)))
+    assert code == 0, out
+    assert findings(out, "body-citation-presence") == []
+    assert "body-citation-presence: 4 subject(s), 0 finding(s)" in out
+
+
+def test_body_citation_presence_fires_on_a_named_item_absent_from_the_body(tmp_path, capsys):
+    last_row = "[source-doc-only — see src/gamma.md] |\n"
+    code, out = run(tmp_path, capsys, edited(consolidated=(last_row, last_row + NAMED_ROW)))
+    assert code == 1
+    lines = findings(out, "body-citation-presence")
+    assert len(lines) == 2, out
+    assert "'cache_probe'" in lines[0] and "'probe_runner.py'" in lines[1], out
+
+
+def test_body_citation_presence_named_items_in_the_body_are_clean(tmp_path, capsys):
+    last_row = "[source-doc-only — see src/gamma.md] |\n"
+    body = "Beta-Finding: a stale entry is dropped on read.\n"
+    files = edited(
+        consolidated=(last_row, last_row + NAMED_ROW),
+    )
+    files["consolidated"] = files["consolidated"].replace(
+        body, body + "\nThe `cache_probe` helper runs from `probe_runner.py`.\n"
+    )
+    code, out = run(tmp_path, capsys, files)
+    assert code == 0, out
+    assert "body-citation-presence: 6 subject(s), 0 finding(s)" in out
+
+
+def test_body_citation_presence_code_span_path_matches_by_basename(tmp_path, capsys):
+    """Code review: a code-span path in a Source cell matches the body by basename, as a bare filename does."""
+    last_row = "[source-doc-only — see src/gamma.md] |\n"
+    span_row = "| Eviction | `references/cache-rules.md` §4 |\n"
+    files = edited(consolidated=(last_row, last_row + span_row))
+    files["consolidated"] = files["consolidated"].replace(
+        "Beta-Finding: a stale entry is dropped on read.\n",
+        "Beta-Finding: a stale entry is dropped on read, per cache-rules.md §4.\n",
+    )
+    code, out = run(tmp_path, capsys, files)
+    assert code == 0, out
+    assert findings(out, "body-citation-presence") == []
+    assert "body-citation-presence: 5 subject(s), 0 finding(s)" in out
+
+
+def test_body_citation_presence_code_span_path_absent_still_fires(tmp_path, capsys):
+    last_row = "[source-doc-only — see src/gamma.md] |\n"
+    span_row = "| Eviction | `references/cache-rules.md` §4 |\n"
+    code, out = run(tmp_path, capsys, edited(consolidated=(last_row, last_row + span_row)))
+    assert code == 1
+    lines = findings(out, "body-citation-presence")
+    assert len(lines) == 1 and "'cache-rules.md'" in lines[0], out
 
 
 def test_body_citation_presence_without_a_root_is_skipped(tmp_path, capsys):
