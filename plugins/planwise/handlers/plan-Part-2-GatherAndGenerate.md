@@ -159,7 +159,7 @@ Read `context.plan_authoring` once, before any file is generated, through `scrip
    - `gate=headings`: `stray=` counts an H2 outside the template set. Move each one under the catch-all as an H3.
    - `gate=deviations`: `A=`, `B=` and `C=` count the template deviations, and the detail lines name them. Repair each one.
    - `gate=estimates` and `gate=scan`: Step 8c reads these two lines.
-   - `gate=index`: this gate is Step 8d's generator run, so skip Step 8d when it reads `ok`. A `finding` includes a written index with no row for the abbreviation. Route a `finding` by Step 8d's causes.
+   - `gate=index`: this gate is Step 8d's generator run, so skip Step 8d when it reads `ok`. A `finding` includes a written index with no row for the built plan's folder. Route a `finding` by Step 8d's causes.
    - `delta task=<SXX-YY-ZZ> spec=<n> measured=<n>`: this line is information and never a failure. A pair that differs is the signal to read.
    - `STALE: <path>`: the spec no longer renders this file, and a rebuild never deletes it. Remove the file when the spec dropped it on purpose.
 

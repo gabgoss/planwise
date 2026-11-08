@@ -48,7 +48,7 @@ Commands (run with `python -B`):
           scan        the Token Saver scan with --config
           index       `generate_plans_index.py --config FILE --write` as a subprocess,
                       because its `main()` takes no argv. --skip-index skips it.
-                      A written index with no row for the plan's abbreviation is
+                      A written index with no row for the built plan's folder is
                       a finding.
         Then `write_manifest(out, spec)` runs again, so the manifest covers the task
         files the estimates gate rewrote. The report, after the `built` line and any
@@ -1168,16 +1168,19 @@ def gate_scan(out, config):
     return ("finding" if code else "ok"), f"{figures}exit={code}", details
 
 
-def gate_index(config, skip, abbrev):
+def gate_index(config, skip, abbrev, out):
     """`generate_plans_index.py --write` as a subprocess: its main() takes no argv, so it cannot run in process.
 
-    A clean write with no row for `abbrev` is a finding, because the index walk never reached the plan.
+    The row is matched by abbreviation and folder: its Path must be `out` relative to the plans folder.
+    A Meta plan and its Exec plan share one abbreviation, so the abbreviation alone cannot tell them apart.
+    A clean write with no such row is a finding, because the index walk never reached the plan.
     """
     if skip:
         return "skipped", "exit=none", []
     import os
     import subprocess
 
+    from config_loader import load_config
     from parse_plans import parse_index_table
 
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
@@ -1187,9 +1190,16 @@ def gate_index(config, skip, abbrev):
     if proc.returncode:
         return "finding", figures, _first_lines(proc.stderr, DETAIL_LIMIT + 1)
     index = Path(json.loads(proc.stdout)["index"])
-    if any(row.abbrev == abbrev for row in parse_index_table(index.read_text(encoding="utf-8")).rows):
+    plans_dir = Path(load_config(config_path=Path(config))["_plans_dir"]).resolve()
+    try:
+        expected = Path(out).resolve().relative_to(plans_dir).as_posix() + "/"
+    except ValueError:
+        return "finding", figures, [f"{out} is outside {plans_dir}. Fix: build into a folder the index walk reads."]
+    if any(row.abbrev == abbrev and row.path == expected
+           for row in parse_index_table(index.read_text(encoding="utf-8")).rows):
         return "ok", figures, []
-    return "finding", figures, [f"{index} holds no row for {abbrev}. Fix: build into a folder the index walk reads."]
+    return "finding", figures, [(f"{index} holds no row for {abbrev} at {expected}. "
+                                 "Fix: build into a folder the index walk reads.")]
 
 
 def run_chain(args, files, abbrev):
@@ -1199,7 +1209,7 @@ def run_chain(args, files, abbrev):
         "headings": lambda: gate_headings(args.out, args.templates),
         "deviations": lambda: gate_deviations(args.out, args.templates),
         "scan": lambda: gate_scan(args.out, args.config),
-        "index": lambda: gate_index(args.config, args.skip_index, abbrev),
+        "index": lambda: gate_index(args.config, args.skip_index, abbrev, args.out),
     }
     report = []
     for name in GATES:

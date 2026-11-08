@@ -1413,6 +1413,40 @@ def test_meta_full_chain_runs_on_the_renamed_tree_and_exits_0(tmp_path, capsys):
     assert "OrchardLedger (Meta / Discovery)" in index and META in index
 
 
+def exec_sibling(tmp_path):
+    """An Exec plan with the Meta plan's abbreviation, at a depth the index walk reads."""
+    master = tmp_path.joinpath(*PLAN_DIR, f"Exec-{META}", f"{META}-Master-Plan.md")
+    master.parent.mkdir(parents=True)
+    master.write_text(f"# {META} Master Plan\n\n**Status:** NOT_STARTED\n**Created:** 2026-01-02\n"
+                      f"**Last Updated:** 2026-01-03\n", encoding="utf-8")
+
+
+def index_gate(out):
+    return next(g for g in GATE_LINE_RE.findall(out) if g[0] == "index")
+
+
+def test_meta_index_gate_reports_a_meta_tree_the_walk_misses_beside_an_exec_row(tmp_path, capsys):
+    build = meta_build(tmp_path, capsys)
+    build.out = tmp_path.joinpath(*PLAN_DIR, "Drafts")  # the Meta root sits at depth 3, which the walk ignores
+    build.root = build.out / f"Meta-{META}"
+    exec_sibling(tmp_path)
+    _code, out = full_run(build)
+    index = (tmp_path / "Plans" / "00-Index-Plans.md").read_text(encoding="utf-8")
+    assert "OrchardLedger (Exec)" in index and "(Meta / Discovery)" not in index
+    assert index_gate(out)[1] == "finding", out
+    assert "holds no row for ZCPL at OrchardLedger/Drafts/Meta-ZCPL/" in out
+
+
+def test_meta_index_gate_passes_a_reached_meta_tree_beside_an_exec_row(tmp_path, capsys):
+    build = meta_build(tmp_path, capsys)
+    exec_sibling(tmp_path)
+    code, out = full_run(build)
+    assert code == 0, out
+    index = (tmp_path / "Plans" / "00-Index-Plans.md").read_text(encoding="utf-8")
+    assert "OrchardLedger (Meta / Discovery)" in index and "OrchardLedger (Exec)" in index
+    assert index_gate(out)[1] == "ok", out
+
+
 def test_meta_headings_gate_counts_the_renamed_plan_files(tmp_path, capsys):
     build = meta_build(tmp_path, capsys)
     assert build.run()[0] == 0
