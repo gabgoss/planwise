@@ -43,6 +43,8 @@ NEXT_DONE = ("the config, index gate and abbreviations above are already resolve
 NEXT_DONE_NO_ABBREVS = ("the config and index gate above are already resolved: do not re-read config.yaml; "
                         "abbreviations_in_use is unavailable, so check the plans index and plans folder "
                         "for a clash before you choose an abbreviation")
+NEXT_TOOL = ("when mcp__planwise__build_plan is listed, call it for keys, lint and build instead of the "
+             "python commands, and fall back to them if it is not listed or refuses the call")
 NEXT_NO_TEMPLATE = "do not Read a template"
 NEXT_NO_TEMPLATE_DELEGATED = "do not Read a template other than templates/plan-notes.md"
 NEXT_NO_TASK_FILE = "do not Write a task file; write bodies"
@@ -169,6 +171,7 @@ def next_block(mode: str, config_path: Path, plans_path: str, abbrevs_known: boo
     return [
         f"NEXT: {mode}",
         *(f"{n}. {step}" for n, step in enumerate(steps, 1)),
+        NEXT_TOOL,
         NEXT_DONE if abbrevs_known else NEXT_DONE_NO_ABBREVS,
         no_template,
         NEXT_NO_TASK_FILE,

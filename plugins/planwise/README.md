@@ -131,7 +131,7 @@ flowchart LR
 /planwise plan my-new-feature
 ```
 
-Claude asks for an abbreviation (like `APP` or `BUG`), the sprints, and the tasks in each session. It writes one metadata spec, then `plan_build.py keys` lists the sections that need prose. Claude writes those bodies, and `plan_build.py build` renders every plan file and prints a gate report. Claude edits the bodies or the spec until the plan is built: the report shows `fill_remaining=0` with `exit=0`, or with exit 1 from a recorded large-file scan finding alone. If the script is missing or `build` keeps failing, Claude writes the files from the per-template steps.
+Claude asks for an abbreviation (like `APP` or `BUG`), the sprints, and the tasks in each session. It writes one metadata spec, then `plan_build.py keys` lists the sections that need prose. Claude writes those bodies, and `plan_build.py build` renders every plan file and prints a gate report. Claude edits the bodies or the spec until the plan is built: the report shows `fill_remaining=0` with `exit=0`, or with exit 1 from a recorded large-file scan finding alone. When `mcp__planwise__build_plan` is listed, Claude calls that tool instead and falls back to the Bash form if it is not listed or refuses the call. If the script is missing or `build` keeps failing, Claude writes the files from the per-template steps.
 
 > **What's a sprint?** A group of related work sessions. If your feature is small, one sprint with one session is enough. Bigger features might need multiple sprints.
 
@@ -355,7 +355,7 @@ flowchart LR
 
 `doctor` opens with a version-state gate, then runs a set of read-only checks and prints a report. A bare `doctor` never writes a file and exits cleanly even when it flags something:
 
-- **Version-state gate** — before any diagnostics, verifies the project is initialized and the pinned `plugin_version` matches the installed plugin; when it doesn't, recommends `/planwise init` or `/planwise upgrade` and stops there.
+- **Version-state gate** — before any diagnostics, verifies the project is initialized and the pinned `plugin_version` matches the installed plugin; when it doesn't, recommends `/planwise init` or `/planwise upgrade` and stops there. It also prints a non-stopping advisory when the running copy is not the project's marketplace install. The advisory never changes the gate's verdict.
 - **Rule scope** — lists any `.claude/rules/**` still scoped to plan/backlog/lessons paths. These inject into every plan-brief read and can overflow a 200K-window task-runner, so `doctor` flags them with their size.
 - **Token Saver overhead staleness** — reports the stored `/context`-measured overheads and flags them stale after a plugin upgrade or a change in your agent/skill count.
 - **Read-gate scan** — checks your active plan's files against the Read-tool limits (the ~25K-token page cap — the binding gate on text — plus the 256 KiB byte cap and the 2,000-line window) and flags any that can't be read in one pass.

@@ -208,6 +208,7 @@ def test_card_inline_next_mirrors_the_default_path(project):
     assert f'--config "{(project / "planwise" / "config.yaml").as_posix()}"' in steps[3]
     for sentence in NEXT_SENTENCES:
         assert sentence in lines, sentence
+    assert any(ln.startswith("when mcp__planwise__build_plan is listed, call it") for ln in lines)
 
 
 def test_card_delegated_next_follows_the_delegated_loop(project):
@@ -225,6 +226,7 @@ def test_card_delegated_next_follows_the_delegated_loop(project):
     assert 'plan_build.py" lint --spec ' in steps[4]
     assert 'plan_build.py" build --spec ' in steps[5]
     assert NEXT_SENTENCES[0] in lines
+    assert any(ln.startswith("when mcp__planwise__build_plan is listed, call it") for ln in lines)
     assert "do not Read a template" not in lines  # the delegated loop reads templates/plan-notes.md
     assert "do not Read a template other than templates/plan-notes.md" in lines
     assert "do not Write a task file; write bodies" in lines

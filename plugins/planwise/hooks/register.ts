@@ -3,6 +3,7 @@
 // compacts the session and re-enters the handler with --loop-resume.
 import type { CommandInfo, EngineInterface, On, PluginOptions, Timer } from 'claude-code'
 
+import { hostOf as buildPlanHostOf, onSessionStart as buildPlanStart, register as registerBuildPlan } from './build-plan.ts'
 import { hostOf as draftFeedbackHostOf, onSessionStart as draftFeedbackStart, register as registerDraftFeedback } from './draft-feedback.ts'
 import { register as registerFeedbackCard } from './feedback-card.tsx'
 import { failureText, isCurrent, keyOf, releaseLatch, stepOf } from './loop/boundary.ts'
@@ -50,6 +51,7 @@ function hostOf($: EngineInterface): Host {
 export function register(on: On, options: PluginOptions) {
   void options
   registerDraftFeedback(on, options)
+  registerBuildPlan(on, options)
   registerFeedbackCard(on, options)
   // `interactive` starts true: a module reload re-runs register() without a new session.start.
   const session: Session = {
@@ -129,6 +131,7 @@ export function register(on: On, options: PluginOptions) {
 
   on('session.start', async ($, e, next) => {
     await draftFeedbackStart(draftFeedbackHostOf($))
+    await buildPlanStart(buildPlanHostOf($))
     session.interactive = e.isInteractive !== false
     await resolveSkill(hostOf($))
     return next(e)
