@@ -17,6 +17,14 @@ Exit codes: 0 clean, 1 a phrase was found (each hit printed with its line),
 Matching joins each paragraph's lines with single spaces, so a hard-wrapped
 phrase matches. A blank line ends a paragraph, so a phrase cannot join across
 paragraphs. The reported line is the one where the match starts.
+
+A second rule set reads the status. When a line reads `TASK_STATUS: COMPLETE`
+on its own, a claim that the work is dormant, not yet wired or waiting on a
+follow-up makes the block invalid: a deferred activation is PARTIAL, never
+COMPLETE. Each such hit prints as `DORMANT line N` and exits 1. The rule
+matches claim shapes, never a bare word, so "no follow-up needed",
+"follow-up: none" and "nothing is dormant" stay clean. The same text under
+PARTIAL or BLOCKED is clean.
 """
 import bisect
 import re
@@ -49,6 +57,16 @@ def compile_phrase(phrase):
 
 PATTERNS = tuple(compile_phrase(p) for p in PHRASES)
 
+# Claim shapes that defer activation; checked only under a COMPLETE status line.
+DORMANT_PHRASES = (
+    r"(?<!\bnothing )(?<!\bnone )\b(?:is|are|remains?)\s+dormant\b",
+    r"\bnot\s+yet\s+wired\b",
+    r"\buntil\s+a\s+follow-up\b",
+    r"(?<!\bno )\bfollow-up\s+(?:is\s+)?(?:needed|required|to\s+wire)\b",
+)
+DORMANT_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in DORMANT_PHRASES)
+COMPLETE_STATUS = re.compile(r"TASK_STATUS:\s*COMPLETE")
+
 
 def _paragraphs(text):
     """Yield paragraphs as lists of (line_number, stripped_line); blank lines separate."""
@@ -63,7 +81,7 @@ def _paragraphs(text):
         yield block
 
 
-def scan(text):
+def scan(text, patterns=PATTERNS):
     """Return a list of (line_number, phrase_index, line) for every hit.
 
     A paragraph (lines between blank lines) is joined with single spaces before
@@ -78,12 +96,19 @@ def scan(text):
         for _, line in block:
             offsets.append(position)
             position += len(line) + 1
-        for index, pattern in enumerate(PATTERNS):
+        for index, pattern in enumerate(patterns):
             for match in pattern.finditer(joined):
                 at = bisect.bisect_right(offsets, match.start()) - 1
                 number, line = block[at]
                 hits.append((number, index, line))
     return sorted(hits)
+
+
+def scan_dormant(text):
+    """Return (line_number, line) for each dormant claim, only in a COMPLETE block."""
+    if not any(COMPLETE_STATUS.fullmatch(line.strip()) for line in text.splitlines()):
+        return []
+    return sorted({(number, line) for number, _, line in scan(text, patterns=DORMANT_PATTERNS)})
 
 
 def main(argv):
@@ -106,7 +131,10 @@ def main(argv):
         print(f"HIT line {number} phrase {index + 1}: {line}")
     if not hits:
         print("clean: 0 disclosure phrases")
-    return 1 if hits else 0
+    dormant = scan_dormant(text)
+    for number, line in dormant:
+        print(f"DORMANT line {number}: {line} (COMPLETE with a deferred activation; report PARTIAL)")
+    return 1 if hits or dormant else 0
 
 
 if __name__ == "__main__":

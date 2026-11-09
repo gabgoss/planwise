@@ -515,9 +515,14 @@ def _render_bli_file(
     stem = files_list[0].removesuffix(".md")
     today = datetime.now().astimezone().date().isoformat()
     title = _escape_title(feature)
-    # Link form, matching the template's `[name](file.md) - relationship`
-    # shape -- not a backticked bare filename.
-    related = "\n".join(f"- [{f}]({f}) - file for this item" for f in files_list)
+    # The first entry is the item file itself, so it takes the template's
+    # `[name](file.md) - relationship` link form. Later entries are affected
+    # files named from the project root. A link would resolve against the
+    # backlog folder and break, so they render as backticked paths.
+    related = "\n".join(
+        [f"- [{files_list[0]}]({files_list[0]}) - file for this item"]
+        + [f"- `{f}` - affected file" for f in files_list[1:]]
+    )
     return (
         "---\n"
         f"id: {item_id}\n"
@@ -892,6 +897,12 @@ def main():
     parser = argparse.ArgumentParser(
         description="Update a backlog item's status in the index markdown."
     )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Path to config.yaml; overrides default config search.",
+    )
     parser.add_argument("--id", required=True, help="Item ID (e.g., 003)")
     parser.add_argument(
         "--status",
@@ -941,7 +952,7 @@ def main():
         ),
     )
 
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args()
 
     if args.mark_needs_plan:
         if args.status or args.create or args.resolution_file is not None:

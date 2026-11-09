@@ -1,20 +1,15 @@
 ---
-description: A brief that names the likely answer gets that answer back, and hedging it does not help. Covers separating context from premise in a dispatch brief, supplying the discriminator instead of the destination, fix instructions that name a target number, directional guardrails, routing every branch of a plan's central question, inviting the contradiction, what to do when the premise is refuted mid-run, checking each HARD CONSTRAINTS prohibition against every step of the brief, and naming every branch of a task's decision rule when a scope boundary narrows a write permission. Consult while writing a spawn prompt, a task brief, a repair instruction, or a plan's anti-inference guardrail, and at every reconciliation point where new evidence lands.
-consult-when: Writing a spawn prompt, task brief, fix instruction, or anti-inference guardrail, or reconciling after new evidence lands — keep the dispatcher's expectation out of the brief, supply the discriminator not the destination, make guardrails symmetric, route every outcome branch, retract a refuted premise explicitly, check each HARD CONSTRAINTS prohibition against every step of the brief before adding it, and name every branch of a task's decision rule when a scope boundary narrows a write permission
+description: A brief that names the likely answer gets that answer back, and hedging it does not help. Covers separating context from premise in a dispatch brief, supplying the discriminator instead of the destination, fix instructions that name a target number, directional guardrails, routing every branch of a plan's central question, inviting the contradiction, what to do when the premise is refuted mid-run, checking each HARD CONSTRAINTS prohibition against every step of the brief, naming every branch of a task's decision rule when a scope boundary narrows a write permission, and ordering the overturning parameter first in a gated design task that consumes an upstream recommendation. Consult while writing a spawn prompt, a task brief, a repair instruction, or a plan's anti-inference guardrail, and at every reconciliation point where new evidence lands.
+consult-when: Writing a spawn prompt, task brief, fix instruction, or anti-inference guardrail, or reconciling after new evidence lands — keep the dispatcher's expectation out of the brief, supply the discriminator not the destination, make guardrails symmetric, route every outcome branch, retract a refuted premise explicitly, check each HARD CONSTRAINTS prohibition against every step of the brief before adding it, name every branch of a task's decision rule when a scope boundary narrows a write permission, and in a gated design task that consumes an upstream recommendation name the overturning parameter, resolve it first, and license overturning the recommendation
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Dispatch Brief Neutrality — A Brief That Supplies the Answer Gets the Answer Back
 
-**Purpose:** Three separate sessions dispatched work with the dispatching role's own reading embedded in the brief, and in every case the runner returned that reading back. The mechanism is not dishonesty: a stated hypothesis reorganises attention, and contradicting the dispatcher is a higher bar than agreeing with it.
+**Purpose:** Three separate sessions dispatched work with the dispatching role's own reading embedded in the brief, and in every case the runner returned that reading back. The mechanism is not dishonesty. A stated hypothesis reorganises attention, and contradicting the dispatcher is a higher bar than agreeing with it.
 
-**Read this when** you are writing a spawn prompt, a task brief, or a fix instruction; when a plan states a guardrail against an inference; and at every reconciliation point where a new evidence source lands, a task contradicts a sibling, or a gap statement is closed.
+Two properties make the failure a rule rather than a matter of vigilance. A premise is **write-once and invisible**: once dispatched it does not re-read the world, and it leaves no trace in the deliverable of which conclusions were seeded. And the deliverable is **unfalsifiable after the fact**: a synthesis that reaches the primed conclusion looks exactly like one that reached it independently. Nothing downstream fails loudly.
 
-The failure has two properties that make it a rule rather than a matter of vigilance. A premise is **write-once and invisible** — once dispatched it does not re-read the world, and it leaves no trace in the deliverable identifying which conclusions were seeded. And the deliverable is **unfalsifiable after the fact** — a synthesis that reaches the primed conclusion looks exactly like one that reached it independently. Nothing downstream fails loudly.
-
-The orchestrator is the most dangerous source of a premise precisely because of its position: it holds the reconciled cross-task view no single runner has, which makes its readings *usually right* — and therefore rarely challenged. That authority is inherited from the role, not from the evidence, and it survives the evidence changing unless someone retracts it explicitly. All three incidents were caught by generic safety nets, not by anything in the brief.
-
-One neighbouring rule owns the quantitative half of this discipline. [`dispatch-boundary-evidence.md`](dispatch-boundary-evidence.md) §1 covers withholding a *figure* the dispatched task exists to re-derive. This file covers the qualitative case — a stated *expectation*, a named cause, a target number in a fix instruction — and what to do once such a premise has already shipped.
-
+The orchestrator is the most dangerous source of a premise because of its position. It holds the reconciled cross-task view no single runner has, which makes its readings *usually right*, and therefore rarely challenged. That authority is inherited from the role, not from the evidence, and it survives the evidence changing unless someone retracts it explicitly. All three incidents were caught by generic safety nets, not by anything in the brief.
 ## Table of Contents
 
 - [1. Context and Premise Are Indistinguishable in a Brief — Mark Which Is Which](#1-context-and-premise-are-indistinguishable-in-a-brief--mark-which-is-which)
@@ -27,43 +22,46 @@ One neighbouring rule owns the quantitative half of this discipline. [`dispatch-
 - [8. Record the Refutation, and Keep the Real Defect the Wrong Diagnosis Found](#8-record-the-refutation-and-keep-the-real-defect-the-wrong-diagnosis-found)
 - [9. A Prohibition Claims That No Step Needs the Prohibited Thing — Enumerate Before Adding One](#9-a-prohibition-claims-that-no-step-needs-the-prohibited-thing--enumerate-before-adding-one)
 - [10. A Scope Boundary That Narrows a Write Permission Names Every Branch of the Task's Own Decision Rule](#10-a-scope-boundary-that-narrows-a-write-permission-names-every-branch-of-the-tasks-own-decision-rule)
+- [11. A Gated Design Task That Consumes an Upstream Recommendation Resolves the Overturning Parameter First](#11-a-gated-design-task-that-consumes-an-upstream-recommendation-resolves-the-overturning-parameter-first)
 
 ---
 
 ## 1. Context and Premise Are Indistinguishable in a Brief — Mark Which Is Which
 
 > [!constraint] Both are prose the dispatcher writes, and both are read as authoritative
-> The difference is what happens when they are wrong: bad context gets corrected by evidence, while a bad premise **redirects what counts as evidence**.
+> The difference is what happens when they are wrong. Bad context gets corrected by evidence. A bad premise **redirects what counts as evidence**.
 >
+> WRONG — the prime that shipped, hedged, and still functioned as a premise:
+> ```
+> Be willing to conclude that a substantial part of "hundreds of thousands
+> of tokens" is an accounting-semantics artifact rather than window pressure.
+> ```
+> CORRECT — classify each sentence first, and ship a premise only with its reason:
 > ```
 > CONTEXT  — measurements, corrections, file locations, scope limits.
 > PREMISE  — "you will probably find", "be willing to conclude",
 >            "the likely headline is". Requires a reason to include at all.
 > ```
->
-> The prime that shipped, hedged, and still functioned as a premise:
->
-> ```
-> > Be willing to conclude that a substantial part of "hundreds of thousands
-> >  of tokens" is an accounting-semantics artifact rather than window pressure.
-> ```
->
-> It was hedged, labelled as a possibility, and the task file separately required the agent to distinguish the two classes on evidence. It still functioned as a premise: it named a destination, supplied the reasoning that reached it, and carried the dispatching role's authority. **"Be willing to conclude X" is not weaker than "conclude X" in effect** — it names X, supplies the reasoning for X, and adds permission. Nothing in it names not-X.
 
-Classify every sentence of a brief before it ships. A sentence that states a measurement, a correction, a file location, or a scope limit is context and stays. A sentence that names where the runner will probably end up is a premise, and it needs a reason to be in the brief at all — usually there is none, because the runner's value is that it does not already know.
+The prime was hedged and labelled as a possibility, and the task file separately required the agent to distinguish the two classes on evidence. It still functioned as a premise: it named a destination, supplied the reasoning that reached it, and carried the dispatching role's authority. **"Be willing to conclude X" is not weaker than "conclude X" in effect.** It names X, supplies the reasoning for X, and adds permission. Nothing in it names not-X.
+
+Classify every sentence of a brief before it ships. A sentence that states a measurement, a correction, a file location, or a scope limit is context, and it stays. A sentence that names where the runner will probably end up is a premise, and it needs a reason to be in the brief at all. Usually there is none, because the runner's value is that it does not already know.
+
+`scripts/lint_gate_checks_dispatch.py` Check 42 flags the three PREMISE phrases above in a task file's Objective and Execution Steps. It is advisory: it prints candidates at WARNING and does not replace this classification.
 
 ---
 
 ## 2. Supply the Discriminator, Never the Destination
 
 > [!constraint] Direct the method, never the destination
-> ```
 > WRONG — names the destination and supplies the reasoning that reaches it:
->   "this is probably an accounting artifact rather than window pressure"
->
+> ```
+> "this is probably an accounting artifact rather than window pressure"
+> ```
 > CORRECT — names the method and leaves the destination open:
->   "distinguish accounting artifacts from window pressure;
->    here is how each would look in the data"
+> ```
+> "distinguish accounting artifacts from window pressure;
+>  here is how each would look in the data"
 > ```
 
 The repair-time form of the same rule: state what you verified separately from what you inferred, and label which is which. *"This row set is 12, the breakdown says 11"* is evidence. *"The compressed rows probably explain the rest"* is a diagnosis, and it goes in a different sentence.
@@ -74,11 +72,14 @@ Where the thing being withheld is a *figure* rather than a reading — a sibling
 
 ## 3. A Fix Instruction That Names a Target Number Gets the Number
 
+A fix instruction names the discrepancy and forbids forcing agreement, and it never makes the target number the goal.
+
 > [!constraint] The arithmetic is the argument — the plausible cause was provably not the cause
-> A coverage gate FAILed a 252-row disposition table. The orchestrator found a second defect — two rows carrying multiple deliverables against a stated one-row-per-deliverable grain — and a mechanical expansion gave **198** where the table claimed **201**. The natural inference — *the compressed rows explain the 3-row gap* — was wrong: expanding those rows is **arithmetically neutral**, since both were already counted at deliverable grain in the roll-ups. The real cause was three **cluster-level** rows owned by a whole reference-family rather than by any single source item, so no item-ID prefix could carry them: `201 − 3 = 198`, exactly.
->
-> The instruction that worked, including the forbidding clause:
->
+> WRONG — the instruction names the target, so the most direct route is to reach it:
+> ```
+> fix the 198-vs-201 discrepancy
+> ```
+> CORRECT — the instruction that worked, including the forbidding clause:
 > ```
 > Resolve it whichever way is actually correct: expand the rows and re-derive,
 > or document the line-vs-deliverable distinction and reconcile the gap.
@@ -87,30 +88,29 @@ Where the thing being withheld is a *figure* rather than a reading — a sibling
 > say so and report what it is.
 > ```
 
-Had the instruction simply said *"fix the 198-vs-201 discrepancy"*, the most direct route was to declare the compressed rows the cause and adjust a subtotal by 3. The table would have balanced, three real deliverables would have stayed invisible to every prefix-keyed count downstream, and a footnote would have asserted they did not exist. **Numeric agreement is the cheapest thing in an artifact to produce and the least informative thing to verify** — a table forced into balance is indistinguishable from a table that was always right.
-
-Expanding the compressed rows moved the page-level count and not the totals. That neutrality is the finding: the orchestrator was not merely careless, the plausible cause was *provably* not the cause, and only an instruction that forbade forcing agreement left room for the fixer to say so.
+Under the WRONG instruction, the most direct route is to declare the plausible cause the cause and adjust a subtotal until the table balances. **Numeric agreement is the cheapest thing in an artifact to produce and the least informative thing to verify.** A table forced into balance is indistinguishable from a table that was always right. In the source case the plausible cause was **arithmetically neutral**, so it was *provably* not the cause, and only an instruction that forbade forcing agreement left room for the fixer to say so.
 
 ---
 
 ## 4. Guardrails Are Directional — A Guardrail That Names One Inference Blesses the Other
 
 > [!constraint] A guardrail that names one direction implicitly blesses the other
-> ```
 > WRONG — anticipates one collision, and implicitly permits its mirror:
->   "Do not reason from the measurement toward `advisory`."
->
+> ```
+> "Do not reason from the measurement toward `advisory`."
+> ```
 > CORRECT — symmetric, and names the destination of the unresolved pair:
->   "Docs and measurement are both evidence. Do not resolve a contradiction
->    between them in EITHER direction. Preserve both; route the reconciliation
->    to the sprint that can test it."
+> ```
+> "Docs and measurement are both evidence. Do not resolve a contradiction
+>  between them in EITHER direction. Preserve both; route the reconciliation
+>  to the sprint that can test it."
 > ```
 
-The plan forbade exactly one inference — reasoning from 408 measured successful `Bash` calls toward "the allowlist is advisory" — because that was the failure it anticipated. The inference actually on offer ran the other way: letting an authoritative `enforced` verdict retro-invalidate the measurement. That second inference is *more* seductive, because it is the one where the confident-looking source wins.
+A guardrail written against the anticipated inference leaves its mirror open. The mirror inference, letting an authoritative `enforced` verdict retro-invalidate the measurement, is *more* seductive, because it is the one where the confident-looking source wins.
 
 Two supporting rules belong here:
 
-- **A definitive upstream answer is not automatically the stronger evidence.** Documentation states intent about a versioned, moving system; a transcript scan states what a specific build actually did. Neither dominates by category. This is deliberately uncomfortable and must survive editing: a reader who trims it keeps only the half that flatters authoritative sources, which is the direction the incident actually failed in.
+- **A definitive upstream answer is not automatically the stronger evidence.** Documentation states intent about a versioned, moving system. A transcript scan states what a specific build actually did. Neither dominates by category. This is deliberately uncomfortable and must survive editing: a reader who trims it keeps only the half that flatters authoritative sources, which is the direction the incident actually failed in.
 - **Preserving the contradiction is the deliverable.** The correct output is not a resolution but both facts, sourced and dated, plus an explicit statement that reconciling them is the next session's empirical job.
 
 ---
@@ -119,25 +119,39 @@ Two supporting rules belong here:
 
 > [!constraint] The diagnostic question
 > **For each branch of the plan's central question, what concretely happens next?** If two branches answer "recorded as a finding and routed to the next sprint as hypothesis H-n" and the third answers "…it just gets written down", the third is unrouted regardless of how prominently it appears in the enum.
+>
+> WRONG — the third branch is named and has no destination:
+> ```
+> third branch: …it just gets written down
+> ```
+> CORRECT — the third branch gets the same operational wiring as the other two:
+> ```
+> third branch: recorded as a finding and routed to the next sprint as hypothesis H-n
+> ```
 
-A plan invests its routing effort in the outcome it expects, and that investment is visible and reassuring: exact enum spellings mandated as literal strings in two task files, a greppable gate value, a named downstream consumer, a pre-written flag row. The unanticipated branch gets the same *nominal* enumeration and none of the *operational* wiring. **The asymmetry is invisible at review time because the enum looks complete** — all three values are named; only one has a destination.
+A plan invests its routing effort in the outcome it expects, and that investment is visible and reassuring. The unanticipated branch gets the same *nominal* enumeration and none of the *operational* wiring. **The asymmetry is invisible at review time because the enum looks complete.** All three values are named, and only one has a destination.
 
-The cost is concrete. The branch that fired did not merely fill a slot, it changed the shape of the downstream question from *"is the allowlist enforced?"* to *"why did this project measure 408 successful violating calls against an allowlist the vendor documents as enforced?"* — a different investigation, with candidate explanations (transcript mis-attribution, a spawn path applying a different frontmatter subset, version-dependent enforcement, an installed mirror diverging from the shipped definition) that the plan's sketched matrix does not test. An unrouted branch costs more than a missing paragraph: the downstream matrix tests a question that is no longer the question.
+The cost is concrete. The branch that fired did not merely fill a slot. It changed the shape of the downstream question, and the new question needed candidate explanations the plan's sketched matrix does not test. An unrouted branch costs more than a missing paragraph: the downstream matrix tests a question that is no longer the question.
 
 ---
 
 ## 6. Invite the Contradiction, in the Prompt
 
-> [!practice] One sentence is enough to invite it
-> Agents will not volunteer a contradiction of the dispatcher unasked.
->
+Ask for the contradiction in the prompt, because agents will not volunteer a contradiction of the dispatcher unasked.
+
+> [!constraint] One sentence is enough to invite it
+> WRONG — the brief says nothing about contradiction, so none comes back:
+> ```
+> At dispatch:  (no sentence inviting a contradiction of a sibling or of the dispatcher)
+> ```
+> CORRECT — one sentence at dispatch, and one at repair:
 > ```
 > At dispatch:  "A contradiction of a sibling task's conclusion is the most
 >                valuable thing you can return."
 > At repair:    "If the cause is something else, say so and report what it is."
 > ```
->
-> The first was in a re-dispatch that came back with three overturned conclusions. The second is what let a fixer refute the dispatcher's stated cause instead of building a repair on top of it.
+
+The repair sentence is what let a fixer refute the dispatcher's stated cause instead of building a repair on top of it.
 
 ---
 
@@ -145,8 +159,17 @@ The cost is concrete. The branch that fired did not merely fill a slot, it chang
 
 > [!constraint] Three lifecycle calls that all follow from §1's write-once property
 > - **Retract, do not merely append.** The re-dispatch that worked opened with the superseded prior quoted verbatim and labelled WRONG, then gave the corrected finding. Adding new inputs beside a stale prime leaves the agent to adjudicate its dispatcher, which it will not do.
-> - **Stop a running agent whose premise has been refuted; do not let it finish "for reference."** Its output is not partially salvageable — the premise is diffused through the ranking, not isolated in one section. Stopping cost a few minutes of Opus; shipping would have ranked a *reporting* fix at the top of a problem that is measurably *load*, and aimed the next sprint at instrumenting a number instead of bounding a window. Re-dispatched over four inputs with the prime retracted, the agent returned the opposite headline and independently ranked three causes **no hypothesis had named** into the top three slots; accounting semantics landed at #8 of 8, contributing *zero* window tokens.
+> - **Stop a running agent whose premise has been refuted; do not let it finish "for reference."** Its output is not partially salvageable, because the premise is diffused through the ranking, not isolated in one section. Shipping would have ranked a *reporting* fix at the top of a problem that is measurably *load*, and aimed the next sprint at instrumenting a number instead of bounding a window. Re-dispatched with the prime retracted, the agent returned the opposite headline.
 > - **Prefer resuming the agent that built the artifact over re-dispatching a fresh one.** It holds the row semantics the dispatcher does not, and that asymmetry is the whole reason its correction beat the dispatcher's guess.
+>
+> WRONG — add the new inputs beside the stale prime:
+> ```
+> re-dispatch: <prior brief, unchanged> + "Also read these new inputs."
+> ```
+> CORRECT — open with the superseded prior, then the corrected finding:
+> ```
+> re-dispatch: "Superseded: <prior quoted verbatim>" + <corrected finding> + the new inputs
+> ```
 
 **Audit primes at every reconciliation point, not only at dispatch.** The trigger is: a new evidence source lands, a task contradicts a sibling, or a gap statement is closed. Each of those is a moment where a premise written earlier may now be false and is still in force, because nothing retracts a premise except an explicit retraction.
 
@@ -154,8 +177,17 @@ The cost is concrete. The branch that fired did not merely fill a slot, it chang
 
 ## 8. Record the Refutation, and Keep the Real Defect the Wrong Diagnosis Found
 
-> [!practice] The corrected causal account outlives the arithmetic that prompted it
-> When a diagnosis is refuted, the corrected causal account is worth more than the arithmetic that prompted it — the account of three cluster-level rows plus two further prefix effects that cancel now stands in the artifact as a warning against prefix-keyed verification. And when a wrong diagnosis nonetheless surfaced a real defect, fix it on its own merits: the compressed rows were not the cause and *were* a genuine grain violation, so they were expanded anyway rather than dropped because the theory failed.
+> [!constraint] The corrected causal account outlives the arithmetic that prompted it
+> In the §3 case, the account of three cluster-level rows plus two further prefix effects that cancel now stands in the artifact as a warning against prefix-keyed verification.
+>
+> WRONG — drop the defect together with the theory that found it:
+> ```
+> the compressed rows were not the cause -> leave them compressed
+> ```
+> CORRECT — fix it on its own merits:
+> ```
+> the compressed rows were not the cause, and were a genuine grain violation -> expand them anyway
+> ```
 
 §3 and §8 both concern a refuted diagnosis and are deliberately separate. §3 is *how to write the instruction so the refutation is possible*. §8 is *what to do with the artifact once the refutation lands*. A merged section loses the second, which is the half that keeps a real defect from being dropped along with the wrong theory.
 
@@ -190,6 +222,8 @@ The failure in practice: the orchestrator copied a prohibition from the brief's 
 >              makes in Step 2. Never the full run, never the live-marked tests."
 > ```
 
+The HARD CONSTRAINTS skeleton in `templates/orchestration.md` carries this enumeration as its `Permitted per Execution Step` line.
+
 **Mirror case.** An over-broad permission ("you may edit anything under `<dir>/`") gets the same check, against the write sets of the runner's layer-mates in the same parallel layer.
 
 **Applies to** every DELEGATED spawn prompt's HARD CONSTRAINTS and SCOPE BOUNDARY blocks. It matters most for briefs whose steps include a capture, a build, a fetch, a migration, or any step that legitimately does the thing the task's headline rule forbids in another component.
@@ -218,9 +252,46 @@ The failure in practice: the orchestrator copied a prohibition from the brief's 
 >     orchestrator with the reading and the class-rule verdict — do not decide the new number yourself
 > ```
 
+The SCOPE BOUNDARY skeleton in `templates/orchestration.md` carries a `Decision branches` field with one entry per branch of the task's decision rule.
+
 **Measured cost.** The divergent branch fired: the measured value was `0.0994585` against a ceiling of `0.05`. The runner stopped short of the unauthorized edit, which was correct. The recovery still took two user questions (what the ceiling is for, then which value) and one resume of the same runner.
 
 **Applies to** any DELEGATED dispatch that narrows a write set to match one branch of a documented decision rule: a class-change check, a same-versus-different resolution, an idempotency check. The scope statement carries every branch the task file defines, not only the one the orchestrator expects.
+
+---
+
+## 11. A Gated Design Task That Consumes an Upstream Recommendation Resolves the Overturning Parameter First
+
+A design task gated on an upstream recommendation names the parameter that could overturn it, resolves that parameter first, and is licensed to reject the recommendation on evidence.
+
+> [!constraint] An upstream recommendation is an input to the design gate, not a verdict the gate inherits
+> The recommendation carries the analyst's inference, and the inference can be wrong even when every measurement beside it is right. The design task's brief therefore does three things, in this order:
+>
+> 1. **Name the parameter that could overturn the recommendation.** This is the load-bearing feasibility fact: whether the recommended site is reachable, whether the recommended mechanism can run at all, whether the budget the option needs exists.
+> 2. **Order that parameter first.** The task resolves it before it designs anything, so the design starts from the measured answer.
+> 3. **License the overturn on evidence.** The brief says in terms that the task may reject the upstream recommendation when the parameter's answer contradicts it, and report what it found instead (§6).
+
+This is §1 applied to a recommendation. The recommendation is CONTEXT only for its measurements. Its "therefore option X" is a PREMISE, and §2 says to supply the discriminator for it, not the destination.
+
+> [!constraint] Order the overturning parameter before the design work
+> WRONG — hand over the recommendation as the design's starting point:
+> ```
+> Upstream result: the guard logged 0 lines during the failure, so mitigation X (a hook at that site)
+>                  is recommended.
+> Task: "Design mitigation X."
+> # The design starts from the verdict. If the 0 actually means the site was never reached, the
+> # hook inherits the same unreachability, and the brief gave the task no reason to check.
+> ```
+> CORRECT — name the parameter, order it first, license the overturn:
+> ```
+> Upstream result: the guard logged 0 lines during the failure; upstream recommends mitigation X.
+> Task: "First, resolve whether the call site is reachable during the failure. The guard is the first
+>        statement at that site and logs unconditionally, so decide what a reachable site would have
+>        logged. Then design. If the site is unreachable, reject mitigation X on that evidence and
+>        report the option you found instead."
+> ```
+
+**Applies to** any DELEGATED task whose gate is a design decision and whose inputs include another task's or session's recommendation. The same ordering belongs in the task's success criteria: the first criterion records the parameter's measured value, and the design criteria come after it.
 
 ---
 

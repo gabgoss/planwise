@@ -135,6 +135,15 @@ The Notes section is the only place where lessons NOT promoted **by THIS specifi
 > WRONG — Notes section says: *"LL-X stays documented; shares theme but describes a different layer."* This is the limbo failure mode (Part-1 §4.2).
 > CORRECT — every in-scope `documented` lesson has either landed in this BB's deliverables, decomposed across sibling BBs (framing a), or been excluded as owned-by-other-BB (framing b). If a lesson survives Part-1 §3.2 and is not in any deliverable, the BB is incomplete — find its destination per Part-1 §4.2 before writing the file.
 
+The Notes section also records a rule adjacency that Part-1 §4.5 found:
+
+**(c) Rule adjacent to a claimed rule** — the claimed-path check found a rule that another backlog item has claimed and not yet authored. Framings (a) and (b) concern lessons, and (c) concerns rules. Use one of the two bullet shapes below:
+
+```markdown
+- **Adjacent to a claimed rule:** this BB's `.claude/rules/{path}.md` sits beside `.claude/rules/{other}.md`, claimed by BB-{Z} ({status}). {Why they stay separate.} Link owed at landing: {cross-reference}.
+- **Extends a claimed rule:** BB-{Z} ({status}) creates `.claude/rules/{path}.md`. This BB's rule deliverable extends it and lands after BB-{Z}.
+```
+
 ---
 
 ## 6. Phase 4 — Write BB Files, Then Regenerate the Index Once

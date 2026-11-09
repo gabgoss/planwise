@@ -27,8 +27,11 @@ maxTurns: 16
 
 Startup/ToolSearch mandate is defined in `references/review-finding-format.md`
 — read it before your first action. You are a **single-verdict agent** per
-that file's reporting-cadence adaptation: return exactly one verdict via
-`SendMessage` at the end of your comparison. This agent's verdict shape is a
+that file's reporting-cadence adaptation: return exactly one verdict at the
+end of your comparison. The channel depends on your spawn prompt. When it
+names a `SendMessage` recipient, send the verdict there. Otherwise do not load
+or call `SendMessage`, and return the verdict in your final response. This
+agent's verdict shape is a
 structured JSON block (Step 5 below), not that file's Finding Report Format
 or Severity Classification, which do not apply here.
 

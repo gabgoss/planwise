@@ -6,7 +6,9 @@
   * --fold moves both legacy `## Loop Decision Needed` shapes into blocks,
     is idempotent, and writes nothing under --dry-run.
   * --answer fills the empty `Answer:` line; every refusal leaves the bytes.
-  * --list prints exactly the unanswered blocks and the legacy count.
+  * --list prints exactly the unanswered blocks and the legacy count, and
+    carries each block's choices, recommendation, evidence and context plus
+    an item brief (title, priority, domain, file, summary, problem, preamble).
   * The fold is route-neutral: only the open-questions state moves.
 
 The two legacy shapes are copied from real item files: the dated callout
@@ -70,8 +72,11 @@ MARKED_SECTION = (
 )
 
 
-def item_body(item_id: str, tail: str = "", questions: str = "") -> str:
-    """An item in the template's section order; `tail` follows the footer."""
+def item_body(item_id: str, tail: str = "", questions: str = "", preamble: str = "") -> str:
+    """An item in the template's section order; `tail` follows the footer.
+
+    `preamble` is text placed between `## Open Questions` and the first block.
+    """
     lines = [
         "---", f"id: {item_id}", "title: \"Fixture item\"", "priority: Medium", "status: NOT_STARTED",
         "abbrev: DOC", "created: 2026-10-11", "blocks: []", "---", "",
@@ -81,7 +86,10 @@ def item_body(item_id: str, tail: str = "", questions: str = "") -> str:
     lines.extend(["", "## Proposed Solution", "", "1. Read the helper.", "2. Adjust the helper.", ""])
     lines.extend(["## Acceptance Criteria", "", "- [ ] The helper is adjusted.", ""])
     if questions:
-        lines.extend(["## Open Questions", "", questions, ""])
+        lines.extend(["## Open Questions", ""])
+        if preamble:
+            lines.extend([preamble, ""])
+        lines.extend([questions, ""])
     lines.extend(["## Related", "", "- Nothing related.", "", "---", "", "*Created: 2026-10-11*", ""])
     text = "\n".join(lines)
     return text + ("\n" + tail if tail else "")
@@ -424,14 +432,77 @@ class TestList(_QuestionsFixture):
             [(q["id"], q["q"], q["question"], q["options"]) for q in payload["questions"]],
             [("100", 2, "Which writer?", "Options: (A) left (B) right"), ("100", 3, "Which test?", None)],
         )
-        self.assertIn("100 Q2: Which writer?\n  Options: (A) left (B) right\n100 Q3: Which test?\n", text)
+        q2, q3 = payload["questions"]
+        self.assertEqual(q2["recommendation"], "A. It is simpler.")
+        self.assertEqual((q2["recommended"], q2["reason"]), ("A", "It is simpler."))
+        self.assertEqual(q2["choices"], [{"letter": "A", "text": "left"}, {"letter": "B", "text": "right"}])
+        self.assertEqual((q2["evidence"], q2["context"]), (None, None))
+        self.assertEqual((q3["recommendation"], q3["recommended"], q3["reason"]), (None, None, None))
+        self.assertEqual(q3["choices"], [])
+        self.assertIn(
+            "100: Fixture item (Medium, DOC) 100-DOC-fixture.md\n"
+            "100 Q2: Which writer?\n  Options: (A) left (B) right\n  Recommendation: A. It is simpler.\n"
+            "100 Q3: Which test?\n",
+            text,
+        )
         self.assertNotIn("Which reader?", text)
+        self.assertNotIn("101:", text)
         self.assertEqual((payload["legacy_sections"], payload["legacy_items"]), (1, ["101"]))
         self.assertIn("run --fold --all first", text)
 
+    def test_list_carries_the_item_brief(self):
+        self.add_item("100", item_body("100", questions=self.QUESTIONS))
+
+        _code, _text, payload = self.run_cli("--list", "--json")
+
+        self.assertEqual(list(payload["items"]), ["100"])
+        brief = payload["items"]["100"]
+        self.assertEqual((brief["title"], brief["priority"], brief["abbrev"]), ("Fixture item", "Medium", "DOC"))
+        self.assertEqual(brief["file"], "100-DOC-fixture.md")
+        self.assertTrue(brief["summary"].startswith("Summary line 1 about the helper. Summary line 2"))
+        self.assertTrue(brief["summary"].endswith("Summary line 40 about the helper."))
+        self.assertIsNone(brief["problem"])
+        self.assertIsNone(brief["preamble"])
+
+    def test_list_carries_the_preamble_and_block_context(self):
+        questions = (
+            "### Q1. Which writer?\n\n"
+            "The guarded writer is the only one the loop calls today.\n"
+            "Options: (A) left (B) right;\n"
+            "Recommendation: (B) The right one is already tested.\n"
+            "Answer:\n"
+        )
+        preamble = "Decided already: the reader stays.\nOnly the writer is open."
+        self.add_item("100", item_body("100", questions=questions, preamble=preamble))
+
+        _code, _text, payload = self.run_cli("--list", "--json")
+
+        self.assertEqual(payload["items"]["100"]["preamble"], preamble)
+        (q1,) = payload["questions"]
+        self.assertEqual(q1["context"], "The guarded writer is the only one the loop calls today.")
+        self.assertEqual(q1["choices"], [{"letter": "A", "text": "left"}, {"letter": "B", "text": "right"}])
+        self.assertEqual((q1["recommended"], q1["reason"]), ("B", "The right one is already tested."))
+        self.assertIsNone(q1["evidence"])
+
+    def test_list_reads_a_problem_paragraph_and_a_prose_recommendation(self):
+        questions = "### Q1. Which test?\n\nRecommendation: Keep both until the sweep lands.\nAnswer:\n"
+        text = item_body("100", questions=questions).replace(
+            "## Proposed Solution", "## Problem\n\nFirst line.\nSecond line.\n\nNot in the paragraph.\n\n## Proposed Solution"
+        )
+        self.add_item("100", text)
+
+        _code, _text, payload = self.run_cli("--list", "--json")
+
+        self.assertEqual(payload["items"]["100"]["problem"], "First line. Second line.")
+        (q1,) = payload["questions"]
+        self.assertEqual((q1["recommended"], q1["reason"]), (None, "Keep both until the sweep lands."))
+        self.assertEqual(q1["choices"], [])
+
     def test_list_names_the_loop_question_and_json_prints_one_line(self):
         path = self.add_item("100", item_body("100"))
-        backlog_questions.append_question(path, RUN_1, "Question: A or B?\nOptions: (A) a (B) b")
+        backlog_questions.append_question(
+            path, RUN_1, "Question: A or B?\nOptions: (A) a (B) b\nEvidence: the probe found two callers."
+        )
         before = path.read_bytes()
 
         code, text, payload = self.run_cli("--list", "--id", "100", "--json")
@@ -440,6 +511,8 @@ class TestList(_QuestionsFixture):
         self.assertEqual(len(text.splitlines()), 1)
         self.assertEqual(payload["questions"][0]["question"], "Question: A or B?")
         self.assertEqual(payload["questions"][0]["options"], "Options: (A) a (B) b")
+        self.assertEqual(payload["questions"][0]["evidence"], "the probe found two callers.")
+        self.assertIsNone(payload["questions"][0]["context"])
         self.assertEqual(payload["legacy_sections"], 0)
         self.assertEqual(path.read_bytes(), before)
 

@@ -32,7 +32,8 @@ below — and take no `kind`.
 > If `config.yaml` is missing or unreadable:
 > - Do **NOT** invoke auto-init.
 > - Set `plugin_version: unknown` for the Environment block (it cannot be read from a
->   config that isn't there).
+>   config that isn't there). `feedback.include_environment` resolves `true` here, matching
+>   the loader default. This run is draft-only, so nothing posts.
 > - Proceed **draft-only** — `feedback.enabled` cannot be confirmed `true` without a
 >   readable config, so no post is attempted regardless of what the user answers.
 > - Print the draft's absolute path and `https://github.com/gabgoss/planwise/issues` so
@@ -72,7 +73,10 @@ Attempt to resolve `config.yaml` the normal way (`planwise/config.yaml`, or `*/c
 one level down from project root). If found and readable, extract `feedback.repo`,
 `feedback.include_environment`, and `plugin_version`. Read `feedback.enabled` only through the
 engine's gate 1 (`posting-state`), which tells an `absent` key from one set to a value other
-than `true`. This handler does not parse the key itself. If missing or
+than `true`. This handler does not parse the key itself. The handler passes
+`feedback.include_environment` to the engine. The engine's Issue Body Spec and its pre-gate-5
+step decide whether the Environment block renders, and this handler does not re-specify that
+rule. If missing or
 unreadable, follow the Config-Gate exception above instead — do not auto-init.
 
 ### Step 2: Parse Mode

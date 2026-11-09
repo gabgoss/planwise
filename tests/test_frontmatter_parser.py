@@ -173,5 +173,56 @@ class TestParseFrontmatterMap(unittest.TestCase):
         )
 
 
+ZERO_PADDED = "---\nid: 061\nblocks: [007, 009]\n---\n\n# Body\n"
+
+
+def _text_level_read(content: str) -> dict:
+    """The read under test: split_frontmatter_block, then parse_frontmatter_map."""
+    frontmatter, _ = split_frontmatter_block(content)
+    return parse_frontmatter_map(frontmatter)
+
+
+def _typed_read(content: str) -> dict:
+    """Mutation helper: the same split, then a typed YAML load."""
+    import yaml
+
+    frontmatter, _ = split_frontmatter_block(content)
+    return yaml.safe_load(frontmatter)
+
+
+def _assert_zero_padding_survives(case: unittest.TestCase, read) -> None:
+    values = read(ZERO_PADDED)
+    case.assertEqual(values["id"], "061")
+    case.assertIsInstance(values["id"], str)
+    case.assertIsInstance(values["blocks"], str)
+    case.assertIn("007", values["blocks"])
+    case.assertIn("009", values["blocks"])
+
+
+class TestTextLevelReadKeepsZeroPaddedIds(unittest.TestCase):
+    """A text-level read keeps `061` and `[007, 009]` as strings; a typed load
+    would return the int 61, losing the padding every backlog id carries."""
+
+    def test_id_reads_back_as_the_string_061(self):
+        self.assertEqual(_text_level_read(ZERO_PADDED)["id"], "061")
+
+    def test_blocks_reads_back_as_one_string_keeping_007_and_009(self):
+        # Today the function returns the flow list as its text "[007, 009]".
+        self.assertEqual(_text_level_read(ZERO_PADDED)["blocks"], "[007, 009]")
+
+    def test_the_assertions_pass_on_the_real_read(self):
+        _assert_zero_padding_survives(self, _text_level_read)
+
+    def test_mutation_control_a_typed_load_fails_the_same_assertions(self):
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            self.skipTest("PyYAML not installed; the mutation control needs a typed loader")
+        # PyYAML reads the YAML 1.1 octal literal 061 as the int 49, not 61.
+        self.assertIsInstance(_typed_read(ZERO_PADDED)["id"], int)
+        with self.assertRaises(AssertionError):
+            _assert_zero_padding_survives(self, _typed_read)
+
+
 if __name__ == "__main__":
     unittest.main()

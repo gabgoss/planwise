@@ -20,6 +20,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 # Allow imports whether pytest is launched from the repo root or tests/.
@@ -297,6 +298,64 @@ class TestDuplicates(_ParseLessonsFixtureBase):
 
         result = compute_next_id(self.config)
         self.assertEqual(result["next_id"], "LL-011")
+
+
+def _is_file_false_for(name_prefix: str, *, only_plain_form: bool):
+    """A stand-in for `Path.is_file` that answers False for one lesson file,
+    the way Windows does for a path of 260 characters or more while long
+    paths are off. With `only_plain_form`, the same file read through the
+    `\\\\?\\` extended-length path answers True, as it does on Windows."""
+    real = Path.is_file
+
+    def fake(self, *args, **kwargs):
+        if self.name.startswith(name_prefix):
+            if only_plain_form and str(self).startswith("\\\\?\\"):
+                return real(self, *args, **kwargs)
+            return False
+        return real(self, *args, **kwargs)
+
+    return fake
+
+
+class TestLongPathLessonFiles(_ParseLessonsFixtureBase):
+    """A lesson file `Path.is_file()` cannot see is found through the
+    extended-length path on Windows, else reported by name -- never dropped
+    with no trace. A stand-in for `is_file` simulates the Windows limit, so no
+    260-character path is needed on disk."""
+
+    def test_unreadable_file_is_reported_by_name_not_dropped_silently(self):
+        self.write_lesson(6)
+        seven = self.write_lesson(7)
+        with unittest.mock.patch.object(Path, "is_file", _is_file_false_for("LL-007", only_plain_form=False)):
+            found = [lesson_id for lesson_id, _path in parse_lessons.lesson_files(self.lessons_dir, None)]
+            unreadable = parse_lessons.unreadable_lesson_files(self.lessons_dir, None)
+        self.assertEqual(found, [6])
+        self.assertEqual(unreadable, [(7, seven)])
+        self.assertIn(seven.name, parse_lessons.describe_unreadable(seven))
+
+    def test_directory_named_like_a_lesson_is_not_called_unreadable(self):
+        self.write_lesson(6)
+        (self.lessons_dir / "LL-009-PROC-NotAFile.md").mkdir()
+        self.assertEqual(parse_lessons.unreadable_lesson_files(self.lessons_dir, None), [])
+        self.assertEqual([i for i, _p in parse_lessons.lesson_files(self.lessons_dir, None)], [6])
+
+    def test_description_names_the_windows_limit_only_when_the_path_reaches_it(self):
+        entry = self.write_lesson(7)
+        self.assertNotIn("LongPathsEnabled", parse_lessons.describe_unreadable(entry))
+        with unittest.mock.patch.object(parse_lessons, "WINDOWS_MAX_PATH", 1):
+            self.assertIn("LongPathsEnabled", parse_lessons.describe_unreadable(entry))
+
+    @unittest.skipUnless(sys.platform == "win32", "the extended-length prefix exists only on Windows")
+    def test_long_path_file_is_discovered_through_the_extended_prefix(self):
+        self.write_lesson(6)
+        self.write_lesson(7)
+        with unittest.mock.patch.object(Path, "is_file", _is_file_false_for("LL-007", only_plain_form=True)):
+            pairs = parse_lessons.lesson_files(self.lessons_dir, None)
+            unreadable = parse_lessons.unreadable_lesson_files(self.lessons_dir, None)
+        self.assertEqual([i for i, _p in pairs], [6, 7])
+        self.assertTrue(str(dict(pairs)[7]).startswith("\\\\?\\"))
+        self.assertIn(b"LL-007", dict(pairs)[7].read_bytes())
+        self.assertEqual(unreadable, [])
 
 
 class TestDuplicateRowIdCli(_ParseLessonsFixtureBase):

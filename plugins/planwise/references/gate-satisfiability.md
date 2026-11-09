@@ -1,12 +1,12 @@
 ---
-description: A gate's passing condition can come apart from the property it protects in two directions - satisfiable by destruction (an absence gate that passes when the protected thing is deleted, §1; a green battery that never executed a new declaration, §2) and unsatisfiable by construction (a prerequisite marker that is not in the file it names, §3; a per-run check on a surface that does not carry the signal, §4) - so ask two questions of every gate before it ships (§5).
-consult-when: Authoring an absence gate, a prerequisite-marker gate or a per-run gate, or a change adds a declaration something else must render — what is the cheapest way to make the gate pass (§1 exempt-set clause, §2 execute the path once), and is there a state where the property holds and the gate still fails (§3 marker proven as an upstream addition, §4 eliciting and ordinary probe); the two satisfiability questions (§5)
+description: A gate's passing condition can come apart from the property it protects in two directions - satisfiable by destruction (an absence gate that passes when the protected thing is deleted, §1; a green battery that never executed a new declaration, §2) and unsatisfiable by construction (a prerequisite marker that is not in the file it names, §3; a per-run check on a surface that does not carry the signal, §4; an absence check wider than the edits its own brief lists, §6) - so ask two questions of every gate before it ships (§5).
+consult-when: Authoring an absence gate, a prerequisite-marker gate or a per-run gate, or a change adds a declaration something else must render — what is the cheapest way to make the gate pass (§1 exempt-set clause, §2 execute the path once), and is there a state where the property holds and the gate still fails (§3 marker proven as an upstream addition, §4 eliciting and ordinary probe); an absence check's expected count must match the edits its own brief lists (§6 list every hit with its edit, name each allowed location); the two satisfiability questions (§5)
 paths: {planwise_root}/{plans_dir}/**
 ---
 
 # Gate Satisfiability (Satisfiable by Destruction, Unsatisfiable by Construction)
 
-**Purpose:** A gate's passing condition and the property it protects are written by the same author, and they can come apart. Some gates pass without the property holding. Others fail while it holds. This file names four instances and the question that catches each. The sections are numbered 1 to 5 in this file. They are new rules, not former sections of `verification-gate-evidence.md`. The family index is `verification-gate-evidence.md`.
+**Purpose:** A gate's passing condition and the property it protects are written by the same author, and they can come apart. Some gates pass without the property holding. Others fail while it holds. This file names five instances and the question that catches each. The sections are numbered 1 to 6 in this file. They are new rules, not former sections of `verification-gate-evidence.md`. The family index is `verification-gate-evidence.md`.
 
 **Read this when** you author an absence gate ("MUST be empty"), a cross-task prerequisite marker, or a per-run check on a transcript or log, or a change adds a declaration that something else must render, resolve, substitute or dispatch on.
 
@@ -17,6 +17,7 @@ paths: {planwise_root}/{plans_dir}/**
 - [3. Verify a Prerequisite Marker the Moment the Upstream Work Is Complete](#3-verify-a-prerequisite-marker-the-moment-the-upstream-work-is-complete)
 - [4. Verify an Observability Surface Carries the Signal Before Gating on It](#4-verify-an-observability-surface-carries-the-signal-before-gating-on-it)
 - [5. The Two Satisfiability Questions](#5-the-two-satisfiability-questions)
+- [6. An Absence Check Must Match the Edit Scope of Its Own Brief](#6-an-absence-check-must-match-the-edit-scope-of-its-own-brief)
 
 ---
 
@@ -131,11 +132,54 @@ Corollary for design documents: record the correction **in the design authority*
 
 > [!practice] Ask both questions of every gate before it ships
 > 1. *What is the cheapest way to make this pass, and does that way involve the property holding?* (§1, §2)
-> 2. *Is there a state of the world in which the property holds and this gate still fails?* (§3, §4)
+> 2. *Is there a state of the world in which the property holds and this gate still fails?* (§3, §4, §6)
 >
 > A gate that fails the first question is satisfiable by destruction. A gate that fails the second is unsatisfiable by construction. Both are authored the same way: by writing a condition adjacent to the property instead of derived from it.
 
 The two directions stay in one file deliberately. Both come from the same authoring mistake. A reader who sees only the destructive-shortcut half does not learn to check the unsatisfiable half.
+
+---
+
+## 6. An Absence Check Must Match the Edit Scope of Its Own Brief
+
+A brief can carry an absence check ("MUST be 0") that is wider than the edits its Execution Steps list. A runner treats the step enumeration as binding. It edits the sites the steps name and stops. The check then fails on every site the steps never named, so no correct run can satisfy it.
+
+Two incidents showed the shape:
+
+- A re-point brief expected a count of its old name to be 0. Its Execution Steps covered 2 of the 6 hits.
+- An orchestrator delta read 1 of its own 2 discovery hits.
+
+> [!constraint] The step list equals the search output, and the check names what stays
+> WRONG — an absence check wider than the steps, closed by a judgment call:
+> ```
+> Execution Steps: re-point hits 1 and 4 of the 6 hits of `OldName`
+> Verification:    Grep pattern='OldName' path='plugins/' output_mode='count'   # MUST be 0
+> Criterion:       "verify by reading the matches that nothing stale remains"
+> # the other 4 hits are in no step, so no runner edit removes them
+> ```
+> CORRECT — the search at authoring time is the enumeration, and the count names its allowed location:
+> ```
+> Authoring:       Grep pattern='OldName' path='plugins/' output_mode='content' -n=true   # 6 hits
+> Execution Steps: 6 steps, one per hit, each with its edit (5 re-points, 1 left in place)
+> Verification:    Grep pattern='OldName' path='plugins/' output_mode='count'   # expect 1, the history line at the Change Log
+> ```
+
+1. **Search the target for every old name when you author the brief.** Use `Grep` with `output_mode='content'`. List every hit in the Execution Steps with its edit. The step list then equals the search output. This is the brief-level form of "The Grep is the enumeration" in [dispatch-edit-surface-sweep.md](dispatch-edit-surface-sweep.md) §7. Still hand the runner the locator and require an occurrence count, per that file's §1.
+2. **Write the absence criterion as an exact expected count that names each allowed location.** An example is "expect 1, the history line at the Change Log". Never leave the final count to the runner's judgment.
+3. **Treat a hit outside the edit scope as a sibling finding.** The author either missed that site or meant it to stay. Add a step for it, or name it as an allowed location in the criterion. A hit that is neither is noise only to a brief that was never enumerated.
+
+#### Reviewer Check 113 — Absence Check Scope Differs From the Execution Steps' Enumeration
+
+- **Severity / Role / Type:** WARNING (HIGH confidence) | Verification-Gate Reviewer | NEW
+- **What:** A task whose absence criterion searches a wider set than its Execution Steps edit MUST name each allowed location for the difference. Flag a task whose criterion expects 0, or a count with no named location, while its steps cover fewer sites than the search returns.
+- **Detection:** Use Grep over the plan's task files for absence criteria: "MUST be 0", "expect 0", "returns nothing", "No matches". For each hit, read the Execution Steps of the same task and count the sites they edit. Compare that count with the search's own hit count. A criterion that expects 0 or an unexplained count while the steps list fewer sites → WARNING. The reported shape: a re-point brief expected 0 old names after steps that covered 2 of 6 hits.
+- **Finding template:**
+```
+[WARNING] Absence check scope differs from the Execution Steps' enumeration
+File: {task file path} | Location: {criterion line}
+Issue: "{criterion}" searches {N} hits of "{value}", but the Execution Steps edit {M} of them and the criterion names no allowed location for the rest
+Fix: List every hit in the Execution Steps with its edit, and write the criterion as an exact count that names each allowed location, per references/gate-satisfiability.md §6 | Confidence: HIGH
+```
 
 ---
 

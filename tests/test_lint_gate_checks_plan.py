@@ -234,6 +234,69 @@ def test_check29_silent_when_recovery_records_the_values(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Check 34 -- a Verification Commands path outside the working directory
+# ---------------------------------------------------------------------------
+
+_SESSION_REL = "Sprint-01-Demo/Session-01-Work"
+
+
+def _vc_plan(repo: Path, commands, field=None) -> Path:
+    """A repo (``.git``, ``src/a.py``, ``plans/Master-Plan.md``) holding a plan
+    whose one task carries ``commands`` in its Verification Commands block.
+    Returns the plan root. ``field`` is the declared working directory."""
+    (repo / ".git").mkdir(parents=True)
+    _write(repo / "src" / "a.py", "")
+    _write(repo / "plans" / "Master-Plan.md", "# Plan\n")
+    plan = repo / "plans" / "Demo"
+    session = plan / _sprint(1, "Demo") / _session(1, "Work")
+    (session / "Outputs").mkdir(parents=True)
+    head = f"**Working directory:** `{field}`\n\n" if field else ""
+    body = "".join(f"> {command}\n" for command in commands)
+    _write(session / "DEM-01-01-Task.md", (
+        "# Task: Gate\n\n**Output:** `Outputs/Report.md`\n\n## Verification Commands\n\n" + head
+        + "> [!verify] Before / After Commands\n> **After:** *(runner)*\n> ```bash\n" + body + "> ```\n"
+    ))
+    return plan
+
+
+_TASK_REL = f"{_SESSION_REL}/DEM-01-01-Task.md"
+
+
+def test_check34_fires_on_a_block_mixing_repo_root_and_session_paths(tmp_path):
+    plan = _vc_plan(tmp_path, ["python src/a.py   # lint", "test -f Outputs/Report.md   # exists"])
+    assert _found(plan, 34) == [(34, "WARNING", _TASK_REL, 11)]
+
+
+def test_check34_silent_when_a_block_keeps_to_one_base(tmp_path):
+    repo_only = _vc_plan(tmp_path / "a", ["python src/a.py", "test -f src/a.py"])
+    session_only = _vc_plan(tmp_path / "b", ["test -f Outputs/Report.md", "test -f ../x.md"])
+    declared = _vc_plan(tmp_path / "c", ["python src/a.py"], field=".")
+    assert _found(repo_only, 34) == []
+    assert _found(session_only, 34) == []
+    assert _found(declared, 34) == []
+
+
+def test_check34_fires_when_the_repo_root_base_meets_a_session_relative_path(tmp_path):
+    plan = _vc_plan(tmp_path, ["test -f Outputs/Report.md"], field=".")
+    assert _found(plan, 34) == [(34, "WARNING", _TASK_REL, 12)]
+
+
+def test_check34_fires_on_a_path_one_level_short_of_the_declared_base(tmp_path):
+    plan = _vc_plan(tmp_path, ["test -f ../../Master-Plan.md"], field=f"plans/Demo/{_SESSION_REL}")
+    assert _found(plan, 34) == [(34, "WARNING", _TASK_REL, 12)]
+
+
+def test_check34_silent_on_the_correct_depth_from_the_declared_base(tmp_path):
+    plan = _vc_plan(tmp_path, ["test -f ../../../Master-Plan.md"], field=f"plans/Demo/{_SESSION_REL}")
+    assert _found(plan, 34) == []
+
+
+def test_check34_uncertain_when_the_declared_base_is_a_placeholder(tmp_path):
+    plan = _vc_plan(tmp_path, ["test -f Outputs/Report.md"], field="{repo}")
+    assert _found(plan, 34) == [(34, "UNCERTAIN", _TASK_REL, 7)]
+
+
+# ---------------------------------------------------------------------------
 # Registration and contract
 # ---------------------------------------------------------------------------
 
@@ -242,7 +305,7 @@ def test_each_plan_check_is_registered_once():
     for check in plan_module.CHECKS:
         assert lint_module.CHECK_REGISTRY.count(check) == 1, check.__name__
     numbers = [int(c.__name__.split("_")[1].removeprefix("check")) for c in plan_module.CHECKS]
-    assert numbers == [26, 27, 28, 29]
+    assert numbers == [26, 27, 28, 29, 34]
 
 
 def test_local_constants_and_finding_keys_match_the_linter():

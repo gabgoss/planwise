@@ -82,8 +82,9 @@ python "{plugin_root}/scripts/init_project.py" --prune-upgrade-leftovers --proje
 
 Before invoking it, ask one `AskUserQuestion` per PRESENT prunable class
 (*inert*, *safe-to-discard* — never per file), tagged
-`<!-- AUTO-MODE: convenience -->` with an inferred default of **skip-all**
-in unattended runs (state the inference inline) — the same per-class
+`<!-- AUTO-MODE: convenience -->` whose inferred default is the "Upgrade leftover
+prune question" row of `references/auto-mode-policy.md` § Inference Defaults
+(state the inference inline) — the same per-class
 confirm contract `handlers/upgrade-Part-3-BannerAndConflictResolution.md`
 Step 4.3 uses for its own cleanup
 offer. *action-required* and *review-then-discard* findings are never
@@ -244,7 +245,7 @@ probe). Pass it through verbatim. The script evaluates gates 1, 3 and 4 as
 The stage is advisory: draft-only is a supported configuration, not a fault.
 To install the GitHub CLI, the user runs `/planwise init` or `/planwise
 upgrade`. Doctor never installs it. The script also prints a `feedback.drafts:`
-line beside `feedback.enabled:`, with the value `notify`, `quiet` or `off`.
+line beside `feedback.enabled:`, with the value `notify`, `quiet` or `off`. The `feedback.enabled:` line reads `true`, `false` or `absent`: `absent` means config.yaml never sets the key, and it gets its own remedy row, "feedback.enabled is not set". An explicit `false` keeps the "feedback.enabled is false" row. The script reads the key through the feedback engine's `posting-state` predicate, so doctor and gate 1 agree. When that read fails, the line stays `false` and names the reason.
 
 ---
 
@@ -258,14 +259,15 @@ user opts in with the separate writer `/planwise doctor --create-feedback-dir`
 read-only `model drafts queued: {n}` line, or `model drafts queued: not checked`
 when the directory is absent, the config cannot be read, or the count fails (it then names the reason). When `n` is above 0 it
 adds the hint `review them with /planwise feedback --drafts, or post one with
-/planwise feedback --post <draftId>`.
+/planwise feedback --post <draftId>`. When `n` is above 0 and `feedback.enabled` is false, it adds a posting-off note: Choosing Review and post sets the key to true in `config.yaml` first. It also prints a read-only `model-draft .gitignore line:` row: `present`, `absent`, `opted out` (the line is negated) or `not checked` with the reason. On `absent`, the remedy is `/planwise init`, `/planwise upgrade` or the printed line added by hand. Doctor never edits `.gitignore`.
 
 ### Stage 17b: `--create-feedback-dir` (opt-in writer)
 
 When `$ARGUMENTS` contains `--create-feedback-dir`, this is another doctor
 path that mutates (alongside `--prune-stale` and `--prune-upgrade-leftovers`
 above). Ask one `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->`,
-inferred default **skip** in unattended runs): "Create the missing feedback
+the inferred default is the "Feedback directory creation question" row of
+`references/auto-mode-policy.md` § Inference Defaults): "Create the missing feedback
 directory at `{feedback_dir_path}`?" On confirm, use **Bash** to create ONLY
 that single directory (`mkdir -p {feedback_dir_path}`) — the same
 Bash-for-directory-creation scope [init.md](init.md)'s Tool Usage Rules

@@ -1,11 +1,11 @@
 ---
-description: Cross-task coordination flags continued — a Key Finding that names another session's file is re-filed as a flag, a flag that tells a task to produce something is a write-set delta reconciled against the Output line and write-target row, and an ordering flag is written against the pinned command it sequences. Split out of read-confirm-act-protocol.md §1.3 when that file neared the Read-tool token gate.
-consult-when: Authoring or reconciling a cross-session flag — read X's pinned command before writing "X before Y", count a flag's produce-verbs against the `Output:` line and write-target row, and re-file a Key Finding that names another session's file as a coordination flag; carries three `§1.3` subsections of `read-confirm-act-protocol.md`
+description: Cross-task coordination flags continued — a Key Finding that names another session's file is re-filed as a flag, a flag that tells a task to produce something is a write-set delta reconciled against the Output line and write-target row, an ordering flag is written against the pinned command it sequences, a flag's stated mechanism is tested against its count and tagged CONTESTED when the counts do not reproduce it, and the orchestrator alone numbers every flag. Split out of read-confirm-act-protocol.md §1.3 when that file neared the Read-tool token gate.
+consult-when: Authoring or reconciling a cross-session flag — read X's pinned command before writing "X before Y", count a flag's produce-verbs against the `Output:` line and write-target row, re-file a Key Finding that names another session's file as a coordination flag, test a flag's stated mechanism against its count before propagating it, tagging a failing mechanism `CONTESTED`, and let only the orchestrator number flags, checking id uniqueness before propagation; carries five `§1.3` subsections of `read-confirm-act-protocol.md`
 ---
 
 # READ-CONFIRM-ACT Protocol, Part 2 — Flag Authoring Surfaces
 
-**Purpose:** Three §1.3 subsections, split out of [read-confirm-act-protocol.md](read-confirm-act-protocol.md) when that file neared the Read-tool token gate. §1.1-§1.6 stay on that anchor, which keeps the original filename. Each subsection extends §1.3's "Authoring the Flag (Spec Delta, Not Observation)" test to a surface the earlier text did not name: a finding recorded in the wrong table, a write-set, and a step order.
+**Purpose:** Five §1.3 subsections, split out of [read-confirm-act-protocol.md](read-confirm-act-protocol.md) when that file neared the Read-tool token gate. §1.1-§1.6 stay on that anchor, which keeps the original filename. Each subsection extends §1.3's "Authoring the Flag (Spec Delta, Not Observation)" test to a surface the earlier text did not name: a finding recorded in the wrong table, a write-set, a step order, an explanation that rides beside a measurement, and a flag id allocated by two writers.
 
 ---
 
@@ -93,3 +93,75 @@ Two shapes hide a flag:
 - **The receiver's remedy is a spec delta, not a quiet reorder.** A contradiction between a binding flag and a task step is a Phase-1 structural finding. Surface it, get the choice, write the resolved order into the task file with the approval reference, and let the runner execute one unambiguous sequence.
 
 **Applies to** authoring a cross-session flag that sequences a downstream task's steps, and to the receiver's preflight: a flag that contradicts an Execution Step's pinned command is a structural finding for the CONFIRM block, not a reorder to apply silently. It covers any "do X first" instruction where X's command carries a path, port or artifact that a later step creates.
+
+## A Flag's Stated Mechanism Is Tested Against Its Count
+
+> [!constraint] A flag carries the measurement. It does not carry the runner's "because" as fact
+> A flag has two parts that travel together and have different standing. The **measurement** (a count, a timing, a file list) is a recorded observation. The receiver re-measures it for staleness and never re-argues it. The **mechanism** is the runner's explanation of why the measurement came out that way. It is an inference, and a downstream gate may overturn it. The routing-time test is mechanical: would the stated mechanism produce the stated count?
+
+**Example.** A runner measured two candidate natural keys on every file in a data set. Both showed 0 duplicates. Its Recovery then explained the result: "the source already splits a traded player into separate per-team rows, so the narrower key is unique". That mechanism predicts duplicates on the narrower key, because the split rows would collide. The measured 0 says the opposite. The orchestrator copied the sentence into the next task's flag block. A later task noticed the contradiction while pasting the counts, marked the sentence contested, and decided from the numbers. Nothing shipped wrong, only because the second reader compared the prose with the count.
+
+- **Run the test at routing time, before the flag is written.** State the count the mechanism predicts, then compare it with the measured count. A match lets the sentence travel. A mismatch means the sentence does not travel as fact.
+- **Name the decision and its decider.** A flag says what is decided and who decides it. The runner's "because" is not a decision.
+- **Tag a failing mechanism `CONTESTED`, inline, and keep the sender's sentence verbatim.** The sender's text stays per §1.4.E of [read-confirm-act-protocol.md](read-confirm-act-protocol.md), and the correction sits beside it. No new column, callout or schema is involved:
+
+```
+**CONTESTED** — {stated mechanism, verbatim}. Counts: {pointer to the measurement}. Decision: {what is decided} — {decider}.
+```
+
+> [!constraint] Absence of signal supports two opposite designs. Apply the mechanism test before choosing one
+> A zero-occurrence reading is compatible with "the guard needs strengthening" and with "the guard's site is unreachable". The two readings imply opposite designs. The mechanism test separates them.
+>
+> WRONG — read the 0 as support for a mitigation at the silent site:
+> ```
+> measurement: guard log occurrences during the failure = 0
+> inference:   the guard never fired, so a new hook at this site will catch the failure
+> flag:        "orchestrator-validated: recommend the hook at this site"
+> ```
+> CORRECT — ask what a reachable site would have produced:
+> ```
+> measurement: guard log occurrences during the failure = 0
+> fact:        the guard is the first statement at the call site and logs unconditionally
+> test:        a reachable site predicts more than 0 lines. The measured 0 contradicts that.
+> conclusion:  the site was never re-entered. A hook at this site inherits the unreachability.
+> flag:        measurement carried as a record. The hook recommendation is CONTESTED, and the
+>              gated design task resolves reachability first.
+> ```
+
+**Applies to** the orchestrator routing a runner's Recovery into a flag block, to the receiver's Phase-1 preflight (which already re-derives the conclusion per §1.4.D), and to any closeout that copies a runner's explanation into a propagated flag.
+
+## The Orchestrator Numbers Every Flag
+
+> [!constraint] One writer fills the flags table, and one allocator numbers it
+> The orchestrator is the only writer of the `Cross-Task Coordination Flags` table and the only allocator of `Flag #`. The next id is the highest id already in that section plus 1, carried rows included. An id is never reused. A task-runner in either dispatch mode returns a flag as a `FLAG:` bullet with no id and never writes a flag row.
+
+**Example.** A delegated session dispatched five tasks in sequence. The Recovery table already held flags 1 to 12, carried from the prior sprint. The final runner surfaced two flags and wrote them as 13 and 14, because its instructions told a sequential runner to update Recovery. At closeout the orchestrator enumerated the session's own flags and allocated 13 to 18 from the same base. The table then held two rows numbered 13 and two numbered 14, describing four different observations. Both writers followed their instructions. A closeout count of 8 rows where 6 were expected exposed the collision. Closeout propagates flags into sibling plans, so an unnoticed duplicate would have spread.
+
+> [!constraint] The runner describes the flag, and the orchestrator numbers it
+> WRONG — two writers each take the next free number:
+> ```
+> table holds:   flags 1 to 12
+> runner:        appends rows 13 and 14 itself
+> orchestrator:  allocates 13 to 18 at closeout from the same base of 12
+> result:        two rows numbered 13, two numbered 14
+> ```
+> CORRECT — the runner describes, and the orchestrator numbers at surface time:
+> ```
+> runner returns:  KEY_FINDINGS: - FLAG: <owner> must <action> (no id)
+> orchestrator:    adds rows 13 and 14 (highest id 12, plus 1)
+> closeout:        allocates 15 to 18 (highest id 14, plus 1)
+> ```
+
+**Check uniqueness inside the section.** Run this over the Recovery file before closeout propagates anything:
+
+```
+awk -F'|' '/^## /{f=($0 ~ /^## Cross-Task Coordination Flags/)} f && $2 ~ /^ *F?[0-9]+ *$/ {gsub(/[ F]/,"",$2); print $2}' {recovery} | sort | uniq -d
+```
+
+The command strips an optional `F` prefix and prints each duplicated id. It prints nothing when every id is unique. The same pipeline ending in `wc -l` prints the table's row count, and a zero count means the check could not see the table.
+
+Dry run on two scratch Recovery files. The first held flag rows F12, F13, F14, F13, F14 beside Step Completion rows 1, 2 and 13. It printed 13 and 14. The second held flag rows 1, 2 and 13 beside the same Step Completion rows and a Scope-Expansion row numbered 1. It printed nothing, and the `wc -l` form printed 3.
+
+**Scope the check to the section.** Both whole-file forms fail. A whole-file match on `| F{n} |` ids sees 0 rows on a template-form file, which uses bare ids, so it passes vacuously. A whole-file match on bare ids also counts the Step Completion and Scope-Expansion rows, so it false-fails on a clean file.
+
+**Applies to** the orchestrator allocating a flag id at surface time, to the closeout step that propagates flags, and to a task-runner instruction that touches the flags table in sequential or parallel dispatch.

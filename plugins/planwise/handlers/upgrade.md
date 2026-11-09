@@ -46,6 +46,14 @@ Locate `config.yaml` by checking, in order:
 
 Resolve **`{plugin_root}`** — used in every script invocation below — from this handler's own known location (the plugin base directory provided by SKILL.md), the same resolution [init.md](init.md) uses for first-time init. This is the LIVE, currently-invoked plugin; it is NOT read from `config.yaml`.
 
+Upgrade writes that root into `config.yaml`, so first check it is the project's marketplace install. Run this offline check once, never with `--refresh`:
+
+```bash
+python -B "{plugin_root}/scripts/install_check.py" --project-root "{project_root}"
+```
+
+On `NOT_MARKETPLACE_INSTALL`, show the user its lines and `claude plugin install planwise@{marketplace_name} --scope {scope}` before Step 1, then continue. Both values come from the `INSTALL_CHECK:` line, and scope `none` means `project`. `OK` and `BEHIND_MARKETPLACE` pass silently.
+
 Extract from `config.yaml`:
 - `plugin_root` (config value, distinct from the live `{plugin_root}` above) — the plugin root the last init/upgrade wrote. Display/fallback only — see the Step 1 mismatch note; never substitute it for the live `{plugin_root}` in a script invocation.
 - `plugin_version` — currently-pinned plugin version (treat absent as `"0.0.0"`)
@@ -58,7 +66,7 @@ Extract from `config.yaml`:
 
 The skill's `!` line runs the upgrade preflight before you see the skill. It prints an upgrade card between `<!-- planwise:upgrade:begin -->` and `<!-- planwise:upgrade:end -->`, and the skill tells you to follow the card's NEXT block and read nothing else. You read this handler only when the card is absent, when a `PLANWISE_UPGRADE_FALLBACK:` line appears, or when the card hands a branch back to a numbered Step. The numbered Steps below are the full fallback. They stay authoritative for every branch the card hands back.
 
-1. **What the card holds.** The header names the project root, the config path, the live plugin root, the pinned and shipped versions, the version pair and the branch, plus the Token Saver state. The `Diverged rules` table has one row per diverged file, with its `installed_sha256`, the inline verdict and an `agent` column (`yes` when the row needs a comparator). A `shas:` line carries each full digest, and one `paths:` line per row carries the absolute installed and shipped paths. Then come the migration questions, the earlier-pair transfers, the offers, the recovery artifacts and the NEXT block.
+1. **What the card holds.** The header names the project root, the config path, the live plugin root, the pinned and shipped versions, the version pair and the branch, plus the Token Saver state. An `install_check: {verdict}` line follows the user-settings line (`unavailable` when the install record cannot be read). On `NOT_MARKETPLACE_INSTALL` a `!` warning line with the install command follows, and NEXT opens by telling you to show it before step 1. It never stops the upgrade. The `Diverged rules` table has one row per diverged file, with its `installed_sha256`, the inline verdict and an `agent` column (`yes` when the row needs a comparator). A `shas:` line carries each full digest, and one `paths:` line per row carries the absolute installed and shipped paths. Then come the migration questions, the earlier-pair transfers, the offers, the recovery artifacts and the NEXT block.
 2. **Follow NEXT exactly.** Run its steps in order, with its commands as printed. Never rebuild a command from the numbered Steps.
 3. **Token Saver.** When Token Saver is off, the card's single `AskUserQuestion` offers it before the run. This is the Step 1.5 offer, asked once. On Yes, add `--token-saver` to the run command where NEXT says.
    When the card header reads `feedback_drafts: absent` or `no block`, the card's single question call also carries the two feedback questions. On the answers, add `--feedback-drafts {value}` and `--feedback-enabled` to the run command where NEXT says.
@@ -157,7 +165,7 @@ Use `AskUserQuestion` with two questions in one call:
 
 > "Claude may now save local feedback drafts while planwise runs. Nothing is posted without `/planwise feedback --drafts` and your approval. How loud should drafting be? (notify — one line per draft, recommended / quiet — write silently / off — never draft)"
 >
-> "Enable upstream posting (`feedback.enabled: true`)? Posting still needs `gh` installed and authenticated, and every post asks you first. (Yes / No — keep drafts local, recommended)"
+> "Enable upstream posting (`feedback.enabled: true`)? Posting still needs `gh` installed and authenticated, and every post asks you first. Options: "Yes (Recommended)" — set feedback.enabled: true | "No" — keep drafts local"
 
 Map the answers to flags: `notify`, `quiet` or `off` becomes `--feedback-drafts {value}`. `Yes` becomes `--feedback-enabled`. `No` adds no flag. In Auto Mode, ask nothing, pass neither flag, and log `Auto-Mode inference: feedback.drafts=notify, feedback.enabled=unchanged (reason: Inference Defaults rows)`.
 
@@ -207,8 +215,6 @@ Agent(
   subagent_type: "planwise:rule-comparator",
   description: "Compare {filename} (installed vs shipped)",
   prompt: |
-    First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any file.
-
     Compare ONE artifact pair and return a semantic verdict.
     filename:       {filename}
     kind:           rule
@@ -220,13 +226,14 @@ Agent(
     Return ONE fenced json verdict in the StructuralVerdict shape with
     source:"agent", filename, and a home_hints map.
     Step 3b grants a bounded read: at most 3 siblings the shipped text names, depth 1, read by path. Report any block found there under relocated_blocks. Keep tolerated_fragments and rationale in the verdict: the writer reads them.
+    Delivery: this spawn names no SendMessage recipient. Do not load or call SendMessage. Return the verdict in your final response.
     End with: "Comparator complete: {filename} → {classification}"
 )
 ```
 
-Collect the N verdicts (each comparator's returned/`SendMessage`d JSON). Each comparator ends in one of three modes:
+Collect the N verdicts (each comparator's final-response JSON). Each comparator ends in one of three modes:
 
-- **Returned.** The comparator sent its verdict JSON.
+- **Returned.** The comparator returned its verdict JSON in its final response.
 - **Failed.** The comparator errored or stayed silent after its one resume. Fall back to the inline primitive for that file and omit it from `verdicts.json`.
 - **Late.** Every sibling has returned, and this comparator has sent no verdict. Its final message is idle, or it ends mid-narration.
 
@@ -369,7 +376,7 @@ The script:
 7. Refreshes installed copies whose normalised body matches the shipped body
 8. Classifies each **diverged** installed copy with the structural verdict — consuming `verdicts.json` when present (a comparator verdict for a filename **supersedes** the inline primitive; a missing entry, a malformed entry, or an entry whose `installed_sha256` is missing/stale falls back to the primitive). A clean **stale subset** is auto-adopted in place directly: rules refresh via `update_frontmatter()` (the project's `paths:` line is preserved). Any OTHER divergence — HAS_UNIQUE or a subset whose `notes` flag installed-only tolerated content — is **customization-bearing**, gated by `upgrade.customization_handoff`: under `report+relocate` (the shipped template default) the writer first **transfers** the full installed body (plus a generic provenance header — source filename, kind, upgrade pair, date, verdict summary) to `{planwise_root}/upgrade-transfers/{from}-to-{to}/{filename}` — a **dormant preservation document** outside `.claude/rules/`, never loaded as a rule (a collision is uniquified with a numeric suffix loop, never clobbered) — **verifies** the write by reading it back, mirrors the pre-image under `upgrade-backups/`, and only then adopts the shipped body in place (the `DISPOSITIONS.md` row is appended only after the adoption write succeeds). Under `report` / `report+issue` (or the key absent) the writer is conservative: the customization-bearing file is preserved in place + a `.new` sidecar is written — no transfer, no adoption. A failed transfer write, a failed pre-image backup, a failed adoption write, or a degraded not-analyzed stand-in verdict (`structural_compare` unavailable at call time — no evidence to act on) likewise falls back to that conservative branch: installed file untouched, `.new` sidecar under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for manual merge. Every auto-adoption — stale-subset or transfer-then-adopt — first mirrors the pre-change file under `{planwise_root}/upgrade-backups/<from>-to-<to>/` (failed backup = no destructive write) and deletes any sidecar it obsoletes from an earlier interrupted run
 9. Runs `migrate_installed_rules()` (version-gated on `RESCOPE_MIGRATION_VERSION`, except that a de-scoped copy with a cached verdict is processed on every pair, so its customized content is transferred or preserved with its re-home notice) to retire rules that are now handler-loaded from `references/`: it **removes** an installed `.claude/rules/**` copy when it is untouched (normalized-identical body, `paths:` match) **or** when its body is a high-confidence **stale subset** of the grown shipped reference with no installed-only content flagged; for a HAS_UNIQUE (customised) copy or a subset verdict with a non-empty installed-only-content flag, the default `upgrade.customization_handoff: report+relocate` **transfers** the customization to `upgrade-transfers/` and then removes the backed-up copy, while `report` and `report+issue` **preserve** it in place with a re-home notice; it **preserves** byte-for-byte any subset verdict with reorg confidence, and — while `upgrade.descope_preserve_paths_edits` is `true` (the default) — any copy with a customised `paths:` line, even over a stale body. Setting that key to `false` opts in to removing paths-edited copies (reported with an `[INFO]` marker). Every removal is backed up under `upgrade-backups/` first, so a disposition is always recoverable without VCS
-10. Runs `lint_rule_overscope()` and appends a post-upgrade advisory listing any `.claude/rules/**` still scoped to plan/backlog/lessons paths, with size
+10. Runs `lint_rule_overscope()` and appends a post-upgrade advisory listing any `.claude/rules/**` still scoped to plan/backlog/lessons paths, with size. A rule that carries an `overscope-ack:` frontmatter marker leaves the list: acknowledged rules collapse to one footer line with their count and token total, the same line `/planwise doctor` prints, and `/planwise doctor --verbose` lists them. When every flagged rule is acknowledged, only that footer line prints
 11. Runs `sweep_orphaned_agent_mirrors()` on both exits, including "Already up to date", and appends the orphaned-mirror block: each leftover `.claude/agents/` mirror with its class (`REMOVABLE` or `PRESERVE`) and reason, plus the `--prune-stale` action when any row is `REMOVABLE`. Read-only: it deletes nothing
 12. Bumps `plugin_version:` AND repoints `plugin_root:` together, in `config.yaml`, LAST, as the commit point — one write, so the pair can never disagree (see `_commit_upgrade_pin()` in `scripts/init_project.py`)
 
@@ -419,7 +426,7 @@ The measured overheads in `config.yaml` go **stale on upgrade**: a plugin update
 <!-- AUTO-MODE: critical -->
 0. **Offer the install first.** When the script aborted with the `PyYAML is required for --upgrade` line, use `AskUserQuestion` once: "PyYAML is not importable by {python_executable}. Run `{install_command}` now and repeat the upgrade?" Take `{install_command}` from the command the abort line names. On yes, run that command, then repeat [Step 2.4](#step-24--invoke-the-upgrade-script) with the same arguments and skip the rest of this step. On no, run the fallback below. An install changes the environment, so this question is `critical`: never answer it by inference in Auto Mode (see [auto-mode-policy.md](../references/auto-mode-policy.md)).
 1. Use **Glob** to check whether `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` already exists — **skip this step if it does** (idempotent; never overwrite a populated file).
-2. **Read** [../templates/categorization-by-domain.md](../templates/categorization-by-domain.md) as a worked example of the target shape — it is the generator's own zero-lesson output for the ship-default config, not a fill-in-the-blanks template. Match its shape rather than substituting into it: `# Lessons Learned — Categorization by Domain`, a `Generated: <today's date>` line, a `**Companion to:** [{lessons_index}]({lessons_index})` line, then `## Scope` and its paragraph, then one `## {id}. {name} (0)` section per bucket in `decision_tree_order` (with `### {sub_id}. {sub_name} (0)` per sub-bucket) each carrying an empty 3- or 4-column table (per the bucket's `code_bucket:` flag), then a closing `---` and the `[Notes](00-Categorization-Notes-LessonsLearned.md)` / `[Changelog](...)` footer pointers. See [init.md](init.md) Step 5.1 for the full field-by-field rendering steps — this fallback is the same render, reached from the upgrade path. Do NOT render a `## Cross-cutting observations` or `## Classification edge cases` section — those now live in `00-Categorization-Notes-LessonsLearned.md`, never in the companion.
+2. **Read** [../templates/categorization-by-domain.md](../templates/categorization-by-domain.md) as a worked example of the target shape — it is the generator's own zero-lesson output for the ship-default config, not a fill-in-the-blanks template. Match its shape rather than substituting into it: `# Lessons Learned — Categorization by Domain`, a `Generated: <today's date>` line, a `**Companion to:** [{lessons_index}]({lessons_index})` line, then `## Scope`, its scope paragraph and the status paragraph, then one `## {id}. {name} (0)` section per bucket in `decision_tree_order` (with `### {sub_id}. {sub_name} (0)` per sub-bucket) each carrying an empty 3- or 4-column table (per the bucket's `code_bucket:` flag), then a closing `---` and the `[Notes](00-Categorization-Notes-LessonsLearned.md)` / `[Changelog](...)` footer pointers. See [init.md](init.md) Step 5.1 for the full field-by-field rendering steps — this fallback is the same render, reached from the upgrade path. Do NOT render a `## Cross-cutting observations` or `## Classification edge cases` section — those now live in `00-Categorization-Notes-LessonsLearned.md`, never in the companion.
 3. Populate it from the user's `config.yaml: categorization:` block, one section per bucket in `decision_tree_order`.
    > [!practice] Missing `categorization:` Block — Render From Defaults
    > When the block is absent or empty, use the 4-bucket default from [../config.yaml.template](../config.yaml.template) (database / code / process / tooling) and add a banner line noting defaults were used. Suggest `python init_project.py --migrate` to seed the block into `config.yaml` for full customisation.

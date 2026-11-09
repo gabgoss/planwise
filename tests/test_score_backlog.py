@@ -12,6 +12,7 @@ Run with:  python -m pytest tests/test_score_backlog.py -q
 
 import contextlib
 import io
+import re
 import shutil
 import sys
 import tempfile
@@ -1965,12 +1966,106 @@ class TestUndecidedVerdict(unittest.TestCase):
         self.assertEqual(unrefined, {"C"})
 
 
-ROUTE_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "route_items"
+class TestJudgedPresentClearFix(unittest.TestCase):
+    """`HAS_CLEAR_FIX` is judged in both directions. An item that quotes the
+    current code in a fence and names a symbol is a candidate the reader may
+    judge fixed, even when no before/after or scope-bound pattern matched.
+    The candidate never moves the route: it only widens which hints read
+    `undecided`. Each negative case is paired with the positive one that
+    differs by one property, so the pair shows the property carries the verdict."""
+
+    NAME = "HAS_CLEAR_FIX (judged present)"
+    FENCE = "```python\ndef write_summary(path, rows):\n    return len(rows)\n```\n"
+    CANDIDATE = f"\n## Problem\n\n`write_summary` opens its file first:\n\n{FENCE}"
+
+    def test_a_candidate_lets_the_judged_set_reach_route_a(self):
+        routes, names = score_backlog.judgment_routes(
+            False, False, False, 0, 0, False, False, clear_fix_candidate=True
+        )
+        self.assertEqual((routes, names), ({"A", "C"}, [self.NAME]))
+
+    def test_without_the_candidate_the_same_signals_reach_only_the_script_route(self):
+        routes, names = score_backlog.judgment_routes(False, False, False, 0, 0, False, False)
+        self.assertEqual((routes, names), ({"C"}, []))
+
+    def test_a_short_files_clear_fix_stays_mechanical_beside_a_candidate_flag(self):
+        routes, names = score_backlog.judgment_routes(
+            True, False, False, 0, 3, True, False, clear_fix_candidate=True
+        )
+        self.assertEqual((routes, names), ({"A"}, []))
+
+    def test_a_present_signal_is_still_judged_absent_under_its_old_name(self):
+        routes, names = score_backlog.judgment_routes(
+            True, False, False, 0, 3, False, True, clear_fix_candidate=True
+        )
+        self.assertEqual(names, ["HAS_CLEAR_FIX"])
+        self.assertEqual(routes, {"A", "B"})
+
+    def test_a_fence_and_a_named_symbol_make_a_candidate_and_leave_the_route_alone(self):
+        signals = _signals(self.CANDIDATE)
+        self.assertTrue(signals["clear_fix_candidate"])
+        self.assertFalse(signals["has_clear_fix"])
+        self.assertEqual(signals["route"], "C")
+
+    def test_a_candidate_under_a_fresh_a_hint_is_undecided(self):
+        signals = _signals(self.CANDIDATE, route_hint="A", route_dated="2026-10-30")
+        hint = signals["hint"]
+        self.assertTrue(hint["undecided"])
+        self.assertEqual(hint["judgment_signals"], [self.NAME])
+        self.assertEqual(signals["route"], "C")
+
+    def test_the_same_body_without_a_fence_is_not_a_candidate_and_the_hint_loses(self):
+        body = "\n## Problem\n\n`write_summary` opens its file first and returns len(rows).\n"
+        signals = _signals(body, route_hint="A", route_dated="2026-10-30")
+        self.assertFalse(signals["clear_fix_candidate"])
+        self.assertFalse(signals["hint"]["undecided"])
+        self.assertTrue(signals["hint"]["verdict"].startswith("script wins"))
+
+    def test_a_fence_with_no_named_symbol_is_not_a_candidate(self):
+        body = f"\n## Problem\n\nThe summary writer opens its file first:\n\n{self.FENCE}"
+        self.assertFalse(_signals(body)["clear_fix_candidate"])
+
+    def test_a_name_that_only_the_fence_holds_does_not_count(self):
+        body = "\n## Problem\n\nThe summary writer opens its file first:\n\n```\n`write_summary`\n```\n"
+        self.assertFalse(_signals(body)["clear_fix_candidate"])
+
+    def test_a_file_name_is_not_a_symbol(self):
+        body = f"\n## Problem\n\n`scripts/export_report.py` opens its file first:\n\n{self.FENCE}"
+        self.assertFalse(_signals(body)["clear_fix_candidate"])
+
+    def test_each_spelling_of_a_symbol_counts(self):
+        for name in ("write_summary", "_write_summary", "write_summary()", "WriteSummary", "_EDIT_TARGET_RE"):
+            with self.subTest(name=name):
+                body = f"\n## Problem\n\n`{name}` opens its file first:\n\n{self.FENCE}"
+                self.assertTrue(_signals(body)["clear_fix_candidate"])
+
+    def test_an_item_whose_evidence_is_present_is_not_a_candidate(self):
+        signals = _signals(CLEAR_FIX_BODY + f"\n`write_summary` is the function.\n\n{self.FENCE}")
+        self.assertTrue(signals["has_clear_fix"])
+        self.assertFalse(signals["clear_fix_candidate"])
+
+    def test_a_b_hint_over_a_candidate_is_still_script_wins(self):
+        # Judging the fix present reaches A, never B.
+        signals = _signals(self.CANDIDATE, route_hint="B", route_dated="2026-10-30")
+        self.assertFalse(signals["hint"]["undecided"])
+
+    def test_report_detail_names_the_candidate_and_the_judged_signal(self):
+        signals = _signals(self.CANDIDATE, route_hint="A", route_dated="2026-10-30")
+        detail = score_backlog.format_route_detail(signals, 0)
+        self.assertIn("candidate: the item quotes the current code in a fence and names a symbol", detail)
+        self.assertIn(f"judgment turns on: {self.NAME}", detail)
+        plain = score_backlog.format_route_detail(_signals("\n## Problem\n\nNothing quoted.\n"), 0)
+        self.assertNotIn("candidate:", plain)
+
+
+ROUTE_FIXTURES =Path(__file__).resolve().parent / "fixtures" / "route_items"
 
 # One row per fixture: (route, architectural hits, ignored hits, sub-items,
-# before_after, scope_bound, verdict prefix). Pinned to the 12 files in
-# tests/fixtures/route_items, each copied verbatim from the project backlog on
-# 2026-10-14; re-pin when a fixture is replaced. Re-pinned 2026-10-14 when
+# before_after, scope_bound, verdict prefix). Pinned to the 13 files in
+# tests/fixtures/route_items, twelve copied verbatim from the project backlog
+# on 2026-10-14 and one written for the judged-present clear fix
+# (quoted_current_code_with_named_function.md, 2026-10-30); re-pin when a
+# fixture is replaced. Re-pinned 2026-10-14 when
 # IS_ARCHITECTURAL narrowed to the `## Proposed Solution` section: three rows
 # moved (gate_name, migration_tests_pass, title_and_summary), each because its
 # only prose hits sat in the title, Summary, Problem or Acceptance Criteria.
@@ -1982,9 +2077,10 @@ ROUTE_FIXTURE_EXPECTED = {
     "measurement_item_with_replace_clause.md": ("B", 0, 0, 5, True, False, "script wins"),
     "migration_tests_pass_criterion.md": ("B", 0, 2, 2, True, False, "agree"),
     "module_name_contains_migration.md": ("B", 0, 7, 4, False, False, "agree"),
+    "quoted_current_code_with_named_function.md": ("C", 0, 0, 0, False, False, "undecided"),
     "six_consecutive_numbered_items.md": ("C", 0, 0, 6, True, True, "script wins"),
     "table_cell_and_bullet_say_refactor.md": ("C", 1, 1, 4, True, True, "undecided"),
-    "title_and_summary_name_a_migration.md": ("C", 0, 6, 0, False, False, "script wins"),
+    "title_and_summary_name_a_migration.md": ("C", 0, 6, 0, False, False, "undecided"),
     "two_evidence_citations_then_four_steps.md": ("B", 0, 0, 4, True, False, "agree"),
     "untrack_files_with_drifted_premise.md": ("B", 0, 0, 4, False, False, "script wins"),
 }
@@ -2005,7 +2101,7 @@ class TestRouteFixtures(unittest.TestCase):
     def test_the_fixture_directory_holds_exactly_the_pinned_files(self):
         found = {p.name for p in ROUTE_FIXTURES.glob("*.md")}
         self.assertEqual(found, set(ROUTE_FIXTURE_EXPECTED), f"compared-set size: {len(found)} found")
-        self.assertEqual(len(found), 12)
+        self.assertEqual(len(found), 13)
 
     def test_every_fixture_matches_its_pinned_signals(self):
         for name, expected in ROUTE_FIXTURE_EXPECTED.items():
@@ -2054,7 +2150,46 @@ class TestRouteFixtures(unittest.TestCase):
         for name in ROUTE_FIXTURE_EXPECTED:
             key = self._signals_for(name)["hint"]["verdict"].split(" —")[0]
             tally[key] = tally.get(key, 0) + 1
-        self.assertEqual(tally, {"agree": 6, "undecided": 1, "script wins": 5})
+        self.assertEqual(tally, {"agree": 6, "undecided": 3, "script wins": 4})
+
+    def test_the_pre_edit_text_of_the_item_that_exposed_the_gap_now_reads_undecided(self):
+        # This fixture is the text of the item whose re-triage had to edit it to
+        # reach a hint A: a line anchor, a fenced current-code block and a named
+        # function, with no before/after and no scope bound. Re-pinned
+        # 2026-10-30 from `script wins` to `undecided` when the clear fix
+        # became judgeable in both directions; the route stays C.
+        signals = self._signals_for("title_and_summary_name_a_migration.md")
+        self.assertEqual(
+            (signals["clear_fix"]["line_anchor"], signals["clear_fix"]["before_after"],
+             signals["clear_fix"]["scope_bound"]),
+            (True, False, False),
+        )
+        self.assertTrue(signals["clear_fix_candidate"])
+        self.assertEqual((signals["route"], signals["hint"]["route"]), ("C", "A"))
+        self.assertEqual(signals["hint"]["judgment_signals"], ["HAS_CLEAR_FIX (judged present)"])
+
+    def test_the_quoted_code_fixture_is_a_candidate_with_no_pattern_evidence(self):
+        signals = self._signals_for("quoted_current_code_with_named_function.md")
+        self.assertEqual(
+            signals["clear_fix"],
+            {"line_anchor": False, "edit_target": False, "before_after": False,
+             "scope_bound": False, "evidence_present": False},
+        )
+        self.assertTrue(signals["clear_fix_candidate"])
+        self.assertEqual((signals["route"], signals["hint"]["route"]), ("C", "A"))
+        self.assertEqual(signals["hint"]["judgment_signals"], ["HAS_CLEAR_FIX (judged present)"])
+
+    def test_the_fixture_without_its_fence_loses_the_candidate_and_the_hint(self):
+        # Control: the same item minus the fenced block. The verdict is carried by the fence.
+        text = (ROUTE_FIXTURES / "quoted_current_code_with_named_function.md").read_text(encoding="utf-8")
+        body = text.split("---\n", 2)[2]
+        stripped = re.sub(r"```python\n.*?\n```\n", "", body, flags=re.DOTALL)
+        self.assertNotEqual(stripped, body)
+        with_fence = _signals(body, line_count=68, route_hint="A", route_dated="2026-10-30")
+        without = _signals(stripped, line_count=68, route_hint="A", route_dated="2026-10-30")
+        self.assertTrue(with_fence["hint"]["undecided"])
+        self.assertFalse(without["clear_fix_candidate"])
+        self.assertTrue(without["hint"]["verdict"].startswith("script wins"))
 
     def test_control_the_old_detector_fires_on_the_module_name_fixture(self):
         def naive(text):

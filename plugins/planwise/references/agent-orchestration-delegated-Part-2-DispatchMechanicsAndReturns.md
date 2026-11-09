@@ -1,5 +1,5 @@
 ---
-description: DELEGATED dispatch discipline, Part 2 of 3. This file holds §1.14–§1.22, dispatch mechanics and post-return handling, including gating a runner's sweep table on its control rows (§1.16.5) and the idle-while-waiting-on-a-background-command stall (§1.17.1, §1.17.3). Part 1 of 3 is agent-orchestration-delegated.md.
+description: DELEGATED dispatch discipline, Part 2 of 3. This file holds §1.14–§1.22, dispatch mechanics and post-return handling, including gating a runner's sweep table on its control rows (§1.16.5), sweeping sibling briefs after a runner-reported gate defect (§1.16.6) and the idle-while-waiting-on-a-background-command stall (§1.17.1, §1.17.3). Part 1 of 3 is agent-orchestration-delegated.md.
 consult-when: Dispatching a task-runner or handling its return in a DELEGATED session — orchestrator-only review commands, build ordering, recomputing a delegated verdict from primary evidence, dispatch failure modes, model-tier gating, gating a runner's sweep table on its control rows, and the idle wait on a background command
 ---
 
@@ -79,6 +79,8 @@ If the task-runner edits after building (whether by accident or because the spaw
 ## 1.16 Recompute Delegated Verdicts from Primary Evidence — Both Directions
 
 Any session that delegates structured classification — a verdict label, a severity tag, a readiness state — to a sub-agent MUST recompute that classification from the agent's reported raw evidence before consuming the label. Two failure modes bound the gap symmetrically: **under-classification** (the sub-agent softens the verdict against its own enumerated counts) and **over-classification** (the sub-agent manufactures a finding on incomplete cross-file evidence). Capability does not prevent either — a smaller-tier agent (e.g. Sonnet) systematically under-classifies, and a frontier-tier agent (e.g. Opus) can over-classify on cross-file control-flow claims; the rule applies to ALL agent tiers and must not be scoped to one model. The orchestrator, holding the full evidence set, is the only reliable recompute site.
+
+The recompute has a boundary. Recomputing a runner's verdict from its reported evidence does not validate that the evidence answers the criterion. Re-running the task's own gate reproduces the task's own blind spot. Reconciling the gate against the criterion it discharges belongs to review (Check 112, `references/gate-anchor-outcome-set.md` §10.11).
 
 ### 1.16.1 Under-classification — recompute verdict from finding counts
 
@@ -199,9 +201,36 @@ Measured case. A sweep reported a write-set constant at six paths. On disk it he
 
 **Applies to** surface sweeps, enumeration sweeps, and any task that classes each hit as stale or current.
 
+### 1.16.6 A runner-reported gate defect: hold "defect in the brief" as live, then sweep the sibling briefs
+
+When a runner reports that a verification command fails, the orchestrator holds two hypotheses. "Defect in the work" is the runner's default. "Defect in the brief" stays live beside it, because a gate the runner reproduces can still be wrong. The orchestrator acts on neither until the evidence arrives.
+
+> [!constraint] Prove a brief defect from the runner's own output, then sweep before the next dispatch
+> - **Require the failing command and its verbatim output.** A runner that calls a gate broken pastes the command and what it printed. A paraphrase is a claim, not proof.
+> - **Re-running the runner's assertions proves only that they reproduce.** Reproduction shows the gate fails. It does not show whether the gate or the work is at fault. Test the gate against an artifact known to be correct.
+> - **On a confirmed brief defect, search every undispatched sibling brief for the same command shape.** Use `Grep` on the session's task files for the failing operator, comparison or query form. Fix every hit in the same pass, before the next dispatch.
+> - **Rank the hits by the invariant each gate guards.** A gate that guards a purity or idempotency claim comes first. Its failure message tells a runner that correct work corrupted data, and the runner may revert that work.
+>
+> WRONG — fix the reported brief and dispatch the next task:
+> ```
+> runner (task 3): "assert r == (157, 347, 179) fails: Row.__eq__ against a tuple is always False"
+> orchestrator: fix task 3's brief -> dispatch task 4
+> task 4 brief, unswept: the same assert, guarding "row count unchanged, the move was pure"
+> ```
+> CORRECT — prove the defect, sweep the siblings, fix every hit, then dispatch:
+> ```
+> runner (task 3): pastes the failing command and its verbatim output
+> orchestrator: confirm against a known-good row -> Grep the undispatched briefs for the row-to-tuple compare
+>               -> task 4 is a hit, ranked first because it guards purity -> fix both briefs -> dispatch task 4
+> ```
+
+Worked case. A four-task session shipped three gates that failed against correct artifacts. The runner for task three reported a driver-row defect. The same assertion sat unfixed in task four's brief, where it guarded the purity of a refactor. Its message, "row count changed, the move was not pure", would have led a runner to conclude that a correct refactor had corrupted data.
+
+**Applies to** any DELEGATED session where a runner reports a failing verification command, a gate that fails on an artifact it should accept, or a gate that passes on one it should reject.
+
 ## 1.17 Task-Runner Dispatch Failure Modes and Resume Protocol
 
-A dispatched task-runner has four post-return states — three failure modes and one real completion. Before dispatching the next task — or before treating a "completed" notification as done — classify the return by the final-message voice and the working-tree state; and when the return *reads* as complete, gate acceptance on **on-disk deliverable evidence** before believing it — a stall can masquerade as completion (§1.17.4). For every failure state of the unit of work in hand the corrective is the same: **resume the SAME agent** (its context already holds the full task), never dispatch a fresh runner for that same unit of work. A fresh runner re-reads everything and can race or duplicate the first one's partial work. A new round of work is a different case and gets a fresh runner (§1.17.7).
+A dispatched task-runner has five post-return states — four failure modes and one real completion. Before dispatching the next task — or before treating a "completed" notification as done — classify the return by the final-message voice and the working-tree state; and when the return *reads* as complete, gate acceptance on **on-disk deliverable evidence** before believing it — a stall can masquerade as completion (§1.17.4). For every failure state of the unit of work in hand the corrective is the same: **resume the SAME agent** (its context already holds the full task), never dispatch a fresh runner for that same unit of work. A fresh runner re-reads everything and can race or duplicate the first one's partial work. A new round of work is a different case and gets a fresh runner (§1.17.7).
 
 ### 1.17.1 Diagnosis table
 
@@ -213,9 +242,13 @@ Classify every returned runner against this table before acting on its result:
 | Mid-work narration ending in a colon or next-step phrase ("Now let's rewrite each. First, `test_conflict…`:"), dirty tree with genuine partial edits on disk | Message-boundary stall — the runner executed part-way, then ended its message at a narration checkpoint | Resume the SAME agent with a continuation message (§1.17.3); its context holds the full task state |
 | Idle, final message says the runner is "waiting on" a background job or command, dirty tree | Message-boundary stall — the job's completion reached the runner's harness and never woke the runner | Resume the SAME agent (§1.17.3), instruct a foreground re-run with a long timeout |
 | `completed` return whose final message ends mid-action ("Now let me…", "Next I'll…") or omits required report fields — reads as done, but deliverables are not yet on disk | Mid-action stall masquerading as completion — the `completed` status is not a deliverable check | Run the on-disk acceptance gate, then resume the SAME agent to finish (§1.17.4) |
+| No completion report and no named permission denial, a near-clean tree, no dispatch voice and no narration tail, Bash-only deliverables absent on disk | Silently auto-denied tool permission — a spawn-prompt tool path matches no allow entry and the runner cannot prompt (§1.21) | Compare the spawn prompt's tool paths against the project's allow entries BEFORE any resume, then resume the SAME agent with paths in a granted form. If no form is granted, surface the gap to the user, because a resume with the same paths reproduces the failure |
 | Structured completion report (status + verification results) whose deliverables verify on disk | Real completion | Reconcile normally |
+| No final message (idle with no status block, or an empty reply), every deliverable verifies on disk, and the task's Recovery row is written where the task owns one | Real completion whose report never arrived. Silence is not a failure signal | Reconcile normally from the on-disk evidence and note the missing report. Do NOT resume: a resume can re-apply edits or re-run a mutating verification against an accepted artifact |
 
-The three failure modes are genuinely distinct: self-delegation is a **clean** tree + **dispatch** voice (the runner never executed); a message-boundary stall is a **dirty** tree + **executor** voice that ends visibly mid-work (the runner executed part-way); a mid-action stall masquerading as completion **reads** as done — a structured-looking report or a clean final line — yet its deliverables are not on disk (§1.17.4). The shared corrective is "resume the same agent," but the resume *message* — and, for the masquerade case, the on-disk check that exposes it — differs; see below.
+The four modes are genuinely distinct: self-delegation is a **clean** tree + **dispatch** voice (the runner never executed); a message-boundary stall is a **dirty** tree + **executor** voice that ends visibly mid-work (the runner executed part-way); a mid-action stall masquerading as completion **reads** as done — a structured-looking report or a clean final line — yet its deliverables are not on disk (§1.17.4); a silently auto-denied runner returns no report and names no denial, with a near-clean tree and its Bash-only deliverables absent on disk (§1.21). Deliverables absent on disk mark that row. Deliverables verified on disk mark a real completion, even with no report. The shared corrective is "resume the same agent," but the resume *message* — and, for the masquerade case, the on-disk check that exposes it — differs; see below.
+
+Classify a silent runner by read-only evidence before acting on it. Use these calls: `git status --short`, `git diff --shortstat -- {output paths}`, a `Grep` of the edit target for the expected symbol, a `Grep` of the Recovery file for the task id, and a `Glob` of the output directory. Classification stays read-only until acceptance. Use `--check` forms only. Never run an in-place `{notebook-executor} --execute --inplace`, an output clear or a formatter, because the runner may already have landed the artifact (Part 3 §1.26). If any deliverable or the Recovery row is missing, the runner is not a real completion. Classify it against the stall rows and §1.17.4. If it may still be working, apply Part 3 §1.30 before any resume.
 
 ### 1.17.2 Self-delegation resume
 
@@ -286,8 +319,10 @@ This is distinct from the two voice+tree failure modes above: those announce the
 - `git status --short` — confirm the expected file set is dirty and nothing unexpected changed.
 - A collection / parse check where applicable (the produced file parses; the test file collects).
 - Confirm the Recovery step row for the task flipped to its completed state.
+- Recompute the expected member count from the task's own pattern or member table, never from the brief, the Success Criteria or the runner's report. Expand every placeholder in the pattern, count the members it reaches, and compare that figure with the evidence-row count. A pattern over 13 URLs in 2 redirect modes expects 26 rows, so a report of 18 rows fails even when it reads N/N. See `gate-input-set-and-compared-window.md` §16 and Reviewer Check 110.
+- Treat an `ISSUES: out of scope` line about a file the task owns as a request for a ruling, not a note. Run the task's own verify criteria against that file. Then rule before accepting: widen the scope with a Scope-Expansion Decisions row, or narrow the criterion. See [gate-satisfiability.md §6](gate-satisfiability.md#6-an-absence-check-must-match-the-edit-scope-of-its-own-brief).
 
-On any miss, resume the SAME agent to finish (never re-dispatch a fresh one), then re-run the checks before accepting.
+On any miss, resume the SAME agent to finish (never re-dispatch a fresh one while the runner is inside the §1.17.7 size ceiling), then re-run the checks before accepting.
 
 ### 1.17.5 Name a write-by turn in the spawn prompt, and size the brief by its proof count
 
@@ -318,7 +353,7 @@ the file unwritten to keep hunting.
 
 **Worked figures.** A stalled runner used 63 tool uses and about 130K tokens. It left only an empty placeholder in `Outputs/`. The orchestrator resumed it with "write the row now, in one call, from the figures you hold; a figure you cannot find is `unmeasured (reason)`; do not re-read". The runner then wrote a 96-line file in five tool uses. A proof-heavy runner used 89 tool uses and 189,468 tokens against a 46.7K estimate. It repeated the edit-run-mutate-run-restore-verify loop 9 times.
 
-**Applies to** grade, audit, census, and review dispatches whose Required Context is a transcript, a log, or any file read by paging. It also applies to any DELEGATED brief that pairs authoring with an iterative verify loop, such as test authoring with per-class mutation proofs.
+**Applies to** grade, audit, census, and review dispatches whose Required Context is a transcript, a log, or any file read by paging. It also applies to any DELEGATED brief that pairs authoring with an iterative verify loop, such as test authoring with per-class mutation proofs. Every other dispatch whose estimate trips the §1.12 trigger carries the §1.11 Operational Ceiling Notice with its turn-ceiling and checkpoint lines.
 
 ### 1.17.6 Measure the landed state before resuming a capped runner, or accept it from disk
 
@@ -368,6 +403,8 @@ The same rule gave a different action in three real recurrences:
 > - **A new round gets a fresh runner with a short brief.** The brief names the findings file, the ledgers of earlier rounds, the pinned hashes of the files in scope, and a frozen-snapshot self-check. The on-disk artifacts carry what the new runner needs. The old transcript does not.
 > - **Resume only for the same unit of work.** That means a stall, a missing status block, or a single corrective instruction on the deliverable the runner just produced.
 > - **Stop an over-grown runner.** If a runner is mid-edit and over-grown, stop it. Take an inventory of the tree: what is edited, what is untouched, and the current lint errors. Then dispatch a fresh runner with the partial work marked UNVERIFIED and a frozen-snapshot self-check.
+> - **Check the runner's size before any resume.** Estimate its accumulated context: the original dispatch budget plus every round already resumed into it. Past the ceiling, dispatch a fresh runner with the lean brief above instead of resuming, even to finish the original task. The starting ceiling is the lower of 2x the task's declared budget and 200,000 tokens. It is a chosen operating default to measure and revise, not a derived value and not a statistical boundary. One measured runner resumed across four rounds reached roughly 750,000 tokens against a first-round budget of roughly 48,000.
+> - **Record the runner for every round.** Each Recovery Change Log row for a task names the runner id that handled the round and the round's kind: original dispatch, stall resume, single corrective, new round, or replacement. A reader then sees runner reuse without reading the Recovery prose.
 
 WRONG — one runner carried across rounds:
 
@@ -418,16 +455,17 @@ Applies to every DELEGATED task-runner launch, sequential or parallel.
 > This guard governs EVERY DELEGATED dispatch — both sequential and parallel task-runner launches (see `handlers/run.md` § DELEGATED Mode; §1.13 and §1.17 above for dispatch-return handling). It is a **temporary bridge**, not a permanent override (see self-deactivation below). It never changes the model for a healthy (small) rule surface.
 >
 > **Before dispatching a DELEGATED task whose `Agent:` maps to a 200K-window model (Sonnet or Haiku):**
-> 1. **Measure the plan-path rule surface.** Reuse the engine's linter: run `python {plugin_root}/scripts/init_project.py --doctor --project-root {project_root}` and sum the `approx_tokens` of the flagged (over-scoped) rules — those `.claude/rules/**` whose `paths:` target `planwise/Plans/**` (or sibling plan/backlog/lessons paths). If `--doctor` is unavailable, fall back to summing those rule files' byte sizes ÷ the conservative bytes-per-token ratio (2.6) — `measure_files.py` does this per file.
-> 2. **Project the subagent's worst-case load:** `flagged-rule tokens + ~54K fixed overhead`. If that **approaches the 200K window** — rule of thumb: flagged surface ≳ ~110K, leaving < ~35K of working headroom — the declared 200K-window model will overflow ("Prompt is too long") the instant it reads a plan brief that triggers those path rules.
-> 3. **Raise and log.** In that case, raise the dispatch `model` to the **1M tier** (Opus, or a 1M-window Sonnet where available) for THIS dispatch only, and emit a one-line log — never silent:
+> 1. **Re-measure projected inputs.** Run `measure_files.py --model {declared}` on every Required Context row marked `projected, re-measure at dispatch`. Those rows cite a file that an earlier task of this session produces. Rewrite a HALT-to-split contingency to "proceed" when the measured total fits the window.
+> 2. **Measure the plan-path rule surface.** Reuse the engine's linter: run `python {plugin_root}/scripts/init_project.py --doctor --project-root {project_root}` and sum the `approx_tokens` of the flagged (over-scoped) rules — those `.claude/rules/**` whose `paths:` target `planwise/Plans/**` (or sibling plan/backlog/lessons paths). If `--doctor` is unavailable, fall back to summing those rule files' byte sizes ÷ the conservative bytes-per-token ratio (2.6) — `measure_files.py` does this per file.
+> 3. **Project the subagent's worst-case load:** `measured input tokens + flagged-rule tokens + ~54K fixed overhead + expected output tokens`. If that **approaches the 200K window** (rule of thumb: above ~165K, leaving < ~35K of working headroom), the declared model will overflow ("Prompt is too long"). Either term can trip it. A flagged surface ≳ ~110K trips it alone, because the model overflows the instant it reads a plan brief that triggers those path rules. Large measured inputs trip it the same way.
+> 4. **Raise and log.** In that case, raise the dispatch `model` to the **1M tier** (Opus, or a 1M-window Sonnet where available) for THIS dispatch only, and emit a one-line log — never silent:
 >    ```
->    MODEL FLOOR: raised {task-id} {declared}→1M (plan-path rule surface ~{N}K exceeds safe {declared} budget)
+>    MODEL FLOOR: raised {task-id} {declared}→1M (inputs ~{I}K + plan-path rules ~{R}K + overhead ~54K + output ~{O}K = ~{T}K > {declared} safe budget ~{B}K)
 >    ```
-> 4. **Otherwise dispatch verbatim.** If the threshold is NOT tripped, pass the declared `Agent:` model through unchanged — the floor is inert for a small surface.
+> 5. **Otherwise dispatch verbatim.** If the threshold is NOT tripped, pass the declared `Agent:` model through unchanged — the floor is inert for a small surface.
 
 > [!practice] Self-Deactivating Bridge — Not Permanent
-> This floor exists only to keep declared-Sonnet/Haiku runners alive while a project still carries a large author-time rule surface scoped to plan paths. Once the project is de-scoped — plugin author-time rules handler-loaded from `references/` (not installed), and any project-local domain rules re-scoped to code paths per `/planwise doctor` — the flagged surface shrinks toward ~0, step 2's threshold is never tripped, and declared-Sonnet tasks dispatch unchanged. When `--doctor` reports no over-scoped rules for a project, this bridge is already inert; it can be retired entirely once no supported project trips it.
+> This floor exists only to keep declared-Sonnet/Haiku runners alive while a project still carries a large author-time rule surface scoped to plan paths. Once the project is de-scoped — plugin author-time rules handler-loaded from `references/` (not installed), and any project-local domain rules re-scoped to code paths per `/planwise doctor` — the flagged surface shrinks toward ~0 and the rule-surface term stops tripping step 3. Retiring the bridge removes only that term. The input-size trigger stays, because large measured inputs can still overflow a 200K window. When `--doctor` reports no over-scoped rules, the rule-surface term is already inert.
 
 ## 1.20 1M-Exception Dispatch (DELEGATED) — Token Saver
 
@@ -456,12 +494,21 @@ Applies to every DELEGATED task-runner launch, sequential or parallel; uses the 
 > ```
 > The warning engine (Token Saver) does NOT set `1M-exception` for a `read`-reason Critical, and `run.md` MUST NOT infer it. Log such a task with a `paged-read required` note and dispatch it on its declared model — keep the two reasons distinct in the dispatch log: `1M-exception` for `cost`-Critical, `paged-read required` for `read`-Critical.
 
+The routing item goes in the consumer task's Pre-Known flags. A bare "page it" warning invites a partial read, so the item carries four parts:
+
+```
+paged-read required: {file}, {N}K tokens measured {YYYY-MM-DD}, above the 25K per-Read cap.
+Heading line map: `## {A}` 1-120, `## {B}` 121-640 (read in slices of at most 400 lines: 121-520, 521-640).
+Grep `^## ` first, because line numbers drift. Rebuild the map from that result.
+Reference data: do not trim or split. Read every line.
+```
+
 ## 1.21 Background vs Foreground Gate
 
 Governs whether a DELEGATED task-runner launches in foreground or background.
 
 > [!constraint] Write-Producing Agents MUST Run in Foreground
-> Background subagents auto-deny any permission not explicitly pre-approved at launch — including Write, Edit, and Bash. The `bypassPermissions` mode does NOT override this gate. Tool calls fail silently: the agent continues executing but produces no output files.
+> Background subagents auto-deny any permission not explicitly pre-approved at launch — including Write, Edit, and Bash. The `bypassPermissions` mode does NOT override this gate. Tool calls fail silently: the agent continues executing but produces no output files. A Bash call whose tool path matches no allow entry is denied the same way, and [Part 3 §1.27](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) requires spawn-prompt tool paths in a granted form.
 >
 > WRONG: Launch task-runner in background when it writes output files:
 > ```
@@ -501,6 +548,7 @@ Quick-reference checklist for common DELEGATED-mode mistakes; several map to ful
 > - **Allow parallel task-runners to write Recovery:** Last-write-wins races silently drop completion rows (full rule: §1.13)
 > - **Orchestrator produces task outputs:** Context accumulates; no fresh budget benefit
 > - **Infer DELEGATED at runtime:** Planning should have set this; warn user and re-plan if needed (full rule: §1.1)
+> - **Dispatch a sibling with an unswept known-bad gate:** A runner reported a defective gate, and the same command shape sat in an undispatched brief. Sweep the siblings and fix every hit before the next dispatch (full rule: §1.16.6)
 
 ---
 

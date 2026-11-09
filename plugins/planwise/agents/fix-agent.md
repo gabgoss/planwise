@@ -39,6 +39,8 @@ maxTurns: 30
 2. Check for errors in build output
 3. If build fails, diagnose and retry (max 3 attempts)
 4. If tests are available, run them
+5. A gate script or harness this fix re-tests in scratch runs one scenario per Bash call. Each call prints a short progress line. No call chains more than one long-running scenario.
+   A long scenario runs in the foreground with a timeout up to 600000 ms. It is never backgrounded, because a backgrounded command stalls a dispatched agent (`references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.27.1).
 
 ## 4. REPORT
 

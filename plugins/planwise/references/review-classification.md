@@ -152,8 +152,21 @@ Systemic findings appear in the review report's Systemic Findings section:
 | Root Cause Category  | {template gap | rule gap | skill gap | EI extraction gap | protocol gap | one-off} |
 | Description          | {what pattern recurs across findings -- be specific} |
 | Suggested Fix Target | {file path + what to change in the planning artifact} |
-| Status               | OPEN |
+| Other Known Instances | {one confirmed path per line with its disposition (untouched, swept, or tracked in {backlog id}), or "none" when the class has no known sibling} |
+| Status               | {OPEN | CLASS OPEN | CLOSED} |
 ```
+
+### Class Closure and Carry-Forward
+
+A systemic finding names a class, so its Status tracks the class and not only the reviewed instance. List a path in Other Known Instances only after confirming that it carries the same defect. The lead sets Status from this table.
+
+| Reviewed instance | Listed paths | Status |
+|-------------------|--------------|--------|
+| Unfixed | any | OPEN |
+| Fixed | at least one path is not swept (a path tracked in a backlog item counts as not swept) | CLASS OPEN |
+| Fixed | every path is swept, or none is listed | CLOSED |
+
+Before classifying, the lead reads the newest earlier `{Abbrev}-Review-*.md` in `{PlanPath}/Reviews/`. The lead re-checks every systemic finding there whose Status is not CLOSED against its listed paths. The lead re-reports each one with its updated Status and dispositions instead of re-deriving it. With no earlier report, this step does nothing.
 
 ---
 

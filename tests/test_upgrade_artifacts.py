@@ -1365,6 +1365,49 @@ class TestUpgradeBannerOrphanedAgentMirrors(unittest.TestCase):
             "  Total always-on injected budget from flagged rules: ~340 tokens\n\n",
             out)
 
+    def test_overscope_advisory_collapses_an_acknowledged_rule_to_the_footer(self):
+        self._pin(self.OLD_VERSION)
+        unacked = {
+            "path": "rules/big.md", "line_count": 12, "approx_tokens": 340,
+            "matched_glob": "**/plans/**",
+        }
+        acked = {
+            "path": "rules/kept.md", "line_count": 8, "approx_tokens": 120,
+            "matched_glob": "**/backlog/**", "ack_reason": "needed while items are triaged",
+        }
+
+        code, out, err, _lint = self._run_with_overscope(return_value=[unacked, acked])
+
+        self.assertEqual(code, 0)
+        self.assertNotIn("overscope advisory", err)
+        self.assertIn(
+            "Advisory — rules scoped to plan/backlog/lessons globs:\n"
+            "  ~ rules/big.md (12 lines, ~340 tokens; matches **/plans/**)\n"
+            "      hint: re-scope to code paths or convert to a handler-loaded reference\n"
+            "  1 acknowledged plan-scoped rule(s), ~120 tokens "
+            "— listed by /planwise doctor --verbose\n"
+            "  Total always-on injected budget from flagged rules: ~460 tokens\n\n",
+            out)
+        self.assertNotIn("rules/kept.md", out)
+
+    def test_overscope_advisory_prints_only_the_footer_when_every_rule_is_acknowledged(self):
+        self._pin(self.OLD_VERSION)
+        acked = {
+            "path": "rules/kept.md", "line_count": 8, "approx_tokens": 120,
+            "matched_glob": "**/backlog/**", "ack_reason": "needed while items are triaged",
+        }
+
+        code, out, err, _lint = self._run_with_overscope(return_value=[acked])
+
+        self.assertEqual(code, 0)
+        self.assertNotIn("overscope advisory", err)
+        self.assertIn(
+            "1 acknowledged plan-scoped rule(s), ~120 tokens "
+            "— listed by /planwise doctor --verbose\n\n",
+            out)
+        self.assertNotIn("Advisory — rules scoped", out)
+        self.assertNotIn("rules/kept.md", out)
+
     def test_up_to_date_branch_never_runs_the_overscope_advisory(self):
         self._pin(self.LIVE_VERSION)
 

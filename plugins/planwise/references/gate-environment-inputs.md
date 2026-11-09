@@ -40,8 +40,10 @@ In plugin development, `tests/test_shipped_tree_clean.py` walks the absolute pat
 > CORRECT — scratch lives elsewhere, and the sweep names scratch-shaped directories anyway:
 >   proof run → <scratch-root>/<round>/        (removed, and `test -e <scratch-root>` exits 1)
 >   sweep     → find <abs>/plugins/<plugin> \( -name 'test_*.py' -o -name '*_test.py' -o -name 'conftest.py' \) \
->                 -o -type d \( -name '__pycache__' -o -name '.pytest_cache' -o -name 'probe_*' \) -print
+>                 -o -type d \( -name '__pycache__' -o -name '.pytest_cache' -o -name 'probe_*' \)
 > ```
+>
+> Leave `-print` off the sweep. With no action, the walk prints every match of the whole expression. A trailing `-print` binds only to the last `-o` branch, so the walk then prints cache and `probe_*` directories and never prints a test file.
 
 **Give the new clause a positive control.** A sweep clause that has never fired has not been shown to see anything. Create a directory named `probe_control` under the scratch root. Run the same walk with the scratch root as the walk path. It MUST print that one directory. Delete the control directory afterward. Never create the control inside the shipped tree, because a crash between creation and deletion would ship it.
 

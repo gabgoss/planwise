@@ -79,6 +79,12 @@ def run(argv, capsys):
     return code, out.out, out.err
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_session_id(monkeypatch):
+    """A Claude Code session sets CLAUDE_CODE_SESSION_ID in the shell that runs the suite."""
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+
+
 def fm_value(path: Path, key: str) -> str:
     for line in path.read_bytes().decode("utf-8").splitlines():
         if line.startswith(f"{key}:"):
@@ -718,6 +724,35 @@ def test_posting_state_refuses_a_feedback_key_that_is_not_a_block(tmp_path, caps
     assert config.read_bytes() == original
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        b"feedback:\n  enabled: true\n",
+        b"feedback:\n  enabled: false\n",
+        b"feedback:\n  repo: gabgoss/planwise\n",
+        b"feedback:\n  enabled:\n",
+        b"project:\n  name: demo\n",
+        b"",
+    ],
+)
+def test_read_posting_state_returns_the_word_the_command_prints(tmp_path, capsys, text):
+    config = tmp_path / "config.yaml"
+    config.write_bytes(text)
+    code, out, _err = run(["posting-state", "--config", str(config)], capsys)
+    assert code == 0
+    assert fd.read_posting_state(config) == out.strip()
+    assert config.read_bytes() == text
+
+
+def test_read_posting_state_raises_instead_of_guessing(tmp_path):
+    block = tmp_path / "config.yaml"
+    block.write_bytes(b"feedback: {enabled: true}\n")
+    with pytest.raises(ValueError, match="block mapping"):
+        fd.read_posting_state(block)
+    with pytest.raises(OSError):
+        fd.read_posting_state(tmp_path / "none.yaml")
+
+
 # ---------------------------------------------------------------- disable-drafts
 
 
@@ -914,6 +949,35 @@ def test_list_table_renders_one_queued_row(fdir, capsys):
     run_other = run(["list", "--table", "--session-id", "abc", "--feedback-dir", str(fdir)], capsys)[1]
     assert run_this.splitlines()[4].endswith("| this session |")
     assert run_other.splitlines()[4].endswith("| other session |")
+
+
+def _session_row(fdir, capsys, *extra):
+    make_draft(fdir, "2026-10-12-draft-bug-helper-exit-code.md")
+    return run(["list", "--table", *extra, "--feedback-dir", str(fdir)], capsys)[1].splitlines()[4]
+
+
+def test_list_table_session_cell_is_unknown_without_flag_or_variable(fdir, capsys):
+    assert _session_row(fdir, capsys).endswith("| unknown |")
+
+
+def test_list_table_reads_the_variable_when_the_flag_is_absent(fdir, capsys, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "unknown")
+    assert _session_row(fdir, capsys).endswith("| this session |")
+
+
+def test_list_table_variable_that_differs_gives_other_session(fdir, capsys, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "abc")
+    assert _session_row(fdir, capsys).endswith("| other session |")
+
+
+def test_list_table_flag_outranks_the_variable(fdir, capsys, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "abc")
+    assert _session_row(fdir, capsys, "--session-id", "unknown").endswith("| this session |")
+
+
+def test_list_table_empty_variable_gives_unknown(fdir, capsys, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "")
+    assert _session_row(fdir, capsys).endswith("| unknown |")
 
 
 def test_list_table_orders_expired_after_queued_and_newest_first(fdir, capsys):

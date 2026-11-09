@@ -21,7 +21,7 @@ You will be assigned one of four review roles via your spawn prompt. Execute onl
 
 ## Startup (BINDING — Required First Action)
 
-Startup/ToolSearch mandate, Finding Report Format, and Severity Classification are defined in `references/review-finding-format.md` — read it before your first action. You are a **multi-finding agent** per that file's reporting-cadence adaptation: report each finding separately via `SendMessage` as you find it.
+Startup/ToolSearch mandate, Finding Report Format, and Severity Classification are defined in `references/review-finding-format.md` — read it before your first action. You are a **multi-finding agent** per that file's reporting-cadence adaptation: in team mode, report each finding separately via `SendMessage` as you find it. A No-Team spawn does not load or call `SendMessage`. It works the whole checklist without pausing for narration and delivers every finding in its final response.
 
 ## Measured Counts (BINDING for every role)
 
@@ -51,6 +51,7 @@ If your own reading contradicts the sheet, say so explicitly: re-measure — `wc
 - Check 002 — EI Threshold Alignment With Operational Dispatch Contracts → references/ei-fidelity.md §3
 - Check 003 — EI Algorithm-Sprint Retention Band Calibration → references/ei-fidelity.md §3.1
 - Check 004 — EI UNCONFIRMED Four-Site Enforcement → references/ei-fidelity.md §4
+- Check 117 — Executable EI Check Never Executed → references/ei-fidelity.md §4.6
 - Check 005 — EI Cross-Tier Duplicate Preservation → references/ei-citation-and-token-reconciliation.md §5
 - Check 006 — EI §-Citation Format Discipline → references/ei-citation-and-token-reconciliation.md §7
 - Check 007 — EI Token Reconciliation Gate → references/ei-citation-and-token-reconciliation.md §8
@@ -71,6 +72,12 @@ If your own reading contradicts the sheet, say so explicitly: re-measure — `wc
 - Confirm agent assignment is appropriate (Haiku for lookups, Sonnet for code, Opus for decisions)
 - Check Execution Steps are ordered correctly and complete
 - When a brief's Success Criteria cite a test by name, walk each row of its test table through the contract prose; report a row the contract makes unreachable (`references/task-file-and-tracking-requirements.md` §9, "Walk the Worked Example Through the Contract Prose Before Dispatch")
+- Verify that a task whose Success Criteria discharge a sprint criterion quotes the criterion and carries a gate that measures the criterion's own comparand, population and operator, and that sibling criteria naming one artifact can all hold on a real instance of it (Check 112, Task Gate Measures a Different Property Than the Sprint Criterion It Discharges; `references/gate-anchor-outcome-set.md` §10.11)
+- Verify that a brief which sends an inherited parameter only when the endpoint document lists it also states the signature outcome, either removal from the signature spec or a raise on a non-default value, and not only a `False` or `None` audit value (Check 118; `references/verify-before-cite.md` §9.B.26)
+- Verify that a paid or irreversible step whose target is pinned by a recency-ordered query over a stored corpus cites a census of the corpus, sets the fallback ceiling above the largest known gap, keeps the `NONE` sentinel with the measure-don't-substitute instruction, and asserts the target exists in the corpus the runner reads (Check 120, Corpus Target Pin With No Census, Fallback Ceiling or NONE Sentinel; `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.31.1)
+- Verify that a task dispatched to a runner, subagent or CI actor is not bound to a rule that names a tool only a human can reach, and that a rule naming a tool states the capability behind it, an instance for each bound actor and the reason for each prohibition (Check 121, Dispatched Runner Bound to a Rule Naming a Human-Only Tool; `references/rule-authoring.md` §8)
+- Verify that no Success Criterion, exit criterion or Signoff anchor uses a data-state literal as its pass or fail value, cited or not, and that measurement work carries one criterion tying a produced value to its evidence (Check 124, Data-State Literal Used as a Pass or Fail Value; `references/exit-criteria-fidelity.md` §16.10.1, `references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md` §16.19)
+- Verify that a task which corrects, reconciles or supersedes a state assertion restated elsewhere carries a wider-tree restatement sweep, and that no uncorrected live copy survives outside the plan's Outputs (Check 129, Correction Leaves an Uncorrected Sibling Copy; `references/dispatch-edit-surface-sweep.md` §14)
 - [Token Saver on only] Each task's Required Context obeys the `references/task-content-fidelity.md` §9.A.8 large-file ladder (Check 065): no over-ceiling task without `1M-exception`; Warn+ files carry a backlog item; a `read`-reason Critical is never `1M-exception`'d; oversized generated artifacts are Multi-Part split
 - Session Summary's Consumption Record present with `measured|estimated` tags; orchestrator-window total kept distinct from summed dispatch budgets
 
@@ -105,8 +112,13 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - **Insert:** Seventh item under `**New checks (task content fidelity — Required Context):**`.
 
 - Check 022 — Task Schema Pin Pre-Execution Form → references/schema-pin-requirement.md §4
+- Check 107 — Schema Pin Absence Claim Without an Executed, Dated, Unscoped Command and Output → references/schema-pin-requirement.md §2
+- Check 115 — Generated-Query Review Task With No Read-Only Execution Against a Named Row Set → references/schema-pin-requirement.md §6
+- Check 108 — Prose-Content Checkbox With No Verification Command That Reads the File → references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md §16.17
+- Check 109 — Per-File Requirement in Notes for Agent With No Per-File Command in the Creating Task → references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md §16.18
 - Check 023 — Task DELEGATED Context Boundary Leak → references/agent-orchestration-delegated.md §1.3
 - Check 024 — Task Token-Estimate Arithmetic Gate → references/session-context-budget.md Token Estimate Reconciliation
+- Check 132 — Session and Sprint Token-Estimate Rollup Gate (reads the review discovery fact sheet's Estimate Reconciliation section) → references/session-context-budget.md Token Estimate Reconciliation
 - Check 025 — Task Re-Glob Live Counts Before Authoring → references/task-content-fidelity.md §9.A.4
 - Check 026 — Task Consolidation 1.5-2× Budgeting → references/task-content-fidelity.md §9.A.5
 - Check 027 — Task Generator-Script Pattern (≥100-file Walks) → references/task-content-fidelity.md §9.A.6
@@ -114,9 +126,11 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 029 — Task Measured Output-Size Pre-COMPLETE Gate → references/verify-before-cite.md §9.B.8
 - Check 030 — Task USED-Helper Enumeration → references/verify-before-cite.md §9.B.7
 - Check 031 — Task Planning-Tier Schema Pin Reconciliation → references/verify-before-cite.md §9.B.6
+- Check 127 — Schema Pin Stamp Predates Its Deploy or Keeps a Summary Placeholder → references/schema-pin-requirement.md §5.3
 - Check 032 — Task Env Var / Function Signature / Config Key Drift → references/verify-before-cite.md §9.B.7
 - Check 033 — Task MERGE/Upsert Field Mapping Subsection → references/verify-before-cite.md §9.B.8
 - Check 065 — Task Token Saver Large-File Ladder Applied → references/task-content-fidelity.md §9.A.8
+- Check 123 — Execution Steps Read With No Required Context Row → references/task-content-fidelity.md §9.A.17
 - Check 034 — Verification Commands Notebook Execution Present → references/gate-exit-verdict-and-smoke-reports.md §3
 - Check 035 — Verification Commands Lint/Format Present → references/gate-exit-verdict-and-smoke-reports.md §3
 - Check 036 — Verification Commands DB Pre-Check Position → references/gate-exit-verdict-and-smoke-reports.md §3
@@ -129,6 +143,18 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 070 — Plan Headline Metric vs Fixed Extraction Scope Reconciliation → references/measurement-discipline.md §8.3
 - Check 097 — Brief Restates a Design Pin and Drops Its Fallback → references/ei-source-promise-integrity.md §12
 - Check 100 — Plan Executes a Backlog Item Its Master Plan `**Resolves:**` Field Omits → references/session-planning-protocol.md §11
+- Check 103 — Named Definition Site Missing From the Task's Output Line → references/verify-caller-before-complete.md §6
+- Check 116 — Task Edits a Pinned Artifact With No Pin Tests in Its Write-Set → references/verify-caller-before-complete.md §6
+- Check 112 — Task Gate Measures a Different Property Than the Sprint Criterion It Discharges → references/gate-anchor-outcome-set.md §10.11
+- Check 118 — Documentation Check on an Inherited Parameter With No Signature Outcome → references/verify-before-cite.md §9.B.26
+- Check 120 — Corpus Target Pin With No Census, Fallback Ceiling or NONE Sentinel → references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md §1.31.1
+- Check 121 — Dispatched Runner Bound to a Rule Naming a Human-Only Tool → references/rule-authoring.md §8
+- Check 124 — Data-State Literal Used as a Pass or Fail Value → references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md §16.19
+- Check 125 — Equality Filter on a State Column With No Measured Vocabulary → references/schema-pin-requirement.md §5.1
+- Check 126 — Table-Shaped Output Estimate With No Column Term → references/task-content-fidelity.md §9.A.18
+- Check 129 — Correction Leaves an Uncorrected Sibling Copy → references/dispatch-edit-surface-sweep.md §14
+- Check 130 — Unmodified-Tests Criterion Beside a Behaviour-Changing Default → references/verify-caller-before-complete.md §7
+- Check 131 — Authorized Omission (an `<!-- OMITTED: … (spec omit_sections) -->` line in place of a CONDITIONAL section is an authorized omission, not a finding. A section removed with no OMITTED line is template drift.) → references/scaffolding-hygiene.md §8
 
 ### Dependency Reviewer
 
@@ -141,6 +167,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 038 — Cross-Session Required Context Mirrored in Depends On → references/task-file-and-tracking-requirements.md §9
 - Check 039 — Full Task ID Format in Cross-Sprint References → references/session-planning-protocol.md §2
 - Check 068 — Deferred Finding Owner Is a CLOSED Task → references/task-file-and-tracking-requirements.md §9 Cross-Sprint Deferred-Finding Ownership
+- Check 101 — Cross-Sprint Consumed Value Without a Read Command → references/task-file-and-tracking-requirements.md §9
 
 ### Coverage Reviewer
 
@@ -157,6 +184,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 044 — §16.3 BLI-Cited Audit Anchor Re-Verification → references/exit-criteria-fidelity.md §16.3
 - Check 045 — §15/§16 Cross-Layer Cohort Discovery Scope → references/exit-criteria-fidelity.md §16 / references/discovery-and-exit-criteria.md §15
 - Check 091 — Procedural Finding Deferred on Unassessed Severity → references/review-classification.md § The Three Claims in a Finding
+- Check 106 — Master Plan Success Criteria Clause With No Owning Task → references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md §16.16
 
 ---
 
@@ -171,6 +199,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 049 — Parallel-Scaffold Deviation Classes → references/scaffolding-hygiene.md §8
 - Check 050 — Cohort Token-Uplift Practice → references/scaffolding-hygiene.md §10
 - Check 099 — Orchestrator Re-Verify Item With No Shipped Replay Command → references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md §19
+- Check 111 — Consumed Artifact With No Declared Producer → references/artifact-producer-resolution.md §1
 
 ## Sub-role: Design-Extension Reviewer (NEW)
 
@@ -187,9 +216,11 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 
 - Verify that any task adding or extending a delete/overwrite/migrate/prune/sweep branch carries a spec enumerating the config-interaction matrix (`references/destructive-change-requirements.md` §10.1)
 - Confirm the test plan for a non-default-gated change adds a new gated-branch pin class rather than rewriting absent-key pins (`references/destructive-change-requirements.md` §10.3)
+- Verify that a guard before a delete, overwrite, migrate, prune or sweep step names the producer of its condition and is evidenced by a test that drives the real producer, not by a code read, a "reasoned" label or an injected input (Check 122, Destructive Guard Evidenced Only by a Read or an Injected Input; `references/destructive-change-requirements.md` §10.10)
 
 - Check 072 — Destructive-Path Spec Missing Interaction Matrix → references/destructive-change-requirements.md §10.1
 - Check 073 — Absent-Key Pin Rewrite During Non-Default-Gated Change → references/destructive-change-requirements.md §10.3
+- Check 122 — Destructive Guard Evidenced Only by a Read or an Injected Input → references/destructive-change-requirements.md §10.10
 
 ## Sub-role: Verification-Gate Reviewer (NEW)
 
@@ -205,9 +236,16 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Confirm every refactor size band carries an inline derivation and the signal-not-target clause, and that the derivation does not subtract the full volume of a region the same plan marks verbatim-frozen, anchor-protected, or subject to in-place replacement (`references/ei-citation-and-token-reconciliation.md` §8.3)
 - Verify every mechanical anchor, exit criterion and EI gate accepts each terminal outcome its owning task's Execution Steps define — enumerate the task's branches first, then the anchor's accepted set, and report a strict subset as WARNING, escalating to ERROR only where no accepted outcome remains for the branch the task will actually produce (`references/gate-anchor-outcome-set.md` §10.7 and `references/exit-criteria-fidelity.md` §16.10.6). Zero-hit, nothing-to-do and already-resolved branches are the ones dropped most often. Report a disagreement against the task file, never against whichever copy is in the majority
 - Check each anchor's command against the four semantics traps — `grep -c` counting lines rather than matches, `-B1`/`-A1` emitting the match line itself, a set-membership claim hardened into a count equality, and a path that cannot resolve from the cwd its own table header declares (`references/gate-command-semantics.md` §10.8)
+- Verify that a task whose success criterion compares an output count to a count the task derived by its own query also asserts a non-empty input from an independent source, and that the selection pattern was dry-run against known-bad input (Check 104, Self-Derived Count Compared With No Independent Non-Empty Assertion; `references/gate-input-set-and-compared-window.md` §14)
+- Verify that a fixed `-B N` or `-A N` window used to pull a structured entry derives N from the schema's maximum for its variable-length fields, or cuts the entry by boundary (Check 105, Fixed Context Window Not Sized From the Schema Maximum; `references/gate-input-set-and-compared-window.md` §15)
+- Verify that a Verification Command's match set covers the whole population its adjacent comment or criterion names: every branch of an alternation, every row under an all-rows criterion, every member of a named pair, and a headline count that agrees with the expanded `{placeholder}` pattern (Check 110, Match Set Narrower Than the Population Its Criterion Names; `references/gate-input-set-and-compared-window.md` §16)
+- Verify that every absence criterion's scope equals the Execution Steps' enumeration of hits: the steps list every hit of the searched value with its edit, and the criterion is an exact count that names each allowed location (Check 113, Absence Check Scope Differs From the Execution Steps' Enumeration; `references/gate-satisfiability.md` §6)
+- Verify that every Verification Commands entry uses the project's own interpreter or binary, names an agent-invocable step and only paths that exist on the target OS, and carries the exit code of an executed run or a read-only probe, and that no native `Grep` call writes alternation as a backslash-pipe or places an alternation pattern in a table cell (Check 114, Verification Command Not Proven to Run in the Target Environment; `references/gate-command-semantics.md` §10.9.1)
+- Verify that a success criterion matching an internal table against an external listing gives a verdict for each of the four cells, with present-but-unlisted as PARTIAL plus census, coverage rule and re-run condition, and that a brief's sentence about the source's coverage is quoted from its probe document (Check 119, Criterion Over an External Listing Names Fewer Than Four Cells; `references/gate-anchor-outcome-set.md` §10.12 and `references/verify-before-cite.md` §9.B.27)
 - Verify that every pinned gate was run over the content it judges: a count pinned beside a content block was run over that block, a count method states the command's observed output line, and a pattern pinned before its subject exists is re-run when the producer lands, and a verdict grep copies the skeleton's bytes (`references/gate-pinned-from-real-content.md` §10.5 and §11)
 - Verify that every headline margin or ratio criterion has its enforcing size constant derived from it (or a stated weaker-guarantee restatement), and that each closeout reports against the headline, not the constant alone (`references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md` §16.14)
 - Verify that every deliverable or rule sentence stating a format, a cap or a threshold names the writer that emits it or the gate that rejects the wrong form (`references/rule-authoring.md` §7)
+- Verify that every doctest value, tolerance, expected count and type-justifying inequality in Execution Steps and Notes carries a reading from its quoted command or an UNVERIFIED tag with source and date, and that each count anchor equals the review discovery fact sheet's `count_anchor` executed value for the same Before command (Check 128, Numeric Literal Unmeasured, or Count Anchor Disagrees With Its Before Command; `references/verify-before-cite.md` §9.B.28)
 
 - Check 074 — Diff-Derived Gate Without Input-Set Assertion → references/measurement-discipline.md §8.7
 - Check 075 — Size Gate Without Content-Conservation Gate → references/measurement-discipline.md §8.7
@@ -221,6 +259,14 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 090 — Size Band Stated Without Its Derivation → references/ei-citation-and-token-reconciliation.md §8.3
 - Check 096 — Size Constant Cannot Meet the Plan's Headline Margin → references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md §16.14
 - Check 098 — Format, Cap or Threshold Sentence With Neither a Writer Nor a Gate → references/rule-authoring.md §7
+- Check 102 — Driver or Grader Defaults a Missing Input to 0 → references/gate-run-sheet-and-grader-fields.md §14
+- Check 104 — Self-Derived Count Compared With No Independent Non-Empty Assertion → references/gate-input-set-and-compared-window.md §14
+- Check 105 — Fixed Context Window Not Sized From the Schema Maximum → references/gate-input-set-and-compared-window.md §15
+- Check 110 — Match Set Narrower Than the Population Its Criterion Names → references/gate-input-set-and-compared-window.md §16
+- Check 113 — Absence Check Scope Differs From the Execution Steps' Enumeration → references/gate-satisfiability.md §6
+- Check 114 — Verification Command Not Proven to Run in the Target Environment → references/gate-command-semantics.md §10.9.1
+- Check 119 — Criterion Over an External Listing Names Fewer Than Four Cells → references/gate-anchor-outcome-set.md §10.12
+- Check 128 — Numeric Literal Unmeasured, or Count Anchor Disagrees With Its Before Command → references/verify-before-cite.md §9.B.28
 
 ## Sub-role: Change-Surface Reviewer (NEW)
 

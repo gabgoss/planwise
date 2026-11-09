@@ -24,6 +24,15 @@ a single-line JSON object:
   --list [--id N] [--json]             print every unanswered block over the
                                        backlog index, then the count of
                                        sections still to fold; reads only.
+                                       Each block carries its question, its
+                                       options split into choices, the
+                                       recommendation with its letter and
+                                       reason, its evidence and its context
+                                       lines. Each item with a block carries a
+                                       brief: title, priority, domain, file,
+                                       the first paragraph of its Summary and
+                                       of its Problem, and the text that opens
+                                       the Open Questions section.
                                        --json prints the JSON line alone
 
 Exit codes: 0 ok, 1 usage error or refusal. A refusal writes nothing to the
@@ -46,6 +55,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 from config_loader import load_config
+from item_frontmatter import read_item_frontmatter
 from item_shape import (
     _ANSWER_LINE_RE,
     _QUESTION_HEADING_RE,
@@ -85,6 +95,19 @@ _LEVEL_3_RE = re.compile(r"^###(?:[ \t]|\r?$)")
 _ANY_HEADING_RE = re.compile(r"^#{1,6}(?:[ \t]|\r?$)")
 _EMPTY_ANSWER_RE = re.compile(r"^\s*(?:[-*]\s+)?\*{0,2}Answer\*{0,2}\s*:[\s*]*$")
 _EMPTY_FORMS = ("none", "none.")
+# The labelled lines of a question block (`templates/backlog-item.md`).
+_OPTIONS_LABEL = "Options:"
+_RECOMMENDATION_LABEL = "Recommendation:"
+_EVIDENCE_LABEL = "Evidence:"
+_BLOCK_LABELS = (_OPTIONS_LABEL, _RECOMMENDATION_LABEL, _EVIDENCE_LABEL)
+# `(A) first (B) second` -> the letters and the texts between them.
+_CHOICE_SPLIT_RE = re.compile(r"\(([A-Z])\)\s*")
+# `A. why`, `(A) why`, `A: why`, `A) why` -> the letter and the reason. A bare
+# capital followed by a space (`I think ...`) is prose, not a letter.
+_RECOMMENDED_RE = re.compile(r"^(?:\(([A-Z])\)|([A-Z])[.:)])\s*(.*)$", re.DOTALL)
+# The item sections the brief reads the first paragraph of.
+_SUMMARY_TITLE = "Summary"
+_PROBLEM_TITLE = "Problem"
 
 
 class QuestionError(Exception):
@@ -418,8 +441,47 @@ def answer_question(path: Path, number: int, text: str, today: str | None = None
     _write(path, result, eol)
 
 
+def _labelled(body: list[str], label: str) -> str | None:
+    """The text after the first `{label}` line of a block body, or None when absent or empty."""
+    line = next((line for line in body if line.startswith(label)), None)
+    if line is None:
+        return None
+    return line[len(label):].strip() or None
+
+
+def _choices(options: str | None) -> list[dict]:
+    """`Options: (A) first (B) second` -> `[{"letter": "A", "text": "first"}, ...]`."""
+    if not options:
+        return []
+    parts = _CHOICE_SPLIT_RE.split(options[len(_OPTIONS_LABEL):])
+    found = []
+    for letter, text in zip(parts[1::2], parts[2::2]):
+        text = text.strip().rstrip(",;").strip()
+        if text:
+            found.append({"letter": letter, "text": text})
+    return found
+
+
+def _recommended(recommendation: str | None) -> tuple[str | None, str | None]:
+    """`A. why` -> `("A", "why")`. No leading letter -> `(None, recommendation)`."""
+    if recommendation is None:
+        return None, None
+    match = _RECOMMENDED_RE.match(recommendation)
+    if match is None:
+        return None, recommendation
+    return match.group(1) or match.group(2), match.group(3).strip() or None
+
+
 def unanswered_questions(text: str) -> list[dict]:
-    """Every unanswered `### Q` block of LF item text: `{"q", "question", "options"}`."""
+    """Every unanswered `### Q` block of LF item text, as one dict per block.
+
+    Keys: `q`, `question`, `options` (the whole `Options:` line), `choices`
+    (the options split per letter), `recommendation` (the text after
+    `Recommendation:`), `recommended` (its leading letter), `reason` (the
+    rest of it), `evidence` (the text after `Evidence:`) and `context` (every
+    other body line, joined with newlines). A missing value is None, or `[]`
+    for `choices`.
+    """
     span = _questions_span(text)
     if span is None:
         return []
@@ -430,12 +492,90 @@ def unanswered_questions(text: str) -> list[dict]:
             continue
         title = lines[start][_QUESTION_HEADING_RE.match(lines[start]).end():].lstrip(". ").strip()
         body = [lines[i].strip() for i in range(start + 1, end) if not flags[i] and lines[i].strip()]
-        body = [line for line in body if not _LOOP_MARKER_RE.match(line)]
+        body = [line for line in body if not _LOOP_MARKER_RE.match(line) and not _EMPTY_ANSWER_RE.match(line)]
+        title_index = None
         if not title or title.startswith(_LOOP_TITLE):
-            title = next((line for line in body if not _EMPTY_ANSWER_RE.match(line)), title)
-        options = next((line for line in body if line.startswith("Options:")), None)
-        found.append({"q": _q_number(lines[start]), "question": title, "options": options})
+            title_index = next((n for n, line in enumerate(body) if not line.startswith(_BLOCK_LABELS)), None)
+            if title_index is not None:
+                title = body[title_index]
+        options = next((line for line in body if line.startswith(_OPTIONS_LABEL)), None)
+        recommendation = _labelled(body, _RECOMMENDATION_LABEL)
+        recommended, reason = _recommended(recommendation)
+        context = [
+            line for n, line in enumerate(body)
+            if n != title_index and not line.startswith(_BLOCK_LABELS)
+        ]
+        found.append({
+            "q": _q_number(lines[start]),
+            "question": title,
+            "options": options,
+            "choices": _choices(options),
+            "recommendation": recommendation,
+            "recommended": recommended,
+            "reason": reason,
+            "evidence": _labelled(body, _EVIDENCE_LABEL),
+            "context": "\n".join(context) or None,
+        })
     return found
+
+
+def _first_paragraph(text: str, title: str) -> str | None:
+    """The first unfenced paragraph under `## {title}`, joined with spaces, or None."""
+    spans = loop_sections(text, (title,))
+    if not spans:
+        return None
+    section = text[spans[0][0]:spans[0][1]]
+    lines = section.split("\n")
+    flags = fence_flags_any_indent(section)
+    paragraph: list[str] = []
+    for line, fenced in zip(lines[1:], flags[1:]):
+        if fenced:
+            continue
+        if line.strip():
+            paragraph.append(line.strip())
+        elif paragraph:
+            break
+    return " ".join(paragraph) or None
+
+
+def _text_or_none(value) -> str | None:
+    text = str(value).strip() if value is not None else ""
+    return text or None
+
+
+def item_brief(text: str, path: Path, backlog_dir: Path) -> dict:
+    """The item-level context an open question is asked against.
+
+    Keys: `title`, `priority`, `abbrev` (frontmatter), `file` (the path
+    relative to the backlog directory, posix form), `summary` and `problem`
+    (the first paragraph of `## Summary` and of `## Problem`) and `preamble`
+    (the unfenced text between `## Open Questions` and its first `### Q`
+    block). Every missing value is None, never an empty string.
+    """
+    frontmatter = read_item_frontmatter(path)
+    try:
+        file = path.relative_to(backlog_dir).as_posix()
+    except ValueError:
+        file = path.name
+    preamble = None
+    span = _questions_span(text)
+    if span is not None:
+        lines, flags, ranges = _blocks(text[span[0]:span[1]])
+        stop = ranges[0][0] if ranges else len(lines)
+        opening = [
+            lines[i].strip() for i in range(1, stop)
+            if not flags[i] and lines[i].strip() and not _LOOP_MARKER_RE.match(lines[i].strip())
+        ]
+        preamble = "\n".join(opening) or None
+    return {
+        "title": _text_or_none(frontmatter.get("title")),
+        "priority": _text_or_none(frontmatter.get("priority")),
+        "abbrev": _text_or_none(frontmatter.get("abbrev")),
+        "file": file,
+        "summary": _first_paragraph(text, _SUMMARY_TITLE),
+        "problem": _first_paragraph(text, _PROBLEM_TITLE),
+        "preamble": preamble,
+    }
 
 
 def _item_paths(config: dict, item_id: str | None = None) -> list[tuple[str, Path]]:
@@ -499,24 +639,35 @@ def cmd_list(args, config: dict) -> tuple[list[str], dict, int]:
     if args.id:
         _one_item(config, args.id)
     questions: list[dict] = []
+    items: dict[str, dict] = {}
     legacy_items: list[str] = []
     legacy = 0
+    lines = []
     for item_id, path in _item_paths(config, args.id):
         text, _eol_unused = _read(path)
-        questions.extend({"id": item_id, **found} for found in unanswered_questions(text))
+        found = unanswered_questions(text)
+        if found:
+            brief = item_brief(text, path, config["_backlog_dir"])
+            items[item_id] = brief
+            lines.append(
+                f"{item_id}: {brief['title'] or 'untitled'} "
+                f"({brief['priority'] or 'no priority'}, {brief['abbrev'] or 'no domain'}) {brief['file']}"
+            )
+        for block in found:
+            questions.append({"id": item_id, **block})
+            lines.append(f"{item_id} Q{block['q']}: {block['question']}")
+            if block["options"]:
+                lines.append(f"  {block['options']}")
+            if block["recommendation"]:
+                lines.append(f"  {_RECOMMENDATION_LABEL} {block['recommendation']}")
         count = len(loop_sections(text, LOOP_WRITTEN_HEADINGS))
         if count:
             legacy += count
             legacy_items.append(item_id)
-    lines = []
-    for found in questions:
-        lines.append(f"{found['id']} Q{found['q']}: {found['question']}")
-        if found["options"]:
-            lines.append(f"  {found['options']}")
     lines.append(f"Unanswered questions: {len(questions)}")
     if legacy:
         lines.append(f"Legacy {LEGACY_HEADING} sections: {legacy} in {len(legacy_items)} item(s); run --fold --all first")
-    payload = {"questions": questions, "legacy_sections": legacy, "legacy_items": legacy_items}
+    payload = {"questions": questions, "items": items, "legacy_sections": legacy, "legacy_items": legacy_items}
     return ([] if args.json else lines), payload, EXIT_OK
 
 

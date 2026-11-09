@@ -1,6 +1,6 @@
 ---
-description: Verify-before-cite discipline (lesson IDs, schema files, field names, facade re-exports, upsert helper design, examples-repo version pinning, helper enumeration, field-mapping tables, tiered-fetch tactics, splitting an exemplar comparison into shape rows judged against the exemplar and data rows judged against the live source, and tracing each hazard a guard names to a mechanism in code before the guard is retired) for planwise task files and DELEGATED dispatch prompts
-consult-when: A task brief cites a lesson ID, schema file, or field name — open and skim it before citing, split an exemplar comparison into shape rows and data rows, trace each hazard before retiring a guard
+description: Verify-before-cite discipline (lesson IDs, schema files, field names, facade re-exports, upsert helper design, examples-repo version pinning, helper enumeration, field-mapping tables, tiered-fetch tactics, splitting an exemplar comparison into shape rows judged against the exemplar and data rows judged against the live source, tracing each hazard a guard names to a mechanism in code before the guard is retired, stating the signature outcome when a documentation check shows an inherited parameter is unsupported, checking a brief's claim about an external source's coverage against the probe document it cites, and measuring each numeric literal, count anchor and justifying inequality in Execution Steps and Notes on its quoted command) for planwise task files and DELEGATED dispatch prompts
+consult-when: A task brief cites a lesson ID, schema file, or field name — open and skim it before citing, split an exemplar comparison into shape rows and data rows, trace each hazard before retiring a guard, state the signature outcome when a documentation check shows an inherited parameter is unsupported, check a brief's claim about an external source's coverage against the probe document it cites
 ---
 
 # Verify-Before-Cite
@@ -21,7 +21,7 @@ The cost is one Read + one Grep per cited artifact. The savings are at minimum o
 
 | Contract Type | Artifact | What "verify" means |
 |---------------|----------|---------------------|
-| Database schema | `CREATE TABLE` / `ALTER TABLE` DDL | Column names, types, constraints exist as cited |
+| Database schema | `CREATE TABLE` / `ALTER TABLE` DDL | Column names, types, constraints exist as cited. For a column the brief filters with a literal, the literal sits in the measured value vocabulary (`schema-pin-requirement.md` §5.1) |
 | OpenAPI / Swagger spec | `openapi.yaml` / `swagger.json` | Path, operation, request/response schema exist as cited |
 | protobuf / gRPC | `.proto` definition | Message, field number/name, service method exist as cited |
 | GraphQL SDL | schema `.graphql` | Type, field, query/mutation exist as cited |
@@ -34,39 +34,13 @@ For third-party SDK identifiers and shipped artifacts, see `verify-against-shipp
 ### 9.B.1 Verify user-prompt-cited artifacts during scaffolding
 
 > [!constraint] User-cited artifacts MUST be verified at scaffold time, not deferred to the executing subagent
-> When a user-provided plan brief names specific artifacts (lesson IDs, schema
-> files, notebook paths, helper function names, ticket numbers, doc paths), the
-> planner MUST open and skim each cited artifact during scaffolding. If the
-> user's framing of the artifact is wrong, the task brief MUST cite the
-> corrected reality verbatim and explicitly flag the mis-attribution.
+> When a user-provided plan brief names specific artifacts, the planner MUST open and skim each cited artifact during scaffolding. These include lesson IDs, schema file paths, notebook paths and zone references, helper function names and locations, ticket numbers, doc paths, citation ranges (line numbers, cell indices), and external-contract files of any shape. If the user's framing of an artifact is wrong, the task brief MUST cite the corrected reality verbatim and explicitly flag the mis-attribution.
 >
-> WRONG — accept the user's framing verbatim and propagate it into task briefs:
-> ```markdown
-> ## Task 02: Read {file} + {lesson-id}
-> Catalog {specific content described by user from lesson-id}
-> ```
-> Real-world cost: the cited lesson had zero of the described content. The
-> DELEGATED subagent would either burn tokens trying to find content that does
-> not exist OR hallucinate a framing that pollutes downstream Consolidated
-> Context Parts.
+> WRONG — accept the user's framing and propagate it: `Catalog {specific content described by user from lesson-id}`.
 >
-> CORRECT — verify each cited artifact, correct the framing, flag the
-> mis-attribution explicitly so it does not re-enter the conversation later:
-> ```markdown
-> ## Task 02: Read {file} + {lesson-id}
-> Catalog the actual content of {lesson-id}. **The user's prompt described it
-> as a {user-description-of-lesson} — that is incorrect.** {lesson-id} is about
-> {actual-lesson-content}. Report the actual content; do NOT invent a
-> {user-description-of-lesson} framing to match the prompt.
-> ```
->
-> Common artifact types to verify: lesson IDs, schema file paths, notebook paths
-> and zone references, helper function names and locations, citation ranges
-> (line numbers, cell indices), and external-contract files of any shape —
-> OpenAPI / Swagger specs, protobuf `.proto` definitions, GraphQL SDL, and
-> TypeScript declaration (`.d.ts`) files.
+> CORRECT — correct the framing and flag it: `Catalog the actual content of {lesson-id}. The user's prompt described it as a {user-description-of-lesson}; that is incorrect. Do NOT invent that framing.`
 
-A complementary `/planwise plan` enhancement: insert a Step 1.5 ("Verify cited artifacts") between Gather Information and Validate.
+The path mode of `scripts/check_section_citations.py` (`--paths {task-file}`) reports a cited path that does not resolve on disk.
 
 #### Reviewer Check 018 — Task Verify-Before-Cite (User-Cited Artifacts)
 
@@ -86,55 +60,23 @@ Fix: Verify artifact exists or correct citation per references/verify-before-cit
 **Note:** Both scaffold-time (§9.B.1) AND dispatch-time verification are mandatory for DELEGATED tasks. This rule extends §9.B.1, it does not replace it.
 
 > [!constraint] DELEGATED task briefs that reference concrete identifiers from another module MUST be reconciled against the live source at dispatch time
-> For DELEGATED task prompts that reference concrete code artifacts (config
-> dataclass fields, function signatures, column names, table names, enum values),
-> audit the prompt against the live artifact AT DISPATCH TIME — not only at
-> scaffolding time. The "live contract" is whichever shape the identifier comes
-> from — a DB schema, an OpenAPI spec, a protobuf `.proto`, a GraphQL SDL, or a
-> TypeScript `.d.ts` — and the reconciliation grep targets that artifact.
+> For DELEGATED task prompts that reference concrete code artifacts (config dataclass fields, function signatures, column names, table names, enum values), audit the prompt against the live artifact AT DISPATCH TIME — not only at scaffolding time. The "live contract" is whichever shape the identifier comes from — a DB schema, an OpenAPI spec, a protobuf `.proto`, a GraphQL SDL, or a TypeScript `.d.ts` — and the reconciliation search targets that artifact.
 >
 > Two failure modes share this remediation:
 >
-> **Mode 1 — Stale paraphrase.** Scaffolding-era specs use abbreviated forms
-> that drift from the runtime schema (`{long_form_identifier}` vs
-> `{abbreviated_identifier}`).
+> **Mode 1 — Stale paraphrase.** Scaffolding-era specs use abbreviated forms that drift from the runtime schema (`{long_form_identifier}` vs `{abbreviated_identifier}`).
 >
-> **Mode 2 — Duplicate-purpose fields.** Task briefs prescribe field names that
-> already exist in the target dataclass under a different name; executing the
-> brief verbatim would create duplicate fields covering the same semantics.
+> **Mode 2 — Duplicate-purpose fields.** Task briefs prescribe field names that already exist in the target dataclass under a different name. Executing the brief verbatim would create duplicate fields covering the same semantics.
 >
-> WRONG (Mode 1) — task brief says `{config-field}-long`; live schema has
-> `{config-field}-abbr`. Subagent either implements wrong name (type-checker
-> fail) or burns extra tokens reconciling on its own.
+> WRONG — the brief says `{config-field}-long` and the live schema has `{config-field}-abbr` (Mode 1), or the brief adds `{config-field}` weights that the live `{contract-path}` already declares under another name (Mode 2).
 >
-> WRONG (Mode 2) — task brief specifies new `{config-field}` weights. Live
-> `{contract-path}` already declared the same weights under a different name.
-> Executing verbatim would produce duplicate fields.
->
-> CORRECT — orchestrator greps the live source before authoring (or before
-> dispatching), and either reconciles the field names directly OR adds an
-> explicit verify-first instruction to the task brief:
->
-> ```bash
-> # At scaffold time (preferred — fix before commit):
-> grep -n "{config-field-pattern}" {contract-path}
-> # Compare against the field names in the EI / spec doc.
-> # If names differ → reconcile in the brief, not at execution time.
+> CORRECT — search the live source before authoring (preferred) or before dispatching. If names differ, reconcile them in the brief, not at execution time, or add a verify-first line to Notes for Agent:
+> ```
+> Grep  pattern='{config-field-pattern}'  path='{contract-path}'  output_mode='content'
+> - VERIFY attribute names against `{contract-path}` lines {line-range} before implementing.
 > ```
 >
-> ```markdown
-> # In every DELEGATED task that reads/writes attributes of a configured dataclass:
-> ## Notes for Agent
-> - The weights parameter type is `{config-class}`. VERIFY attribute names
->   against `{contract-path}` lines {line-range} before implementing — field
->   name drift between this task file and the live schema is a known failure mode.
-> ```
->
-> The orchestrator MUST propagate any mid-flight reconciliation findings into ALL
-> downstream dispatch prompts verbatim. The Recovery file's *Key Findings* table
-> is the canonical channel.
-
-A complementary `/planwise review` check: structural reviewer greps the target artifact for each field name mentioned in task files before execution; mismatches are flagged as pre-flight blockers.
+> The orchestrator MUST propagate any mid-flight reconciliation findings into ALL downstream dispatch prompts verbatim. The Recovery file's *Key Findings* table is the canonical channel.
 
 #### Reviewer Check 019 — Task Field-Name Reconciliation
 
@@ -154,27 +96,11 @@ Fix: Reconcile per references/verify-before-cite.md §9.B.2 | Confidence: HIGH
 *Generalizes to any single-entry-point contract — a package facade, a barrel / index module, or a declared public API surface.*
 
 > [!constraint] Plans enforcing a facade-import architecture rule MUST verify the facade re-exports everything downstream tasks consume
-> When a plan enforces an architecture rule like "consumers import only from
-> `{src/module/path}`" (or any equivalent facade restriction), the planner MUST
-> grep the facade module and confirm it re-exports every type/function the
-> downstream tasks will consume. If the facade is incomplete, add an explicit
-> "Verify `{entry-point-file}` re-exports the needed functions; if not, add
-> them" step to each affected task — and account for that work in the task
-> token estimate.
+> When a plan enforces a rule like "consumers import only from `{src/module/path}`", the planner MUST search the facade module for every type and function the downstream tasks consume.
 >
-> WRONG — plan declares facade rule; `{src/module/file.ext}` re-exports adapters
-> but not algorithm functions; every downstream task hits ImportError on first
-> execution. Subagents waste tokens debugging an import-system problem that the
-> planner could have caught with one Grep at scaffold time.
+> WRONG — declare the facade rule without checking it, so every downstream task hits ImportError on first execution.
 >
-> CORRECT — at scaffold time:
-> ```bash
-> grep -nE "^from |^import " {src/module/file.ext}
-> ```
-> If the facade is incomplete, the plan EITHER:
-> 1. Adds an "Update facade" task as a prerequisite step in Sprint 01, OR
-> 2. Adds a "Verify facade re-export; add if missing" step to each downstream
->    task and budgets extra tokens per task to cover it.
+> CORRECT — run `Grep pattern='^from |^import ' path='{src/module/file.ext}'` at scaffold time. If the facade is incomplete, the plan adds an "Update facade" prerequisite task, or adds a "Verify `{entry-point-file}` re-exports the needed functions; if not, add them" step to each downstream task and budgets extra tokens for it.
 
 #### Reviewer Check 020 — Task Facade Re-Export Verification
 
@@ -194,33 +120,17 @@ Fix: Verify per references/verify-before-cite.md §9.B.3 | Confidence: HIGH
 *Database-schema instance of the general verify-before-cite rule (see §9.B intro).*
 
 > [!constraint] Tasks that ask "verify column X is in the INSERT/UPDATE list" MUST first categorize the upsert helper's design
-> Before writing a task that requires a column-presence verification on a DB
-> upsert helper, open the target function and categorize its design. The
-> verification step is meaningful for some designs and vacuous for others.
+> Open the target function and categorize its design first. The check is meaningful for some designs and vacuous for others.
 >
 > | Upsert Design | Column-Presence Check |
 > |---------------|----------------------|
-> | **Static column list** (column names hardcoded in SQL template string) | Meaningful — grep for the new column name in the SQL string |
+> | **Static column list** (column names hardcoded in SQL template string) | Meaningful — search for the new column name in the SQL string |
 > | **Dynamic column mapping** (columns derived from row metadata or a config-driven list) | Vacuous — any input column flows through; document the design instead |
 > | **Whitelist-filtered dynamic** (dynamic keys filtered against an allowed-set) | Meaningful — verify the new column is in the allowlist |
 >
-> WRONG — task file with ambiguous verification step:
-> ```markdown
-> - Verify `{symbol}` accepts the `{column}` column; add it if absent.
-> ```
-> If the helper uses dynamic column mapping, this step is a no-op disguised as
-> work — the column flows through automatically.
+> WRONG — `Verify {symbol} accepts the {column} column; add it if absent.` Under dynamic mapping this step is a no-op disguised as work.
 >
-> CORRECT — task file that acknowledges the upsert design:
-> ```markdown
-> - Read `{symbol}` in `{db-helper-module}`.
-> - If the function uses a static column list (hardcoded in the INSERT SQL),
->   confirm `{column}` is present; add it to the INSERT and UPDATE clauses if
->   absent.
-> - If the function uses dynamic column mapping (e.g., from row metadata),
->   record in Recovery Key Findings that no code change is needed; the column
->   flows through the dynamic mapping.
-> ```
+> CORRECT — read `{symbol}` first. For a static list, confirm `{column}` is in the INSERT and UPDATE clauses and add it if absent. For dynamic mapping, record in Recovery Key Findings that no code change is needed.
 
 #### Reviewer Check 021 — Task Helper-Function Design Categorization
 
@@ -239,80 +149,40 @@ Fix: Categorize per references/verify-before-cite.md §9.B.4 | Confidence: MEDIU
 
 *Database-schema instance of the general verify-before-cite rule (see §9.B intro).*
 
-> [!constraint] Tasks that produce inline SQL MUST grep the live schema for EVERY column name BEFORE the query string is written
-> Subagents executing SQL-emitting tasks hallucinate column names whenever the
-> task brief does not pin the live schema. The Schema Pin requirement
-> (`schema-pin-requirement.md`) is the planning-time gate — every task file
-> whose Required Context references a DB table MUST include a Schema Pin section
-> quoting the live, post-migration column shape. **§9.B.5 is the runtime
-> backstop** for the gap that opens when the Schema Pin gate is missed during
-> plan-review: the executing subagent (DELEGATED) or the orchestrator (DIRECT)
-> MUST grep `{schema_glob_path}` for every column name that will appear in a
-> query string and reconcile any drift before emitting the SQL.
+> [!constraint] Tasks that produce inline SQL MUST search the live schema for EVERY column name BEFORE the query string is written
+> Subagents hallucinate column names whenever the task brief does not pin the live schema. The Schema Pin requirement (`schema-pin-requirement.md`) is the planning-time gate: every task file whose Required Context references a DB table MUST include a Schema Pin section quoting the live, post-migration column shape. **§9.B.5 is the runtime backstop** for the gap that opens when plan-review misses that gate. The executing subagent (DELEGATED) or the orchestrator (DIRECT) MUST search `{schema_glob_path}` for every column name that will appear in a query string, and reconcile any drift before emitting the SQL.
 >
 > Two failure modes share this remediation:
 >
-> **Mode 1 — Invented column.** Subagent transcribes a column name from memory
-> (or from the task brief's prose) that does not exist on the table. Runtime
-> fails with `{driver-error-class}: {error-message-pattern}`.
+> **Mode 1 — Invented column.** The subagent transcribes a column name from memory or from the brief's prose, and the table has no such column. Runtime fails with `{driver-error-class}: {error-message-pattern}`.
 >
-> **Mode 2 — Drifted column.** Subagent uses a column name that DID exist at
-> scaffold time but was renamed by an intervening migration. Runtime fails the
-> same way; harder to diagnose.
+> **Mode 2 — Drifted column.** An intervening migration renamed a column that existed at scaffold time. Runtime fails the same way, and the cause is harder to diagnose.
 >
-> WRONG — task file lacks a Schema Pin; subagent writes SQL referencing a
-> fictional `{table}.{nonexistent_col}` column:
-> ```sql
-> SELECT t.{id_col}, t.{nonexistent_col} AS {alias}
-> FROM {table} t
-> WHERE t.{date_col} >= ?
-> ```
-> Reality: `{table}` has multiple source-specific name columns, none named
-> `{nonexistent_col}`. The query fails on first execution.
+> WRONG — the task file lacks a Schema Pin, and the subagent writes `SELECT t.{nonexistent_col} FROM {table} t`.
 >
-> CORRECT — grep the live schema for every table the SQL touches BEFORE writing
-> the query string:
-> ```bash
-> # Before authoring the SQL — covers CREATE + ALTER + DROP/ADD COLUMN:
-> grep -nE "CREATE TABLE {table}|ALTER TABLE {table}" {schema_glob_path}
-> ```
-> ```sql
-> -- Reconcile to the live shape — pick the consumer-appropriate column
-> SELECT t.{id_col}, {actual_col_or_coalesce} AS {alias}
-> FROM {table} t
-> WHERE t.{date_col} >= ?
-> ```
+> CORRECT — search the live schema for every table the SQL touches, covering CREATE + ALTER + DROP/ADD COLUMN, then write `SELECT {actual_col_or_coalesce} FROM {table} t`.
 >
-> Applies to any task whose Execution Steps include:
-> - "build a query against `{table}`"
-> - "INSERT INTO `{table}`" / "UPDATE `{table}`" / "DELETE FROM `{table}`"
-> - "JOIN `{table}` ON ..."
-> - "write a build script that queries `{table}`"
+> Applies to any task whose Execution Steps build a query against `{table}`, run INSERT INTO, UPDATE or DELETE FROM `{table}`, JOIN `{table}`, or write a build script that queries `{table}`.
 >
-> **DIRECT mode** — the orchestrator runs the grep before authoring the SQL.
+> **DIRECT mode** — the orchestrator runs the search before authoring the SQL.
 >
-> **DELEGATED mode** — the spawn prompt MUST contain an explicit `Pre-SQL Schema
-> Verification` instruction:
+> **DELEGATED mode** — the spawn prompt MUST contain an explicit `Pre-SQL Schema Verification` instruction:
 >
 > ```markdown
 > ## Pre-SQL Schema Verification (mandatory before any query is written)
 >
-> Before emitting ANY SQL string in the output, the executing subagent MUST:
->
-> 1. Run: `grep -nE "CREATE TABLE {table}|ALTER TABLE {table}" {schema_glob_path}`
+> 1. Run `Grep pattern='CREATE TABLE {table}|ALTER TABLE {table}' path='{schema_glob_path}'`
 >    for each table the SQL touches.
 > 2. List every column name that will appear in the SQL.
-> 3. Verify each listed column appears in the grep output — including any
->    post-migration ALTER blocks.
+> 3. Verify each listed column appears in the search output, including post-migration ALTER blocks.
 > 4. If any column does not match: HALT, report the discrepancy in Recovery's
 >    Issues Identified, and request the orchestrator clarify. Do NOT guess.
 > 5. After verification: write the SQL using only verified column names.
 > ```
 >
-> Plan-review enforcement: `/planwise review` flags as a BLOCKING finding any
-> task file whose Execution Steps mention writing SQL against project tables AND
-> lacks BOTH (a) a Schema Pin section per `schema-pin-requirement.md` AND (b) a
-> `Pre-SQL Schema Verification` instruction in the Notes for Agent.
+> Plan-review enforcement: `/planwise review` flags as a BLOCKING finding any task file whose Execution Steps mention writing SQL against project tables AND lacks BOTH (a) a Schema Pin section per `schema-pin-requirement.md` AND (b) a `Pre-SQL Schema Verification` instruction in the Notes for Agent.
+
+The rule `schema-pin` in `scripts/lint_task_file_structure.py` reports an SQL-emitting task that lacks either item. It reports at WARNING and does not replace the reviewer check.
 
 ### 9.B.6 Verify examples-repo citations against the pinned version
 
@@ -320,32 +190,11 @@ Fix: Categorize per references/verify-before-cite.md §9.B.4 | Confidence: MEDIU
 rules. Do not renumber these sections. -->
 
 > [!constraint] An example cited from a versioned examples repository MUST be verified against the version the project actually pins
-> When a task brief cites a code sample, config snippet, or usage pattern drawn
-> from an external **examples repository** (an SDK examples repo, a framework
-> cookbook, a sample-app repo), the planner MUST verify the cited example against
-> the *exact version* the consuming project pins — not the examples repo's
-> default branch. Examples repos track their library's latest release; a project
-> pinned to an older (or pre-release) version may need a materially different form.
+> This covers a code sample, config snippet, or usage pattern from an SDK examples repo, a framework cookbook, or a sample-app repo. Verify it against the *exact version* the project pins. Examples repos track their library's latest release.
 >
-> WRONG — cite a sample from the examples repo's `main` branch:
-> ```markdown
-> ## Notes for Agent
-> - Follow the {feature} example in {examples-repo} for the call shape.
-> ```
-> The project pins `{library}@{pinned-version}`; the `main`-branch example uses
-> an API that exists only in `{newer-version}`. The subagent writes code that
-> fails to resolve against the pinned version.
+> WRONG — `Follow the {feature} example in {examples-repo} for the call shape.` The `main` branch may use an API that exists only in `{newer-version}`.
 >
-> CORRECT — pin the example to the consumed version and cite the matching ref:
-> ```markdown
-> ## Notes for Agent
-> - The project pins `{library}@{pinned-version}` (see {manifest-file}).
->   Follow the {feature} example from {examples-repo} at tag/branch
->   `{ref-matching-pinned-version}` — NOT `main`. If the pinned version predates
->   the example, adapt the older call shape and note the divergence.
-> ```
-
-Applies to any task whose brief cites an external examples / cookbook / sample repository for an API usage pattern — verify the example against the project's pinned dependency version.
+> CORRECT — `The project pins {library}@{pinned-version}. Follow the {feature} example at tag {ref-matching-pinned-version}, NOT main. If the pinned version predates the example, adapt the older call shape and note the divergence.`
 
 #### Reviewer Check 031 — Task Planning-Tier Schema Pin Reconciliation
 
@@ -363,33 +212,20 @@ Fix: Reconcile per references/verify-before-cite.md §9.B.13 + schema-pin-requir
 ### 9.B.7 Enumerate the specific helpers a spawn prompt tells an agent to use
 
 > [!constraint] A spawn prompt that says "use the project's helpers" MUST enumerate the specific helpers — name, location, signature
-> When a DELEGATED task's spawn prompt instructs the executing subagent to "use
-> the existing helpers", "reuse the project's utilities", or any equivalent
-> blanket phrasing, the prompt MUST instead enumerate each helper the task is
-> expected to use: its name, the file it lives in, and its signature (or a
-> one-line contract). A subagent has no shared context — a blanket instruction
-> forces it to either re-discover the helper set (token burn) or reimplement
-> functionality that already exists (duplication).
+> When a DELEGATED task's spawn prompt instructs the executing subagent to "use the existing helpers", "reuse the project's utilities", or any equivalent blanket phrasing, the prompt MUST instead enumerate each helper the task is expected to use: its name, the file it lives in, and its signature (or a one-line contract).
 >
-> WRONG — blanket reuse instruction:
-> ```markdown
-> ## Notes for Agent
-> - Use the project's existing helpers; do not reinvent utilities.
-> ```
+> WRONG — `Use the project's existing helpers; do not reinvent utilities.`
 >
-> CORRECT — enumerate the USED helpers explicitly:
+> CORRECT — enumerate the USED helpers, and report an absent helper in Recovery rather than inventing one:
 > ```markdown
-> ## Notes for Agent — Helpers to use (do not reimplement)
 > | Helper | Location | Signature / contract |
 > |--------|----------|----------------------|
 > | {helper-1} | {module-path} | {signature} |
-> | {helper-2} | {module-path} | {signature} |
->
-> Use ONLY these; if a needed helper is absent, report it in Recovery rather
-> than inventing one.
 > ```
 
 Cross-referenced by [templates/task-file.md](../templates/task-file.md) (Notes for Agent guidance) and the `/planwise review` reviewer check for blanket-helper references.
+
+The rule `used-helper` in `scripts/lint_task_file_structure.py` reports a task that references a helper module with no `## USED-Helper Enumeration` section. It reports at WARNING and does not replace the reviewer check.
 
 #### Reviewer Check 030 — Task USED-Helper Enumeration
 
@@ -420,46 +256,17 @@ Fix: Verify per references/verify-before-cite.md §9.B.14 | Confidence: HIGH
 ### 9.B.8 Field-mapping table for consumed data models; measured output-size gate
 
 > [!constraint] A task consuming another module's data model MUST carry a field-mapping table, and task-file outputs MUST be gated at the measured token budget
-> Two distinct contract-fidelity gates share this subsection:
+> **Field-mapping table.** When a task's input is another module's data model (a struct / dataclass, a typed record, a deserialized payload), the task file MUST include a field-mapping table showing which fields are consumed and how — per the Interface Consumption guidance in [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) §9. The subagent must not infer the consumed fields from the type's name. For **MERGE / upsert** task briefs specifically, the field-mapping table MUST also state the Row↔DDL alignment strategy — which row field maps to which target column, and how name or position mismatches are resolved.
 >
-> **Field-mapping table.** When a task's input is another module's data model (a
-> struct / dataclass, a typed record, a deserialized payload), the task file MUST
-> include a field-mapping table showing which fields are consumed and how — per
-> the Interface Consumption guidance in
-> [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) §9. The subagent
-> must not infer the consumed fields from the type's name. For **MERGE / upsert**
-> task briefs specifically, the field-mapping table MUST also state the Row↔DDL
-> alignment strategy — which row field maps to which target column, and how name
-> or position mismatches are resolved.
+> **Measured output-size gate.** A task whose output is itself a task file (or any plan artifact) MUST be gated so the produced file lands OK on all three Read gates — under 22,000 measured tokens (the reading model's ratio), under 240 KiB, under 2,000 lines. Verify with `measure_files.py`. If the projected output exceeds the token budget, pre-split per `task-content-fidelity.md` §9.A.7.
 >
-> **Measured output-size gate.** A task whose output is itself a task file (or
-> any plan artifact) MUST be gated so the produced file lands OK on all three
-> Read gates — under 22,000 measured tokens (the reading model's ratio), under
-> 240 KiB, under 2,000 lines. Verify with `measure_files.py`; if the projected
-> output exceeds the token budget, pre-split per `task-content-fidelity.md` §9.A.7.
+> WRONG — `Read {ModelType} and generate the downstream config.` No field map, and nobody measures the output.
 >
-> WRONG — consume a data model with no field map; emit an output nobody measured:
-> ```markdown
-> ## Execution Steps
-> 1. Read {ModelType} and generate the downstream config.
-> ```
->
-> CORRECT — field-mapping table + explicit output-size gate:
-> ```markdown
-> ## Execution Steps
-> 1. Read {ModelType}; consume only the mapped fields:
->
->    | Input Field | Used For |
->    |-------------|----------|
->    | {field-a} | {purpose} |
->    | {field-b} | {purpose} |
->
-> 2. Emit the config; verify each produced file lands OK via
->    `python "{plugin_root}/scripts/measure_files.py" {file} --model {reader}`
->    (pre-split per §9.A.7 if not).
-> ```
+> CORRECT — `Read {ModelType}; consume only the mapped fields`, with a table of `Input Field | Used For`, then verify each produced file with `python "{plugin_root}/scripts/measure_files.py" {file} --model {reader}`.
 
 Cross-referenced by [templates/task-file.md](../templates/task-file.md) (Interface Consumption block) and [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) §9 (Task File Template).
+
+Check 32 in `scripts/lint_gate_checks_verify.py` reports a file-producing task with no measured size gate. The rule `field-mapping` in `scripts/lint_task_file_structure.py` reports a MERGE or upsert task with no `### Field Mapping` subsection. That rule reports at WARNING and does not replace the reviewer check.
 
 #### Reviewer Check 029 — Task Measured Output-Size Pre-COMPLETE Gate
 
@@ -490,14 +297,7 @@ Fix: Add Field Mapping per templates/task-file.md | Confidence: HIGH
 ### 9.B.9 Tiered-fetch tactics for large external sources
 
 > [!constraint] A task that fetches from a large external source MUST use the tiered-fetch ladder — cheapest probe first
-> When a task must pull data from a large external source (a web page, a
-> paginated API, a large remote document, a registry), the task file MUST
-> prescribe a tiered-fetch ladder rather than an unbounded "fetch the source"
-> instruction. Start with the cheapest probe that can answer the question and
-> escalate only on a miss. An unbounded fetch either blows the subagent's context
-> budget or fails silently on a source larger than expected.
->
-> Tiered-fetch ladder (cheapest → most expensive):
+> This covers a web page, a paginated API, a large remote document, or a registry. An unbounded fetch either blows the subagent's context budget or fails silently on a source larger than expected.
 >
 > | Tier | Probe | Use When |
 > |------|-------|----------|
@@ -505,265 +305,144 @@ Fix: Add Field Mapping per templates/task-file.md | Confidence: HIGH
 > | 2 | Single section / page / paginated slice | The relevant content is a known sub-range |
 > | 3 | Full fetch with an explicit size cap + budget note | The whole source is genuinely required |
 >
-> WRONG — unbounded fetch:
-> ```markdown
-> - Fetch {external-source} and extract {data}.
-> ```
+> WRONG — `Fetch {external-source} and extract {data}.`
 >
-> CORRECT — laddered fetch with a stop-at-first-hit rule:
-> ```markdown
-> - Tier 1: query {external-source} for `{specific-key}`; if found, stop.
-> - Tier 2: on a miss, fetch the `{known-section}` slice only.
-> - Tier 3: on a miss, full-fetch with a {N}K cap; if the cap is hit, report in
->   Recovery rather than truncating silently.
-> ```
-
-Applies to tasks that fetch from web pages, paginated APIs, large remote documents, or external registries.
+> CORRECT — stop at the first hit and escalate only on a miss. If a Tier 3 cap is hit, report it in Recovery rather than truncating silently.
 
 ### 9.B.10 Reconcile the design tier against deployed state before authoring
 
 > [!constraint] Reconcile a design artifact's claims about deployed shape before authoring any statement that binds to it
-> When Discovery precedes Execution by more than a few days, a design artifact's
-> claims about a data structure are a hypothesis. Before authoring any statement
-> that binds to a deployed shape, grep the deployed definition (CREATE + every
-> subsequent ALTER) and the consuming code's data model. The live shape wins;
-> record any divergence in Recovery rather than silently conforming.
+> When Discovery precedes Execution by more than a few days, a design artifact's claims about a data structure are a hypothesis. Search the deployed definition (CREATE + every subsequent ALTER) and the consuming code's data model first. The live shape wins.
 >
-> WRONG — author a MERGE from the design artifact's stated field count/names
-> without checking deployed state; discover the mismatch at smoke-test time.
+> WRONG — author a MERGE from the design artifact's field list, and discover the mismatch at smoke-test time.
 >
-> CORRECT:
-> ```bash
-> grep -nE "CREATE TABLE|ALTER TABLE" {ddl_glob}
-> ```
-> and grep the consuming adapter's field list BEFORE authoring; reconcile to
-> the live shape; log the delta.
+> CORRECT — search both sources BEFORE authoring, reconcile to the live shape, and record any divergence in Recovery rather than silently conforming.
 
 ### 9.B.11 Locate the mechanism before editing it
 
 > [!constraint] Open the live artifact and locate the mechanism before editing it
-> When a brief says "modify" or "retire" an existing workaround, open the live
-> artifact and locate the mechanism first. Briefs drift on WHERE a mechanism
-> lives, not only on whether it exists — an edit aimed at the wrong location is
-> a silent no-op that reports success.
+> Briefs drift on WHERE a mechanism lives, not only on whether it exists. An edit aimed at the wrong location is a silent no-op that reports success.
 >
-> WRONG — brief says the workaround is a set of aliases in a MERGE statement;
-> editor rewrites the MERGE; the actual mechanism (an attribute reference in a
-> closure) is untouched — exit 0, nothing changed.
+> WRONG — the brief says the workaround is a set of aliases in a MERGE, so the editor rewrites the MERGE. The actual mechanism, an attribute reference in a closure, is untouched.
 >
-> CORRECT — grep for the symbol the workaround acts on, read the surrounding
-> block, confirm the mechanism, then edit. If the brief's stated location
-> disagrees with the live artifact, the live artifact wins and the brief is
-> corrected in the same change.
+> CORRECT — search for the symbol the workaround acts on, read the surrounding block, confirm the mechanism, then edit. If the brief disagrees with the live artifact, the live artifact wins, and the same change corrects the brief.
 >
 > To retire a guard rather than edit a workaround, see §9.B.23.
 
 ### 9.B.12 Split a ratification item rather than widening it
 
 > [!constraint] A ratification item stays inside its own acceptance criteria; code reconciliation gets a follow-up item
-> When triage finds deployed code authored ahead of schedule under provisional
-> markers that now disagree with a ratified design, stay inside the
-> ratification item's acceptance criteria and spawn a follow-up item for the
-> code reconciliation, citing the design source of truth.
+> This applies when triage finds deployed code authored ahead of schedule under provisional markers that now disagree with a ratified design.
 >
-> WRONG — do everything in one pass, drifting outside the item's stated
-> acceptance criteria; the item closes claiming work its criteria never
-> described.
+> WRONG — do everything in one pass, so the item closes claiming work its criteria never described.
 >
-> CORRECT — the ratification item lands the plan-demote chain only; a new item
-> owns the code reconciliation, sized to what triage actually found.
+> CORRECT — the ratification item lands the plan-demote chain only. A new item owns the code reconciliation, cites the design source of truth, and is sized to what triage actually found.
 
 ### 9.B.13 Reconcile a planning-tier Schema Pin against deployed state before emitting SQL
 
 *Database-schema instance of the general verify-before-cite rule (see §9.B intro).*
 
 > [!constraint] A Schema Pin MUST be reconciled against deployed state via a three-step protocol before any SQL is authored against it
-> A Pin sourced from an upstream design artifact inherits that artifact's
-> authoring date; between authoring and consumer-task execution, the deployed
-> table can change. A well-formed, honestly-cited Pin can still be wrong. The
-> orchestrator HALTS before authoring SQL and runs a three-step reconciliation:
-> (1) grep CREATE + ALTER for the table in deployed DDL; (2) grep the
-> consumer-side data model whenever the Pin describes columns an adapter
-> populates; (3) when deployed DDL and the consumer-side model agree, that
-> pairing is canonical regardless of what the design artifact says — reconcile
-> to deployed reality and record an inline `> [!binding] Schema Pin reconciled
-> to live deployed DDL ({date})` callout naming both source files. When they
-> disagree with the design artifact, the design artifact is stale — reconcile
-> forward and file a back-propagation item; never silently conform the code to
-> the plan. Include a brief-vs-deployed comparison table (column / brief says /
-> deployed says / verdict) as the auditable artifact.
+> A well-formed, honestly-cited Pin can still be wrong, because the deployed table can change after the design artifact was written. The orchestrator HALTS before authoring SQL and runs three steps:
+> 1. Search CREATE + ALTER for the table in deployed DDL.
+> 2. Search the consumer-side data model whenever the Pin describes columns an adapter populates.
+> 3. When deployed DDL and the consumer-side model agree, that pairing is canonical. Reconcile to it and record an inline `> [!binding] Schema Pin reconciled to live deployed DDL ({date})` callout naming both source files.
 >
-> WRONG — author a 15-column INSERT against a well-formed Pin; the deployed
-> table has 17 columns (renames + additions); the helper is imported by dozens
-> of downstream consumers and fails at runtime on every one.
+> When they disagree with the design artifact, the design artifact is stale. Reconcile forward and file a back-propagation item. Include a brief-vs-deployed comparison table (column / brief says / deployed says / verdict) as the auditable artifact.
 >
-> CORRECT — grep the deployed DDL and the adapter's dataclass; reconcile;
-> annotate; then author.
+> WRONG — author a 15-column INSERT against a well-formed Pin when the deployed table has 17 columns, or silently conform the code to the plan.
+>
+> CORRECT — search the deployed DDL and the adapter's dataclass, reconcile, annotate, then author.
 
 ### 9.B.14 Verify-before-cite applies to every deployed symbol, not only SQL columns
 
 > [!constraint] Grep the live source-of-truth and cite `file:line` for every deployed symbol a template, brief, or reference doc names
-> A template, brief, or reference doc that names an environment variable,
-> function signature, file path, helper name, config key, or dataclass field
-> MUST grep the live source-of-truth at authoring time and cite it with
-> `file:line`. The grep is the discipline; the citation is the binding
-> artifact. A one-character defect in a widely-inherited template is worth a
-> binding rule precisely because it is never escalated — each consumer fixes
-> it locally and the true cost (paid N times) stays invisible.
+> A template, brief, or reference doc that names an environment variable, function signature, file path, helper name, config key, or dataclass field MUST Grep the live source-of-truth at authoring time and cite it with `file:line`. The search is the discipline, and the citation is the binding artifact.
 >
-> WRONG — paste an env-var name from memory into a template that N notebooks
-> will inherit.
+> WRONG — paste an env-var name from memory into a template that N notebooks will inherit.
 >
-> CORRECT:
-> ```bash
-> grep -nE "os\.environ\.get\(.\w+_SQL_\w+.\)" {connection_helper}
-> ```
-> — the set of names the grep returns IS the canonical list; the template
-> cites exactly that set with its `file:line`.
+> CORRECT — run `Grep pattern='os\.environ\.get\(.\w+_SQL_\w+.\)' path='{connection_helper}'`. The set of names it returns IS the canonical list, and the template cites exactly that set with its `file:line`.
 
 ### 9.B.15 Open a cited generator script during scaffolding and classify its architecture
 
 > [!constraint] Open a cited generator script and classify it as parser, static-data, or config-loader before encoding "re-run it"
-> When a brief says "re-run X to refresh Y", the planner MUST open X and
-> determine whether it READS the upstream dynamically (parser), CONTAINS a
-> snapshot of it (static-data), or LOADS it from config (config-loader) —
-> encode the answer in the brief. If X contains a snapshot, the task is NOT a
-> re-run; it is "edit X" or "write a sibling that emits a delta". If X is a
-> parser, confirm the parsing logic actually keys on the structures the
-> upstream added. For a multi-session pipeline with one canonical generated
-> artifact, settle the generator's architecture in the Master Plan.
+> When a brief says "re-run X to refresh Y", determine whether X READS the upstream dynamically (parser), CONTAINS a snapshot of it (static-data), or LOADS it from config (config-loader). If X is a parser, confirm its logic keys on the structures the upstream added. For a multi-session pipeline with one canonical generated artifact, settle the generator's architecture in the Master Plan.
 >
-> WRONG:
-> ```markdown
-> Step 4: re-run build_matrix.py to pick up the new rows.
-> ```
+> WRONG — `Step 4: re-run build_matrix.py to pick up the new rows.`
 >
-> CORRECT:
-> ```markdown
-> Step 4: build_matrix.py is STATIC DATA (hardcoded baseline, not a parser) —
-> re-running it is a no-op. Author a sibling parser that reads the new blocks
-> and emits the delta.
-> ```
+> CORRECT — `Step 4: build_matrix.py is STATIC DATA, so re-running it is a no-op. Author a sibling parser that reads the new blocks and emits the delta.`
 
 ### 9.B.16 Probe the live service before authoring against its shape
 
 > [!constraint] Probe the live service before authoring code, queries, or iteration structure bound to it
-> When a task authors code, queries, or iteration structure bound to an
-> external service, the design artifact's claims about that service are
-> hypotheses, not specifications — the service is the authority, and drift
-> accumulates fastest here because nothing in the repository moves when the
-> service does. Before authoring: (1) call the target endpoint with a
-> representative request and record status code + response container shape +
-> error body; (2) record the exact request shape that worked, including which
-> parameters the endpoint rejects; (3) record the endpoint's cardinality (what
-> granularity it accepts) — field-level reconciliation cannot surface a
-> rejected-parameter or wrong-granularity defect; (4) reconcile against the
-> design artifact — where they disagree, the live shape wins, and the
-> divergence is recorded in Recovery for back-propagation. Applies when a
-> design phase preceded execution by more than a couple of weeks AND the task
-> binds to an external service.
+> The service is the authority, and the design artifact's claims about it are hypotheses. Applies when a design phase preceded execution by more than a couple of weeks AND the task binds to an external service. Before authoring:
+> 1. Call the target endpoint with a representative request. Record status code, response container shape and error body.
+> 2. Record the exact request shape that worked, including which parameters the endpoint rejects.
+> 3. Record the endpoint's cardinality (what granularity it accepts). Field-level reconciliation cannot surface these defects.
+> 4. Reconcile against the design artifact. The live shape wins, and Recovery records the divergence for back-propagation.
 >
-> WRONG — author an iteration loop and dual-target write template straight
-> from the spec; the endpoint rejects the per-item filter the spec assumed.
+> WRONG — author an iteration loop straight from the spec, and the endpoint rejects the per-item filter the spec assumed.
 >
-> CORRECT — probe first (period-scoped request succeeds; per-item-filtered
-> request 4xx); confirm the schema is one table with a discriminator, not two;
-> author two loops, one write template, one upsert closure.
+> CORRECT — probe first (period-scoped request succeeds, per-item-filtered request 4xx), then author against the observed shape.
 
 ### 9.B.17 A canonical helper's signature is a claim about shape, not a guarantee
 
 > [!constraint] Verify a canonical helper's signature assumption against the actual producer per task; a genuine mismatch earns a purpose-built helper, not a forced workaround
-> When a plan standardizes on a shared helper, its signature encodes an
-> assumption about the shape of what it receives. Verify the assumption per
-> task against the actual producer. When the canonical helper genuinely cannot
-> take a producer's shape, the purpose-built helper is the correct answer, not
-> a workaround — forcing conformance just moves the divergence somewhere less
-> visible. Three obligations on divergence: (1) verify the incompatibility by
-> reading the producer's actual output shape, don't assume it; (2) record the
-> divergence in Recovery, naming which property forced it; (3) flag it for
-> cross-artifact review so a reviewer sees a justified exception, not an
-> unexplained inconsistency. Target constraints (e.g. a uniqueness constraint
-> forbidding identical per-batch stamps) are part of the shape too.
+> A shared helper's signature encodes an assumption about the shape it receives. Target constraints (e.g. a uniqueness constraint forbidding identical per-batch stamps) are part of the shape too.
+>
+> WRONG — force the producer through the canonical helper because the plan standardized on it. The divergence moves somewhere less visible.
+>
+> CORRECT — read the producer's actual output shape to verify the incompatibility, write the purpose-built helper, record in Recovery which property forced it, and flag it for cross-artifact review.
 
 ### 9.B.18 A rule/reference-file edit triggers closeout re-verification of open plans citing it
 
-> [!constraint] Any change that edits a file cited by plans MUST run a closeout back-propagation grep, with a non-negotiable COMPLETE-is-archival carve-out
-> Add to the change-closeout flow: any change which edits a file cited by
-> plans runs, at closeout:
-> ```bash
-> # For each file the change touched:
-> grep -rl "{changed_file_basename}" {plans_dir}/ {backlog_dir}/
-> # For every hit whose plan Status is PLANNED / READY_TO_EXECUTE / IN_PROGRESS,
-> # re-run verify-before-cite on that plan's citations of that file.
-> # Plans with Status COMPLETE are ARCHIVAL -- do NOT rewrite them.
+> [!constraint] Any change that edits a file cited by plans MUST run a closeout back-propagation search, with a non-negotiable COMPLETE-is-archival carve-out
+> At closeout, run `scripts/change_closeout.py` for each changed file. Back-propagation targets every status that is not finished, and it stops at `COMPLETE`. A plan whose Status is COMPLETE is ARCHIVAL — do NOT rewrite it. Its brief is a record of what the runner was told, and rewriting it destroys the audit trail.
+>
+> WRONG — bring a COMPLETE plan's brief up to date with the edited file.
+>
+> CORRECT — re-run verify-before-cite on the citations of every hit the script lists:
 > ```
-> State the COMPLETE-is-archival carve-out explicitly and non-negotiably: a
-> plan whose Status is COMPLETE is ARCHIVAL — do NOT rewrite it. A completed
-> plan's brief is a record of what the runner was told; rewriting it to match
-> current reality destroys the audit trail and makes the plan's own outputs
-> unexplainable. This is the non-obvious half — an implementer of only the
-> grep will get it wrong in the safe-looking direction. Back-propagation
-> targets `PLANNED`, `READY_TO_EXECUTE`, and `IN_PROGRESS`; it stops at
-> `COMPLETE`.
+> python "{plugin_root}/scripts/change_closeout.py" --changed {changed_file_basename} --plans {plans_dir} --backlog {backlog_dir}
+> ```
 
 ### 9.B.19 Cite by contract, not by condition
 
 > [!practice] A brief should assert invariants, not the current state of someone else's file
-> A brief that says "rule X is broken, don't trust it" is a claim about a
-> mutable external file and rots the moment the file is fixed. A brief that
-> says "an `.ipynb` is JSON, so never anchor a grep with `^`" states the
-> underlying invariant and never rots.
+> WRONG — "rule X is broken, don't trust it": a claim about a mutable external file, which rots the moment the file is fixed.
 >
-> WRONG — "rule X is broken, don't trust it": a claim about someone else's
-> file's current, mutable state.
->
-> CORRECT — "an `.ipynb` is JSON, so never anchor a grep with `^`": states the
-> underlying invariant; never rots regardless of what the cited file does
-> next.
+> CORRECT — "an `.ipynb` is JSON, so never anchor a grep with `^`": states the underlying invariant, which never rots.
 
 ### 9.B.20 Citing the current state of a file requires recording which tree and when
 
-> [!constraint] A task that cites the current state of a file must record which tree it read and when
-> Verify-before-cite proves a citation is accurate *now*; it does not by itself record *which tree* "now" was read against, or pin that tree's state so the claim can be reproduced. When a task's deliverable is itself a verdict about code state — not just a citation used in passing — see [verify-backlog-citation-freshness.md](verify-backlog-citation-freshness.md) §12 (Verification Task Tree-State Pin) for the tree-naming and read-window-pinning discipline this triggers.
+A task that cites the current state of a file must record which tree it read and when: see [verify-backlog-citation-freshness.md](verify-backlog-citation-freshness.md) §12 (Verification Task Tree-State Pin).
 
 ### 9.B.21 A target's structure is verified in that file, never generalised from its siblings
 
 > [!constraint] "In native format" / "matching the existing" names a structure that MUST be proven to exist in the NAMED target
-> An edit instruction phrased as *"a {row} in native format"*, *"matching the existing"*, *"verbatim, as the other {N} files carry it"*, or naming a section of the target, generalises a structure observed across a **family** of files onto **one** file that may not have it. The generalisation is invisible at review: the instruction reads as a precise citation, and the family really does carry the structure — just not in the named target.
+> [verify-anchor-against-artifact.md](verify-anchor-against-artifact.md) §1 holds the rule: verify a named landing zone exists in the live artifact before briefing work into it. This section adds the row form.
 >
-> The runner is then left with two options, and both fail silently. It can invent the missing structure — unscoped work on a file the task was never chartered to restructure. Or it can land something that cannot satisfy its own success criterion, because that criterion is measured against a shape the target does not have.
+> A phrase like *"a {row} in native format"*, *"matching the existing"*, *"verbatim, as the other {N} files carry it"*, or a named section of the target, generalises a structure seen across a **family** of files onto **one** file that may not have it. The runner then invents the structure, which is unscoped work, or lands something that cannot satisfy its own success criterion. Before such a row ships, run a locator against **that file** and record the result in the row. A count of 0 does not block the row. It changes what the row must say.
 >
-> Before such a row ships, run a locator against **that file** and record the result in the row:
+> WRONG — `| {row-id} | Add a Required-References row in native format | {target-handler}.md |`, when the named file has no such section.
+>
+> CORRECT — the locator result sits in the row, and the row states the form:
+> ```markdown
+> <!-- Verified {YYYY-MM-DD}: Grep '^## Required References' {target-handler}.md → 0 (present in {M} of {N} handlers) -->
+> | {row-id} | Section absent — add the text as an INLINE note above `## {Existing Section}`. Creating the section is NOT in scope. | {target-handler}.md |
 > ```
-> Grep  pattern='^## {Section Name}'  path='{path/to/named-target.md}'  output_mode='count'
-> ```
-> A count of 0 does not block the row. It changes what the row must say.
 
 **Where the structure is absent, the row states the fallback form.** A row whose target lacks the structure MUST name the form to use — an inline note, or a new section — rather than leaving the runner to choose. When creating the section is genuinely intended, that is its own named deliverable with its own scope and its own success criterion, never a side effect of a citation row.
 
-A second trap rides along with the first: **copyable text whose structural home does not exist**. Where the "verbatim" text a row calls for lives, in every file that has it, *inside* the missing section, the text is copyable but its position is not. A row that says "verbatim" while its positional phrasing describes an inline note ("near the {stage} audit") is specifying two different edits in one sentence. One runner reads it as a row, another as a note, and sibling rows across two targets produce structurally non-comparable output. State the form first, then the text.
+**Copyable text can lack a structural home.** Where the "verbatim" text a row calls for lives *inside* the missing section, the text is copyable but its position is not. State the form first, then the text.
 
-> [!constraint] Prove the structure in the named file, then state the form
-> WRONG — the row generalises from the family, and its success criterion cannot be met in the target:
-> ```markdown
-> | {row-id} | Add a Required-References row in native format | {target-handler}.md |
-> ```
-> The named file has no such section, so "in native format" has no local referent — and the criterion "byte-identical to the {N} existing files' note text" is measured against a shape the target lacks.
->
-> CORRECT — the locator is run against the named file, its result sits in the row, and the row states the form the absence implies:
-> ```markdown
-> <!-- Verified {YYYY-MM-DD}: Grep '^## Required References' {target-handler}.md → 0
->      (present in {M} of {N} handlers; absent here) -->
-> | {row-id} | Section absent in this target — add the base-references text as an INLINE note directly above `## {Existing Section}` (:{line}). Creating a `## Required References` section here is explicitly NOT in scope. | {target-handler}.md |
-> ```
-
-The generalisation is worth naming as a distinct failure because a plan can state the discipline and violate it on the same page. A sprint whose binding method is *"'every file needs X' generalisations are the over-reach this method exists to prevent"* will still ship such a row a few lines later, because nothing mechanical checks the premise — the prohibition is prose, and the row looks like a citation.
+The zone mode of `scripts/check_section_citations.py` (`--zone {target} --brief {file}`) reports a row with no locator result or no fallback form. It is a heuristic report and does not replace Check 085.
 
 #### Reviewer Check 085 — Target Structure Proven in the Named File
 
 - **Severity / Role / Type:** ERROR | Structural Reviewer | NEW
 - **What:** Any row or instruction specifying an edit "in native format", "matching the existing", "verbatim as the other {N} carry", or naming a section of its target, MUST carry a locator result measured against the **named target** — not its siblings. Where the locator returns 0, the row MUST state the fallback form.
-- **Detection:**
+- **Detection:** The zone mode of `scripts/check_section_citations.py` covers steps 1 to 3 in part, as a heuristic report. Step 4 needs a reader.
   1. Grep plan rows and task Execution Steps for `native format|matching the existing|verbatim as|the existing \w+ carry` and for rows naming a `^##`/`^###` section of a named target file.
   2. For each hit, run the locator against the named target and compare with the row's recorded evidence. No recorded evidence → ERROR.
   3. Where the live locator returns 0 and the row does not state a fallback form (inline note vs. new section) → ERROR.
@@ -779,19 +458,10 @@ Fix: Run the locator against the named target and state the fallback form per re
 ### 9.B.22 An exemplar's data claims expire independently of its shape
 
 > [!constraint] An exemplar is a shape plus a set of data claims. Judge each against its own source
-> An exemplar is a shape (section order, table columns, wording conventions) and a set of data claims (this key, these neighbours, this consumer exists). The shape is stable. Each data claim is a reading of a live source at one moment. It expires when that source moves, silently, without touching the exemplar file.
-
-A hand-written consumer plan was the exemplar for a regeneration comparison. It said key `<K>` goes "after `<N1>`" in `<file>`. The brief carried that neighbour as the expected placement, with the instruction "a different placement is a finding, not a fixture to adjust". The tool placed the key between `<N1>` and `<N2>`. The runner diffed the two answers and, before recording a finding against the tool, read the live inventory file. It had gained four `<prefix>_*` rows since the exemplar was written the previous day. The tool was right.
-
-A second divergence had the same shape from the other side. The exemplar prescribed a local edit to a file, and the tool's JSON input marked that path `exists: false`, so the tool rendered it external. The exemplar's premise and the JSON entry disagreed, and the brief did not say which one the tool answers to.
-
-> [!constraint] On a data divergence, re-read the source the exemplar read, then classify
-> WRONG — treat every exemplar line as the expected value and every divergence as a tool defect:
-> ```
-> Expected: after `<N1>`     (exemplar, written <date>)
-> Observed: between `<N1>` and `<N2>`
-> -> record finding against the tool
-> ```
+> The shape (section order, table columns, wording) is stable. Each data claim (this key, these neighbours, this consumer exists) is a reading of a live source at one moment, and it expires silently when that source moves. Applies to any regenerate-against-exemplar task (a hand-written report, a golden file, a reference render).
+>
+> WRONG — treat every exemplar line as the expected value and every divergence as a tool defect.
+>
 > CORRECT — re-read the live source, then classify:
 > ```
 > Expected: after `<N1>`     (exemplar, written <date>)
@@ -800,22 +470,17 @@ A second divergence had the same shape from the other side. The exemplar prescri
 > -> verdict: live-file drift; tool correct; exemplar claim expired
 > ```
 
-- **Split the comparison table by claim kind.** Judge shape rows against the exemplar: a heading is present, a table has these columns, a "needs a human" line exists. Judge data rows against the live source, with the exemplar as the prior reading: a key's neighbours, a consumer's existence.
-- **Date the exemplar's data claims and expect the shortest-lived to be wrong first.** A sorted inventory that receives rows on every build changes between any two runs. State the condition next to the claim, as a cost claim states its authoring-time condition.
-- **Name the tiebreaker before dispatch where two authoritative inputs disagree.** Otherwise a runner either silently "fixes" the wrong side or files a finding against correct code. A runner that cannot settle it records both readings and routes the question.
+- **Split the comparison table by claim kind.** Judge shape rows against the exemplar. Judge data rows against the live source, with the exemplar as the prior reading.
+- **Date the exemplar's data claims and expect the shortest-lived to be wrong first.** State the condition next to the claim.
+- **Name the tiebreaker before dispatch where two authoritative inputs disagree.** A runner that cannot settle it records both readings and routes the question.
 
-Applies to any regenerate-against-exemplar task (a hand-written report, a golden file, a reference render). It applies to any comparison that runs more than one build, one day or one data refresh after the exemplar was written. Any briefing that says "a different result is a finding" should add "after re-reading the live source".
+Any briefing that says "a different result is a finding" should add "after re-reading the live source".
 
 ### 9.B.23 Before retiring a guard, find in code the mechanism that removed its hazard
 
 > [!constraint] A guard's rationale for retirement is a claim about a mechanism. Verify the mechanism in code, not in the decision that asserts it
-> A decision table records what its author believed at planning time. The code records what happens. When a guard names two hazards, check each one separately. Retiring a compound guard on the strength of one half is the common failure. This extends §9.B.11 ("Locate the mechanism before editing it") from editing a workaround to retiring a protection.
-
-An agent definition carried a guard: "Never dispatch two of these agents concurrently… race on the index file and on `--next-id`." A decision retired it. Its rationale said the index was now regenerated, regeneration is idempotent, and "`--next-id` derives from live files rather than a contested row append". Three task files, a success criterion and an exit criterion were written from that sentence.
-
-The runner assigned to remove the guard traced `--next-id` first. The id collector reads the generated hub, its overflow leaves and the archive shards. It never reads an item file. Those files change only when the generator runs with `--write`. So two concurrent dispatches still receive the same next id. Half the hazard was gone (the index-file race) and half was alive (the id race). The brief would have shipped a false safety claim ("concurrent dispatch is now safe") into a shipped agent.
-
-> [!constraint] Trace each hazard the guard names, and keep what survives with its reason
+> A decision table records what its author believed at planning time. The code records what happens. When a guard names two hazards, check each one separately. This extends §9.B.11 ("Locate the mechanism before editing it") from editing a workaround to retiring a protection. **Applies to** any concurrency guard, lock, ordering constraint or "never do X" rule that a redesign supposedly made unnecessary.
+>
 > WRONG — retire the guard because the decision says the race is gone:
 > ```
 > <decision>: "--next-id derives from live files" -> delete "Never dispatch two" -> state "concurrent dispatch is safe"
@@ -828,10 +493,139 @@ The runner assigned to remove the guard traced `--next-id` first. The id collect
 
 Two checks apply before a guard is removed.
 
-1. **Name the code path that now makes the hazard impossible, and open it.** "Regeneration is idempotent" removed the index-file race. Nothing removed the id race, and the claimed mechanism ("derives from live files") did not exist.
-2. **Keep the surviving half with its real reason, and state when it can retire.** The agent now says the guard exists only for the id race. It says the guard can go once id allocation stops depending on the regenerated index. A future reader can then retire it correctly instead of guessing.
+1. **Name the code path that now makes the hazard impossible, and open it.**
+2. **Keep the surviving half with its real reason, and state when it can retire.**
 
-**Applies to** any concurrency guard, lock, ordering constraint or "never do X" rule being removed because a redesign supposedly made it unnecessary. A false rationale here removes protection rather than failing a gate. That is why the severity is higher than for a stale count.
+### 9.B.24 A live-tree figure is a census row, re-measured at Session Start
+
+> [!constraint] A figure about the live tree is a claim about one tree at one moment. Record where it was read, and re-derive it at dispatch
+> WRONG — a task gate pins a scaffold measurement (a file count, a split point, a line-ending assumption) as a bare literal: `# expect 104`.
+>
+> CORRECT — the gate takes the census row's value: `# pre-edit: 104 (references/*.md at <sha>, <date>) -> expect {census:ref_count}`.
+
+1. **Every such figure is one census row.** The row holds the scaffold value, artifact, commit, date, a runnable re-measure command and an on-drift mode. The rows live in the orchestration file's Session Start Census.
+2. **The orchestrator re-measures, and the runner never reads Recovery.** Before the first dispatch the orchestrator runs each row's command at the session base, records it in Recovery, and injects the value into each spawn prompt's `Census:` line. This applies the shared-pin injection rule (`agent-orchestration-delegated.md` §1.6) to figures other than a commit SHA.
+3. **The on-drift mode splits two cases.** A `substitute` row takes the session-base value, because the figure only parameterizes a check. A `halt` row surfaces a structural finding at CONFIRM, because the figure decides a task's Output paths or a layer's write-target intersection.
+
+The generic pin rule is in `measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md` §8.11.
+
+### 9.B.25 A planner-authored citation is opened in the named file before it ships
+
+> [!constraint] A citation from an audit or from memory is verified like a user-cited one
+> §9.B.1 verifies the artifacts a user cites. A planner or an audit cites too: a test name, an `except` clause, a helper, a rule file's size. Each is a claim about one named file at one moment. A path Glob proves none of them.
+>
+> WRONG — cite from the audit's wording after the path check passed:
+> ```
+> Step: "update test_upgrade_messages in tests/test_upgrade.py"  # the test lives in tests/test_upgrade_flow.py
+> Step: "change `except ValueError as exc:`"  # live code: `except (ValueError, TypeError, AttributeError): return None`
+> Context: "reuse make_fixture from tests/helpers.py"  # defined in tests/fixtures_util.py
+> Context: "rules/foo.md, about 4K tokens"  # measured 12K tokens
+> ```
+> CORRECT — open the named file and write the reading beside the citation:
+> ```
+> Read  file_path='tests/test_upgrade.py'  offset=<cited line>  limit=20
+> Grep  pattern='def test_upgrade_messages'  path='tests/test_upgrade.py'  output_mode='count'  # 0 -> wrong module; find the real home first
+> Grep  pattern='except \(ValueError'  path='<module>.py'  output_mode='content'  -n=true  # quote the live clause, not the paraphrase
+> python -B scripts/measure_files.py rules/foo.md  # fresh size, not the audit's
+> ```
+
+1. **Open the named file at the cited line.** Treat the line number as a hint and read the text around it.
+2. **Search each cited symbol, test name and quoted code line inside that file, never repo-wide.** A symbol found only in a sibling file is a wrong citation, not a pass.
+3. **Take a fresh size reading for each cited rule file.** Use `measure_files.py` or `wc -c`. The method is in [task-content-fidelity.md](task-content-fidelity.md) §9.A.14.
+4. **Quote the live clause.** Copy the exact `except` clause, signature or heading from the file, so the step cannot narrow or widen it by paraphrase.
+
+### 9.B.26 A documentation check on an inherited parameter changes the signature, not only the audit value
+
+> [!constraint] A verify-before-send rule answers what goes on the wire. The brief must also answer what the signature promises
+> A brief that changes only the audit value produces public methods that accept `{filter}="x"` and silently ignore it, while the audit row truthfully records `None`.
+>
+> WRONG — the brief changes the audit value and leaves the signature spec alone:
+> ```text
+> if a flag is not documented there, do not send it, record the audit value as False/None,
+> and say so in the findings
+> ```
+> CORRECT — the brief names one of two signature outcomes, and the audit column records what was sent:
+> ```text
+> if a parameter is not documented there, do not send it. Signature outcome: {remove it from the
+> signature spec | keep it for parity with {sibling} and raise on a non-default value}.
+> The audit column records what was sent.
+> ```
+
+1. **Treat "undocumented" as a signature finding.** When the documentation check says the endpoint does not take a parameter, the brief changes the signature spec.
+2. **Name one of two outcomes.** If the endpoint does not take the parameter, it is not a parameter, so the brief removes it from the signature spec. If the parameter must stay for parity with a sibling, the brief requires that a non-default value raise an error.
+3. **Record what was sent in the audit column.**
+4. **Read two mechanical tells as proof the wrong shape landed.** The type checker reports `"<param>" is not accessed` on a public method's parameter. A test passes a non-default value and asserts its absence on the wire.
+
+#### Reviewer Check 118 — Documentation Check on an Inherited Parameter With No Signature Outcome
+
+- **Severity / Role / Type:** ERROR | Task Reviewer | NEW
+- **What:** A brief that sends an inherited parameter only when the endpoint's reference document lists it MUST also state the signature outcome for the unlisted case. The outcome is either removal from the signature spec or a raise on a non-default value. A brief that only records `False` or `None` as the audit value leaves a silently ignored public parameter.
+- **Detection:** Search task briefs and Execution Steps for a rule shaped "send only if documented", "if it is not listed, do not send it" or "record the audit value as False/None". For each hit, read the same brief for a signature outcome. Flag a brief with neither a removal from the signature spec nor a raise on a non-default value. Flag a public parameter the brief leaves unread by the method body. → ERROR.
+- **Finding template:**
+```
+[ERROR] Inherited-parameter documentation check with no signature outcome
+File: {task file path} | Location: {Execution Step or Notes for Agent line}
+Issue: The brief sends "{parameter}" only when the endpoint document lists it and records {False/None} otherwise, but it states no signature outcome, so the public method accepts and ignores the parameter
+Fix: State one outcome, either remove "{parameter}" from the signature spec or raise on a non-default value, per references/verify-before-cite.md §9.B.26 | Confidence: HIGH
+```
+
+### 9.B.27 A brief's claim about an external source's coverage is checked against the probe document it cites
+
+> [!constraint] A coverage claim in a brief is checked against the probe document, never written from memory
+> WRONG — coverage asserted from memory beside a probe document that states the rule:
+> ```text
+> Required Context: {probe document}
+> Note: the source begins listing on {date}. Before that the listing may return 0 entries.
+> ```
+> CORRECT — the rule is quoted from the document, with the probe date:
+> ```text
+> Required Context: {probe document}
+> Source coverage ({probe document}, probed {date}): {the rule, quoted}.
+> ```
+
+1. **Open the cited probe document at scaffold time.** A date, a coverage window or a "may return nothing" caveat about an external source is a claim about that document.
+2. **Quote the rule and record the probe date.**
+3. **Reconcile every sentence about the source.** When the brief and the document disagree, the document wins until a fresh probe says otherwise. Correct the brief at its source.
+4. **Pair the claim with a criterion that names every cell.** A criterion over the source's listing follows [gate-anchor-outcome-set.md](gate-anchor-outcome-set.md) §10.12.
+
+### 9.B.28 Every numeric literal in a brief is measured on its quoted command, or tagged UNVERIFIED
+
+> [!constraint] A number or a comparison in Execution Steps or Notes is a claim. Measure it on the command the brief quotes
+> §9.B.1 and §9.B.25 verify names and citations. A brief also carries numbers: doctest values, tolerances, expected counts, count anchors, and inequalities that justify a type, width, precision or range.
+>
+> WRONG — carry the design record's figures and arithmetic into the brief unrun:
+> ```text
+> Step: doctest round(p["home"] + p["away"], 10) -> 1.0, test tolerance 1e-12   # the grid truncates at 10 goals, the sum is 0.99965
+> Verify: pytest tests/adapters -q, baseline 20 passed, expect 39 passed         # the directory holds 269 cases, the author counted two modules
+> Note: BIGINT is needed because 2025030416 exceeds the INT ceiling 2147483647   # false, 2025030416 is below 2147483647
+> ```
+> CORRECT — run each literal on its quoted command and write the reading beside it:
+> ```text
+> Step: doctest value 0.99965 (measured on the quoted call, {date}). The grid truncates, so renormalise the split or waive the identity in writing
+> Verify: pytest tests/adapters -q -> baseline 20 passed, 269 collected ({date}). Expect 269 passed
+> Note: python -c "print(2025030416 > 2147483647)" -> False. BIGINT is kept for head-room
+> ```
+
+1. **Measure each literal on the exact command quoted.** One execution at scaffold time is enough. A literal with no reading carries `UNVERIFIED — {source}, {date}`. A figure measured on a different command counts as unmeasured.
+2. **Re-execute every inequality that justifies a type, width, precision or range.** A false reason does not reverse a right decision, so fix the sentence and keep the type.
+3. **Treat a truncation-sensitive identity as a design decision.** A sum-to-one over a cut-off series either renormalises or is waived in writing. A tolerance chosen to make the test pass does neither.
+4. **Name what a count anchor counted.** Name the exact modules, or quote a dated measurement of the quoted directory command with its baseline and its delta.
+5. **Assert the property the code must have, not the document's derivation of it.**
+6. **Route a correction, never absorb it.** A literal that only parameterises a check runs with the measured value and a `FLAG:` bullet naming the literal, the value and the command. A literal that encodes a design property is a `BRIEF COLLISION`. The task runner never widens a tolerance or re-pins a doctest alone. The rule sits in the task runner's "Decisions Beyond Your Brief" section.
+7. **Run each count anchor's Before command once at review.** The review discovery pass executes it, limited to read-only command classes. It lists any other command as unmeasured. The plan reviewer compares the literal with the executed value.
+
+#### Reviewer Check 128 — Numeric Literal Unmeasured, or Count Anchor Disagrees With Its Before Command
+
+- **Severity / Role / Type:** ERROR | Verification-Gate Reviewer | NEW
+- **What:** A numeric literal in Execution Steps or Notes MUST carry a reading from the command the brief quotes, or an `UNVERIFIED — {source}, {date}` tag. A count anchor MUST equal the review discovery fact sheet's executed value for the same Before command.
+- **Detection:** Compare each count anchor with the fact sheet's `count_anchor` row for the same command. A mismatch is an ERROR. Read each doctest value, tolerance, expected count and type-justifying inequality for a measured reading or an UNVERIFIED tag with source and date. A literal with neither is a WARNING, and an inequality that evaluates false is an ERROR. A command the fact sheet lists as unmeasured is a WARNING, never a pass.
+- **Finding template:**
+```
+[ERROR] Numeric literal disagrees with its quoted command
+File: {task file path} | Location: {Execution Step, Verification Command or Notes for Agent line}
+Issue: The brief states {literal} for `{command}`, but the review discovery fact sheet executed that command and measured {value}
+Fix: Replace the literal with the measured value and its date, or tag it UNVERIFIED with source and date, per references/verify-before-cite.md §9.B.28 | Confidence: HIGH
+```
 
 ---
 
@@ -847,6 +641,11 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 | 4 | Vacuous column-presence check | A task says "verify column X is in INSERT/UPDATE" against an upsert helper that uses dynamic column mapping | §9.B.4 |
 | 5 | Missing Schema Pin OR Pre-SQL Schema Verification on SQL-emitting task | A task file's Execution Steps include SQL-emitting verbs against project tables AND the file has neither a Schema Pin section nor a `Pre-SQL Schema Verification` block in Notes for Agent | §9.B.5 |
 | 6 | Target structure assumed from siblings | A row specifying an edit "in native format" / "matching the existing" / naming a section of its target carries no locator evidence measured against that target; or the live locator returns 0 and the row states no fallback form | §9.B.21 |
+| 7 | Live-tree figure pinned as a literal | A task gate or step asserts a file count, split boundary, scan-set size, line number or line-ending tally as a bare literal, with no census row naming its artifact, commit and date | §9.B.24 |
+| 8 | Planner-authored citation not opened in the named file | A task cites a test, symbol, quoted code line or rule-file size taken from a planner or an audit, and the row records no reading from the named file (a symbol found only in a sibling file, or a size not freshly measured) | §9.B.25 |
+| 9 | Documentation check on an inherited parameter states no signature outcome | A brief sends an inherited parameter only when the endpoint document lists it, records `False` or `None` otherwise, and neither removes the parameter from the signature spec nor raises on a non-default value | §9.B.26 |
+| 10 | Coverage claim about an external source not checked against the probe document | A brief states a date, a coverage window or a "may return nothing" caveat for an external source, and its row quotes no rule from the probe document the brief cites | §9.B.27 |
+| 11 | Numeric literal unmeasured, or count anchor disagrees with its Before command | A brief states a doctest value, tolerance, expected count, count anchor or type-justifying inequality with no reading from its quoted command and no UNVERIFIED tag, or a count anchor differs from the executed value | §9.B.28 |
 
 ---
 

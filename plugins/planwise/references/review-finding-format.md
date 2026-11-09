@@ -11,7 +11,9 @@ consult-when: Authoring/running a reviewer agent — shared Finding Report Forma
 
 ## Startup (BINDING — Required First Action)
 
-When spawned with a `name`, you MUST report via `SendMessage` to `main`. `SendMessage` is a deferred tool — its schema is not in your context at startup, and any attempt to call it without loading the schema first raises `InputValidationError` and drops your output on the floor.
+The delivery channel depends on your spawn prompt. The Team-path templates tell you to report by `SendMessage` to `main`. The No-Team templates pass no `name` and say nothing about `SendMessage`.
+
+**Team mode.** When your spawn prompt tells you to report by `SendMessage` to `main`, you MUST report that way. `SendMessage` is a deferred tool — its schema is not in your context at startup, and any attempt to call it without loading the schema first raises `InputValidationError` and drops your output on the floor.
 
 Before reading any file, issue this exact call as your first action:
 
@@ -19,12 +21,14 @@ Before reading any file, issue this exact call as your first action:
 ToolSearch(query: "select:SendMessage", max_results: 1)
 ```
 
-Only after the `<functions>` block for `SendMessage` appears in the tool result may you begin reading files and reporting. If you are spawned without a name, this call is harmless — proceed identically.
+Only after the `<functions>` block for `SendMessage` appears in the tool result may you begin reading files and reporting.
+
+**No-Team mode.** When your spawn prompt does not tell you to report by `SendMessage`, nothing consumes a message from you. Do not issue the `ToolSearch` call. Never call `SendMessage`. Work the whole checklist in one pass, and never end a turn on a forward-looking sentence. Deliver every finding in your final response.
 
 **Reporting-cadence adaptation.** No wording is byte-identical across all three citing agents on this point, so the delta is preserved explicitly rather than dropped:
 
-- **multi-finding agents** (`plan-reviewer`, `structural-reviewer`): report each finding separately via `SendMessage` as you find it. A missed `ToolSearch` call drops your entire review on the floor.
-- **single-verdict agents** (`rule-comparator`): return exactly one verdict via `SendMessage` at the end of your comparison, not per-finding reports. A missed `ToolSearch` call drops your verdict on the floor.
+- **multi-finding agents** (`plan-reviewer`, `structural-reviewer`): in team mode, report each finding separately via `SendMessage` as you find it. A missed `ToolSearch` call drops your entire review on the floor. In No-Team mode, list every finding in your final response in the Finding Report Format.
+- **single-verdict agents** (`rule-comparator`): in team mode, return exactly one verdict via `SendMessage` at the end of your comparison, not per-finding reports. A missed `ToolSearch` call drops your verdict on the floor. In No-Team mode, return that one verdict in your final response.
 
 ---
 

@@ -166,6 +166,7 @@ def _resolve_rows(lessons_dir: Path, archive_dir: Path, rows: list, refusals: li
     by_id: dict = {}
     for lesson_id, path in parse_lessons.lesson_files(lessons_dir, archive_dir):
         by_id.setdefault(lesson_id, []).append(path)
+    unreadable = None
     resolved = {}
     for row in rows:
         if row.malformed or row.id == -1:
@@ -176,6 +177,11 @@ def _resolve_rows(lessons_dir: Path, archive_dir: Path, rows: list, refusals: li
         if len(matches) != 1:
             detail = (f"lesson id {format_id(row.id)} (Master Table line {row.line}) resolves to "
                       f"{len(matches)} file(s) under the lessons directory and Archive/; expected exactly one")
+            if not matches:
+                if unreadable is None:
+                    unreadable = parse_lessons.unreadable_lesson_files(lessons_dir, archive_dir)
+                detail += "".join(f". {parse_lessons.describe_unreadable(path)}"
+                                  for lesson_id, path in unreadable if lesson_id == row.id)
             if not matches and unresolved is not None:
                 unresolved.append((row, detail))
             else:

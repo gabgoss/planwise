@@ -63,6 +63,10 @@ The shell line under Routing renders the `list` answer before you run. Check rul
 4. **Reconcile on consent.** The writer is `reconcile_plans.py --write`, and it regenerates the whole plans index. Run it only after the user agrees. A permission prompt on this path is acceptable. [handlers/list.md](../../handlers/list.md) gives the exit-code meanings.
 5. **Typed flags.** If the `ARGUMENTS:` line holds `--active` or `--no-check`, ignore any injected block. The shell line passes only the subcommand, so that block is unfiltered and always checked. Take the one-call route of rule 3 with those flags.
 
+## Plan
+
+If a `<!-- planwise:plan:begin -->` block above carries a `NEXT:` line, the plan handler's Config Gate takes every field from the block, and the default path follows the NEXT commands. A `PLANWISE_PLAN_FALLBACK:` line keeps the handler's steps 1-2.
+
 ## Upgrade
 
 If a `<!-- planwise:upgrade:begin -->` block appears above, follow its NEXT block exactly and read nothing else.
@@ -88,13 +92,16 @@ Available subcommands:
                                stale/diverged rules, orphaned agent mirrors, index drift,
                                feedback capability, upgrade leftovers, and (Token Saver)
                                overhead staleness, read-gate scan, read-limit drift
+  doctor --verbose             Also list each acknowledged over-scoped rule and its reason
   doctor --prune-stale         Delete stale de-scoped rules flagged REMOVABLE (writer; opt-in)
   doctor --prune-upgrade-leftovers  Delete past-upgrade backups and caches flagged prunable (writer; opt-in)
   doctor --create-feedback-dir Create the missing feedback drafts directory (writer; opt-in)
   token-saver on|off|status    Toggle Token Saver mode anytime (--plan to override one plan)
-  backlog [item-id] [--loop-resume <run-id>] [--answer]  Triage backlog items; capture follow-up BLIs from resolution outputs
+  backlog [item-id] [--loop-resume <run-id>] [--answer] [--refine-max N] [--refine <ids>]  Triage backlog items; capture follow-up BLIs from resolution outputs
                                --loop-resume re-enters a one-item-per-session loop (needs the plugin's hooks module)
-                               --answer asks you each open question an item carries and records your answer
+                               --answer asks you each open question an item carries, with the item's context and the planner's recommendation, and records your answer
+                               --refine-max N refines up to N unrefined items in a loop run before they run (default 0)
+                               --refine designs the named items through the creation process and stops; it sets no status but an already-met close
   list [--active] [--no-check] List all plans with status
   lessons [search-terms]       Search lessons learned
   lessons capture              Capture a lesson mid-session

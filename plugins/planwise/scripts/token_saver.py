@@ -27,7 +27,9 @@ It is also runnable, as the driver for the
 The scan walks every task's Required Context, classifies each file against
 that task's assigned model, emits the recommendation blocks and the
 `PAGED`/`REFACTOR` annotations, and exits non-zero when any file classifies
-Warn or worse. The walker lives in `token_saver_scan`; only the entry point
+Warn, or Critical without a handled row. A handled row has the task's
+`paged-read (read)` exception and its own `PAGED` annotation. The walker
+lives in `token_saver_scan`; only the entry point
 is here, mirroring the split doctor already uses (`doctor_cli` over
 `doctor_sweeps`).
 """

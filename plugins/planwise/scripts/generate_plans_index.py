@@ -657,7 +657,7 @@ def main() -> int:
         action="store_true",
         help="Allow --write to overwrite a hand-authored index. Prefer /planwise upgrade, which migrates it first.",
     )
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args()
 
     config = load_config(Path(__file__))
     index_path = plans_index_path(config)

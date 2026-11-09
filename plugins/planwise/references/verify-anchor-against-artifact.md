@@ -25,101 +25,101 @@ paths: {planwise_root}/{plans_dir}/**
 
 > [!constraint] Conformance is not correspondence
 > **An anchor derived from a spec tests conformance to the spec. It cannot test whether the spec was true of the world.** Only a measurement against the artifact does that.
+>
+> WRONG — write the anchor by reading the criterion and restating it as a search. A task file's execution step, a sprint exit criterion and the Signoff anchor all named a "Reviewer Checklists" zone in a handler that has no such heading and never did, and the copies **corroborated each other**.
+>
+> CORRECT — run one heading search against the live handler at authoring time. A tree-wide search finds exactly one hit, in a different file, so no brief rests on that zone.
 
-Three independent-looking artifacts — a task file's execution step, a sprint exit criterion, and the mechanical Signoff anchor that would verify it — all named a "Reviewer Checklists" zone in a handler that has no such heading and never did. A tree-wide search finds exactly one hit, in a different file. The anchor was written by reading the criterion and restating it as a search, so the two then **corroborated each other**.
+**A target's structure is proven in the named file before a brief rests on it.** Four rules follow.
 
-Four rules follow.
-
-- **Before briefing work into a named landing zone, verify the zone exists.** One heading search against the live artifact, at authoring time. This is cheaper than every downstream consequence of getting it wrong.
-- **Write anchors from a live read. Where that is impossible, mark the anchor unverified** so a runner knows to re-derive rather than trust. An anchor whose author never opened the target file tests only internal consistency.
-- **Two artifacts agreeing is not corroboration when one was copied from the other.** Ask what each was derived *from*. Independent confirmation requires independent derivation, ideally with one of the two taken from the artifact itself.
+- **Before briefing work into a named landing zone, verify the zone exists.** One heading search against the live artifact, at authoring time. `scripts/check_section_citations.py` zone mode (`--brief <file> --zone <target>`) prints `DEAD-ZONE` at a count of 0. Its extraction is heuristic, so a zone it misses still needs the search.
+- **Write anchors from a live read. Where that is impossible, mark the anchor unverified** so a runner knows to re-derive rather than trust. Check 30 of `scripts/lint_verification_gates.py` warns on a heading-search anchor with neither a date nor that word.
+- **Two artifacts agreeing is not corroboration when one was copied from the other.** Independent confirmation requires independent derivation, ideally with one of the two taken from the artifact itself.
 - **"Present and greppable" is not "operative."** When a rule must be *executed* by something, verify it landed on the surface that executes it.
 
 ### The near-miss that makes rule 4 load-bearing
 
-A sibling reference file *does* carry a matching `## Reviewer Checklists` heading with a `### Task Reviewer` subsection, and a runner under retry pressure could reasonably have landed there and satisfied a reworded anchor. It would have been wrong. That file's own header says *"The following is a summary for the lead's reference during synthesis"*, while the handler instructs the reviewing agent to execute its checklist **from its own protocol**. A check landed only in the synthesis summary sits where no reviewer ever executes it: present, greppable, gate-passing, and inert.
+A sibling reference file *does* carry a matching `## Reviewer Checklists` heading with a `### Task Reviewer` subsection. That file's own header says *"The following is a summary for the lead's reference during synthesis"*, while the handler instructs the reviewing agent to execute its checklist **from its own protocol**.
 
-**The authoring tell: precision about the wrong thing reads as diligence.** The brief that named the nonexistent zone had just demonstrated rigour by measuring a *different* wrong locate and warning the runner off it. Being sharpened at review time is not evidence an anchor was measured.
+> [!constraint] A check lands on the surface that executes it
+> WRONG — under retry pressure, land the check in the sibling's synthesis summary and satisfy a reworded anchor. It sits where no reviewer ever executes it: present, greppable, gate-passing, and inert.
+>
+> CORRECT — land the check in the reviewing agent's own protocol, the surface the handler tells it to execute.
+
+**The authoring tell: precision about the wrong thing reads as diligence.** Being sharpened at review time is not evidence an anchor was measured.
 
 ---
 
 ## 2. Re-Derive Every Section Citation in Lifted Text Before Accepting the Lift
 
 > [!constraint] A lifted `§N` stays syntactically valid while its meaning drifts
-> ```
-> WRONG — lift the fix-shape verbatim because the lift boundary was respected:
->   read source `## Fix shape` → paste into target → run identifier gates → empty → accept
+> **Re-derive every section citation in lifted text before accepting the lift.** `scripts/check_section_citations.py` enumerates the citations and resolves each against the file it names. A lift check uses its default scan: `--root <plugin root>` with no mode flag, plus `--extra-root <path>` for a target outside the plugin.
 >
-> CORRECT — enumerate the citations the lift carried, and resolve each against the live target:
->   git diff <target> | grep '^+' | grep -oE '§1?[0-9]+(\.[0-9]+)*' | sort -u
->   → for EACH: grep -n '^#\+ <that number> ' <target>   # must resolve, AND mean what the text claims
->   → report the full citation list and its resolutions
-> ```
-> Both commands are required. The enumeration alone proves nothing about meaning, and a per-citation check alone never learns which citations exist.
+> WRONG — lift the fix-shape verbatim because the lift boundary was respected: read the source `## Fix shape`, paste it into the target, run the identifier gates, see an empty result, and accept.
+>
+> CORRECT — run the checker after the paste, confirm each row for the lifted lines resolves AND means what the text claims, and report the full citation list and its resolutions.
+>
+> An `ok` row proves only that the section exists. The enumeration alone proves nothing about meaning, and a per-citation check alone never learns which citations exist.
 
 Rule bodies lifted verbatim from five upstream documents carried `§1.18`–`§1.22` and `§11.2`. Every one of the first five **is a live heading in the target file today**, denoting entirely different rules than the source authors meant.
 
-**A wrong-but-live citation is worse than a dead one**, for four reasons that compound:
+**A wrong-but-live citation is worse than a dead one.** No link-checker or search flags it, the reader arrives somewhere plausible, and it survives review because it resolves. Age converts dead links into wrong-but-live ones.
 
-- No link-checker flags it — the target exists.
-- No search flags it — the syntax is valid.
-- The reader is not confused — they arrive somewhere plausible and read a real rule.
-- It survives review — reviewing a citation means checking that it resolves, and it does.
-
-**Silent, durable and actively misleading is the worst combination available.** A file appended to over time makes this *more* likely, not less: age converts dead links into wrong-but-live ones.
-
-**The gate that guards the lift does not guard what the lift says.** Lift discipline is normally framed as a *boundary* problem — lift only from the sanctioned span, never from sections carrying bookkeeping identifiers. That framing catches identifier leaks and has nothing to say about the *content* inside the sanctioned span, which is exactly where the stale numbers live.
+**The gate that guards the lift does not guard what the lift says.** A *boundary* framing catches identifier leaks and has nothing to say about the *content* inside the sanctioned span, which is exactly where the stale numbers live.
 
 Three obligations:
 
-- **Treat a source document's section numbers exactly as line numbers are already treated — a cost hint, never an anchor.** The line-number rule is [`measurement-discipline.md`](measurement-discipline.md) §8.1 and [`scaffolding-hygiene.md`](scaffolding-hygiene.md) §12.1. Section numbers earn the same treatment for the same reason.
-- **Require the enumerated list in the report.** "Citations checked" is unauditable. A list of seven citations with seven resolved headings is not.
-- **A lift-based task frequently needs to cite section numbers it created itself**, which by definition cannot come from the source document — a further reason the source's numbering cannot serve as an anchor.
+- **Treat a source document's section numbers exactly as line numbers are already treated — a cost hint, never an anchor.** The line-number rule is [`measurement-discipline.md`](measurement-discipline.md) §8.1 and [`scaffolding-hygiene.md`](scaffolding-hygiene.md) §12.1.
+- **Require the enumerated list in the report.** "Citations checked" is unauditable.
+- **A lift-based task frequently needs to cite section numbers it created itself**, which by definition cannot come from the source document.
 
-**The significant half of a clean enumeration is what is absent.** None of the six source-proposed numbers survived here, and that absence is informative only because someone enumerated what should have been there and checked it was not. An unenumerated "looks fine" would read identically while shipping five wrong-but-live citations.
+**The significant half of a clean enumeration is what is absent.** An unenumerated "looks fine" would read identically while shipping five wrong-but-live citations.
 
 ---
 
 ## 3. A Status Gate Names the Artifact and the Specific Table or Field It Reads
 
 > [!constraint] A gate asking "is X complete?" that names no artifact is a coin flip
-> One plan of record answered that question three ways in one file:
+> One plan of record answered that question three ways in one file. Its status line and its Sprint Overview table said COMPLETE, and its Session Completion Tracking table showed five of ten sessions ⏳ NOT STARTED. All five of those sessions had demonstrably shipped, their commits reachable from HEAD.
 >
-> | Surface | Answer |
-> |---|---|
-> | Status line | *"✅ COMPLETE — all six sprints signed off PASS; release battery 8/8"* |
-> | Sprint Overview table | all six ✅ COMPLETE, with per-sprint PASS counts |
-> | **Session Completion Tracking table** | **five of ten sessions ⏳ NOT STARTED** |
+> WRONG — attach `STOP` to "is X complete?" and name no artifact. The gate could return a false FAIL against a prerequisite genuinely met, decided by which of three tables the orchestrator happened to open.
 >
-> All five of those sessions had demonstrably shipped, their commits reachable from HEAD. A gate with `STOP` attached could return a false FAIL against a prerequisite genuinely met, decided by which of three tables the orchestrator happened to open.
+> CORRECT — name the authority, declare the tracking table non-authoritative with its five stale rows enumerated, and add a gate row recording the contradiction as observed-and-overridden.
 
-A plan of record accumulates representations of the same fact because each serves a different reader — a headline for humans, a per-sprint roll-up for scheduling, a per-session table for tracking. They are written at different moments by different steps, and **the hand-maintained, most granular one lags hardest**, because it is updated last, at closeout, when the work already feels finished.
+Of the representations a plan of record accumulates, **the hand-maintained, most granular one lags hardest**, because it is updated last, at closeout. Check 31 of `scripts/lint_verification_gates.py` warns on a status gate that names no file and no table or field. It is a heuristic and never gates alone.
 
 ### The asymmetry that makes this dangerous rather than untidy
 
-Machine-checkable evidence — a manifest version, a commit reachable from HEAD, a file that does or does not exist — cannot drift from the thing it describes. A hand-maintained status cell can, and it drifts **stale-negative** far more often than stale-positive, because the update marking completion is the one most likely to be skipped. **A gate preferring the hand-maintained source therefore fails in the halting direction**: it blocks work against a prerequisite that was genuinely met.
+Machine-checkable evidence — a manifest version, a commit reachable from HEAD, a file that does or does not exist — cannot drift from the thing it describes. A hand-maintained status cell can, and it drifts **stale-negative** far more often than stale-positive, because the update marking completion is the one most likely to be skipped.
+
+> [!constraint] A gate preferring the hand-maintained source fails in the halting direction
+> WRONG — read the tracking table, find a stale pending row, and block work against a prerequisite that was genuinely met.
+>
+> CORRECT — read a commit reachable from HEAD, and record the stale row as a gate finding.
 
 Five rules follow.
 
 1. **Name the source in the gate text** — and name the ones that are *not* authoritative, when you know they disagree.
 2. **Prefer machine-checkable evidence** over any hand-maintained status cell. Where a narrative status line and a table disagree, reach for the third kind of evidence, because both of those are hand-maintained.
-3. **Record inter-artifact disagreement as a gate finding, never silently resolve it.** The observation is real information about the upstream plan, and it is the only thing that will ever get the stale table fixed.
+3. **Record inter-artifact disagreement as a gate finding, never silently resolve it.**
 4. **Do not repair another plan's artifact from inside a gated session.** Route it project-side. The gate's job is to read correctly, not to correct its input.
 5. On the producing side, symmetrically: **fill the tracking row at closeout.** To a downstream mechanical gate, "pending" and "failed" are the same string.
 
-**The worked resolution:** name the authority, declare the tracking table non-authoritative with its five stale rows enumerated, and add a gate row recording the contradiction as observed-and-overridden. That is what let the session run the next day and log *"contradiction confirmed, exactly the 5 predicted rows … Recorded, not resolved"* without stalling.
-
-This section keeps its producing-side clause inside a rule otherwise addressed to consumers, deliberately. The two halves of the failure are only legible together, and the mirror-image case is real: an unfilled Signoff once halted a plan's final session against a sprint that had passed 8/8.
+The producing-side clause stays here deliberately: an unfilled Signoff once halted a plan's final session against a sprint that had passed 8/8.
 
 ---
 
 ## 4. A Set Selected by a Greppable Key Over an Existing Artifact Has a COUNT, Not an Estimate
 
 > [!constraint] Record the number with the command that produced it
+> WRONG:
 > ```markdown
-> WRONG:   | ~610 pulled | ~9.5K | The claims to design (largest probe family, ~45 claims expected) |
-> CORRECT: | 85 claims   | ~18K  | `Grep pattern='\*\*Modality:\*\* headless' output_mode='count'` over
->                                   Parts 1a–1d of the register = 85 (34/6/14/31), measured 2026-08-19 |
+> | ~610 pulled | ~9.5K | The claims to design (largest probe family, ~45 claims expected) |
+> ```
+> CORRECT:
+> ```markdown
+> | 85 claims   | ~18K  | `Grep pattern='\*\*Modality:\*\* headless' output_mode='count'` over
+>                         Parts 1a–1d of the register = 85 (34/6/14/31), measured 2026-08-19 |
 > ```
 > Where the artifact does not exist at scaffold time the figure is legitimately a projection — and then the divergence-action requirement binds instead, per [`dispatch-preflight-claim-expiry.md`](dispatch-preflight-claim-expiry.md) §6.
 
@@ -159,11 +159,7 @@ Lines used against the gate, and field completeness against the schema, answer *
 > [!constraint] An anchor edit is a claim about every version in the committed snapshot set, not only the one that prompted it
 > The committed snapshot for an older version is a reading the current extractor must be able to reproduce. If it cannot, that snapshot is no longer evidence of anything. A comment that names the older form is a note to a future reader. It is not a fallback.
 
-An `<extractor>` anchors on a `new Set([...])` literal in a bundle. Version N+2 added a leading member. A commit re-anchored the constant to the five-member form, re-captured version N+2 only, and left a comment: "N and N+1 carry the four-member form without it".
-
-The committed N and N+1 snapshots still held the four-member key with `count: 1`, because nobody re-ran the extractor on them. Three sessions later, the first forced re-capture of those versions produced `count: 0`, `fallback_used: "absent"` and `UNANCHORED`. The fixtures rebuild from N+1, so every guard test over that surface would have inherited the false reading. A regenerated candidates file would have carried a `0 -> 1` row for a surface that never changed.
-
-The extractor was not wrong for N+2. It was wrong for two versions it no longer claimed to handle, and nothing had asked it about them.
+An `<extractor>` anchors on a `new Set([...])` literal in a bundle. A commit re-anchored the constant for version N+2, re-captured N+2 only, and left a comment naming the older form. Three sessions later, the first forced re-capture of N and N+1 produced `count: 0`, `fallback_used: "absent"` and `UNANCHORED`. The extractor was wrong for two versions it no longer claimed to handle, and nothing had asked it about them.
 
 > [!constraint] Keep the previous form as a marked fallback, and guard every snapshot
 > WRONG — replace the anchor, re-capture the newest version, document the old form in a comment:

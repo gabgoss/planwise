@@ -230,11 +230,44 @@ class TestCheck21DiffGateNotBaselinePinned(unittest.TestCase):
         findings = _lint_lines(21, ["wc -l notes.md   # expect 3"], extra=extra)
         self.assertEqual([(f["check"], f["line"]) for f in findings], [(21, 5)])
 
+    UNION = (
+        "{ git diff --name-only $ABC_S01_BASE -- scripts/; "
+        "git ls-files --others --exclude-standard -- scripts/; } | sort -u"
+    )
+
     def test_good_pinned_and_path_scoped(self):
         findings = _lint_lines(21, [
-            "git diff --name-only $ABC_S01_BASE -- scripts/ | grep -vE '^scripts/ok/'   # expect empty",
+            f"{self.UNION} | grep -vE '^scripts/ok/'   # expect empty",
         ])
         self.assertEqual(findings, [])
+
+    def test_bad_name_only_count_without_untracked_union(self):
+        findings = _lint_lines(21, [
+            "git diff --name-only $ABC_S01_BASE -- scripts/ | wc -l   # expect 1",
+        ])
+        self.assertEqual([(f["check"], f["severity"]) for f in findings], [(21, "ERROR")])
+        self.assertIn("git ls-files --others", findings[0]["message"])
+        self.assertIn("tracked paths only", findings[0]["message"])
+
+    def test_good_union_form_count(self):
+        findings = _lint_lines(21, [f"{self.UNION} | wc -l   # expect 1"])
+        self.assertEqual(findings, [])
+
+    def test_good_earlier_intent_to_add_registers_the_path(self):
+        findings = _lint_lines(21, [
+            "git add -N scripts/new.py",
+            "git diff --name-only $ABC_S01_BASE -- scripts/ | wc -l   # expect 1",
+        ])
+        self.assertEqual(findings, [])
+
+    def test_bad_union_form_without_base_still_errors(self):
+        gate = (
+            "{ git diff --name-only -- scripts/; "
+            "git ls-files --others --exclude-standard -- scripts/; } | sort -u   # expect 1"
+        )
+        findings = _lint_lines(21, [gate])
+        self.assertEqual(len(findings), 1)
+        self.assertIn("no recorded base operand", findings[0]["message"])
 
 
 class TestCheck22PathListReadBeforeCounted(unittest.TestCase):
@@ -303,6 +336,119 @@ class TestCheck25ToleranceWordWithoutBand(unittest.TestCase):
     def test_good_quoted_mention(self):
         extra = 'Flag a spec that says "approximate" with no band.\n\n'
         self.assertEqual(_lint_lines(25, ["wc -l notes.md   # expect 3"], extra=extra), [])
+
+
+class TestCheck39PytestQuietWithVerbose(unittest.TestCase):
+    def _lint(self, command):
+        return _lint_lines(39, [command + "   # expect 1"])
+
+    def test_bad_separate_flags(self):
+        findings = self._lint("python -m pytest tests/test_x.py -q -k known_bad -v | grep -c PASSED")
+        self.assertEqual([(f["check"], f["severity"]) for f in findings], [(39, "WARNING")])
+
+    def test_bad_cluster_and_long_forms(self):
+        for command in ("pytest tests -qv", "pytest tests --quiet --verbose", "pytest tests -q --verbose"):
+            with self.subTest(command=command):
+                self.assertEqual(len(self._lint(command)), 1)
+
+    def test_good_verbose_alone(self):
+        self.assertEqual(self._lint("python -m pytest tests/test_x.py -k known_bad -v | grep -c PASSED"), [])
+
+    def test_good_quiet_alone(self):
+        self.assertEqual(self._lint("python -m pytest -q tests/test_x.py"), [])
+
+    def test_good_selector_value_is_not_a_flag(self):
+        self.assertEqual(self._lint("pytest tests -q -k verbose_mode"), [])
+        self.assertEqual(self._lint("pytest tests -v -k quiet_mode"), [])
+
+    def test_good_other_tool_with_both_flags(self):
+        self.assertEqual(self._lint("make test -q -v"), [])
+
+
+class TestCheck40SelectorPairedWithPassCount(unittest.TestCase):
+    NAMES = (
+        "Tests this task adds: test_team_game_one, test_team_game_two, test_solo_a, "
+        "test_solo_b, test_solo_c, test_solo_d, test_solo_e.\n\n"
+    )
+
+    def _lint(self, command, extra=NAMES):
+        return _lint_lines(40, [command], extra=extra)
+
+    def test_bad_count_differs_from_matching_names_is_error(self):
+        findings = self._lint("pytest tests/test_x.py -k team_game   # 7 passed")
+        self.assertEqual([(f["check"], f["severity"]) for f in findings], [(40, "ERROR")])
+        self.assertIn("number of listed test names, but only 2 of them hold", findings[0]["message"])
+
+    def test_partial_list_with_a_different_count_is_uncertain(self):
+        findings = self._lint("pytest tests/test_x.py -k team_game   # 4 passed")
+        self.assertEqual([f["severity"] for f in findings], ["UNCERTAIN"])
+
+    def test_class_selector_matching_no_listed_name_is_uncertain(self):
+        findings = self._lint("pytest tests/test_x.py -k TestTeamGame   # 7 passed")
+        self.assertEqual([f["severity"] for f in findings], ["UNCERTAIN"])
+
+    def test_name_prefix_mention_is_not_a_listed_name(self):
+        extra = "Add every test_team_game_ case, then test_team_game_one.\n\n"
+        findings = self._lint("pytest tests/test_x.py -k team_game   # 1 passed", extra=extra)
+        self.assertEqual([f["severity"] for f in findings], ["WARNING"])
+
+    def test_bad_glued_selector_form(self):
+        findings = self._lint("pytest tests/test_x.py -kteam_game   # 7 passed")
+        self.assertEqual([f["severity"] for f in findings], ["ERROR"])
+
+    def test_matching_count_is_a_warning(self):
+        findings = self._lint("pytest tests/test_x.py -k team_game   # 2 passed")
+        self.assertEqual([f["severity"] for f in findings], ["WARNING"])
+
+    def test_no_listed_names_is_uncertain(self):
+        findings = self._lint("pytest tests/test_x.py -k team_game   # 7 passed", extra="")
+        self.assertEqual([f["severity"] for f in findings], ["UNCERTAIN"])
+
+    def test_compound_selector_is_uncertain(self):
+        findings = self._lint("pytest tests/test_x.py -k 'team_game or solo'   # 7 passed")
+        self.assertEqual([f["severity"] for f in findings], ["UNCERTAIN"])
+
+    def test_file_name_is_not_a_test_name(self):
+        extra = "Run tests/test_team_game.py and test_team_game_one.\n\n"
+        findings = self._lint("pytest tests/test_x.py -k team_game   # 1 passed", extra=extra)
+        self.assertEqual([f["severity"] for f in findings], ["WARNING"])
+
+    def test_good_whole_module_gate(self):
+        self.assertEqual(self._lint("pytest tests/test_x.py   # 7 passed"), [])
+
+    def test_good_selector_without_a_count(self):
+        self.assertEqual(self._lint("pytest tests/test_x.py -k team_game   # expect green"), [])
+
+    def test_good_count_on_another_tool(self):
+        self.assertEqual(self._lint("grep -c team_game tests/test_x.py   # 7 passed"), [])
+
+
+class TestCheck41StarImportThenPrivateName(unittest.TestCase):
+    def _lint(self, command):
+        return _lint_lines(41, [command + "   # expect 0"])
+
+    def test_bad_private_name_after_star_import(self):
+        findings = self._lint("python -B -c \"from adapters import *; print(len(_FIELDS))\"")
+        self.assertEqual([(f["check"], f["severity"]) for f in findings], [(41, "ERROR")])
+        self.assertIn("_FIELDS", findings[0]["message"])
+
+    def test_good_explicit_import_of_the_name(self):
+        self.assertEqual(self._lint("python -B -c \"from adapters import _FIELDS; print(len(_FIELDS))\""), [])
+
+    def test_good_star_import_with_public_names_only(self):
+        self.assertEqual(self._lint("python -B -c \"from adapters import *; print(len(FIELDS))\""), [])
+
+    def test_good_dunder_name_is_bound(self):
+        self.assertEqual(self._lint("python -B -c \"from adapters import *; print(__name__)\""), [])
+
+    def test_good_name_assigned_after_the_import(self):
+        self.assertEqual(self._lint("python -B -c \"from a import *; _x = 1; print(_x)\""), [])
+
+    def test_good_private_name_before_the_star_import(self):
+        self.assertEqual(self._lint("python -B -c \"_x = 1; from a import *; print(len(FIELDS))\""), [])
+
+    def test_good_quoted_text_is_not_a_reference(self):
+        self.assertEqual(self._lint("python -B -c \"from a import *; print('_FIELDS')\""), [])
 
 
 class TestTokensAndPipelines(unittest.TestCase):

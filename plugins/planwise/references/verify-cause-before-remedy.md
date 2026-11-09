@@ -5,11 +5,11 @@ paths: {planwise_root}/{plans_dir}/**
 ---
 # Verify the Cause Before the Remedy — Count the Population; Check Whether the Remedy Already Shipped
 
-**Purpose:** Two diagnoses, both plausible, both wrong, and both cheap to refute by opening the artifact rather than its description. One read a single contradictory record as a one-off human error and wrote that reading into an index footer as established fact. Counting took one loop: the "one-off" was **1 of 52**, and the real cause was a writer that had never once synced the second copy. The other proposed a remedy as its highest-priority open question, correctly establishing that no upstream documentation and neither sampled production implementation offered guidance on it — while the artifact under investigation had **already implemented that exact remedy**, and the failure rate the investigation existed to explain had been measured with it in force.
+**Purpose:** Two diagnoses were plausible, wrong, and cheap to refute by opening the artifact rather than its description. One read a single contradictory record as a one-off human error, and counting showed it was **1 of 52**. The other proposed a remedy as its highest-priority open question, while the artifact under investigation had **already implemented that exact remedy**.
 
 **Read this when** you are about to name a cause from one observed instance, file or route a remedy, or write a hypothesis that proposes adding something to the system whose failure you are explaining.
 
-The two share a mechanism. A plausible per-instance story is precisely the thing that stops you counting, and "nobody has documented this technique" is allowed to stand in for "nobody has tried this technique." Both produce a remedy indistinguishable from the current state, and both displace attention from the real cause — in the second case four independent findings had to converge before the true defect was named, and three of them were about the wrong thing.
+The two share a mechanism. A plausible per-instance story is precisely the thing that stops you counting, and "nobody has documented this technique" is allowed to stand in for "nobody has tried this technique." Both produce a remedy indistinguishable from the current state, and both displace attention from the real cause.
 
 The check is cheap and asymmetric: reading the artifact costs minutes; shipping a remedy already in force costs a cycle and yields no observable change.
 
@@ -32,22 +32,20 @@ The two halves are one rule because they share a test. §1–§4 ask *"is this i
 
 ## 1. A Contradiction Between Two Representations of One Fact Is Evidence About the Writers, Not About the Instance
 
+When one fact has two representations, count the population before you diagnose the instance, because whether they agree is a property of the **writers**. If the same code path writes both, they cannot disagree. If they disagree even once, some path writes one and not the other, and **that path will have run on every record that passed through it.**
+
+Item files carried status twice, as YAML frontmatter and as a `**Status:**` display line. The update script wrote the display line only in its *create* path, so closing an item left the body stale.
+
 > [!constraint] The instance carries no information about whether it is unique; only the population does
-> When one fact has two representations, whether they agree is a property of the **writers**: if both are written by the same code path, they cannot disagree; if they disagree even once, some path writes one and not the other — and **that path will have run on every record that passed through it.** So *"this one record is inconsistent"* is not a finding about the record — it is an unfalsified hypothesis about the writers, and the cheapest way to test it is to count.
->
-> Closing a backlog item set its index row and frontmatter to `COMPLETE` while its body still read `**Status:** PLANNING`, because item files carry status **twice** — once as YAML frontmatter, once as a `**Status:**` display line — and the update script wrote the body copy only in its *create* path (`_render_bli_file()`). The update path synced frontmatter alone; its own output said so: `YAML status synced: {file}`. The same contradiction had been seen before, on a single item, and written into the index footer as a diagnosis:
->
-> > *"…whose own status is self-contradictory: frontmatter/index/`Archive/` say COMPLETE but its body reads `NOT_STARTED` with all acceptance criteria unchecked and an open-decisions section — **likely opened-then-mis-archived**; reconcile its true state separately"*
->
-> Counting the population took one loop:
->
+> WRONG — one contradictory record is diagnosed as a human error and written into the index footer:
+> ```
+> frontmatter says COMPLETE, body reads NOT_STARTED -> "likely opened-then-mis-archived"
+> ```
+> CORRECT — one loop counts the population, and the broken writer appears:
 > ```
 > archived items: 61 | with a body **Status:** line: 61 | body disagrees with frontmatter: 52
 > ```
->
 > Not a mis-archive. **1 of 52.**
-
-The same loop that took one command turned a human-error story into a broken-writer finding. A paraphrase ("most items were affected") removes the reader's ability to see how cheap the test was.
 
 ---
 
@@ -91,20 +89,33 @@ Step 4's principle for counts is already stated in [`task-content-fidelity.md`](
 
 ## 4. The Class Generalises Past Status Fields, and the Within-File Member Hides Longest
 
-> [!practice] Both copies in one file read as one statement, and a disagreement looks like a typo
-> This is the within-file member of a class fixed three times across files — a plans-index row, a backlog-index archival link, and a lessons-index next-ID counter, each a denormalized copy with exactly one writer and no read-side reconciliation. **The cross-file instances were caught because a reader compared a cache against its source. The within-file instance survived longer precisely because both copies sit in the same file, where they read as one statement rather than two, and where a disagreement looks like a typo instead of a broken pipeline.**
+Treat any duplicated fact as a member of this class, and look hardest where both copies sit in one file. It applies to a count restated in a header and a table, a version in two manifests, and a threshold quoted in a rule and in the gate that enforces it. **The cross-file instances were caught because a reader compared a cache against its source. The within-file instance survived longer because both copies read as one statement, and a disagreement looks like a typo instead of a broken pipeline.**
 
-Nothing in the reasoning depends on the artifact being a status field. It applies to any duplicated fact — a count restated in a header and a table, a version in two manifests, a threshold quoted in a rule and in the gate that enforces it. A reader who treats the rule as being about cross-file caches has kept only the instances that were already caught.
+> [!constraint] Both copies in one file read as one statement, and a disagreement looks like a typo
+> WRONG — the rule is read as being about cross-file caches, which keeps only the instances already caught:
+> ```
+> compare each index row with its source -> all reconciled -> stop
+> ```
+> CORRECT — the rule is read as covering any duplicated fact, wherever the copies sit:
+> ```
+> compare each index row with its source -> then compare the copies that share a file
+> frontmatter against display line, header count against table -> a mismatch is a writer defect until counted
+> ```
 
 ---
 
 ## 5. Before Proposing a Remedy, Check Whether the Failure Was Already Measured Under It
 
+Before you propose a remedy, read the source of the artifact under investigation, and ask whether the failure was already measured with that remedy in force.
+
+A `PreToolUse` hook denied plain shell reads and exempted anything containing a pipe or redirect. Of 47 traced deny→next-call pairs, **19 retried in a shell — 15 of them by adding a pipe.** A discovery plan's highest-priority open question asked whether a deny phrased as a redirect to a named alternative would reduce that rate.
+
 > [!constraint] The two-line read is the argument
-> A `PreToolUse` hook was built to stop agents reading files through the shell: it denied plain reads and exempted anything containing a pipe or redirect. Measured over two days it fired 48 times, and of 47 traced deny→next-call pairs, **19 retried in a shell — 15 of them by adding a pipe.** A discovery plan was opened to work out what to do instead, and one hypothesis became its highest-priority open question: *does phrasing a deny as a redirect to a named alternative reduce the retry-as-workaround rate, compared with a bare prohibition?* Both sampled production hooks were silent on message wording, the published corpus documented none, and every deny example in it was a bare statement of what was blocked.
->
-> Late in the plan, someone opened the parked hook's source. Two lines:
->
+> WRONG — the remedy is proposed from the description of the hook:
+> ```
+> both sampled hooks and the published corpus are silent on wording -> "does a redirect message help?" -> top open question
+> ```
+> CORRECT — the parked hook's source is opened first, and two lines answer the question:
 > ```powershell
 > permissionDecision       = 'deny'
 > permissionDecisionReason = 'Use the native Read tool instead of a shell command to view this file.
@@ -112,49 +123,38 @@ Nothing in the reasoning depends on the artifact being a status field. It applie
 >                             offset/limit parameters cover partial views (the head/tail use case).
 >                             Shell readers are fine mid-pipeline, but this command is a plain file read.'
 > ```
->
-> **That is the treatment arm** — a redirect, naming the alternative, with a rationale and an honest exception. The same plan had separately proved, by an A/B with distinct sentinel tokens on each channel, that `permissionDecisionReason` is the *only* channel whose text reaches the model on a deny. So it was not merely written; it was delivered and read. **The 15-of-19 pipe-bypass rate was measured under the treatment.** And the actual cause sat one line up in the same file — `if ($cmd -match '[|><]') { exit 0 }`. The 15 retries that added a pipe were routing around that exemption. **Agents were not resisting the tone; they were exploiting the predicate.**
-
-The proposed remedy was not merely present but well-executed. A summarised version of the two lines reads as though a better message might still have helped, which is why they ship verbatim.
+> **That is the treatment arm**, and `permissionDecisionReason` is the *only* channel whose text reaches the model on a deny. **The 15-of-19 pipe-bypass rate was measured under the treatment.** The actual cause sat one line up: `if ($cmd -match '[|><]') { exit 0 }`. **Agents were not resisting the tone; they were exploiting the predicate.**
 
 ---
 
 ## 6. Why the Mistake Is Easy, and the Four Moves That Prevent It
 
+Before you treat a question as open, read the local artifact, because the silence of a corpus is not evidence about the local system.
+
 > [!constraint] Nothing about it was careless
-> The hypothesis was well-formed, correctly prioritised, and honestly researched — the team established that no upstream documentation and neither sampled production implementation offered guidance on deny-message wording, which is *true* and made the question look genuinely open. **The gap was that "nobody has documented this technique" was allowed to stand in for "nobody has tried this technique."** The artifact under investigation had tried it, and the evidence was a two-line read of a file the plan referenced by path in a dozen places and had never opened for this purpose.
+> The hypothesis was well-formed, correctly prioritised, and honestly researched. **The gap was that "nobody has documented this technique" was allowed to stand in for "nobody has tried this technique."**
 >
+> WRONG — a true statement about the corpus is read as a statement about the system:
 > ```
-> - Open the artifact, not the description of it. A backlog item, a baseline
->   table, and a plan's prose all described this hook. None quoted the two
->   lines that mattered. Descriptions record what an artifact is FOR; only
->   the source records what it DOES.
-> - When a hypothesis proposes adding X, ask whether the failure was observed
->   with X present. If it was, the hypothesis is not "does X help" — it is
->   "X did not help here, why not." A different and more productive question.
-> - Distinguish "undocumented" from "untried." An absence of guidance in a
->   corpus is a statement about the corpus. It says nothing about what the
->   local system already does.
-> - Prefer the mechanism you can read over the mechanism you must infer.
->   The pipe exemption was a visible one-line predicate; the message-effect
->   hypothesis required a behavioural experiment. When both are available,
->   read first.
+> no upstream documentation, no guidance in sampled implementations -> the technique is untried -> test whether it helps
+> ```
+> CORRECT — the local source settles what the corpus cannot:
+> ```
+> no guidance in the corpus -> open the file the plan cites -> the technique is present -> ask why it did not help
 > ```
 
-The exculpation comes first because a rule a reader believes is about carelessness will be filed as not-applicable-to-me, and the incident's defining feature is that the research was correct and the inference from it was not. The cost asymmetry closes it: reading the artifact costs minutes, while shipping a remedy already in force costs a cycle and produces a result **indistinguishable from the current state** — and worse, displaces attention from the real cause.
+Four moves prevent the mistake:
+
+- **Open the artifact, not the description of it.** Descriptions record what an artifact is FOR. Only the source records what it DOES.
+- **When a hypothesis proposes adding X, ask whether the failure was observed with X present.** If it was, the hypothesis is not "does X help". It is "X did not help here, why not."
+- **Distinguish "undocumented" from "untried."** An absence of guidance in a corpus is a statement about the corpus. It says nothing about what the local system already does.
+- **Prefer the mechanism you can read over the mechanism you must infer.** When both are available, read first.
 
 ---
 
 ## 7. A Fallback Recipe Keyed on a Predicted Error String Is a Hypothesis; Fix the Printed Rule
 
-> [!constraint] A recipe written before the tool ran is a prediction wearing an instruction's clothes
-> It carries the same authority as a spec step, and a runner has no reason to doubt it. That holds until the tool prints its own rule. At that moment the printed rule outranks the predicted one. The fix has to satisfy the validator that exists, not the one the design imagined. §5 ("Before Proposing a Remedy, Check Whether the Failure Was Already Measured Under It") asks whether the remedy already shipped. This section asks whether the failure the recipe targets is the failure the tool printed.
-
-A module design pinned an assumption about a validator that had never run on the module. The design said the static scan would refuse a closure table over `<ctx>` with the text `"<ctx>.<noun> is used as a value"`. It wrote a fallback recipe for that refusal: move the bind into the early hook, and spell `<ctx>` calls in-hook for the hooks that can fire earlier. The task file made the recipe binding: "on a refusal naming `<helper>`, apply the fallback".
-
-The validator refused the file on the first run, naming `<helper>`. Its text was a different rule: `<ctx> is passed to "<helper>", which is not a function declared at the top of this file (a function declaration, or a const bound to one)`. The refusal was about the declaration's scope, because `<helper>` was nested inside `register()`. It was not about `<ctx>` being used as a value.
-
-The recipe's restructuring would have rewritten every helper the early-firing hook calls to take raw `<ctx>`. That is a far larger change than the refusal asked for, aimed at a rule the validator did not state. The runner applied the fix the measured text asked for. It hoisted `<helper>` to module scope and replaced its one closure with an `<env>` parameter. The change was eight lines, with fifteen call sites gaining one argument and no hook body changed. Validation passed on the next run.
+A recipe written before the tool ran is a prediction wearing an instruction's clothes, so when the tool prints its own rule, the printed rule outranks the predicted one. §5 ("Before Proposing a Remedy, Check Whether the Failure Was Already Measured Under It") asks whether the remedy already shipped. This section asks whether the failure the recipe targets is the failure the tool printed.
 
 > [!constraint] Read the refusal for the property it names, and fix that property
 > WRONG — the refusal names the function, so the pre-written recipe fires:
@@ -172,9 +172,9 @@ The recipe's restructuring would have rewritten every helper the early-firing ho
 
 Three consequences follow.
 
-1. **Fix the measured cause.** Read the refusal for the property it names (here, declaration scope). Choose the smallest edit that changes exactly that property. Applying the pre-written recipe because it is "the fallback" fixes a rule nobody observed.
+1. **Fix the measured cause.** Read the refusal for the property it names. Choose the smallest edit that changes exactly that property.
 2. **Name the trigger text as a hypothesis.** "If the refusal says X, do Y" is fine. "On any refusal naming `<helper>`, do Y" binds Y to refusals Y was never designed for.
-3. **Route the mismatch, do not absorb it.** The design's assumption is now known wrong, and the fix has a shape the design did not anticipate. Put both in a coordination flag to the session that next type-checks or re-validates the file. That session then checks the hoisted shape against the real declarations instead of assuming it sound.
+3. **Route the mismatch, do not absorb it.** Put the wrong assumption and the new fix shape in a coordination flag to the session that next type-checks or re-validates the file.
 
 **Applies to** any design that pins a fallback to an error string from a tool that has not yet run against the artifact. That covers static scans, linters, schema validators and CLI `validate` subcommands. When you review a "fallback applied" report, ask whether the fix matched the measured text or the anticipated one, and whether the difference was routed downstream.
 
@@ -193,11 +193,12 @@ Adding `Results` to the scan scope's excluded-directories list (beside `Outputs`
 
 The capacity claim was also uncounted. 189 of the index's 239 rows were COMPLETE or CLOSED, so the cleanup would have freed roughly 1,080 rows of headroom. The orchestrator had asserted "cannot free enough" without counting. A `Grep` with `output_mode='count'` for `| COMPLETE |` over the index settles it.
 
-> ```
 > WRONG — choose against the aggregate:
+> ```
 > 686 would-file > 372 headroom → HALT → the plan's remedy is the cleanup script → ask cleanup-or-nothing
->
+> ```
 > CORRECT — break the aggregate down, then choose:
+> ```
 > Counter(top-level dir) → <plans-dir> 573
 > Counter(second level under <plans-dir>/Plans) → <plan> 551 → Results/raw 545
 > → 545 of 686 are frozen artifacts → one exclude entry → 135 < 372 → OK, no cleanup
@@ -227,11 +228,12 @@ Two runners each found a brief figure larger than the bytes they measured:
 
 Both runners explained the gap the same way: "the brief's figure is a character count, mislabeled as bytes". That cause cannot be true. A UTF-8 character is one to four bytes, so a span's character count is never larger than its byte count. A character count would sit below the byte figure, not above it. The explanation was recorded in a snapshot, a Recovery row and a ledger before the orchestrator caught it.
 
-> ```text
 > WRONG — a familiar mechanism, recorded without checking its direction:
+> ```text
 > Brief says 83,732; measured 82,984 bytes. The brief's figure is a char count, not bytes.
->
+> ```
 > CORRECT — the direction is checked, and the cause is left open when nothing fits:
+> ```text
 > Brief says 83,732; measured 82,984 bytes. A char count cannot exceed bytes for UTF-8 text, so
 > "char count" does not explain a larger figure. Cause unknown. The measured value stands.
 > ```
@@ -242,26 +244,27 @@ Both runners explained the gap the same way: "the brief's figure is a character 
 
 ## 10. A Fresh Red Test Is Two Claims — Check Its Premise Before Routing a Module Fix
 
-> [!constraint] A new test that goes red claims "the code is wrong" and "this assertion is the right one"
-> When the test was written in the same round as the fix, nothing has ever shown the second claim true. Before you dispatch a module fix for a fresh red test, spend one read on the premise.
+A new test that goes red claims "the code is wrong" and "this assertion is the right one", so spend one read on the premise before you dispatch a module fix. When the test was written in the same round as the fix, nothing has ever shown the second claim true.
 
-**Worked case.** A fix round added a test asserting that the migrator reports every refusal in one run. The suite showed `assert len(report["would_refuse"]) == len(exc.value.items)` as `1 == 4`. The orchestrator told the user the `--report` path was still broken and sent the runner a module fix. The runner returned a collision note instead. The report builder plans with every repair flag on, so every flag-closable refusal is closed and exactly one survives. The module already enumerated every refusal item. The test compared an all-flags report against a no-flag plan's four items. A test-only fix closed it, and the orchestrator retracted its diagnosis twice.
+> [!constraint] A new test that goes red claims "the code is wrong" and "this assertion is the right one"
+> WRONG — the red assertion is taken as the diagnosis:
+> ```
+> new test red: 1 == 4 -> "the --report path is broken" -> dispatch a module fix -> retract later
+> ```
+> CORRECT — the premise is checked first:
+> ```
+> new test red: 1 == 4 -> what produced 1? (--report, all repair flags on)
+>                      -> what produced 4? (plan, no flags)
+>                      -> unlike operands -> fix the test, leave the module
+> ```
 
 Three operative steps:
 
-- **Ask what each side of the failing assertion measures.** Name the inputs, flags and mode that produced each operand. The `1 == 4` failure compared two configurations, and that was visible from the two call sites without running anything.
-- **Read the code at the line the assertion exercises** before calling it broken. Two lines settled the worked case.
+- **Ask what each side of the failing assertion measures.** Name the inputs, flags and mode that produced each operand.
+- **Read the code at the line the assertion exercises** before calling it broken.
 - **Route by what you found.** A wrong premise gets a test fix. Only a confirmed code defect gets a module fix, and the dispatch names the line that is wrong.
 
-```
-# WRONG — the red assertion is taken as the diagnosis:
-new test red: 1 == 4 -> "the --report path is broken" -> dispatch a module fix -> retract later
-
-# CORRECT — the premise is checked first:
-new test red: 1 == 4 -> what produced 1? (--report, all repair flags on)
-                     -> what produced 4? (plan, no flags)
-                     -> unlike operands -> fix the test, leave the module
-```
+The general question, which side is wrong before a fix is routed, belongs to [`verify-verdict-source.md`](verify-verdict-source.md) §8: classify the failure by cause from primary evidence, and keep an instrument fix apart from a subject finding.
 
 **Report the diagnosis as provisional.** Before this check, tell the user "the new test fails at X; checking whether the test or the code is wrong". A confident wrong diagnosis costs a retraction.
 

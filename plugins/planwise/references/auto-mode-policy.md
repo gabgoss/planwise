@@ -188,10 +188,13 @@ Two rules follow, and a handler must satisfy both:
 | Phase 5 approval (backlog.md Phase 5, loop mode) | Every gate passes: mark `COMPLETE`. A gate fails: documented skip, with nothing reverted and the changes left in the working tree. |
 | Phase 3 conflict or failed premise (backlog.md Phase 3, loop mode) | A failed existence-premise probe or a scoped-rule verdict `placement`: documented skip, which writes one `### Q{n}.` block under the item's `## Open Questions`, restores the item's pre-loop status and records `SKIPPED` with `user_input_needed`. A scoped-rule verdict `inject` proceeds with the rules injected. Acceptance criteria already met: unattended close, which writes the proof record under `## Resolution` and records `COMPLETE`. |
 | Route C or fix-agent `BLOCKED` (backlog.md Phase 4, loop mode) | Documented skip. A Route C re-assessment also writes `needs_plan: true` into the item (`--needs-plan`), marking it for a planning session. A loop run never dispatches a planner to author a session plan. |
-| Refine step (backlog-Part-2-LoopMode.md § Refine step, loop mode) | Run the three dispatches; a QUESTIONS design is written into the item's ## Open Questions and the item is skipped with --note; nothing is asked |
+| Refine step (backlog-Part-2-LoopMode.md § Refine step, loop mode) | Run the three dispatches; a QUESTIONS design is written into the item's ## Open Questions and the item is skipped with --note; a REFINED design ends the iteration with `--note "refined; review before run"`, so the user reads it before a later run executes it; nothing is asked |
 | Follow-up candidate filing (backlog.md Phase 7, loop mode) | File none. Print each candidate in the iteration summary. |
 | Held-item notice (backlog.md Phase 2, loop mode) | Not reached. The loop queue never holds a `BLOCKED` item. |
 | Answer open questions (`backlog.md --answer`, Part 3) | Critical. Auto Mode lists the unanswered questions and asks nothing. No answer is inferred. |
+| Refine mode question round-trip (backlog-Part-4-Refine.md, `--refine`) | Ask nothing. A `QUESTIONS` design is written into the item per the unattended branch of `references/backlog-creation-process.md` § 5, and the item stays `refined: false`. |
+| Refine mode ALREADY_MET close (backlog-Part-4-Refine.md, `--refine`) | Close without asking, as the loop's unattended close does: run `update_backlog.py --status COMPLETE` and regenerate the index. |
+| Phase 3 refine offer (backlog.md Phase 3 step 2) | Route on the current text. Ask nothing and refine nothing. The user runs `/planwise backlog --refine {id}` to refine the item. |
 | Reciprocal-edge migration questions (upgrade.md Step 2.3b) | Answer nothing. Write no answers file and run Step 2.4 without `--migration-answers`. An edge direction cannot be inferred safely. The migrator refuses only the unanswered family and writes nothing for it, and the chat summary names that family as action required. |
 | Stale mirror prune question (upgrade handler, orphaned agent mirrors banner) | Do not prune. Deleting files is never inferred. The `REMOVABLE` rows stay in place and the banner keeps listing them. |
 | Plan status anomaly question (upgrade handler, Plans anomalies) | Keep the status as is. The inference is logged and the anomaly stays reported. |
@@ -199,5 +202,12 @@ Two rules follow, and a handler must satisfy both:
 | Feedback drafts posting opt-in (upgrade.md Step 1.6) | Unchanged. `feedback.enabled` is never set by inference. Posting stays opt-in. |
 | Feedback drafts level (init.md Step 1, and every `--auto-from` init) | `notify`, the template value. No `--feedback-drafts` flag is passed. The inference is logged, and `init_project.py` prints the value it read back on its `Feedback keys:` line. |
 | Feedback drafts posting opt-in (init.md Step 1, and every `--auto-from` init) | `false`, the template value. `feedback.enabled` is never set by inference, so no `--feedback-enabled` flag is passed. Posting stays opt-in. |
+| Transfer file delete question (upgrade-Part-3 Step 4.1 case C) | Skip. A transfer file may hold the only copy of a customization, so an unattended run never deletes one. Delete only on an explicit yes. |
+| Upgrade leftover prune question (upgrade-Part-3 Step 4.3, and doctor-Part-2 Stage 14b) | Skip every class. Deleting files is never inferred, and each class is asked on its own. Nothing under an unconfirmed class is touched. |
+| Settings grant normalization question (upgrade-Part-3 Step 4.4) | Report only. Print the report and the target value, and change no settings file. Rewriting `additionalDirectories` changes the user's file-access grants. |
+| GitHub CLI install question (upgrade-Part-3 Step 4.5) | No. Install nothing. An unattended run never invokes a package manager. |
+| Task-tools env var question (upgrade-Part-3 Step 4.6) | Report only. Print the report and change no settings file. An unattended run never rewrites `env`. |
+| Thrifty-sonic env var question (upgrade-Part-3 Step 4.7) | Add the key for a file classed `missing`. Report only for a file classed `wrong value` or `invalid JSON`. Adding an absent key to `env` removes nothing and sets the value the init writer sets for every new project. Replacing a value the user set is not additive, so it needs a yes. |
+| Feedback directory creation question (doctor-Part-2 Stage 17b) | Skip. Leave the directory absent and repeat the Stage 17 remedy line. |
 
 The only questions a loop run asks after setup are Q1, Q2, Q3 (in `specific` mode) and the HALT question for an item that died mid-work.

@@ -4,18 +4,26 @@ Stage headings are pinned by reading the Part 3 handler and the registration
 comments in doctor_cli.py. The fixture tests run each stage function on a
 known-bad project and on a clean twin, built in tmp_path. The regression tests
 cover backlog-item matching, the skipped trees, an unreadable plans index, the
-redirected verdict and the plugin-target filter.
+redirected verdict and the plugin-target filter. The agreement tests compare
+each stage's reported state with its actor on one fixture tree per state:
+Stage 25 with the checker's own verdict, Stage 24 with
+``read_limits.classify_file(path, None)``.
 """
 
+import math
 import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent / "plugins" / "planwise"
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
 import doctor_citation_stage
+import read_limits
+from check_section_citations import check_tree
 from doctor_citation_stage import run_section_citation_stage
 from doctor_read_gate_stage import run_read_gate_stage
 
@@ -237,3 +245,155 @@ class TestConsumerSectionCitationStage:
         managed = (root / ".claude" / "rules" / "planwise").resolve()
         assert len(calls) == 1
         assert [Path(p).resolve() for p in calls[0].get("exclude", ())] == [managed]
+
+
+# ------------------------------------------------ reporter-actor agreement
+#
+# Each test builds one fixture tree, asks the actor for its disposition, runs
+# the reporter stage on the same tree, and asserts the two agree. Fixtures are
+# built from the actor's own predicate, never from the reporter's text.
+
+_STAGE_ROW_RE = re.compile(r"^  (\.claude/rules/\S+):([0-9]+): (.*)$", re.MULTILINE)
+
+
+def _stage_rows(out: str) -> dict[tuple[str, int], str]:
+    """The reporter's state per printed row, read from the stage's own row shapes."""
+    rows = {}
+    for shown, line, rest in _STAGE_ROW_RE.findall(out):
+        if rest.startswith("unreadable — "):
+            state = "unreadable"
+        elif " is not in " in rest:
+            state = "dangling"
+        elif " now lives in " in rest:
+            state = "redirected"
+        elif " does not resolve" in rest:
+            state = "unresolved-target"
+        else:
+            state = f"unknown: {rest}"
+        rows[(shown, int(line))] = state
+    return rows
+
+
+def _checker_rows(root: Path, plugin: Path) -> dict[tuple[str, int], object]:
+    """The actor: the checker's own findings for the consumer rules, keyed as the stage prints them."""
+    rules = root / ".claude" / "rules"
+    found = check_tree(plugin, extra_roots=(rules,), exclude=(rules / "planwise",))
+    return {
+        (Path(f.path).resolve().relative_to(root.resolve()).as_posix(), f.line): f
+        for f in found
+        if rules.resolve() in Path(f.path).resolve().parents
+    }
+
+
+CITATION_STATES = [
+    pytest.param("See `known.md` §9 for one.\n", "dangling", id="dangling"),
+    pytest.param("See `fam-Part-1-Alpha.md` §2 for beta.\n", "redirected", id="redirected"),
+    pytest.param("See `references/gone.md` §3 for two.\n", "unresolved-target", id="unresolved-target"),
+]
+
+
+@pytest.mark.parametrize("body, state", CITATION_STATES)
+def test_stage25_reported_state_equals_the_checker_disposition(tmp_path, capsys, body, state):
+    root = _project(tmp_path / "proj")
+    plugin = _plugin(tmp_path / "plugin")
+    _write(root / ".claude" / "rules" / "cites.md", "# Cites\n\n" + body)
+    actor = _checker_rows(root, plugin)
+    (key,) = [k for k, f in actor.items() if f.verdict != "ok"]
+    assert actor[key].verdict == state
+    run_section_citation_stage(SimpleNamespace(project_root=root, planwise_root="planwise", plugin_root=plugin))
+    reported = _stage_rows(capsys.readouterr().out)
+    assert reported == {key: actor[key].verdict}
+
+
+def test_stage25_ok_disposition_prints_the_no_dangling_line(tmp_path, capsys):
+    root = _project(tmp_path / "proj")
+    plugin = _plugin(tmp_path / "plugin")
+    _write(root / ".claude" / "rules" / "cites.md", "# Cites\n\nSee `known.md` §1 for one.\n")
+    actor = _checker_rows(root, plugin)
+    assert [f.verdict for f in actor.values()] == ["ok"]
+    run_section_citation_stage(SimpleNamespace(project_root=root, planwise_root="planwise", plugin_root=plugin))
+    out = capsys.readouterr().out
+    assert _stage_rows(out) == {}
+    assert out.startswith("No dangling section citation in .claude/rules/")
+
+
+def test_stage25_unreadable_rule_is_reported_and_the_other_rule_still_prints(tmp_path, capsys):
+    root = _project(tmp_path / "proj")
+    plugin = _plugin(tmp_path / "plugin")
+    rules = root / ".claude" / "rules"
+    _write(rules / "cites.md", "# Cites\n\nSee `known.md` §9 for one.\n")
+    (rules / "bad.md").write_bytes(b"# Bad\n\nSee \xa7 1 here.\n")  # a cp1252 section sign
+    actor = _checker_rows(root, plugin)
+    assert sorted(f.verdict for f in actor.values()) == ["dangling", "unreadable"]
+    run_section_citation_stage(SimpleNamespace(project_root=root, planwise_root="planwise", plugin_root=plugin))
+    out = capsys.readouterr().out
+    assert _stage_rows(out) == {k: f.verdict for k, f in actor.items()}
+    (bad,) = [f for f in actor.values() if f.verdict == "unreadable"]
+    assert "byte 0xa7 at offset 11" in bad.note and f".claude/rules/bad.md:3: unreadable — {bad.note}" in out
+    assert out.rstrip().endswith(doctor_citation_stage._UNREADABLE_REMEDY)
+
+
+def test_stage25_scans_only_the_rules_root(tmp_path, monkeypatch):
+    root = _project(tmp_path / "scope")
+    calls = []
+    monkeypatch.setattr(doctor_citation_stage, "check_tree", lambda *a, **kw: calls.append(kw) or [])
+    run_section_citation_stage(_cfg(root))
+    rules = (root / ".claude" / "rules").resolve()
+    assert [Path(p).resolve() for p in calls[0]["scan_roots"]] == [rules]
+    assert [Path(p).resolve() for p in calls[0]["extra_roots"]] == [rules]
+
+
+def _sized(path: Path, num_bytes: int, line_bytes: int = 100) -> Path:
+    """A file of ``num_bytes`` bytes in lines of ``line_bytes`` (the last may be shorter)."""
+    row = "a" * (line_bytes - 1) + "\n"
+    full, rest = divmod(num_bytes, line_bytes)
+    return _write(path, row * full + "b" * rest)
+
+
+def _level_fixture(rules: Path, level: str) -> Path:
+    """A rule file sized from the actor's own thresholds at the conservative ratio."""
+    ratio = read_limits.bytes_per_token(None)
+    warn_bytes = math.ceil(read_limits.READ_TOKEN_WARN * ratio)
+    cap_bytes = math.ceil(read_limits.READ_PAGE_CAP_TOKENS * ratio)
+    sizes = {"Green": 1000, "Warn": (warn_bytes + cap_bytes) // 2, "Critical": cap_bytes + 1000}
+    return _sized(rules / f"{level.lower()}.md", sizes[level])
+
+
+@pytest.mark.parametrize("level", ["Green", "Warn", "Critical"])
+def test_stage24_printed_level_equals_classify_file(tmp_path, capsys, level):
+    root = _project(tmp_path / "proj")
+    path = _level_fixture(root / ".claude" / "rules", level)
+    actor = read_limits.classify_file(str(path.resolve()), None)["level"]
+    assert actor == level
+    run_read_gate_stage(_cfg(root))
+    out = capsys.readouterr().out
+    printed = re.findall(rf"^  (\w+)  reason=\w+  {re.escape('.claude/rules/' + path.name)}  ", out, re.MULTILINE)
+    # The stage's documented contract: Warn and Critical print, Green and Notice do not.
+    if actor in ("Warn", "Critical"):
+        assert printed == [actor]
+    else:
+        assert printed == []
+        assert "No file at Warn or Critical (1 file(s) scanned)." in out
+
+
+def test_stage24_notice_level_is_silent_and_unreachable_at_the_stage_ratio(tmp_path, capsys, monkeypatch):
+    # With no cost thresholds the actor's read gate yields Green, Warn or
+    # Critical only, so no file reaches Notice at the stage's call. The
+    # reporter's mapping of Notice is pinned through the actor's own entry.
+    root = _project(tmp_path / "proj")
+    path = _level_fixture(root / ".claude" / "rules", "Green")
+    ratio = read_limits.bytes_per_token(None)
+    for tokens in (0, read_limits.READ_TOKEN_WARN - 1, read_limits.READ_TOKEN_WARN, read_limits.READ_PAGE_CAP_TOKENS):
+        _sized(path, int(tokens * ratio))
+        assert read_limits.classify_file(str(path), None)["level"] != "Notice"
+    real = read_limits.classify_file
+
+    def notice(p, model, *a, **kw):
+        return {**real(p, model, *a, **kw), "level": "Notice"}
+
+    monkeypatch.setattr(read_limits, "classify_file", notice)
+    assert read_limits.classify_file(str(path), None)["level"] == "Notice"
+    run_read_gate_stage(_cfg(root))
+    out = capsys.readouterr().out
+    assert "No file at Warn or Critical (1 file(s) scanned)." in out
+    assert path.name not in out

@@ -86,3 +86,51 @@ def test_phrase_split_by_blank_line_is_clean(tmp_path):
 
 def test_long_line_without_phrase_end_is_fast_and_clean(tmp_path):
     assert _run(tmp_path, "achieved by " + "x " * 20000 + "\n") == 0
+
+
+DORMANT = "KEY_FINDINGS:\n- the hint stays dormant until a follow-up wires it\n"
+
+
+def test_complete_with_dormant_claim_fires(tmp_path, capsys):
+    assert _run(tmp_path, CLEAN + DORMANT) == 1
+    out = capsys.readouterr().out
+    assert "DORMANT line 5" in out
+    assert "clean: 0 disclosure phrases" in out
+
+
+def test_same_text_under_partial_is_clean(tmp_path):
+    assert _run(tmp_path, CLEAN.replace("COMPLETE", "PARTIAL") + DORMANT) == 0
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "- no follow-up needed",
+        "- follow-up: none",
+        "- nothing is dormant",
+        "- the flag is wired at scripts/x.py:12",
+    ],
+)
+def test_complete_with_honest_wording_is_clean(tmp_path, sentence):
+    assert _run(tmp_path, CLEAN + sentence + "\n") == 0
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    ["- the flag is not yet wired", "- a follow-up is required to register it", "- both helpers remain dormant"],
+)
+def test_each_dormant_shape_fires_under_complete(tmp_path, sentence):
+    assert _run(tmp_path, CLEAN + sentence + "\n") == 1
+
+
+def test_status_must_be_on_its_own_line(tmp_path):
+    text = "Note: TASK_STATUS: COMPLETE was wrong.\nTASK_STATUS: PARTIAL\n" + DORMANT
+    assert _run(tmp_path, text) == 0
+
+
+def test_disclosure_phrases_unchanged():
+    assert srd.PHRASES == (
+        "I left X unchanged to preserve the expected gate value",
+        "achieved by … so the gate would …",
+        "I deviated from the spec to make the gate pass",
+    )

@@ -44,7 +44,9 @@ Commands Plan-Review Enforcement table; `templates/task-file.md` §Per-File-Type
    `templates/task-file.md` `> [!verify] Before / After Commands` block + Per-File-Type
    Commands table — substitute every `{placeholder}` with a concrete shell invocation for a
    build, test, lint, or database check, or a named native tool call (`Read`, `Grep`, or
-   `Glob`) for a file-read or content-search check.
+   `Glob`) for a file-read or content-search check. Declare the `**Working directory:**` line
+   above the block, `.` unless the task states another base, and write every plan-internal path
+   from it.
 4. **Ensure all three command types appear** (connectivity / pre-condition, lint or format,
    exec or smoke test). A task missing one of these types uses the `<!-- NEEDS-COMMAND -->`
    marker carried in the `> [!verify]` skeleton (`templates/task-file.md`) in place of that
@@ -57,6 +59,9 @@ Commands Plan-Review Enforcement table; `templates/task-file.md` §Per-File-Type
    Plan § Decisions (Locked). Reuse it only in gates that run before any edit to that population.
    Re-check the tree identity at each dispatch. See `references/gate-pre-edit-baseline.md`
    §10.1.1 Scope the measurement to the gate's population.
+
+On the default path, the Per-File-Type rows are bodies, so write and repair them in the session's
+bodies file, then rebuild.
 
 **Per-File-Type Command Map** (mirrors `templates/task-file.md` §Per-File-Type Commands):
 
@@ -87,6 +92,8 @@ A planner writes `{plugin_root}` into a task file as the literal token and never
 > three command types (precheck + lint/format + exec):
 > ```markdown
 > ## Verification Commands
+> **Working directory:** `.`
+>
 > > [!verify] Before / After Commands
 > > **Before:**
 > > ```
@@ -161,21 +168,41 @@ For each path with two or more writing sprints, emit all three of these — none
 >
 > Add the co-writer content assertion to each writing task's Verification Commands as well: a path-scoped diff count verifies the presence of that task's own edit and can never show the absence of another writer's loss, so it cannot be the control for a shared file no matter how rigorously it is applied.
 
+On the default path of [Steps 4-7](plan-Part-2-GatherAndGenerate.md#steps-4-7-generate-files), put the emitted rows, gates and ordering edges in the bodies files or the spec, then rebuild. Never edit a built file, because the next `build` prints `CHANGED:` and exits 2. `--force` is not the route, because it discards that edit. On the fallback path and on a scaffold pass, no build manifest guards the files, so write the emissions into the plan files as the table says.
+
 Record the matrix's outcome — the shared paths found and how each pair was closed, or `no shared paths` — in the Step 9 confirmation block.
 
 ### Step 9b: Post-Pass Harmonization
 
-**Runs when this invocation authored 2+ Sprint Plan files** — the same `n_sprints_scaffolded_this_pass` count Step 10 uses — **or fanned out to 2+ scaffolding subagents.** Skip it for a single-sprint pass. It runs after every sprint's files exist and **before** the Step-10 review gate.
+**Runs on every pass, including a single-sprint pass.** It runs after every sprint's files exist and **before** the Step-10 review gate. Handler text and template drift apart even in serial authoring. At `n_sprints_scaffolded_this_pass == 1`, Step 10 still offers "Skip to /planwise run", so a skipped sweep lets drift reach execution with no review.
 
-The three deviation classes in [`references/scaffolding-hygiene.md`](../references/scaffolding-hygiene.md) §8 accumulate whenever plan files are authored in parallel from one template set. The scaffolder is the cheapest place to catch them, because it still holds every file it just wrote: at authoring time a rename has no consumers, while after the fact the same rename is an edit sweep through every citing task file across every sprint.
+The three deviation classes in [`references/scaffolding-hygiene.md`](../references/scaffolding-hygiene.md) §8 accumulate whenever plan files are authored from one template set, in parallel or in a single-sprint pass. The scaffolder is the cheapest place to catch them, because it still holds every file it just wrote: at authoring time a rename has no consumers, while after the fact the same rename is an edit sweep through every citing task file across every sprint.
 
 Sweep this pass's own output for all three classes, then harmonize what surfaces:
 
 | Class | Sweep | Harmonize to |
 |-------|-------|--------------|
-| **A — section-header drift** | `Grep` each template-mandated `##` / `###` heading across every Orchestration, Sprint Plan and task file this pass authored. A heading whose hit count is below the file count is missing from the remainder | The template's exact wording, restored in every file that dropped it |
-| **B — optional formatting lines omitted** | `Grep` the same file set for the template's non-structural lines — the `**Total Estimated:**` line after the Session Task List, the `**Mode:**` line in Execution Strategy | The line restored wherever it is absent |
+| **A — section-header drift** | The gate grades each `##` heading the orchestration, sprint plan and task-file templates mark with a bare `<!-- REQUIRED -->`. `Grep` the rest across every Orchestration, Sprint Plan and task file this pass authored: each conditional `##` heading in the files where its condition holds (for example `## Dispatch Layers` in a DELEGATED Orchestration), and each template `###` heading. A heading whose hit count is below that file count is missing from the remainder | The template's exact wording, restored in every file that dropped it |
+| **B — template lines omitted** | The gate reports each missing template line, counted outside code fences: `**Total Estimated:**` and `**Mode:**` in an Orchestration, `**Total Sessions:**` in a Master Plan, and each `- [ ] **{Label}**` item of the Orchestration template's `## Post-Session Checklist`. A checked box still counts, and a reworded label counts as missing | The line restored wherever it is absent, with the template's wording |
 | **C — `Scaffold-{Abbrev}/` absent** | `Glob` for `Exec-{Abbrev}/` first: absent ⇒ the plan is still at Discovery and this class does not apply. Present ⇒ `Glob` for `Scaffold-{Abbrev}/` | The folder created, per `scaffolding-hygiene.md` §8 Class C |
+
+On the default path of [Steps 4-7](plan-Part-2-GatherAndGenerate.md#steps-4-7-generate-files), put each repair in the bodies files or the spec, then rebuild. Never edit a built file, and `--force` is not the route, for the reasons Step 9a gives. On the fallback path and on a scaffold pass, repair the files in place as the table says.
+
+**A script runs the Class B and Class C sweeps and the graded part of Class A, on every pass.** On the fan-out path, the orchestrator dispatches `planwise:scaffold-harmonizer` (`handlers/plan-scaffolding.md` Step 4, Fan-Out Path). The harmonizer runs the gate below and harmonizes what it reports. On the inline path, the orchestrator runs the same command itself:
+
+```
+python -B "{plugin_root}/scripts/scaffold_deviations.py" check {exec_dir}
+```
+
+`{exec_dir}` is the plan's `Exec-{Abbrev}/` folder for a scaffold pass. For a standard pass, which has no `Exec-` folder, it is the plan's own folder, `{plans_dir}/{PlanName}/`. The gate grades Class C only when the folder is named `Exec-{Abbrev}`, so a standard pass always reports `C=0`. The gate prints one `CLASS_A`, `CLASS_B` or `CLASS_C` line per deviation, then a final `deviations: A=<n> B=<n> C=<n>` line. Exit 0 means clean, and exit 1 means deviations were found. Exit 2 means the path is missing or not a folder, a template is unreadable (`ERROR: template unreadable`), or a plan file is unreadable or not UTF-8 (`ERROR: cannot read plan file <path>`). The gate does not grade the conditional `##` headings or the `###` headings, so the orchestrator runs the Class A row's `Grep` sweep for them on both paths. Step 9's confirmation block records the gate's `deviations:` total line and the result of that `Grep` sweep.
+
+**A second script reconciles the token estimates, on both paths.** After the deviation gate, the orchestrator runs:
+
+```
+python -B "{plugin_root}/scripts/estimate_reconcile.py" check {exec_dir}
+```
+
+It reads every estimate level that `references/scaffolding-hygiene.md` §11 lists, from each task header to the Sprint Plan header. It prints one `MISMATCH` line per drift above 10%, then `estimates: sessions=<n> mismatches=<m> unread=<u>`. Exit 1 means a mismatch, and exit 2 a usage or read error. Repair a mismatch where this step repairs a deviation, then run the check again. Outside the default path, `token_saver.py --scan --plan {plan_path} --write-estimates --task {task file}` re-rolls a task's figures. Step 9's confirmation block records the `estimates:` line and names each `UNREAD` line.
 
 > [!constraint] The Output-Naming Scheme Is a Pass-Level Decision, Not a Per-Sprint One
 > Task-output filenames may number by **task** ordinal or by **session** ordinal. Either is fine. Mixing the two across sprints in one pass is not.
@@ -285,6 +312,7 @@ Before completing `/planwise plan`, verify:
 [ ] Plans index regenerated (generate_plans_index.py --write; no hand-written row)
 [ ] Session token estimates validated (< `practical_session_limit` per session — 100K on Pro, 400K on Max; see `references/session-context-budget.md` §5)
 [ ] Each task has a bottom-up estimate: (Required Context tokens) + (output tokens) <= task estimate
+[ ] Every file a task's Execution Steps read has a measured Required Context row, a prior Recovery.md read included (references/task-content-fidelity.md §9.A.17, Check 123)
 [ ] If DELEGATED: each task estimate + 54K overhead < `context_window` (200K on Pro, 1M on Max)
 [ ] Execution Strategy declared in Orchestration (DIRECT or DELEGATED)
 [ ] If 2+ Opus tasks or META session -> Strategy is DELEGATED

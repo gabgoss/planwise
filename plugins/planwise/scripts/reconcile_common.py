@@ -149,6 +149,7 @@ def run_reconcile_cli(
     format_report: Callable[[dict], str],
     json_prefix: str,
     write_message: Callable[[int], str] = lambda n: f"Reconciled {n} row(s).",
+    mode_flags: tuple[str, ...] = (),
 ) -> None:
     """Shared CLI scaffold for a reconcile script's `main()`.
 
@@ -163,13 +164,15 @@ def run_reconcile_cli(
     `resolve_index_path`, `detect_drift`, `reconcile`, and `format_report`
     are all supplied by it, since different callers locate their index
     differently (a function call vs. a config dict key) and implement
-    different drift semantics. `--config` is declared for the `--help`
-    surface and so an explicit `--config <path>` on the command line does
-    not trip `parse_known_args`; `load_config` itself is responsible for
-    reading it back out of `sys.argv` (matching `config_loader.load_config`'s
-    own contract), not this scaffold. `write_message` is optional. It
+    different drift semantics. `--config` is declared so `parse_args`
+    accepts an explicit `--config <path>` on the command line;
+    `load_config` itself is responsible for reading it back out of
+    `sys.argv` (matching `config_loader.load_config`'s own contract), not
+    this scaffold. An unrecognized flag exits 2. `write_message` is optional. It
     defaults to "Reconciled N row(s).", and a caller whose `--write` does
-    not reconcile rows passes its own noun.
+    not reconcile rows passes its own noun. `mode_flags` names flags the caller
+    already consumed in its own pre-parse. The scaffold declares each one so
+    the main parse accepts it, and ignores its value.
     """
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
@@ -188,8 +191,10 @@ def run_reconcile_cli(
         action="store_true",
         help="Additionally write a JSON temp file and print its path.",
     )
+    for flag in mode_flags:
+        parser.add_argument(flag, action="store_true", help="Mode switch, read before this parser runs.")
 
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args()
 
     config = load_config()
     index_path = resolve_index_path(config)

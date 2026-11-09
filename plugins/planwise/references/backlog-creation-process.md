@@ -5,7 +5,7 @@ consult-when: Filing or refining a backlog item through the preflight, planner a
 
 # Backlog Creation Process
 
-**Purpose:** One process files new backlog items and refines existing ones. Four callers cite it: the backlog handler's Phase 7 (filing) and the backlog loop's refine step (refining), harvest Stage 2, and the promote-batch workflow's filing step. Each caller dispatches the same three agents in the same order and reads the same status blocks. The agents hold the field-level contracts, and this file holds the order, the hand-over directory, the spawn prompts and the routing.
+**Purpose:** One process files new backlog items and refines existing ones. Five callers cite it: the backlog handler's Phase 7 (filing), the backlog loop's refine step (refining), the backlog handler's standalone `--refine <ids>` mode (refining, then stop), harvest Stage 2, and the promote-batch workflow's filing step. Each caller dispatches the same three agents in the same order and reads the same status blocks. The agents hold the field-level contracts, and this file holds the order, the hand-over directory, the spawn prompts and the routing.
 
 ---
 
@@ -28,6 +28,7 @@ The three agents pass work through files, never through their final messages. Th
 - The fact sheet is `{handover_dir}/preflight.md`, one block per candidate.
 - Each design file is `{handover_dir}/{id-or-label}-design.md`.
 - The backlog loop uses `{backlog_dir}/Backlog-Runs/{run-id}-refine/{item-id}/`. The index readers never walk that path.
+- The standalone `--refine` mode uses `{backlog_dir}/Backlog-Runs/{YYYYMMDD-HHMMSS}-refine/batch-{n}/`, one directory per batch. The index readers never walk that path either.
 - A filing caller uses a scratch directory it names. It sits outside `backlog_dir` so that no item reader sees it.
 
 Discard the directory after the author returns and the caller has read the status blocks.
@@ -71,8 +72,44 @@ A planner returns `DESIGN: QUESTIONS` when a choice belongs to the user. No spaw
 
 Spawn the planner in the foreground with a `name:` of the form `planner-{id-or-label}`. The planner's final message is its status block. The planner holds no messaging tool.
 
-- **Interactive run:** read the questions from the design file. Ask the user one `AskUserQuestion` per question, with the planner's options and recommendation. Then send all the answers with `SendMessage` to that dispatch name. The planner resumes from its own transcript, re-decides, overwrites the design file and returns a new status block. A second `QUESTIONS` return names only questions the answers did not cover. When the earlier dispatch cannot be reached, start a fresh planner dispatch with the same item and an `answers:` line holding the answers keyed by question number. The planner re-reads the design file on disk, re-decides, overwrites it and returns a new status block.
+- **Interactive run:** read the questions from the design file. Ask the user one `AskUserQuestion` per question, per the Question briefing below. Then send all the answers with `SendMessage` to that dispatch name. The planner resumes from its own transcript, re-decides, overwrites the design file and returns a new status block. A second `QUESTIONS` return names only questions the answers did not cover. When the earlier dispatch cannot be reached, start a fresh planner dispatch with the same item and an `answers:` line holding the answers keyed by question number. The planner re-reads the design file on disk, re-decides, overwrites it and returns a new status block.
 - **Unattended run (a loop or Auto Mode):** ask nothing. Pass the design file to the author. The author writes each question into the item as an unanswered `### Q{n}.` block under `## Open Questions`, and the item stays `refined: false` until a user answers it.
+
+**Question briefing.** The user answers from what the dialog shows, so every question carries its item's context. The context comes from a different source on each path:
+
+| Path | Item context | Question, options, recommendation and reason |
+|---|---|---|
+| Refine | The item file's frontmatter `title`, and its `## Summary`, or its `## Problem` when `## Summary` is empty | The design file's `QUESTIONS:` line |
+| File | The accepted candidate's title and problem, and the `EVIDENCE` line of its preflight block | The design file's `QUESTIONS:` line |
+
+The reason is the text after the recommendation letter on the `QUESTIONS:` line.
+
+Print one briefing per item, before that item's first question:
+
+```
+ITEM: {id or label} — {title}
+
+{2-4 sentences of context from the item context source}
+
+- Q{n}: {question} — recommended: {letter}
+```
+
+Then ask one `AskUserQuestion` per question, one question per call. This table maps each dialog field:
+
+| `AskUserQuestion` field | Value |
+|---|---|
+| `header` | `Q{n} {id-or-label}`, 12 characters at most. Shorten the id or label, never the Q number |
+| `question` | `{id or label} — {title}.` Then one context sentence. Then the question text. Then `Why: {the preflight EVIDENCE line}`, or `Why: {the first sentence of ## Problem}` when there is no such line. Four sentences at most |
+| option `label` | `({letter}) {choice}`. When the choice runs past eight words, shorten it and open that option's `description` with the full choice text |
+| option order | The recommended choice first with ` (Recommended)` appended to its label, then the other choices in letter order, then `Skip this question` |
+| recommended option `description` | The planner's reason, after the full choice text when the label was shortened |
+| other option `description` | The full choice text when the label was shortened. Otherwise `Not the planner's choice.` |
+| `Skip this question` `description` | The question is written into the item as an unanswered `### Q{n}.` block, and the item stays `refined: false`. |
+| `preview` | None. The context sits in the question and the descriptions |
+
+A skipped question goes into the `SendMessage` answers as `skipped`. The planner does not ask it again on a second `QUESTIONS` return, and it reaches the author as an unanswered block.
+
+The `--answer` mode keeps its own field table in `handlers/backlog-Part-3-Answers.md` Step 2b, because it maps a `--json` payload and its Skip leaves `Answer:` empty. Its option-order row and its recommended-label suffix match the table above, so change the two tables together.
 
 ---
 

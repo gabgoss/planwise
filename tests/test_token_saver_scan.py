@@ -4,7 +4,7 @@
 The scan walks a plan's task files, resolves each Required Context row to a
 real path, classifies it against the task's assigned model via
 `read_limits.classify_file`, and exits non-zero when any file lands Warn or
-worse. These tests pin the behaviours that were silently absent before the
+Critical without a handled row. These tests pin the behaviours that were silently absent before the
 driver existed — a hand-written `PAGED` annotation and a computed one used to
 be indistinguishable — plus the parsing hazards a naive walker gets wrong.
 
@@ -295,6 +295,134 @@ class TestPlanScan(unittest.TestCase):
         result = tss.scan_plan(self.plan, self.config, self.project)
         self.assertEqual(result["summary"]["files"], 0)
         self.assertEqual(result["unresolved"], [])
+
+
+class TestHandledPagedRead(unittest.TestCase):
+    """A read-reason Critical row is handled only with BOTH markers.
+
+    The markers are the task's `exception: paged-read (read)` and the row's own
+    `⚠ PAGED` annotation. Each test scans a real fixture tree, and the exit-code
+    tests run `main()` so the 0/1 contract is exercised end to end.
+    """
+
+    PAGED = "⚠ PAGED ≥25K opus-tok"
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="tss_handled_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.plan = self.tmp / "Plans" / "Probe"
+        (self.plan / "Session-01").mkdir(parents=True)
+        self.cfg = self.tmp / "planwise" / "config.yaml"
+        self.cfg.parent.mkdir()
+        self.cfg.write_text(
+            "project:\n  name: Demo\n"
+            "context:\n  token_saver: true\n"
+            "  token_saver_session_target: 150000\n"
+            "  token_saver_runner_overhead: 1000\n",
+            encoding="utf-8",
+        )
+        (self.tmp / "docs").mkdir()
+        # 100 KB of markdown is ~38.5K tokens: past the page cap, read-reason.
+        (self.tmp / "docs" / "big.md").write_bytes(b"x" * 100_000)
+
+    def _task(self, exception: str, annotated: bool, name: str = "T-01.md"):
+        note = f" {self.PAGED}" if annotated else ""
+        text = _task(
+            TEMPLATE_COLUMNS,
+            f"| 1 | `docs/big.md` | 98 | ~38K | read by script only{note} |",
+        ).replace(
+            "**Estimated Tokens:**",
+            f"**Token Budget:** ~12K (exception: {exception})\n**Estimated Tokens:**",
+        )
+        (self.plan / "Session-01" / name).write_text(text, encoding="utf-8")
+
+    def _scan(self):
+        config = {"context": {"token_saver": True,
+                              "token_saver_session_target": 150_000,
+                              "token_saver_runner_overhead": 1_000}}
+        return tss.scan_plan(self.plan, config, self.tmp)
+
+    def _main(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = tss.main(["--scan", "--plan", str(self.plan),
+                             "--config", str(self.cfg)])
+        return code, buf.getvalue()
+
+    def test_both_markers_scan_as_handled_and_exit_zero(self):
+        self._task("paged-read (read)", annotated=True)
+        result = self._scan()
+        self.assertEqual(result["summary"]["critical"], 1)
+        self.assertEqual(result["summary"]["critical_handled"], 1)
+        self.assertTrue(result["findings"][0]["handled"])
+        code, out = self._main()
+        self.assertEqual(code, 0)
+        self.assertIn("handled (paged-read)", out)
+        self.assertIn("1 Critical (1 handled, 0 unhandled)", out)
+        self.assertNotIn("Backlog filing worklist", out)
+
+    def test_neither_marker_stays_critical_and_exits_one(self):
+        self._task("none", annotated=False)
+        result = self._scan()
+        self.assertEqual(result["summary"]["critical_handled"], 0)
+        self.assertFalse(result["findings"][0]["handled"])
+        code, out = self._main()
+        self.assertEqual(code, 1)
+        self.assertNotIn("handled (paged-read)", out)
+        self.assertIn("1 Critical (0 handled, 1 unhandled)", out)
+        self.assertIn("Backlog filing worklist", out)
+
+    def test_the_two_directions_print_different_reports(self):
+        self._task("paged-read (read)", annotated=True)
+        handled_code, handled_out = self._main()
+        self._task("none", annotated=False)
+        open_code, open_out = self._main()
+        self.assertNotEqual(handled_out, open_out)
+        self.assertEqual((handled_code, open_code), (0, 1))
+
+    def test_task_exception_without_the_row_annotation_is_unhandled(self):
+        self._task("paged-read (read)", annotated=False)
+        self.assertFalse(self._scan()["findings"][0]["handled"])
+        self.assertEqual(self._main()[0], 1)
+
+    def test_row_annotation_without_the_task_exception_is_unhandled(self):
+        self._task("none", annotated=True)
+        self.assertFalse(self._scan()["findings"][0]["handled"])
+        self.assertEqual(self._main()[0], 1)
+
+    def test_cost_reason_critical_ignores_both_markers(self):
+        # A cost-reason verdict never reads the markers. Pin that on the
+        # recommendation text, which is the part a handled flag could change.
+        cost = {"level": "Critical", "reason": "cost"}
+        self.assertIn("1M-exception", tss.recommend(cost, "doc"))
+        self.assertTrue(tss.parse_paged_read_exception(
+            "**Token Budget:** ~12K (exception: paged-read (read))\n"))
+        self.assertTrue(tss.row_is_paged(f"| 1 | `a.md` | 1 | ~1K | {self.PAGED} |"))
+        # And the entry flag requires reason == "read": a Warn row with both
+        # markers is not Critical, so it is not handled either.
+        (self.tmp / "docs" / "mid.md").write_bytes(b"x" * 60_000)
+        text = _task(
+            TEMPLATE_COLUMNS,
+            f"| 1 | `docs/mid.md` | 58 | ~23K | {self.PAGED} |",
+        ).replace(
+            "**Estimated Tokens:**",
+            "**Token Budget:** ~12K (exception: paged-read (read))\n**Estimated Tokens:**",
+        )
+        (self.plan / "Session-01" / "T-02.md").write_text(text, encoding="utf-8")
+        entry = next(f for f in self._scan()["findings"] if "mid.md" in f["path"])
+        self.assertNotEqual(entry["level"], "Critical")
+        self.assertFalse(entry["handled"])
+
+    def test_one_unhandled_citation_keeps_the_file_on_the_worklist(self):
+        self._task("paged-read (read)", annotated=True, name="T-01.md")
+        self._task("none", annotated=False, name="T-02.md")
+        grouped = tss.group_findings(self._scan()["findings"])
+        self.assertEqual(len(grouped), 1)
+        self.assertFalse(grouped[0]["handled"])
+        code, out = self._main()
+        self.assertEqual(code, 1)
+        self.assertIn("Backlog filing worklist", out)
+        self.assertIn("2 Critical (1 handled, 1 unhandled)", out)
 
 
 class TestCli(unittest.TestCase):

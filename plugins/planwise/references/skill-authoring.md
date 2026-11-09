@@ -90,6 +90,7 @@ Keep SKILL.md under 500 lines. Move detailed content to supporting files:
 | `name` | string | directory name | Display name. Lowercase, hyphens, max 64 chars |
 | `description` | string | 1st paragraph | **REQUIRED** — drives auto-triggering and delegation (without it, the skill cannot be auto-invoked). |
 | `argument-hint` | string | none | Autocomplete hint shown after `/`. Example: `[issue-number]` |
+| `arguments` | list or string | none | Named arguments, as a YAML list or a space-separated string. Each name becomes a `$name` placeholder. See §4. |
 | `disable-model-invocation` | boolean | `false` | `true` = only user can invoke; Claude cannot invoke autonomously |
 | `user-invocable` | boolean | `true` | `false` = hidden from `/` menu; only Claude can invoke |
 | `allowed-tools` | string | all | Comma-separated tool allowlist |
@@ -128,7 +129,10 @@ The `description` field is the primary auto-triggering signal. Include trigger c
 | `$ARGUMENTS` | All arguments as single string | `/deploy prod --force` → `prod --force` |
 | `$ARGUMENTS[0]` / `$0` | First argument | `/deploy prod --force` → `prod` |
 | `$ARGUMENTS[1]` / `$1` | Second argument | `/deploy prod --force` → `--force` |
+| `$name` | A named argument declared in the `arguments:` frontmatter | With `arguments: env mode`, `/deploy prod` → `$env` is `prod` and `$mode` is empty |
 | `${CLAUDE_SESSION_ID}` | Current session ID | Use for logging or output file naming |
+
+A positional placeholder with no matching argument stays in the content unchanged. A named placeholder with no matching argument expands to an empty string. In an argument-taking `` !`...` `` line, use named placeholders only. See §6b.
 
 **Example with positional arguments:**
 
@@ -319,6 +323,34 @@ Summarize this pull request: what changed, potential risks, testing recommendati
 | `` !`gh pr view` `` | Inject PR details |
 | `` !`cat package.json` `` | Inject file contents |
 | `` !`date` `` | Inject current timestamp |
+
+---
+
+## 6b. Injection Argument Mistakes
+
+Claude Code substitutes the typed arguments into the `` !`...` `` command first. It then permission-checks the substituted command. A positional placeholder the user did not supply stays literal, so the checker reads it as a shell variable it cannot resolve. The whole skill then aborts before Claude sees it, with `Shell command permission check failed for pattern "…": A variable in this command can't be checked before it runs` (measured on Claude Code 2.1.296). No escape passes the check: `\$1` un-escapes to `$1`, and `${1:-}` is still a variable. An allow grant such as `Bash(echo *)` does not cure it.
+
+> [!constraint] Pass arguments through single-quoted named placeholders
+> WRONG — positionals, so any invocation with fewer words than placeholders aborts the skill:
+> ```
+> !`python -B "${CLAUDE_PLUGIN_ROOT}/scripts/router.py" "$0" "$1" "$2" || true`
+> ```
+> CORRECT — declared names, each in single quotes:
+> ```
+> arguments: sub flag1 flag2
+> disable-model-invocation: true
+> !`python -B "${CLAUDE_PLUGIN_ROOT}/scripts/router.py" '$sub' '$flag1' '$flag2' || true`
+> ```
+
+**Router contract.** The router always receives one string per declared name. A missing word arrives as `''`, and words beyond the declared names are dropped. Measured for zero to four typed words against three names: `['', '', '']`, `['list', '', '']`, `['list', '--active', '']`, `['list', '--active', '--no-check']`, and the same three values for the fourth word. The router must drop the empty strings.
+
+**Values are inserted raw.** Single quotes make `$`, backticks, `"`, `;` and `$(…)` inert inside a value. A `'` in a value ends the quote. A `$(…)` after it then trips the check with `A nested command in this command can't be checked before it runs`, and the skill aborts without running the payload. Set `disable-model-invocation: true` so only the user types the values that reach the shell.
+
+**The abort is silent in `-p` JSON output.** `result` is an empty string, `num_turns` is 0, `permission_denials` is `[]`, and stderr is empty. The reason appears only with `--output-format stream-json --verbose`, so grade an injection probe on that stream.
+
+A positional placeholder in plain body prose is harmless. Only the `` !`...` `` command goes through the permission check.
+
+Measured on Claude Code 2.1.314, headless, `--permission-mode default`.
 
 ---
 

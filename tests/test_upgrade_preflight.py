@@ -3,6 +3,7 @@
 Every project is built by tests/upgrade_card_project.py from this repo's own plugin tree, inside
 `tmp_path`. `_isolate` below patches the CLI-version probe, so no init starts `claude`.
 """
+import json
 import shlex
 import subprocess
 import sys
@@ -14,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import doctor_cli
 import doctor_probes
+import install_check
 import upgrade_card_project as ucp
 import upgrade_preflight
 import upgrade_run
@@ -295,6 +297,20 @@ def test_feedback_questions_only_when_drafts_key_absent(tmp_path, capsys):
     assert "--feedback-drafts" not in run_line(card)  # the model adds the flags from the answers
 
 
+def test_feedback_posting_question_recommends_yes():
+    question = upgrade_preflight.FEEDBACK_ENABLED_QUESTION
+    assert '"Yes (Recommended)"' in question and '"No"' in question
+    assert question.index('"Yes (Recommended)"') < question.index('"No"')
+    assert "recommended" not in question.replace("(Recommended)", "")
+
+
+@pytest.mark.parametrize("handler", ["upgrade.md", "init.md"])
+def test_feedback_posting_question_handlers_carry_the_constant_verbatim(handler):
+    text = (Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "handlers" / handler).read_text(
+        encoding="utf-8")
+    assert upgrade_preflight.FEEDBACK_ENABLED_QUESTION in text
+
+
 def test_feedback_questions_merge_under_the_question_limit(tmp_path, capsys):
     root = ucp.make_project(tmp_path, name="merged", diverged=(), question=True)
     ucp.edit_config(root, *DROP_DRAFTS)
@@ -326,6 +342,76 @@ def test_absent_drafts_key_breaks_noop_proof(tmp_path, capsys, monkeypatch):
     config_path, config = upgrade_preflight.resolve_config(root.resolve())
     ok, reason, argvs = upgrade_preflight.noop_proof("up-to-date", [], config, config_path, {}, "project")
     assert (ok, reason, argvs) == (False, "config has no feedback.drafts key", [])
+
+
+WARNING = "! running copy is not the project's marketplace install"
+
+
+def live_root(card: str) -> str:
+    return card.split("plugin_root (live): ", 1)[1].splitlines()[0].strip()
+
+
+def write_install_record(install_path: str) -> None:
+    """A user-scope `planwise@fixture` install under the isolated CLAUDE_CONFIG_DIR."""
+    plugins = Path.home() / ".claude" / "plugins"
+    plugins.mkdir(parents=True, exist_ok=True)
+    record = {"version": 2, "plugins": {"planwise@fixture": [
+        {"scope": "user", "installPath": install_path, "version": ucp.TO, "lastUpdated": "2026-01-01T00:00:00Z"}]}}
+    (plugins / "installed_plugins.json").write_text(json.dumps(record), encoding="utf-8")
+
+
+def test_install_check_default_isolation_warns(tmp_path, capsys):
+    """The isolated config dir holds no install record, so the card warns and NEXT relays it first."""
+    card = run_card(capsys, ucp.make_project(tmp_path))
+    assert "install_check: NOT_MARKETPLACE_INSTALL (installed_plugins.json is missing or unreadable)" in card
+    assert WARNING in card
+    assert "install planwise from its marketplace" in card  # no marketplace is recorded, so no command
+    assert next_block(card).splitlines()[2] == upgrade_preflight.INSTALL_RELAY
+    assert card.index("install_check: ") < card.index("Diverged rules")
+
+
+def test_install_check_ok_prints_no_warning(tmp_path, capsys):
+    root = ucp.make_project(tmp_path)
+    write_install_record(live_root(run_card(capsys, root)))
+    card = run_card(capsys, root)
+    assert "install_check: OK (the running copy is this project's install)" in card
+    assert WARNING not in card and upgrade_preflight.INSTALL_RELAY not in card
+
+
+def test_install_check_wrong_install_names_the_command(tmp_path, capsys):
+    root = ucp.make_project(tmp_path)
+    write_install_record((tmp_path / "elsewhere" / "planwise").as_posix())
+    card = run_card(capsys, root)
+    assert "install_check: NOT_MARKETPLACE_INSTALL (the running copy is not the install" in card
+    assert WARNING in card
+    assert "Install: claude plugin install planwise@fixture --scope user" in card
+    assert upgrade_preflight.INSTALL_RELAY in next_block(card)
+
+
+def test_install_check_behind_marketplace_prints_no_warning(tmp_path, capsys):
+    root = ucp.make_project(tmp_path)
+    write_install_record(live_root(run_card(capsys, root)))
+    clone = tmp_path / "clone"
+    manifest = clone / "plugins" / "planwise" / ".claude-plugin"
+    manifest.mkdir(parents=True)
+    (manifest / "plugin.json").write_text(json.dumps({"version": ucp.newer_version(ucp.TO)}), encoding="utf-8")
+    known = {"fixture": {"installLocation": str(clone), "lastUpdated": "2026-01-01T00:00:00Z"}}
+    (Path.home() / ".claude" / "plugins" / "known_marketplaces.json").write_text(json.dumps(known), encoding="utf-8")
+    card = run_card(capsys, root)
+    assert "install_check: BEHIND_MARKETPLACE (the marketplace carries" in card
+    assert WARNING not in card and upgrade_preflight.INSTALL_RELAY not in card
+
+
+def test_install_check_failure_keeps_the_card(tmp_path, capsys, monkeypatch):
+    def raising(*_args, **_kwargs):
+        raise RuntimeError("bad install record")
+
+    monkeypatch.setattr(install_check, "check", raising)
+    card = run_card(capsys, ucp.make_project(tmp_path))
+    lines = card.splitlines()
+    assert lines[0] == BEGIN and lines[-1] == END
+    assert upgrade_preflight.FALLBACK not in card
+    assert "install_check: unavailable" in card and WARNING not in card
 
 
 def test_gh_state_uses_shared_probe(monkeypatch):

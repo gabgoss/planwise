@@ -1010,5 +1010,158 @@ class TestArchivedBlockerInLegacyDependenciesTable(unittest.TestCase):
         )
 
 
+# --- Item-file flags: --clusters, --cross-cutting, --in-flight ---
+
+
+def _item_text(created: str | None, surfaced: str | None, body: str = "") -> str:
+    front = "---\n" + (f"created: {created}\n" if created else "") + "status: OPEN\n---\n"
+    note = f"Surfaced by {surfaced}\n" if surfaced else ""
+    return front + "\n# Item\n\n" + note + body
+
+
+class _ItemFlagFixtureBase(_ParseBacklogFixtureBase):
+    """Fixture tree for the item-file flags: item files under a temporary
+    Backlog/ and Backlog/Archive/, never the live backlog."""
+
+    def setUp(self):
+        super().setUp()
+        self.archive_dir = self.backlog_dir / "Archive"
+        self.archive_dir.mkdir(parents=True, exist_ok=True)
+        self.write_index(_row("101"))
+
+    def write_item(self, number: int, text: str, archived: bool = False) -> Path:
+        directory = self.archive_dir if archived else self.backlog_dir
+        path = directory / f"BB-{number:03d}-01-BUG-Fixture.md"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def run_flag(self, *args: str) -> tuple[int, str, str]:
+        saved_argv = sys.argv
+        sys.argv = ["parse_backlog", "--config", str(self.config_path), *args]
+        out, err = io.StringIO(), io.StringIO()
+        code = 0
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                try:
+                    parse_backlog.main()
+                except SystemExit as exc:
+                    code = exc.code if isinstance(exc.code, int) else 0
+        finally:
+            sys.argv = saved_argv
+        return code, out.getvalue(), err.getvalue()
+
+
+class TestClustersFlag(_ItemFlagFixtureBase):
+    def test_known_good_adjacent_ids_sharing_surfaced_by_and_created_print_a_cluster(self):
+        self.write_item(101, _item_text("2026-11-01", "DSG-S01-01-01 (a)"))
+        self.write_item(102, _item_text("2026-11-01", "DSG-S01-01-01 (a)"))
+        self.write_item(103, _item_text("2026-11-01", "DSG-S01-01-01 (a)"), archived=True)
+        self.write_item(105, _item_text("2026-11-01", "DSG-S01-01-01 (a)"))  # gap: not adjacent
+        self.write_item(201, _item_text("2026-11-01", "OTHER-S02-01-01"))
+        code, out, _ = self.run_flag("--clusters")
+        self.assertEqual(code, 0)
+        self.assertIn("cluster: BB-101, BB-102, BB-103 | surfaced by: DSG-S01-01-01 (a) | created: 2026-11-01", out)
+        self.assertNotIn("BB-105", out)
+        self.assertIn("5 items scanned, 5 with Surfaced by", out)
+
+    def test_known_bad_no_adjacent_pair_prints_no_cluster_but_still_scans(self):
+        self.write_item(101, _item_text("2026-11-01", "DSG-S01-01-01"))
+        self.write_item(103, _item_text("2026-11-01", "DSG-S01-01-01"))  # gap of 2
+        self.write_item(104, _item_text("2026-11-02", "DSG-S01-01-01"))  # other created date
+        self.write_item(110, _item_text("2026-11-01", None))  # no Surfaced by
+        code, out, _ = self.run_flag("--clusters")
+        self.assertEqual(code, 0)
+        self.assertNotIn("cluster:", out)
+        self.assertIn("4 items scanned, 3 with Surfaced by", out)
+
+    def test_the_colon_form_of_surfaced_by_is_read(self):
+        self.write_item(101, _item_text("2026-11-01", None) + "Surfaced by: X-1\n")
+        self.write_item(102, _item_text("2026-11-01", None) + "Surfaced by: X-1\n")
+        _, out, _ = self.run_flag("--clusters")
+        self.assertIn("cluster: BB-101, BB-102 | surfaced by: X-1", out)
+
+
+class TestBliPrefixedItemFiles(_ItemFlagFixtureBase):
+    """Item files named `BLI-NNN-*.md` resolve like `BB-NNN-*.md` ones."""
+
+    def write_bli(self, number: int, text: str) -> Path:
+        path = self.backlog_dir / f"BLI-{number:03d}-01-BUG-Fixture.md"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_clusters_read_bli_files_and_print_their_prefix(self):
+        self.write_bli(101, _item_text("2026-11-01", "X-1"))
+        self.write_bli(102, _item_text("2026-11-01", "X-1"))
+        code, out, _ = self.run_flag("--clusters")
+        self.assertEqual(code, 0)
+        self.assertIn("cluster: BLI-101, BLI-102 | surfaced by: X-1", out)
+        self.assertIn("2 items scanned, 2 with Surfaced by", out)
+
+    def test_find_item_file_resolves_a_bli_file(self):
+        path = self.write_bli(101, _item_text("2026-11-01", None))
+        config = {"_backlog_dir": self.backlog_dir, "_archive_dir": self.archive_dir}
+        self.assertEqual(parse_backlog.find_item_file("BLI-101", config), path)
+        self.assertEqual(parse_backlog.find_item_file("101", config), path)
+
+
+class TestCrossCuttingFlag(_ItemFlagFixtureBase):
+    BODY = "\n## Cross-cutting\n\n- `scripts/a.py`\n- `tests/test_b.py`\n\n## Other\n\n`scripts/unrelated.py`\n"
+
+    def setUp(self):
+        super().setUp()
+        self.write_item(101, _item_text("2026-11-01", None, self.BODY))
+        self.prompt = self.tmp / "prompt.md"
+
+    def test_known_good_prompt_lists_every_cross_cutting_path_exits_0(self):
+        self.prompt.write_text("Edit scripts/a.py and tests/test_b.py.\n", encoding="utf-8")
+        code, out, _ = self.run_flag("--cross-cutting", "101", "--prompt", str(self.prompt))
+        self.assertEqual(code, 0)
+        self.assertNotIn("unlisted:", out)
+
+    def test_known_bad_unlisted_candidate_exits_1_and_is_named(self):
+        self.prompt.write_text("Edit scripts/a.py only.\n", encoding="utf-8")
+        code, out, _ = self.run_flag("--cross-cutting", "101", "--prompt", str(self.prompt))
+        self.assertEqual(code, 1)
+        self.assertIn("unlisted: tests/test_b.py", out)
+        self.assertNotIn("unrelated.py", out)  # outside the Cross-cutting section
+
+
+class TestInFlightFlag(_ItemFlagFixtureBase):
+    def _git(self, *args: str) -> None:
+        import subprocess
+
+        subprocess.run(
+            ["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+            check=True, capture_output=True,
+        )
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.tmp / "repo"
+        (self.repo / "src").mkdir(parents=True)
+        (self.repo / "src" / "mod.py").write_text("x = 1\n", encoding="utf-8")
+        self._git("init", "-q")
+        self._git("add", "src/mod.py")
+        self._git("commit", "-q", "-m", "feat: add mod")
+        (self.tmp / "loose").mkdir()
+        (self.tmp / "loose" / "x.py").write_text("y = 2\n", encoding="utf-8")
+
+    def test_known_good_prints_git_log_and_symbol_hits_and_exits_0(self):
+        self.write_item(101, _item_text("2026-11-01", None, "Files: `repo/src/mod.py`; symbol `my_symbol()`\n"))
+        self.write_item(102, _item_text("2026-11-01", None, "also touches my_symbol\n"))
+        code, out, _ = self.run_flag("--in-flight", "101")
+        self.assertEqual(code, 0)
+        self.assertIn("feat: add mod", out)
+        self.assertIn("BB-102-01-BUG-Fixture.md: 1", out)
+
+    def test_known_bad_path_outside_any_repo_and_missing_path_print_facts_and_exit_0(self):
+        self.write_item(101, _item_text("2026-11-01", None, "Files: `loose/x.py`, `gone/nope.py`\n"))
+        code, out, _ = self.run_flag("--in-flight", "101")
+        self.assertEqual(code, 0)
+        self.assertIn("loose/x.py: outside any repository", out)
+        self.assertIn("gone/nope.py: not found on disk", out)
+        self.assertIn("no symbol named", out)
+
+
 if __name__ == "__main__":
     unittest.main()

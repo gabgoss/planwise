@@ -115,6 +115,121 @@ class TestInjectionFamilyRollup(_MigrationFixtureBase):
         # Worst-first ordering: the over-ceiling family sorts first.
         self.assertEqual(result["families"][0]["glob"], self._backlog_glob())
 
+    def _write_ack_fixture(self) -> None:
+        """One acknowledged and one unacknowledged plans-scoped rule, plus a doctor-ready config."""
+        self.write_installed(
+            "acked-plans.md", "Acknowledged rule.\n", self.plans_paths_value
+        )
+        acked = self.rules_dir / "acked-plans.md"
+        # Raw bytes: write_text would turn each LF into CRLF on Windows.
+        acked.write_bytes(
+            b"---\n"
+            b"description: fixture rule\n"
+            b"overscope-ack: needed while plans are authored\n"
+            + f"paths: {self.plans_paths_value}\n".encode()
+            + b"---\nAcknowledged rule.\n"
+        )
+        self.write_installed(
+            "plain-plans.md", "Unacknowledged rule.\n", self.plans_paths_value
+        )
+        self.cfg.plugin_version = "1.0.4"
+        config_dir = self.project_root / self.cfg.planwise_root
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.yaml").write_text(
+            f'plugin_version: "{self.cfg.plugin_version}"\n', encoding="utf-8"
+        )
+
+    @staticmethod
+    def _flagged_rows(stdout: str) -> list[str]:
+        """The overscope report's full rows: later stages print their own `  ~ ` lines."""
+        return [
+            line for line in stdout.splitlines()
+            if line.startswith("  ~ ") and "tokens; matches " in line
+        ]
+
+    def _doctor_stdout(self, **kwargs) -> str:
+        import contextlib
+        import io
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            exit_code = ip._run_doctor(self.cfg, **kwargs)
+        self.assertEqual(exit_code, 0)
+        return buf.getvalue()
+
+    def test_acknowledged_rule_records_reason_and_unacknowledged_stays_none(self):
+        self._write_ack_fixture()
+        by_name = {
+            Path(item["path"]).name: item
+            for item in doctor_sweeps.lint_rule_overscope(self.cfg)
+        }
+        self.assertEqual(set(by_name), {"acked-plans.md", "plain-plans.md"})
+        self.assertEqual(
+            by_name["acked-plans.md"]["ack_reason"], "needed while plans are authored"
+        )
+        self.assertIsNone(by_name["plain-plans.md"]["ack_reason"])
+
+    def test_empty_multiline_and_quoted_ack_values(self):
+        cases = {
+            "empty.md": (b"overscope-ack:\n", None),
+            "blank.md": (b"overscope-ack:    \n", None),
+            "multi.md": (b"overscope-ack: first\n  second\n", None),
+            "quoted.md": (b'overscope-ack: "kept on purpose"\n', "kept on purpose"),
+        }
+        for name, (line, _expected) in cases.items():
+            (self.rules_dir / name).write_bytes(
+                b"---\n" + line + f"paths: {self.plans_paths_value}\n".encode()
+                + b"---\nBody.\n"
+            )
+        by_name = {
+            Path(item["path"]).name: item["ack_reason"]
+            for item in doctor_sweeps.lint_rule_overscope(self.cfg)
+        }
+        for name, (_line, expected) in cases.items():
+            self.assertEqual(by_name[name], expected, name)
+
+    def test_split_acknowledged_and_footer_are_pure(self):
+        flagged = [
+            {"path": "a", "approx_tokens": 10, "ack_reason": "why"},
+            {"path": "b", "approx_tokens": 5, "ack_reason": None},
+            {"path": "c", "approx_tokens": 7, "ack_reason": "also why"},
+        ]
+        unacked, acked = doctor_sweeps.split_acknowledged(flagged)
+        self.assertEqual([i["path"] for i in unacked], ["b"])
+        self.assertEqual([i["path"] for i in acked], ["a", "c"])
+        self.assertEqual(
+            doctor_sweeps.format_overscope_ack_footer(acked),
+            "2 acknowledged plan-scoped rule(s), ~17 tokens — listed by /planwise doctor --verbose",
+        )
+        self.assertEqual(doctor_sweeps.format_overscope_ack_footer([]), "")
+
+    def test_doctor_report_moves_acknowledged_rule_to_footer(self):
+        self._write_ack_fixture()
+        stdout = self._doctor_stdout()
+        rows = self._flagged_rows(stdout)
+        self.assertEqual(len(rows), 1, "only the unacknowledged rule keeps a full row")
+        self.assertIn("plain-plans.md", rows[0])
+        self.assertNotIn("acked-plans.md", stdout, "the default report omits the acknowledged path")
+        self.assertIn("1 acknowledged plan-scoped rule(s), ~", stdout)
+        self.assertIn("listed by /planwise doctor --verbose", stdout)
+        self.assertIn("Flagged 2 rule(s)", stdout, "the flagged count still includes both rules")
+        self.assertIn("rules: 2", stdout, "the family rollup still counts the acknowledged rule")
+
+    def test_doctor_verbose_lists_acknowledged_rule_with_reason(self):
+        self._write_ack_fixture()
+        stdout = self._doctor_stdout(verbose=True)
+        self.assertIn("acked-plans.md", stdout)
+        self.assertIn("reason: needed while plans are authored", stdout)
+        rows = self._flagged_rows(stdout)
+        self.assertEqual(len(rows), 1)
+
+    def test_doctor_footer_replaces_row_list_when_every_rule_is_acknowledged(self):
+        self._write_ack_fixture()
+        (self.rules_dir / "plain-plans.md").unlink()
+        stdout = self._doctor_stdout()
+        self.assertEqual(self._flagged_rows(stdout), [])
+        self.assertIn("1 acknowledged plan-scoped rule(s), ~", stdout)
+
     def test_read_injection_ceiling_default_when_config_absent(self):
         self.assertEqual(
             doctor_sweeps._read_injection_ceiling(self.cfg),

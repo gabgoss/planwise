@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 from config_loader import load_config
 from constants import CLOSED_STATUSES, HOLD_STATUSES
+from frontmatter_parser import parse_frontmatter_map, split_frontmatter_block
 from generate_backlog_index import _index_naming, is_generated_index_file, shard_for
 from markdown_parser import (
     id_number,
@@ -594,10 +596,228 @@ def duplicate_row_ids_message(duplicates: list[list[str]]) -> str:
     )
 
 
+# --- Item-file reader shared by --clusters, --cross-cutting and --in-flight ---
+
+# Item files carry either the `BB-` or the `BLI-` prefix (doctor_probes reads both).
+ITEM_FILE_PREFIXES = ("BB", "BLI")
+_ITEM_FILE_RE = re.compile(r"^(BB|BLI)-(\d+)-.*\.md$")
+# The literal text `Surfaced by`, an optional colon, then the value to the end
+# of the line. Case-sensitive; read from the frontmatter or the body.
+_SURFACED_RE = re.compile(r"Surfaced by:?[ \t]*([^\r\n]*)")
+_PATH_RE = re.compile(
+    r"[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)*\.(?:py|md|json|ya?ml|txt|toml|template|sh|ini)\b"
+)
+_HEADING_RE = re.compile(r"^(#+)\s")
+_SYMBOL_RE = re.compile(r"`([A-Za-z_][A-Za-z0-9_]*)(?:\(\))?`")
+
+
+def _item_dirs(config: dict) -> list[Path]:
+    return [config["_backlog_dir"], config["_archive_dir"]]
+
+
+def find_item_file(item_id: str, config: dict) -> Path | None:
+    """Resolve an id to its item file: `BB-<id>-*.md` or `BLI-<id>-*.md` in the
+    backlog directory or its Archive subdirectory (id zero-padded as the
+    filenames carry it)."""
+    number = id_number(item_id)
+    if number is None:
+        return None
+    for directory in _item_dirs(config):
+        if directory.is_dir():
+            matches = sorted(
+                path for prefix in ITEM_FILE_PREFIXES for path in directory.glob(f"{prefix}-{number:03d}-*.md")
+            )
+            if matches:
+                return matches[0]
+    return None
+
+
+def read_item_file(path: Path) -> tuple[str | None, str | None, str]:
+    """Return (created, surfaced_by, body) for one item file."""
+    text = path.read_text(encoding="utf-8", errors="replace")
+    created = None
+    body = text
+    split = split_frontmatter_block(text)
+    if split is not None:
+        front = parse_frontmatter_map(split[0]) or {}
+        created = front.get("created", "").strip().strip("'\"") or None
+        body = split[1]
+    match = _SURFACED_RE.search(text)
+    surfaced = match.group(1).strip() if match else None
+    return created, surfaced or None, body
+
+
+def find_clusters(config: dict) -> tuple[list[tuple[list[int], str, str]], int, int]:
+    """Group items by (Surfaced by, created); a run of 2+ ids differing by 1
+    is a cluster. Returns (clusters, items_scanned, items_with_surfaced_by)."""
+    items: dict[int, Path] = {}
+    for directory in _item_dirs(config):
+        if directory.is_dir():
+            for path in sorted(directory.glob("*.md")):
+                match = _ITEM_FILE_RE.match(path.name)
+                if match:
+                    items.setdefault(int(match.group(2)), path)
+    groups: dict[tuple[str, str], list[int]] = {}
+    with_surfaced = 0
+    for number, path in items.items():
+        created, surfaced, _ = read_item_file(path)
+        if surfaced:
+            with_surfaced += 1
+            if created:
+                groups.setdefault((surfaced, created), []).append(number)
+    clusters: list[tuple[list[int], str, str]] = []
+    for (surfaced, created), numbers in sorted(groups.items()):
+        run: list[int] = []
+        for number in sorted(numbers) + [None]:
+            if run and (number is None or number != run[-1] + 1):
+                if len(run) >= 2:
+                    clusters.append((run, surfaced, created))
+                run = []
+            if number is not None:
+                run.append(number)
+    return clusters, len(items), with_surfaced
+
+
+def cross_cutting_section(body: str) -> str:
+    """First line mentioning `cross-cutting` (case-insensitive) through the
+    end of its block: the next heading of the same or higher level when it is
+    a heading, else the next blank line."""
+    out: list[str] = []
+    level: int | None = None
+    collecting = False
+    for line in body.split("\n"):
+        heading = _HEADING_RE.match(line)
+        if not collecting:
+            if "cross-cutting" in line.lower():
+                collecting = True
+                level = len(heading.group(1)) if heading else None
+                out.append(line)
+            continue
+        if level is not None:
+            if heading and len(heading.group(1)) <= level:
+                break
+        elif not line.strip():
+            break
+        out.append(line)
+    return "\n".join(out)
+
+
+def extract_paths(text: str) -> list[str]:
+    """File-shaped paths in `text`, forward-slashed, in first-seen order."""
+    seen: dict[str, None] = {}
+    for found in _PATH_RE.findall(text.replace("\\", "/")):
+        seen.setdefault(found, None)
+    return list(seen)
+
+
+def _path_listed(candidate: str, listed: list[str]) -> bool:
+    return any(
+        candidate == p or p.endswith("/" + candidate) or candidate.endswith("/" + p)
+        for p in listed
+    )
+
+
+def _item_symbol(body: str) -> str | None:
+    match = _SYMBOL_RE.search(body)
+    return match.group(1) if match else None
+
+
+def _locate_on_disk(path_text: str, config: dict) -> Path | None:
+    project_root = config["_backlog_dir"].parent.parent
+    candidates = [Path(path_text), project_root / path_text, config["_backlog_dir"].parent / path_text]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _git_log(path: Path) -> str:
+    """`git log -n 5 --oneline -- <path>` against the repository holding the path."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(path.resolve().parent), "log", "-n", "5", "--oneline", "--", path.name],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"git unavailable ({exc})"
+    if result.returncode != 0:
+        return "outside any repository"
+    return result.stdout.strip() or "(no commits)"
+
+
+def _item_prefix(number: int, config: dict) -> str:
+    """The filename prefix (`BB` or `BLI`) of item `number`'s file, `BB` when none is found."""
+    path = find_item_file(str(number), config)
+    match = _ITEM_FILE_RE.match(path.name) if path else None
+    return match.group(1) if match else ITEM_FILE_PREFIXES[0]
+
+
+def run_clusters(config: dict) -> int:
+    clusters, scanned, with_surfaced = find_clusters(config)
+    for numbers, surfaced, created in clusters:
+        ids = ", ".join(f"{_item_prefix(n, config)}-{n:03d}" for n in numbers)
+        print(f"cluster: {ids} | surfaced by: {surfaced} | created: {created}")
+    print(f"{scanned} items scanned, {with_surfaced} with Surfaced by")
+    return 0
+
+
+def run_cross_cutting(item_id: str, prompt_file: str | None, config: dict) -> int:
+    if not prompt_file:
+        print("Error: --cross-cutting requires --prompt <file>", file=sys.stderr)
+        return 2
+    item_path = find_item_file(item_id, config)
+    if item_path is None:
+        print(f"Error: no item file for id {item_id}", file=sys.stderr)
+        return 2
+    try:
+        prompt_text = Path(prompt_file).read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        print(f"Error: cannot read prompt file: {exc}", file=sys.stderr)
+        return 2
+    _, _, body = read_item_file(item_path)
+    candidates = extract_paths(cross_cutting_section(body))
+    listed = extract_paths(prompt_text)
+    unlisted = [c for c in candidates if not _path_listed(c, listed)]
+    for candidate in unlisted:
+        print(f"unlisted: {candidate}")
+    print(f"{len(candidates)} cross-cutting paths, {len(unlisted)} not in the prompt")
+    return 1 if unlisted else 0
+
+
+def run_in_flight(item_id: str, config: dict) -> int:
+    item_path = find_item_file(item_id, config)
+    if item_path is None:
+        print(f"Error: no item file for id {item_id}", file=sys.stderr)
+        return 2
+    _, _, body = read_item_file(item_path)
+    print("git log (last 5 commits per artifact path):")
+    for path_text in extract_paths(body):
+        located = _locate_on_disk(path_text, config)
+        print(f"  {path_text}: " + ("not found on disk" if located is None else _git_log(located).replace("\n", "\n    ")))
+    symbol = _item_symbol(body)
+    print(f"backlog search for symbol {symbol!r}:" if symbol else "backlog search: no symbol named in the item")
+    if symbol:
+        hits = 0
+        for directory in _item_dirs(config):
+            if not directory.is_dir():
+                continue
+            for path in sorted(directory.glob("*.md")):
+                if path == item_path:
+                    continue
+                count = path.read_text(encoding="utf-8", errors="replace").count(symbol)
+                if count:
+                    hits += 1
+                    print(f"  {path.name}: {count}")
+        if not hits:
+            print("  (no other backlog file names it)")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Parse the backlog index and output filtered items."
     )
+    parser.add_argument("--config", type=str, default=None, help="Path to config.yaml; overrides default config search.")
     parser.add_argument("--status", help="Filter by status (e.g., NOT_STARTED, IN_PROGRESS)")
     parser.add_argument("--priority", help="Filter by priority (e.g., High, Medium, Low)")
     parser.add_argument("--abbrev", help="Filter by abbreviation")
@@ -606,12 +826,24 @@ def main():
     parser.add_argument("--show-blocked", action="store_true", help="Include items blocked by open dependencies")
     parser.add_argument("--sort", choices=["score", "id"], default="score", help="Sort order (default: score descending)")
     parser.add_argument("--next-id", action="store_true", help="Print the next available BLI ID (NNN form, zero-padded) and exit.")
+    parser.add_argument("--clusters", action="store_true", help="Print runs of adjacent ids sharing Surfaced by and created, then exit 0.")
+    parser.add_argument("--cross-cutting", metavar="ID", help="Exit 1 when the item's Cross-cutting note names a file the --prompt file does not list.")
+    parser.add_argument("--prompt", metavar="FILE", help="Fix prompt file read by --cross-cutting.")
+    parser.add_argument("--in-flight", metavar="ID", help="Print git log -n 5 per artifact path and a backlog search for the item's symbol, then exit 0.")
 
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args()
 
     # Load config
     config = load_config(Path(__file__))
     index_path = config["_index_path"]
+
+    # The item-file flags read item files, not the index table.
+    if args.clusters:
+        sys.exit(run_clusters(config))
+    if args.cross_cutting:
+        sys.exit(run_cross_cutting(args.cross_cutting, args.prompt, config))
+    if args.in_flight:
+        sys.exit(run_in_flight(args.in_flight, config))
 
     if not index_path.exists():
         print(f"Error: Backlog index not found at {index_path}", file=sys.stderr)

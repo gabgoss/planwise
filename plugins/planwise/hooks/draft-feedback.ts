@@ -1,7 +1,8 @@
 // Feedback drafting, composed into the one hooks module (register.ts). Its session.start work
 // registers the draft_feedback tool, and a tool.call hook serves it: validate, render, write a
 // draft file, then admit it through scripts/feedback_drafts.py. An admit exit other than
-// 0, 2 or 3 is debug-logged and the file is kept. The model never sees a permission dialog.
+// 0, 2 or 3 is debug-logged and the file is kept. The model never sees a permission dialog: the
+// hook asks the engine for its verdict first, refuses on a deny, and runs on an allow or an ask.
 import { update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions, SessionVersion, ToolSpec } from 'claude-code'
 
@@ -13,6 +14,7 @@ import { renderDraft, scrub } from './feedback/render.ts'
 import { draftFileName, slugOf } from './feedback/slug.ts'
 import { validateInput } from './feedback/validate.ts'
 import { failureText } from './loop/boundary.ts'
+import { refusedByRule } from './permission.ts'
 import type { PlanwiseLastDraft } from '../types'
 
 export type Host = {
@@ -29,6 +31,7 @@ export type Host = {
   registerTool: (tool: ToolSpec) => Promise<unknown>
   uiLog: (text: string, to: 'debug' | 'transcript') => void
   runProcess: (argv: readonly string[]) => Promise<{ exitCode: number; stderr: string }>
+  check: (tool: string, input: unknown) => Promise<{ decision: 'allow' | 'ask' | 'deny'; reason?: string }>
   lastDraft: () => Promise<PlanwiseLastDraft | null>
   setLastDraft: (draft: PlanwiseLastDraft) => Promise<unknown>
   bumpCardsShown: () => Promise<unknown>
@@ -68,6 +71,7 @@ export function hostOf($: EngineInterface): Host {
     registerTool: (tool: ToolSpec) => $.tool.register(tool),
     uiLog: (text: string, to: 'debug' | 'transcript') => $.ui.log(text, { to }),
     runProcess: (argv: readonly string[]) => $.process.run(argv),
+    check: (tool: string, input: unknown) => $.tool.check({ tool, input }),
     // The review card reads these two values. Literal refs, as `$.state` requires.
     lastDraft: async () => (await $.state.get({ plugin: 'planwise', key: 'lastDraft' } as const)).value ?? null,
     setLastDraft: (draft: PlanwiseLastDraft) => $.state.set({ plugin: 'planwise', key: 'lastDraft' } as const, draft),
@@ -221,6 +225,10 @@ export function register(on: On, options: PluginOptions) {
     if (session.calls >= MAX_CALLS_PER_SESSION) return { deny: CAP_TEXT }
     const checked = validateInput(e as unknown as Record<string, unknown>)
     if (!checked.ok) return { deny: 'draft_feedback: ' + checked.error }
+    // This hook answers the call itself, so core's permission prompt never runs. Honour a deny
+    // verdict (a deny rule, a mode that forbids the call). An ask runs silently, by design.
+    const refusal = await refusedByRule(host.check, FULL_TOOL_NAME, { kind: checked.kind, title: checked.title })
+    if (refusal !== null) return { deny: 'draft_feedback: ' + refusal }
     session.calls += 1
 
     const [sessionId, model, cli, osName, pluginVersion] = await Promise.all([host.sessionId(), host.model(), host.version(), host.osEnv(), pluginVersionOf(host)])

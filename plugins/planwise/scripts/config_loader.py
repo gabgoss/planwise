@@ -364,39 +364,160 @@ def splice_context_block(text: str, values: dict) -> str:
     return text
 
 
-def _parse_yaml_simple(text: str) -> dict:
-    """Minimal YAML parser for flat and one-level-nested structures.
+# A key is a bare word (letters, digits, underscore, hyphen, dot) or a quoted string.
+_YAML_KEY = r"""(?:[a-zA-Z_][\w.-]*|"[^"]*"|'[^']*')"""
+_SECTION_RE = re.compile(rf"^({_YAML_KEY}):\s*$")
+_TOP_SCALAR_RE = re.compile(rf"^({_YAML_KEY}):\s+(.+)$")
+_NESTED_RE = re.compile(rf"^\s+({_YAML_KEY}):\s+(.+)$")
+_RESET_RE = re.compile(rf"^({_YAML_KEY}):\s*(.*)$")
+# A block scalar header: `>` (folded) or `|` (literal), with an optional `-` or `+` chomp indicator.
+_BLOCK_SCALAR_RE = re.compile(r"^([>|])([+-]?)\s*(?:#.*)?$")
 
-    Handles the config.yaml format without requiring PyYAML.
+
+def _unquote_key(key: str) -> str:
+    """Return `key` without the quotes around it, when it has a matching pair."""
+    if len(key) >= 2 and key[0] == key[-1] and key[0] in "\"'":
+        return key[1:-1]
+    return key
+
+
+def _read_block_scalar(lines: list, start: int, parent_indent: int, style: str, chomp: str):
+    """Read a block scalar whose header sat on line `start - 1` and return (text, next line index).
+
+    The body is every following line that is blank or indented deeper than the header's key.
+    `>` folds a run of non-blank lines into one line joined by spaces, and each blank line
+    between runs becomes a newline. `|` keeps its lines. Chomping follows YAML: the default
+    keeps one final newline, `-` keeps none and `+` keeps every trailing blank line. A folded
+    scalar gives no special treatment to a more-indented line, and an explicit indentation
+    indicator (`|2`) is not read.
+    """
+    end = start
+    while end < len(lines):
+        raw = lines[end]
+        if raw.strip() and len(raw) - len(raw.lstrip()) <= parent_indent:
+            break
+        end += 1
+    body = lines[start:end]
+    first = next((raw for raw in body if raw.strip()), None)
+    block_indent = len(first) - len(first.lstrip()) if first is not None else 0
+    content = [raw[block_indent:].rstrip() if raw.strip() else "" for raw in body]
+    trailing = 0
+    while content and content[-1] == "":
+        content.pop()
+        trailing += 1
+    if style == "|":
+        text = "\n".join(content)
+    else:
+        text, blanks = "", 0
+        for piece in content:
+            if piece == "":
+                blanks += 1
+            elif not text and not blanks:
+                text = piece
+            elif blanks:
+                text += "\n" * blanks + piece
+                blanks = 0
+            else:
+                text += " " + piece
+    if content:
+        text += "" if chomp == "-" else "\n" + ("\n" * trailing if chomp == "+" else "")
+    elif chomp == "+":
+        text = "\n" * trailing
+    return text, end
+
+
+def _scalar_value(raw: str, lines: list, next_index: int, key_indent: int):
+    """Return (value, next line index) for the text after a `key:` on a line.
+
+    A block scalar header reads the lines under it. Anything else is a plain or quoted scalar.
+    """
+    value = raw.strip()
+    block = _BLOCK_SCALAR_RE.match(value)
+    if block:
+        return _read_block_scalar(lines, next_index, key_indent, block.group(1), block.group(2))
+    return _coerce(value.strip("'\"")), next_index
+
+
+def _read_child_mapping(lines: list, start: int, key_indent: int):
+    """Read the `key: value` lines indented under a key-only line, or return None.
+
+    Returns (dict, next line index) when every line under the key is a `key: value` line at
+    one indent, one level deep. Any other shape (a list, a deeper level, a stray line) returns
+    None, and the caller leaves the key to the older single-level reading.
+    """
+    children: dict = {}
+    child_indent = None
+    index = start
+    while index < len(lines):
+        raw = lines[index]
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            index += 1
+            continue
+        indent = len(raw) - len(raw.lstrip())
+        if indent <= key_indent:
+            break
+        match = _NESTED_RE.match(raw)
+        if match is None or (child_indent is not None and indent != child_indent):
+            return None
+        child_indent = indent
+        children[_unquote_key(match.group(1))], index = _scalar_value(match.group(2), lines, index + 1, indent)
+    return (children, index) if children else None
+
+
+def _parse_yaml_simple(text: str) -> dict:
+    """Minimal YAML parser for the config.yaml format when PyYAML is not installed.
+
+    It reads top-level scalars, sections with `key: value` entries one level down, and
+    lists. A key may be a bare word with hyphens or dots, or quoted. A value may be a block
+    scalar (`>` or `|`). A section entry may itself be a mapping of `key: value` lines one
+    level deeper. It does not read flow collections, anchors, multi-line plain or quoted
+    scalars, or a mapping nested more than one level below a section entry. Those shapes keep
+    the older, lossy reading.
     """
     result: dict = {}
     current_section = None
+    lines = text.replace("\r\n", "\n").split("\n")
+    index = 0
 
-    for line in text.split("\n"):
+    while index < len(lines):
+        line = lines[index]
+        index += 1
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
+        indent = len(line) - len(line.lstrip())
+
+        # An indented key with no value, whose lines below are `key: value` pairs, is a
+        # mapping inside the current section. Checked before the section-header test below,
+        # which reads `stripped` and would turn this key into a new top-level section.
+        if indent > 0 and current_section is not None and isinstance(result[current_section], dict):
+            sub_match = _SECTION_RE.match(stripped)
+            sub = _read_child_mapping(lines, index, indent) if sub_match else None
+            if sub is not None:
+                result[current_section][_unquote_key(sub_match.group(1))], index = sub
+                continue
 
         # Top-level key with nested content (ends with ':' and no value)
-        if re.match(r"^[a-zA-Z_]\w*:\s*$", stripped):
-            current_section = stripped.rstrip(":").strip()
+        section_match = _SECTION_RE.match(stripped)
+        if section_match:
+            current_section = _unquote_key(section_match.group(1))
             result[current_section] = {}
             continue
 
         # Top-level key with scalar value
-        top_match = re.match(r"^([a-zA-Z_]\w*):\s+(.+)$", stripped)
+        top_match = _TOP_SCALAR_RE.match(stripped)
         if top_match and current_section is None:
-            key, val = top_match.group(1), top_match.group(2).strip().strip("'\"")
-            result[key] = _coerce(val)
+            result[_unquote_key(top_match.group(1))], index = _scalar_value(top_match.group(2), lines, index, 0)
             continue
 
         # Nested key-value under a section. Match against the ORIGINAL line —
         # `stripped` has no leading whitespace, so matching it would silently
         # flatten nested keys to the top level (dropping the whole section).
-        nested_match = re.match(r"^\s+([a-zA-Z_]\w*):\s+(.+)$", line)
+        nested_match = _NESTED_RE.match(line)
         if nested_match and current_section is not None:
-            key, val = nested_match.group(1), nested_match.group(2).strip().strip("'\"")
-            result[current_section][key] = _coerce(val)
+            key = _unquote_key(nested_match.group(1))
+            result[current_section][key], index = _scalar_value(nested_match.group(2), lines, index, indent)
             continue
 
         # List item under a section (also matched against the original line)
@@ -409,14 +530,13 @@ def _parse_yaml_simple(text: str) -> dict:
             continue
 
         # Top-level key starting a new context resets section
-        if re.match(r"^[a-zA-Z_]", stripped):
+        reset_match = _RESET_RE.match(stripped)
+        if reset_match or re.match(r"^[a-zA-Z_]", stripped):
             current_section = None
-            top_match2 = re.match(r"^([a-zA-Z_]\w*):\s*(.*)$", stripped)
-            if top_match2:
-                key = top_match2.group(1)
-                val = top_match2.group(2).strip().strip("'\"")
-                if val:
-                    result[key] = _coerce(val)
+            if reset_match:
+                key = _unquote_key(reset_match.group(1))
+                if reset_match.group(2).strip().strip("'\""):
+                    result[key], index = _scalar_value(reset_match.group(2), lines, index, indent)
                 else:
                     current_section = key
                     result[key] = {}

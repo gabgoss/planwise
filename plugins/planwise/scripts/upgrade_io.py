@@ -103,10 +103,12 @@ def _load_verdicts_cache(cfg: "InitConfig", from_version: str, to_version: str) 
     * **Present** — consumed. An unreadable file or malformed (non-dict)
       JSON still degrades to ``{}``.
 
-    Both writer sites read through this helper, so on the one upgrade that
-    crosses the de-scope migration boundary the stray warning can print
-    twice; that duplication is accepted over a module-level "already warned"
-    flag, which would silence the second reader in a long-lived process.
+    One ``--upgrade`` run calls this helper once and passes the dict to both
+    writer sites (the artifact refresh and the de-scope migration), so the
+    stray warning prints at most once. A caller that passes no dict to a
+    writer site makes that site load it again, which keeps the stand-alone
+    calls working. A module-level "already warned" flag is not used, because
+    it would silence the second reader in a long-lived process.
     """
     path = verdicts_cache_path(cfg, from_version, to_version)
     if not path.exists():
@@ -362,7 +364,10 @@ def _append_disposition_log(
         header = "" if log_path.exists() else (
             f"# Upgrade dispositions: {from_version} -> {to_version}\n\n"
             "Pre-change copies of every file this upgrade deleted or overwrote\n"
-            "live alongside this log, mirroring their project-relative paths.\n\n"
+            "live alongside this log. A file outside the backlog, lessons and plans\n"
+            "directories mirrors its project-relative path. A file inside one of those\n"
+            "directories sits under backlog/, lessons/ or plans/, at its path relative\n"
+            "to that directory, not to the project root.\n\n"
         )
         log_path.parent.mkdir(parents=True, exist_ok=True)
         with log_path.open("a", encoding="utf-8") as fh:

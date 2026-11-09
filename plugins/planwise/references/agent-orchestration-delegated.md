@@ -32,7 +32,7 @@ Part 2 carries dispatch mechanics and what happens after a runner returns. Part 
 - [1.9 Tier-Rank Fixes by Invasiveness](#19-tier-rank-fixes-by-invasiveness)
 - [1.10 Forward-Looking-Verb Detection + SendMessage Resume Protocol](#110-forward-looking-verb-detection--sendmessage-resume-protocol)
 - [1.11 Operational-Ceiling Disclaimers in Spawn Prompts](#111-operational-ceiling-disclaimers-in-spawn-prompts)
-- [1.12 N>25 Edit-Task Resume Protocol with Tool-Use Budget Estimation](#112-n25-edit-task-resume-protocol-with-tool-use-budget-estimation)
+- [1.12 N>25 Edit-Task and Turn-Cap Resume Protocol with Tool-Use Budget Estimation](#112-n25-edit-task-and-turn-cap-resume-protocol-with-tool-use-budget-estimation)
 - [1.13 Shared-Edit-Target Strategy Matrix](#113-shared-edit-target-strategy-matrix)
 
 **Continued in Part 2** (§1.14–§1.22) and **Part 3** (§1.23–§1.32) — see the pointer table above.
@@ -193,6 +193,15 @@ When DELEGATED dispatches modify shared files (e.g., a shared algorithm module o
 
 After each dispatch that produces output files, the orchestrator MUST run `measure_files.py` on every output file and compare against the Expected Output token budget declared in the task file. Deviations >20% from the declared budget are a signal to review before proceeding to the next dispatch.
 
+**Foreign-dirt classification:**
+
+After each dispatch, the orchestrator runs `git -C <repo> status --porcelain` and subtracts the runner's declared `OUTPUT_FILES`. It classifies every remaining path:
+
+- **The remainder intersects the plan's write-set:** HALT. Surface the path before the next dispatch.
+- **The remainder is disjoint:** add a Recovery Issues row. Write path-scoped anchors into the downstream task files, with the measured numbers inline.
+
+Later spawn prompts say that an import error from a foreign module mid-edit is retried, not fixed. `references/harness-instrument-integrity.md` §3 explains why attribution outranks count. `handlers/run.md` Step 1.1b is the session-start counterpart.
+
 > [!constraint] Inter-Dispatch Diagnostic Check
 > WRONG — orchestrator dispatches all tasks in sequence without diagnostics between:
 > ```
@@ -245,6 +254,8 @@ Path-specific rules (rules with `paths:` frontmatter patterns) do NOT automatica
 > ```
 
 **The same injection discipline governs any shared pin, not only rules.** A baseline SHA — or any equivalent value every task in the session must agree on — is injected by the orchestrator as a **literal** into every task file and every spawn prompt. Instructing a runner to read it back from a shared file (Recovery, the Orchestration file, a scratch note) costs a read the §1.3 context boundary exists to avoid, and breaks outright under parallel dispatch, where that shared file is being written by a sibling runner at the moment the reader opens it. A pin the runner had to fetch is a pin that can arrive empty — and a gate pinned to an empty variable degrades **silently** rather than failing, so nothing downstream announces the loss. See [`measurement-discipline.md`](measurement-discipline.md) §8.7 sub-rule E for the liveness proof that makes such a pin falsifiable.
+
+The baseline SHA is defined in [`gate-diff-baseline-pinning.md`](gate-diff-baseline-pinning.md) §8.1. Its Recovery Key Findings record is the orchestrator's injection source and never a runner input. The orchestrator carries the value in the `Base commit:` line of the Spawn-Prompt Skeleton in `templates/orchestration.md`.
 
 > [!constraint] Inject the Literal, Do Not Indirect Through a File
 > WRONG — the spawn prompt names where the value lives, making every runner fetch it:
@@ -316,7 +327,7 @@ Every DELEGATED spawn prompt MUST include a HARD CONSTRAINTS section and a SCOPE
 
 ```markdown
 ## HARD CONSTRAINTS (non-negotiable)
-1. Modify ONLY files listed in this task's Required Context — no other files
+1. Modify ONLY the files named on this task's Output line. Every other Required Context file is read-only.
 2. Do NOT read files not listed in Required Context
 3. Do NOT spawn sub-agents or create teams
 4. If you encounter an ambiguity requiring a file not in Required Context, STOP and report it; do NOT expand scope
@@ -339,7 +350,7 @@ Check each prohibition and each narrowed write permission against every step of 
 > "Execute task file {Abbrev}-S02-01-03-Sonnet-GenEntities.md.
 >
 > ## HARD CONSTRAINTS (non-negotiable)
-> 1. Modify ONLY the files listed in the task's Required Context...
+> 1. Modify ONLY the files named on this task's Output line...
 > [full HARD CONSTRAINTS + SCOPE BOUNDARY block]"
 > ```
 
@@ -377,28 +388,36 @@ SendMessage(
 
 ## 1.11 Operational-Ceiling Disclaimers in Spawn Prompts
 
-Spawn prompts for tasks approaching operational ceilings (>25 file edits, >30 HTTP probes, >100K expected context) MUST include an operational ceiling disclaimer:
+Spawn prompts for tasks approaching operational ceilings (>25 file edits, >30 HTTP probes, >100K expected context, an estimated task size above about 80K tokens, or more than about eight verification commands) MUST include an operational ceiling disclaimer. This notice is the one turn-budget template for every dispatch. The harness caps a runner by turns, so the notice names the turn limit and the turn-economy rules:
 
 ```markdown
 ## Operational Ceiling Notice
 This task approaches operational ceilings:
 - **Edit ceiling:** ~{N} file edits expected (ceiling: 25 per dispatch)
 - **Context ceiling:** ~{X}K expected context load
+- **Turn ceiling:** ~{T} tool calls expected; harness limit {maxTurns} turns (for example 50 for task-runner)
+Turn economy:
+- Batch independent shell commands into one call.
+- Edit each notebook with one script, not one call per cell.
+- Read a large file with Grep or offset/limit, not in full pages.
+- Before a heavy step, a live execution or a run-once step, write the checkpoint. Sequential mode: set the task's Recovery row IN_PROGRESS and add a Change Log row naming the remaining steps. Parallel mode: write the pre-step evidence file only and do not touch Recovery (§1.13).
 If you reach a ceiling before completing all steps, STOP, write a partial output file documenting
 what was completed and what remains, then signal completion via your final response.
 ```
 
-## 1.12 N>25 Edit-Task Resume Protocol with Tool-Use Budget Estimation
+The block costs about 80 tokens per dispatch. The 80K-token and eight-command thresholds come from two sessions. They are observations, not fitted limits.
 
-When a task requires >25 file edits and cannot be split further, use the N>25 Edit-Task Resume Protocol:
+## 1.12 N>25 Edit-Task and Turn-Cap Resume Protocol with Tool-Use Budget Estimation
 
-1. Estimate tool-use budget: `({N} edits × 2 tool calls/edit) + {M} reads + {K} overhead = {total} tool calls`
-2. Declare the estimate in the spawn prompt under Operational Ceiling Notice
+When a task requires >25 file edits, an estimated task size above about 80K tokens, or more than about eight verification commands, and cannot be split further, use the N>25 Edit-Task Resume Protocol. The edit count alone under-covers the harness turn cap, because reads, scripts and verification runs spend turns too:
+
+1. Estimate tool-use budget: `({N} edits × 2 tool calls/edit) + {M} reads + {V} verification commands + {K} overhead = {total} tool calls`, then compare the total with the dispatch's turn limit
+2. Declare the estimate in the spawn prompt under Operational Ceiling Notice, on its turn-ceiling line
 3. After dispatch, if subagent reports incomplete: spawn continuation dispatch with "Resume from file {N+1}" instruction
 4. Cap continuation dispatches at 3; if still incomplete after 3 dispatches, escalate to orchestrator for redesign
 
 > [!practice] Tool-Use Budget Estimation for Edit-Heavy Tasks
-> Before dispatching >25-edit tasks, estimate: `(edits × 2) + reads + overhead`. If total exceeds 80% of model tool-budget ceiling, split the task. Example: 30 edits = 60 edit calls + 20 reads + 10 overhead = 90 tool calls — review against model ceiling before dispatching.
+> Before dispatching >25-edit tasks, estimate: `(edits × 2) + reads + verification commands + overhead`. If the total exceeds 80% of the dispatch's turn limit or of the model tool-budget ceiling, split the task at a natural seam (`session-context-budget.md` § Task Sizing Categories). Example: 30 edits = 60 edit calls + 20 reads + 6 verification commands + 10 overhead = 96 tool calls — review against the turn limit before dispatching.
 
 ## 1.13 Shared-Edit-Target Strategy Matrix
 
@@ -420,6 +439,8 @@ When N DELEGATED dispatches in a single session must write the same target (a sh
 **A layer annotated "disjoint" must carry the computed evidence.** The matrix above applies whenever N dispatches share a target — which means something has to decide whether they do. That decision is a set intersection over the layer members' own `**Output:**` lines, and it is shown or it did not happen. A bare annotation (`L2 = {2, 3} (disjoint target files)`) reads identically whether the property holds or not, so it can never fail review. Declare the intersection per layer: `∅` means the parallelism stands and the matrix is inert; a non-empty result means the layer must name one of the three strategies above, or serialize. [`scaffolding-hygiene-Part-2-DerivationAndParallelism.md`](scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §17 owns the scaffold-close computation and its reviewer check; this section owns what to do once the result is non-empty.
 
 **The shared target may be a counter rather than a file.** Two dispatches whose `**Output:**` paths genuinely do not intersect still collide when what they share is an **allocation**: the next free reviewer-check number, the next free catalog row, the next free section number. Both read the same live maximum, both compute the same next value, and both write it into *different* files — so a path-based intersection returns `∅` and the layer passes while the identifier is duplicated. Treat a next-free allocation as a shared target and apply this matrix to it. The cheapest strategy is usually not on the matrix at all: the orchestrator resolves each dispatch's number before dispatch and injects it as a literal, per §1.6.
+
+**A read of a layer-mate's Output is a dependency, not a shared target.** The "Reads from a layer-mate's Output" column of the layer table must be empty for a parallel layer. A non-empty cell means the matrix does not apply. Move the reader to a later layer, or list the layer-mate in `Depends On`. A recorded base is the common case, such as later tasks that take their base commit from Task 01's Output file. Two fixes work. (a) The orchestrator records the shared base before layer 1 and injects it as a literal in each spawn prompt, per the callout "Inject the Literal, Do Not Indirect Through a File" (§1.6) and the `Base commit:` line of the Spawn-Prompt Skeleton in `templates/orchestration.md`. (b) Each task records its own base behind its own clean check. Never take a base from a layer-mate's Output file.
 
 > [!constraint] Never Run Uncoordinated Parallel Writes to the Same Target
 > WRONG — N parallel dispatches write the same shared file with no cap, no shards, no delta reconciliation:

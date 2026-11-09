@@ -59,6 +59,7 @@ PLAN_FIELD_KEYS = (
     "project.lessons_dir",
     "project.index_files.lessons",
 )
+PLAN_GATE_LINES = 8  # config, the five fields, plans_path, lessons_path
 NO_DRIFT = "No drift detected. All index rows match their Master Plan status."
 ROUTING_ROW = re.compile(r"^\| `([a-z-]+)` \| ", re.MULTILINE)
 
@@ -391,7 +392,8 @@ class TestPlanConfigGate(_Fixture):
 
     @staticmethod
     def field_values(lines):
-        return dict(ln.split(": ", 1) for ln in lines[1:-1])
+        # The eight Config Gate lines come first; the plan card's own fields and NEXT block follow them.
+        return dict(ln.split(": ", 1) for ln in lines[1:1 + PLAN_GATE_LINES])
 
     def test_block_carries_the_config_path_and_the_five_fields(self):
         proc = run_router(["plan", "", ""], self.tmp)
@@ -401,7 +403,9 @@ class TestPlanConfigGate(_Fixture):
         self.assertEqual(lines[0], PLAN_BEGIN)
         self.assertEqual(lines[-1], PLAN_END)
         self.assertNotIn(PLAN_FALLBACK, proc.stdout)
-        keys = [ln.split(": ", 1)[0] for ln in lines[1:-1]]
+        keys = [ln.split(": ", 1)[0] for ln in lines[1:1 + PLAN_GATE_LINES]]
+        self.assertEqual(keys, ["config", *PLAN_FIELD_KEYS, "plans_path", "lessons_path"])
+        self.assertTrue(lines[1 + PLAN_GATE_LINES].startswith("context.plan_authoring: "))
         for key in ("config", *PLAN_FIELD_KEYS):
             with self.subTest(key=key):
                 self.assertEqual(keys.count(key), 1)
@@ -458,6 +462,16 @@ class TestPlanConfigGate(_Fixture):
             ["plan", "", ""], self.tmp, ["list_plans", "upgrade_preflight"])
         self.assertIn(PLAN_BEGIN, stdout)
         self.assertEqual(imported, {"list_plans": False, "upgrade_preflight": False})
+
+    def test_only_plan_imports_plan_preflight(self):
+        _, imported = run_router_module_probe(["plan", "", ""], self.tmp, ["plan_preflight"])
+        self.assertTrue(imported["plan_preflight"])  # positive control: the probe can see the import
+        subs = TestSilentForEveryRoutedSubcommand.routed_subcommands() - {"plan"}
+        self.assertIn("list", subs)
+        for sub in sorted(subs):
+            with self.subTest(sub=sub):
+                _, imported = run_router_module_probe([sub, "", ""], self.tmp, ["plan_preflight"])
+                self.assertFalse(imported["plan_preflight"])
 
     def test_stray_flags_render_the_same_block(self):
         plain = run_router(["plan", "", ""], self.tmp)

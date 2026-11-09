@@ -8,7 +8,7 @@ paths: {planwise_root}/{plans_dir}/**
 
 **Purpose:** Split from `verification-gates.md` (the family index) on 2026-10-08. Section numbers are kept from that reference, so an existing `verification-gates.md §N` citation translates by filename alone.
 
-**Read this when** a task's deliverable is a gate, a guard, a hook, a linter or a validation pass, an acceptance criterion cites a gate run as proof, or a bug-fix deliverable's criteria name no fixture that reproduces the defect.
+**Read this when** a task's deliverable is a gate, a guard, a hook, a linter or a validation pass, an acceptance criterion cites a gate run as proof, or a bug-fix deliverable's criteria name no fixture that reproduces the defect, or a gate extracts identifiers, filters a search's output, or parses source text.
 
 ## Table of Contents
 
@@ -61,6 +61,25 @@ The runtime, verdict and baseline rules in `gate-runtime-boundary-evidence.md`, 
 > 3. **Classify hits before acting**, with a mechanical evidence-based discriminator where one exists.
 > 4. **Write the live sweep into the next gate-repair item's acceptance criteria**, phrased so fixtures cannot satisfy it: *"after landing, run one unfiltered sweep for this pattern class across the guarded tree and paste the classified result."*
 > 5. **When the live sweep finds a defect class the item did not name, file it rather than absorbing it.**
+
+#### Extractor pitfalls: an assertion's extraction step is an instrument too
+
+Obligation C covers a matcher that cannot see a multi-line idiom. A gate also extracts before it asserts. It pulls identifiers into a list, filters a search's output, or slices source text. Each step can drop or truncate its subject without an error, and the assertion then compares the damaged result.
+
+| Shape | Symptom | Repair |
+|---|---|---|
+| A digit-less character class such as `[a-z_]+` | Against `country_3_code`, the line drops or the capture truncates to `country_` | Use `[a-z0-9_]+` or `\w+` |
+| An exclusion filter (`grep -v`) over `grep -rn` output | Every file whose path carries the excluded name drops out, so one sweep returned 16 matches against a true 36 | Anchor past the prefix with `:[0-9]+:.*TOKEN`, match executable syntax, or exclude by exact file path |
+| String slicing as a parser, such as `.split(` on source text | The slice stops at an unrelated `]`, so one gate counted about 30 entries against a true 99 | Parse with `ast.parse` or the format's real parser |
+
+> [!constraint] Three rules close the extraction hole
+> **Assert the length of every derived list before comparing two of them.** A short list is an extractor bug. For example, require `wc -l < ddl_order.txt` to equal the expected parameter count before the diff runs.
+>
+> **A corrected exclusion must return more matches than the broken one.** Equal counts mean the repair did not take. An exclusion that over-excludes reports fewer problems, and fewer problems reads as better.
+>
+> **A sweep that passes on few or zero matches needs a planted-positive recall test.** Plant one known positive in a scratch copy and confirm the command finds it.
+
+Checks 36, 37 and 38 of `scripts/lint_gate_checks_verify.py` flag the three shapes statically and report at WARNING. They are heuristics. Run the command against a known-good and a known-bad input before you trust either verdict.
 
 #### Reviewer Check 087 — Bug-Fix Criteria With No Fixture and No Unfixed-Artifact Run
 

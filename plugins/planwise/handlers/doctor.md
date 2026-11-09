@@ -49,7 +49,9 @@ Before any diagnostics, `--doctor` emits an **always-on** version-state gate (in
 | `plugin_root` version mismatch | pinned == installed, but the configured `plugin_root:` directory's own `.claude-plugin/plugin.json` version ≠ pinned | `! plugin_root version mismatch — {path} is {X}, pinned is {Y}` | Recommend `/planwise upgrade` and **STOP** |
 | Up to date | pinned == installed, and the configured `plugin_root:` (when present) resolves to a directory whose own version matches | `plugin version {X} — up to date` | Proceed with the over-scope linter (and the Token-Saver audit when enabled) |
 
-The pinned version is read from `config.yaml` (`plugin_version:`; absent → `0.0.0`); the installed version via `read_plugin_version(plugin_root)` from `.claude-plugin/plugin.json` — always the LIVE currently-executing plugin, never the configured `plugin_root:` value, so this comparison alone is immune to a stale `plugin_root:`. The two `plugin_root` checks below it catch a DIFFERENT residual defect: a version pin that already looks current (a legacy upgrade bumped it without repointing the root, or the cache directory the config still names was later reaped) while the separate `plugin_root:` key every other handler resolves scripts through is still wrong. The gate stops on any non-`up to date` state, so **everything below (over-scope lint, Token-Saver audit) runs only when the full gate — version pin AND `plugin_root` — is healthy.**
+The pinned version is read from `config.yaml` (`plugin_version:`; absent → `0.0.0`); the installed version via `read_plugin_version(plugin_root)` from `.claude-plugin/plugin.json` — always the LIVE currently-executing plugin, never the configured `plugin_root:` value, so this comparison alone is immune to a stale `plugin_root:`. The two `plugin_root` checks below it catch a DIFFERENT residual defect: a version pin that already looks current (a legacy upgrade bumped it without repointing the root, or the cache directory the config still names was later reaped) while the separate `plugin_root:` key every other handler resolves scripts through is still wrong. The gate stops on any non-`up to date` gate state, so **everything below (over-scope lint, Token-Saver audit) runs only when the full gate — version pin AND `plugin_root` — is healthy.**
+
+The gate block can end with one advisory line, `~ Advisory: running copy is not the project's marketplace install`, under any gate state. It appears when the running plugin copy is not the install that applies to this project, for example a synced copy or a `--plugin-dir` development tree. Doctor reads the install record offline through `scripts/install_check.py`, with the config directory taken from `CLAUDE_CONFIG_DIR` (default `~/.claude`), and never refreshes the marketplace. The advisory never stops the run and changes no gate state and no exit code. Pass it through verbatim with the gate block.
 
 The `Config parse check` block that follows the gate has one advisory besides the parse result. When `config.yaml` parses but a `project` path key (`planwise_root`, `plans_dir`, `backlog_dir` or `feedback_dir`) is absent, null, empty or not a string, the block lists each such key and recommends `/planwise upgrade`. The config loader silently uses a default folder for a missing key, so nothing else in the report would show the gap. The advisory never stops the run and changes no state. `lessons_dir` is not listed, because an absent `lessons_dir` is a valid opt-out. `archive_dir` is not listed, because it derives from `backlog_dir`. Pass the block through verbatim like any other printed stage.
 
@@ -61,12 +63,14 @@ The script prints the numbered stages except Stage 18, which you perform. Steps 
 python "{plugin_root}/scripts/init_project.py" --doctor --project-root "{project_root}"
 ```
 
-If `python` is not found, try `python3`.
+If `python` is not found, try `python3`. When `$ARGUMENTS` contains `--verbose`, append `--verbose` to the command.
 
 > [!constraint] Read-Only — Never Mutates
 > `--doctor` runs the version-state gate followed by `lint_rule_overscope()` standalone (no `--upgrade`, no `--migrate`). It only READS `config.yaml`, `.claude-plugin/plugin.json`, and `.claude/rules/**`, then prints a report; it writes nothing and changes no files. It exits 0 in every state — version drift and flagged rules are reported, not failed.
 
 The linter flags any `.claude/rules/**` file whose `paths:` target plan/backlog/lessons directories (e.g., `planwise/Plans/**`) rather than code paths. For each flagged rule it reports the path, byte size, line count, approximate token cost (bytes ÷ the conservative bytes-per-token ratio), and the matched glob.
+
+A project-owned rule that is plan-scoped on purpose can say so with a one-line frontmatter key, for example `overscope-ack: needed while plans are authored`. The key holds the reason. An empty value, or a value that spans several lines, does not count as an acknowledgement. An acknowledged rule leaves the row list and appears in one footer line. Plugin-managed rules are scoped to `.claude/**` and never need the key, so do not add it to one. The key changes no injection: the total budget and the injection families below still count an acknowledged rule, because it still loads.
 
 ### Step 2: Present the report verbatim
 
@@ -81,6 +85,10 @@ Over-scoped rules (injection-budget risk):
       size:          {N} lines (~{X}K tokens)
       re-scope hint: narrow paths: to the code dirs this rule actually governs,
                      or load it on demand (handler / references) instead of installing it path-scoped
+
+{N} acknowledged plan-scoped rule(s), ~{X} tokens — listed by /planwise doctor --verbose
+    - {path} ({N} lines, ~{X} tokens; matches {glob})        (only with --verbose)
+        reason: {the overscope-ack text}
 
 Total flagged injection budget: ~{X}K tokens across {N} rule(s)
 

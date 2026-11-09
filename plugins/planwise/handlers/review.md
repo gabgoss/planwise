@@ -64,7 +64,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If the plan creates or modifies skills: Read `references/skill-authoring.md`
 - If the plan creates or modifies rules: Read `references/rule-authoring.md`
 - If reviewing a scaffolded multi-sprint plan: Read `references/ei-fidelity.md`, `references/task-content-fidelity.md`, `references/discovery-and-exit-criteria.md`, `references/scaffolding-hygiene.md` (§1–§12) **and** `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` (§13–§19) — the hygiene reference is split across two files, and Checks 078, 083, 093 and 099 live in Part 2
-- If reviewing a plan with DB-write tasks: Read `references/schema-pin-requirement.md`
+- If reviewing a plan with DB-write tasks, a task whose SQL filters a column with a literal, or a module that generates SQL: Read `references/schema-pin-requirement.md`
 - If reviewing IPC/protocol/codec sessions, Sprint exit verdicts, `git diff` gates or a verification battery's shape: Read `references/verification-gates.md` (the family index), then `references/gate-runtime-boundary-evidence.md`, `references/gate-exit-verdict-and-smoke-reports.md` (Checks 013, 014, 015, 034, 035, 036), `references/gate-diff-baseline-pinning.md` (Check 077), `references/gate-instrument-proof-obligations.md` (Checks 087, 088), `references/gate-change-vs-state-detecting.md`, and `references/gate-run-sheet-and-grader-fields.md` for a run sheet or a grader
 - If reviewing an absence gate, a cross-task prerequisite marker, a per-run check on a transcript or log, or a task that adds a declaration something else must render: Read `references/gate-satisfiability.md` — ask whether the cheapest pass deletes the protected thing, and whether a state exists where the property holds and the gate still fails
 - If reviewing tasks with cross-sprint/cross-version symbol citations: Read `references/verify-against-shipped-artifact.md`
@@ -72,7 +72,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If reviewing a plan with verification tasks (match-pattern + pass/fail gate): Read `references/verification-task-authoring.md` (the family index and its §7 checklist), then `references/gate-heuristic-verifier-patterns.md` (Checks 058 and 059), `references/gate-verdict-contract-and-adjudication.md` (Check 060) and `references/gate-absence-and-consistency.md`
 - If reviewing a plan whose task files carry After-block gates or measured Success Criteria: Read `references/gate-pre-edit-baseline.md` (Check 082) and `references/gate-input-set-and-compared-window.md` — check every gate carries a measured pre-edit value that contradicts its expectation, and every diff-pinned criterion records its input-set counts
 - If reviewing Signoff anchors, exit criteria or Execution Input gates that enumerate outcomes: Read `references/gate-anchor-outcome-set.md` (Check 095) — enumerate the task's terminal branches first
-- If reviewing pinned `grep`, `diff`, `wc` or `awk` gates, or a gate pinned before its subject exists: Read `references/gate-command-semantics.md` (the four semantics traps and the dialect, boundary and window rules) and `references/gate-pinned-from-real-content.md` (was the gate run over the content it judges, and does a verdict grep copy the skeleton's bytes)
+- If reviewing pinned `grep`, `diff`, `wc` or `awk` gates, the Verification Commands of any task, or a gate pinned before its subject exists: Read `references/gate-command-semantics.md` (the four semantics traps, the dialect, boundary and window rules, the seven count, selector and smoke anchors that misread correct output, which the linter's Checks 39 to 41 flag for a pytest `-q` with `-v`, a `-k` selector gated on a pass count and a star import then a private name, and whether each Verification Command runs in the target environment) and `references/gate-pinned-from-real-content.md` (was the gate run over the content it judges, and does a verdict grep copy the skeleton's bytes)
 - If reviewing a plan whose deliverable is a gate (guard, hook, linter, validation pass), or whose acceptance criteria cite a gate run as proof: Read `references/verification-gate-evidence.md` (the family index), then `references/gate-positive-and-mutation-controls.md` and `references/gate-fixture-provenance.md` — check that the gate was exercised in the direction that fires and that the reported proof states what its fixture set does not cover — and `references/gate-artifact-over-instrument.md` where a task's content is a live gate's subject (the dispatch brief pre-classifies the collision, §13)
 - If reviewing a plan whose gates check an extraction boundary or anchor, a sweep that several runners share, a fixture set scored against a threshold, or a per-item gate fed a precomputed value: Read `references/gate-discriminating-case.md` — check that the input set could have contained the case that fails each gate
 - If reviewing a citation sweep after a reference split, a gate over a generated path list or row count, a byte-preservation claim, a grader over a decision log or an exit code, or a proof run's scratch root or import order: Read `references/gate-old-home-citation-sweep.md`, `references/gate-generated-input-integrity.md`, `references/gate-script-output-assertions.md` and `references/gate-environment-inputs.md` as the plan's gates require
@@ -91,10 +91,10 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If a plan builds or operates a measurement harness, or its evidence comes from a harness's own scoring, blinding or guard: Read `references/harness-instrument-integrity.md` — check that each instrument was shown to discriminate on live data and that every terminal state has a signal
 - If reviewing task briefs, a spawn-prompt skeleton, a fix instruction that names a target figure, or a plan whose central question has several enumerated outcomes: Read `references/dispatch-brief-neutrality.md` — classify each brief sentence as context or premise, check that every anti-inference guardrail is symmetric, and confirm each outcome branch has a concrete route rather than an enum slot
 - If a plan's verification tasks can return ABSENT, a finding arrives pre-confirmed by a second agent, or a batch of runner status blocks is the evidence for a whole-set property: Read `references/verify-verdict-source.md` — a negative rests on a symbol-level search of the code, a confirmation names the primary source it re-opened, severity does not rise on agreement, and cross-artifact invariants are recomputed from the artifacts on disk
-- If a brief changes a count, a section number, a selector or an enum member bound to many sites, renumbers headings, or a flag asserts an upstream change was applied in place: Read `references/dispatch-edit-surface-sweep.md` — the brief names the quantity and hands over the locator instead of naming a line, the runner reports how many occurrences it found, the renumbering gate carries its true expected count, and an in-place edit is re-derived by one search for the old value
+- If a brief changes a count, a section number, a selector or an enum member bound to many sites, renumbers headings, a flag asserts an upstream change was applied in place, or a task corrects, reconciles or supersedes a state claim (a range, a status note, a self-description) that may be restated in another file: Read `references/dispatch-edit-surface-sweep.md` — the brief names the quantity and hands over the locator instead of naming a line, the runner reports how many occurrences it found, the renumbering gate carries its true expected count, an in-place edit is re-derived by one search for the old value, and a correction to a claim another file may restate searches the wider tree for the claim's shape before it counts as complete (§14, Check 129)
 - If an orchestration's prose, flag block or Binding Constraints state a mandate, or a session produced an artifact outside its planned task list (a repair, a hotfix, a supplementary output): Read `references/dispatch-mandate-routing.md` — join each mandate to the numbered gate step that tests it, check the step can both fail and pass, and confirm the out-of-band artifact is in its consumer's Required Context by explicit path with the counts that named the old set updated
 - If a plan names a cause from one observed instance, or its hypothesis proposes adding something to the system whose failure it explains: Read `references/verify-cause-before-remedy.md` — a contradiction between two copies of one fact is counted across the population before it is diagnosed, and a remedy is checked against the artifact's own source for whether the failure was already measured with it in force
-- If a deliverable adds a function, an optional parameter, a CLI flag, a config key, an event subscription or a guarded branch, or a criterion's only anchor is a definition search or the deliverable's own unit test: Read `references/verify-caller-before-complete.md` — a definition is not a caller; the anchor is a call-site search over production paths naming the activating argument, the closing-sweep ledger quotes a call site per such deliverable, and "dormant until a follow-up wires it" is PARTIAL, never COMPLETE
+- If a deliverable adds a function, an optional parameter, a CLI flag, a config key, an event subscription or a guarded branch, or edits an artifact a test pins, or a criterion's only anchor is a definition search or the deliverable's own unit test: Read `references/verify-caller-before-complete.md` — a definition is not a caller; the anchor is a call-site search over production paths naming the activating argument, the closing-sweep ledger quotes a call site per such deliverable, and "dormant until a follow-up wires it" is PARTIAL, never COMPLETE, and a test that pins an edited artifact's shape joins the same task's write-set
 - If a task's job is to merge, dedupe, reconcile or cross-reference across a boundary, or a DELEGATED plan's dispatch layers are under review: Read `references/dispatch-decomposition-graph.md` — a task whose steps can identify an amendment must be able to apply it or name who will, a "may be absent" flag is checked before remediation is scheduled, and the declared layer is a floor on what can run, gated by verified-on-disk dependencies and disjoint outputs
 
 ---
@@ -190,12 +190,13 @@ The plan tree is a single positional argument; there is no output-path flag, so 
 | 0 | No findings | Continue; the sheet records a clean scan |
 | 1 | Findings present, none at ERROR severity | Continue; the findings are advisory |
 | 2 | At least one ERROR-severity finding, **or** the plan tree path did not resolve | Continue; tell the two apart by whether any finding was written |
+| 4 | Gates exist and none ran | Unavailable (step 4) |
 
 Exit `1` and exit `2` are the **normal findings-present outcomes**. Neither is a failure of this step and neither halts the review — a linter that exits non-zero because it found something is doing its job. A plan tree that does not resolve also exits `2` but writes nothing, so a `2` over an empty findings file is the unavailable case below, not an ERROR case.
 
-The first line of the findings file is always a `Coverage:` line. `Coverage: checked N of M gates; K refused.` means N gates ran and K were turned away by the read-only allowlist. A refused gate appears as an `[UNCERTAIN] Refusal` entry, not as a pass. Record the line in the report so a reader sees the denominator. `Coverage: NOT CHECKED` means gates exist and none ran: treat that case as **unavailable** (step 4).
+The first line of the findings file is always a `Coverage:` line. `Coverage: checked N of M gates; K refused.` means N gates ran and K were turned away by the read-only allowlist. A refused gate appears as an `[UNCERTAIN] Refusal` entry, not as a pass. Record the line in the report so a reader sees the denominator. `Coverage: NOT CHECKED` means gates exist and none ran, and the exit code is `4` unless an ERROR finding makes it `2`: treat that case as **unavailable** (step 4).
 
-4. If the script could not be run at all, exit `2` produced no findings, or the first line starts `Coverage: NOT CHECKED`, continue the review with `{GateLintPath}` recorded as **unavailable** and say so in the report — the owning reviewer then derives its verification-gate findings by hand and states that it did. When only some gates were refused, the reviewer derives just those by hand.
+4. If the script could not be run at all, exit `2` produced no findings, the exit code was `4`, or the first line starts `Coverage: NOT CHECKED`, continue the review with `{GateLintPath}` recorded as **unavailable** and say so in the report — the owning reviewer then derives its verification-gate findings by hand and states that it did. When only some gates were refused, the reviewer derives just those by hand.
 
 5. Pass `{GateLintPath}` into the spawn prompt of the reviewer that owns verification gates on the selected path: the No-Team Path's combined content reviewer, or the Team Path's Verification-Gate Reviewer.
 
@@ -209,6 +210,26 @@ At synthesis the lead adds one ERROR finding per `[STALE]` line and one WARNING 
 
 > [!practice] Lint once, classify rather than re-derive
 > A verification gate is vacuous when its measured pre-edit value already satisfies its stated post-edit expectation — it then passes with zero work done, and no amount of reading detects that without measuring the gate against the live tree. That decision is mechanical work, so a reviewer's job here is to classify and report what the scan already found, not to re-derive the same findings by hand. Only the roles that own verification gates receive the path; handing it to every reviewer would be noise.
+
+> [!constraint] Run a scratch gate self-test one scenario per Bash call
+> The lead runs every scratch self-test of a gate, on both paths, because no reviewer holds Bash. The self-tests are the pre-edit FAIL, the planned PASS, each mutation FAIL and each closeout scenario. Each scenario gets its own Bash call.
+>
+> - **Progress.** Open each call with a `scenario k of n: <name>` progress line. Close it with a verdict line.
+> - **One long scenario per call.** No call chains more than one long-running scenario.
+> - **A scenario too long for a foreground call** runs as its own `run_in_background` call. The lead reports that verdict when the exit notice arrives, before it launches the next scenario.
+>
+> A batch prints nothing for minutes, so a working review looks hung. A rejected batch loses the output of every scenario in it.
+>
+> WRONG — one call loops over five closeout scenarios and prints nothing until the end:
+> ```
+> Bash: for s in s1 s2 s3 s4 s5; do reset-scratch; run-gate "$s"; done
+> ```
+> CORRECT — five calls, each with its own progress and verdict lines:
+> ```
+> Bash: echo "scenario 1 of 5: s1"; reset-scratch; run-gate s1; echo "verdict s1: FAIL as expected"
+> Bash: echo "scenario 2 of 5: s2"; reset-scratch; run-gate s2; echo "verdict s2: PASS as expected"
+> # ... one call per remaining scenario
+> ```
 
 ---
 
@@ -296,6 +317,7 @@ Agent(
     Non-sequential numbers within a single EI are expected, not errors.
 
     Report findings using the finding format in your protocol.
+    No-Team spawn: do not load or call SendMessage. Work the whole checklist without pausing, and deliver every finding in your final response.
     End with: "Phase 1 complete, {N} findings reported"
 )
 ```
@@ -330,6 +352,8 @@ Agent(
     gates the linter ran. An `[UNCERTAIN] Refusal` entry is a gate it did not run:
     derive that gate yourself and say explicitly that you did. If the path reads
     `unavailable`, derive them all yourself and say explicitly that you did.
+    You hold no Bash. List each gate self-test you need, one scenario per line, for the lead
+    to run one scenario per Bash call (see the Gate Lint Phase).
     {DelegatedReviewBlock}
 
     Global numbering note: Spec numbers are assigned globally across all sprints.
@@ -345,6 +369,7 @@ Agent(
 
     Report findings using the finding format in your protocol.
     Prefix uncertain findings (MEDIUM/LOW confidence) with [UNCERTAIN].
+    No-Team spawn: do not load or call SendMessage. Work the whole checklist without pausing, and deliver every finding in your final response.
     End with: "Phase 2 complete, {N} findings reported"
 )
 ```
@@ -356,7 +381,7 @@ Agent(
 3. Recompute delegated verdicts: for each subagent that returned a verdict label (GREEN/YELLOW/RED, NEEDS_FIXES/APPROVED, READY/READY-WITH-NOTES, or equivalent), recompute the classification from the reported finding counts using the task's stated classification rule. If the recomputed verdict differs from the reported label, use the recomputed verdict and log a meta-finding -- do NOT accept a verdict label without verifying it against the agent's own evidence. For cross-file control-flow claims ("symbol X never used in this file -> feature Y is broken"), trace the full consumer call path before accepting OR rejecting the finding -- single-file grep proves local non-use, not global inertness (`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.16)
 4. Cross-check `[UNCERTAIN]` findings against Known Patterns Whitelist
 5. Assign finding IDs: BLOCKERs -> [B1], [B2]...; ERRORs -> [E1], [E2]...; WARNINGs -> [W1]...; INFO -> [I1]...
-6. Classify systemic findings (see [Systemic Finding Classification](../references/review-classification.md#systemic-finding-classification))
+6. Classify systemic findings, and carry forward the prior review's non-CLOSED systemic findings (see [Systemic Finding Classification](../references/review-classification.md#systemic-finding-classification) and [Class Closure and Carry-Forward](../references/review-classification.md#class-closure-and-carry-forward))
 7. Compute verdict (see [Verdict and Report](#verdict-and-report))
 8. Write report to `{PlanPath}/Reviews/{Abbrev}-Review-{YYYY-MM-DD}.md`
 
@@ -601,7 +626,7 @@ Agent(
     First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
 
     Your assigned role: Verification-Gate Reviewer
-    Execute Checks 074-075, 077 and 082 from your protocol.
+    Execute Checks 074-075, 077, 082 and 114 from your protocol.
     Gate lint findings: {GateLintPath absolute path} -- mechanical verification-gate
     findings from scripts/lint_verification_gates.py, already measured against the live
     pre-edit tree. Read them and classify each one into your finding format rather than
@@ -609,6 +634,8 @@ Agent(
     gates the linter ran. An `[UNCERTAIN] Refusal` entry is a gate it did not run:
     derive that gate yourself and say explicitly that you did. If the path reads
     `unavailable`, derive them all yourself and say explicitly that you did.
+    You hold no Bash. List each gate self-test you need, one scenario per line, for the lead
+    to run one scenario per Bash call (see the Gate Lint Phase).
     ...
 )
 ```
@@ -639,7 +666,7 @@ Agent(
     - Cross-check against other reviewers' findings
     - Confirmed -> promote to stated severity; contradicted -> discard as false positive
 12. **Assign finding IDs:** BLOCKERs -> [B1], [B2]...; ERRORs -> [E1], [E2]...; WARNINGs -> [W1]...; INFO -> [I1]...
-13. **Classify systemic findings:** For each confirmed finding (BLOCKER, ERROR, WARNING), determine one-off vs systemic (see [Systemic Finding Classification](../references/review-classification.md#systemic-finding-classification)).
+13. **Classify systemic findings:** For each confirmed finding (BLOCKER, ERROR, WARNING), determine one-off vs systemic (see [Systemic Finding Classification](../references/review-classification.md#systemic-finding-classification)). Then carry forward the prior review's non-CLOSED systemic findings (see [Class Closure and Carry-Forward](../references/review-classification.md#class-closure-and-carry-forward)).
 14. **Compute verdict** (see [Verdict and Report](#verdict-and-report)).
 
 ### Phase 4: Report and Cleanup
@@ -688,7 +715,7 @@ Every reviewer spawn prompt MUST include these eight elements:
    ```
 5. **Uncertainty protocol:** flag `[UNCERTAIN]` for MEDIUM or LOW confidence; check Known Patterns Whitelist first before flagging
 6. **Completion signal:** "Phase {N} complete, {M} findings reported"
-7. **Tool pre-load (BINDING for named-reviewer spawns):** the first instruction line in the spawn prompt MUST be `First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.` `SendMessage` is a deferred tool; without the schema loaded, the reviewer's findings cannot be delivered. The reviewer's agent definition already carries this rule in its own `## Startup` section — the spawn-prompt instruction is the belt-and-braces gate.
+7. **Delivery channel (BINDING for every spawn):** a named-reviewer spawn on the Team path MUST open with `First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.` `SendMessage` is a deferred tool; without the schema loaded, the reviewer's findings cannot be delivered. An unnamed No-Team spawn carries no pre-load. It instead says: do not load or call SendMessage, work the whole checklist without pausing, and deliver every finding in the final response. The reviewer's agent definition carries both rules in its own `## Startup` section — the spawn-prompt instruction is the belt-and-braces gate.
 8. **Fact-sheet path (BINDING for every spawn, both paths):** the prompt MUST carry `Review discovery fact sheet: {FactSheetPath absolute path}` alongside the scope paths, with the consumption instruction — cite the row for any count reported; re-measure explicitly, and say so, when the reviewer's own reading contradicts it. Reviewers do not inherit the lead's context, so a reviewer that is not handed the path measures nothing and cites nothing, and the phase becomes a cost with no consumer. If the discovery pass failed and no sheet exists, pass `Review discovery fact sheet: unavailable` explicitly rather than omitting the line.
 
 > [!constraint] Spawn prompts MUST front-load the SendMessage schema load
@@ -721,6 +748,7 @@ Every reviewer spawn prompt MUST include these eight elements:
 
 1. Update the plan's Master Plan with status `REVIEWED` (or `APPROVED` / `NEEDS_FIXES`)
 2. Commit the report file: `git add {PlanPath}/Reviews/{Abbrev}-Review-{YYYY-MM-DD}.md && git commit -m "docs: Add plan review {Abbrev} {YYYY-MM-DD}"`
-3. Output summary to user: verdict, finding counts by severity, systemic finding count, report path
-4. If **APPROVED**: "Plan validated. Execute with `/planwise run @{orch-path}`"
-5. If **NEEDS_FIXES**: "Review found issues. Fix findings in the report, then re-run `/planwise review` or proceed to `/planwise run`"
+3. Output summary to user: verdict, finding counts by severity, systemic finding count, CLASS OPEN count, report path
+4. For each systemic finding with a non-empty Other Known Instances row, the fix pass sweeps every listed path or records each unswept path in a backlog item. Write each disposition back into the row. A path left untouched keeps the finding at CLASS OPEN.
+5. If **APPROVED**: "Plan validated. Execute with `/planwise run @{orch-path}`"
+6. If **NEEDS_FIXES**: "Review found issues. Fix findings in the report, then re-run `/planwise review` or proceed to `/planwise run`". Name each CLASS OPEN finding with its untouched paths.

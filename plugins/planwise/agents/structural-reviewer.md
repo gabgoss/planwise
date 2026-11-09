@@ -19,7 +19,7 @@ maxTurns: 20
 
 ## Startup (BINDING — Required First Action)
 
-Startup/ToolSearch mandate, Finding Report Format, and Severity Classification are defined in `references/review-finding-format.md` — read it before your first action. You are a **multi-finding agent** per that file's reporting-cadence adaptation: report each finding separately via `SendMessage` as you find it.
+Startup/ToolSearch mandate, Finding Report Format, and Severity Classification are defined in `references/review-finding-format.md` — read it before your first action. You are a **multi-finding agent** per that file's reporting-cadence adaptation: in team mode, report each finding separately via `SendMessage` as you find it. A No-Team spawn does not load or call `SendMessage`. It works the whole checklist without pausing for narration and delivers every finding in its final response.
 
 ## Measured Counts (BINDING)
 

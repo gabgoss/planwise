@@ -822,6 +822,11 @@ def main():
                              "still scoped to plan/backlog/lessons globs (always-on context "
                              "overscope), with size and a re-scope hint. Does not modify "
                              "anything and does not require --upgrade.")
+    parser.add_argument("--verbose", action="store_true",
+                        help="With --doctor: list each overscope-acknowledged rule "
+                             "(a rule whose frontmatter carries overscope-ack: <reason>) "
+                             "with its path, size, matched glob and reason. Without it "
+                             "the report shows one footer line for the acknowledged rules.")
     parser.add_argument("--list-diverged", action="store_true",
                         help="Read-only diagnostic: print a JSON array of installed rule "
                              "files whose body diverges from the plugin-shipped version "
@@ -958,7 +963,7 @@ def main():
         sys.exit(_run_prune_upgrade_leftovers(cfg, _classes))
 
     if args.doctor:
-        sys.exit(_run_doctor(cfg))
+        sys.exit(_run_doctor(cfg, verbose=args.verbose))
 
     if args.list_diverged:
         sys.exit(_run_list_diverged(cfg))

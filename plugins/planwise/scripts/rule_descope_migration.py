@@ -94,8 +94,15 @@ def migrate_installed_rules(
     to_version: str,
     *,
     force_filenames: "frozenset[str]" = frozenset(),
+    verdicts: "dict | None" = None,
+    evaluated: "dict | None" = None,
 ) -> dict:
     """Remove install-set rules that the de-scope moved to handler-loading.
+
+    ``verdicts`` is the already-loaded verdicts.json cache (default ``None``
+    loads it here). ``evaluated`` maps a filename to the override
+    ``descoped_force_set`` already judged for it, ``None`` for a rejected
+    entry, so the loop below neither re-loads nor re-warns for that file.
 
     Version-gated: acts only when
     ``from_version < RESCOPE_MIGRATION_VERSION <= to_version`` (the single
@@ -193,7 +200,10 @@ def migrate_installed_rules(
     # the artifact refresh (Sites 2/3) — the interactive fan-out's --list-diverged
     # scope includes DESCOPED_RULES, so a de-scoped rule can carry a cached
     # agent verdict too. Same helper, same degrade-to-None-on-absence contract.
-    verdicts = _load_verdicts_cache(cfg, from_version, to_version)
+    if verdicts is None:
+        verdicts = _load_verdicts_cache(cfg, from_version, to_version)
+    if evaluated is None:
+        evaluated = {}
 
     def _transfer_then_remove_or_preserve(
         dst: Path, filename: str, installed_raw: str, verdict, preserve_message: str,
@@ -333,8 +343,11 @@ def migrate_installed_rules(
                             f"{filename}: skipped — backup write failed; installed "
                             "file left in place (no removal without a pre-image)")
             else:
-                cached_verdict = _load_verdict_override(
-                    verdicts, filename, installed_raw, dst)
+                if filename in evaluated:
+                    cached_verdict = evaluated[filename]
+                else:
+                    cached_verdict = _load_verdict_override(
+                        verdicts, filename, installed_raw, dst)
                 verdict = _classify_diverged(
                     installed_norm, shipped_norm, override=cached_verdict,
                 )
@@ -442,13 +455,19 @@ def migrate_installed_rules(
     return report
 
 
-def descoped_force_set(cfg: "InitConfig", verdicts: dict) -> "frozenset[str]":
+def descoped_force_set(
+    cfg: "InitConfig", verdicts: dict, evaluated: "dict | None" = None
+) -> "frozenset[str]":
     """The installed de-scoped filenames whose cached verdict the loader accepts.
 
     These are the files the migration must process on every version pair, so
     a cached verdict for a leftover reaches its consumer. A malformed entry or
     one bound to different installed bytes is rejected by the same loader the
     migration uses, so it never opens the version window.
+
+    When ``evaluated`` is a dict, each file this function loads an override for
+    is recorded in it (``None`` when the loader rejected the entry). Pass the
+    same dict to ``migrate_installed_rules`` so the migration reuses the result.
     """
     rules_dir = cfg.project_root / ".claude" / "rules" / "planwise"
     forced = set()
@@ -460,7 +479,10 @@ def descoped_force_set(cfg: "InitConfig", verdicts: dict) -> "frozenset[str]":
             raw = path.read_text(encoding="utf-8-sig")
         except (OSError, ValueError):
             continue
-        if _load_verdict_override(verdicts, name, raw, path) is not None:
+        override = _load_verdict_override(verdicts, name, raw, path)
+        if evaluated is not None:
+            evaluated[name] = override
+        if override is not None:
             forced.add(name)
     return frozenset(forced)
 

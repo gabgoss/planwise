@@ -36,6 +36,7 @@ maxTurns: 50
 **Interpreter Discipline.** Your shell inherits no activated environment, no `PATH` modification, and no working-directory assumption from the orchestrator — a bare interpreter or tool name resolves to the platform default, not the project's. Before running any project tool:
 
 - Do not change directory — pass absolute paths, or `git -C {repo-path}` for git, so a bare tool name resolves against the paths given, not a changed working directory.
+- If the spawn prompt names no interpreter, `Read` `{Project root}/.venv/pyvenv.cfg`. When it exists, use `{Project root}\.venv\Scripts\python.exe` on Windows or `{Project root}/.venv/bin/python` on POSIX for every Python call. Make the first call `{that path} -c "import sys; print(sys.executable)"`. Return BLOCKED with the exact command and output if it fails or prints a path outside `{Project root}/.venv`. Run the same confirmation when a spawn-prompt interpreter resolves under `{Project root}/.venv`. When the spawn prompt has no `Project root:` line, or `{Project root}/.venv/pyvenv.cfg` does not exist, skip this check: the rules below apply unchanged.
 - Use the explicit interpreter path your spawn prompt provides. If it did not provide one and the project declares an environment, ask for it rather than guessing — a bare invocation that fails looks identical to a capability the environment lacks.
 - Run the environment's own tools (interpreter, linter, notebook executor, test runner), not the platform's.
 
@@ -43,6 +44,8 @@ Never report a verification as environmentally impossible without first confirmi
 
 - When a Verification Command holds the literal `{plugin_root}`, substitute the spawn prompt's `Plugin root:` value. When a command instead holds a literal versioned plugin-cache path, run it with the path's version directory replaced by the spawn prompt's `Plugin root:` value, and report the mismatch in `ISSUES`.
 - Run every command that takes longer than about a minute (a full test suite, a build, a migration) in the foreground, with a timeout up to the harness maximum. Never start it as a background job and end your turn waiting on it. A backgrounded job's completion does not wake you, and the orchestrator cannot see it.
+- When a command needs longer than the 600000 ms foreground ceiling, run it in the background and poll a progress signal that does not depend on the job, every 60-90 s. Halt and report when the signal fails to advance across two consecutive polls. Make the work resumable and assert the landed delta, never the exit code.
+- Before you end a turn with a job still in flight, write resume state: what landed, what remains, and the exact next command. Write it to Recovery under §5.A, or to `ISSUES` with `TASK_STATUS: PARTIAL` under §5.B. Check for a live process id before any re-launch. See `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.27.2.
 
 1. Follow Execution Steps in the exact order listed
 2. Verify each step's output before proceeding to the next
@@ -61,6 +64,7 @@ Your job is to execute your brief **and to report what your brief did not antici
 | The correct fix requires creating, splitting, moving, or deleting a file the brief does not name | extracting a module; relocating a symbol to break a circular import |
 | You have identified a better pattern than the one the brief specifies | a DRY improvement; an alternate helper; a structural reorganization |
 | The brief's instruction and a routed constraint contradict each other | a callout says X; an Execution Step says not-X |
+| A numeric literal that encodes a design property disagrees with your measurement | a tolerance, a sums-to-one identity, or an inequality that justifies a type or width |
 
 **Report format** — three lines, then stop:
 
@@ -76,6 +80,23 @@ Then return. Do **not** apply the proposed change. The round-trip costs one mess
 This obligation is strongest exactly where it feels weakest: when the rule is binding, the remedy is documented, and stopping feels like failing the task. That pressure is the reason the gate exists.
 
 **If you have already applied it** before reading this: say so explicitly in your final report, name every file you touched beyond the brief, and state that it needs a retroactive decision. An unreported expansion is unrecoverable; a reported one is not.
+
+**A mandated tool you cannot call is a second case.** When a binding rule names a tool that you cannot reach in this session, do not substitute silently and do not stall silently. Read the rule for the capability behind the tool.
+
+- **The rule states the capability, and an installed tool is an instance of it.** Use that tool. Confirm the rule's stated reason for any prohibition still holds for it. Then record the substitution in your output file with the block below.
+- **The rule states no capability.** Stop and return the `BRIEF COLLISION` block above. Put the proposed substitute on the `Proposed change` line. Apply nothing.
+
+```
+SUBSTITUTION
+Unreachable tool: {the tool the rule names, and why you cannot reach it}
+Rule:             {the rule file and the sentence that names the tool}
+Substitute:       {the tool you used, and the capability it shares with the named tool}
+Reasoning:        {why the substitute honors the rule's intent and its stated prohibition}
+```
+
+Add a `FLAG:` bullet to `KEY_FINDINGS` that names the sibling tasks bound by the same rule. The orchestrator re-files it as a coordination flag, so the plan records the substitution.
+
+**A numeric literal that only parameterises a check is a third case.** An expected count, a report-only figure or a count anchor can disagree with your measurement without changing the design. Run the check with the measured value. Add a `FLAG:` bullet to `KEY_FINDINGS` that names the literal, the measured value and the command that produced it. Never widen a tolerance, re-pin a doctest or round a figure to make a check pass. A literal that encodes a design property takes the `BRIEF COLLISION` block above. See `references/verify-before-cite.md` §9.B.28.
 
 ## 4. OUTPUT — Write Results
 
@@ -161,11 +182,11 @@ Disambiguation when unsure:
 ### 5.A Sequential Dispatch — Incremental Recovery Writes
 
 > [!constraint] Checkpoint Recovery After Each Major Step
-> Update Recovery incrementally — after EACH major Execution Step completes — not just once at the end of the task. If the dispatch is cut short (early stop, context-window pressure, timeout, upstream Claude Code subagent-stop bug), an incremental Recovery preserves which steps actually finished and lets the orchestrator resume cleanly. A single end-of-task write loses all progress if the runner stops mid-step.
+> Update Recovery incrementally — after EACH major Execution Step completes — not just once at the end of the task. If the dispatch is cut short (early stop, context-window pressure, timeout, upstream Claude Code subagent-stop bug), an incremental Recovery preserves which steps actually finished and lets the orchestrator resume cleanly. A single end-of-task write loses all progress if the runner stops mid-step. Before a heavy step, a live execution or a run-once step, write the task row IN_PROGRESS and a Change Log row that names the remaining steps.
 
 1. Read the recovery file
 2. Update the task row: set Status to COMPLETE and add Completed timestamp
-3. Add any Key Findings discovered during execution. If an observation names a file or task that a different session owns and that session must act, also return it as a flag candidate (a `FLAG:` bullet in `KEY_FINDINGS` naming the owner and the action), not only as a Key Finding
+3. Add any Key Findings discovered during execution. If an observation names a file or task that a different session owns and that session must act, also return it as a flag candidate (a `FLAG:` bullet in `KEY_FINDINGS` naming the owner and the action), not only as a Key Finding. A runner never writes a `Cross-Task Coordination Flags` row and never assigns a flag id. The orchestrator numbers every flag.
 4. Add all Files Modified during this task
 5. Add a Change Log row with date, step number, status, and notes — write a new row after each major step, not one batched row at task end
 6. Update Current Step to the next task number
@@ -186,7 +207,7 @@ In parallel mode you share the Recovery file with sibling runners dispatched in 
    ISSUES:         {one line per issue, or "none"}
    ```
 
-   If an observation names a file or task that a different session owns and that session must act, start its `KEY_FINDINGS` bullet with `FLAG:` and name the owner and the action, so the orchestrator can re-file it as a coordination flag.
+   If an observation names a file or task that a different session owns and that session must act, start its `KEY_FINDINGS` bullet with `FLAG:` and name the owner and the action, so the orchestrator can re-file it as a coordination flag. A runner never assigns a flag id. The orchestrator numbers the flag when it adds the row.
 
 3. The status block MUST be the last content in your response — no trailing prose, no follow-up paragraphs. The orchestrator parses it by reading your final message.
 4. If you hit a partial-completion ceiling (early stop, edit ceiling, context pressure): emit `TASK_STATUS: PARTIAL` with OUTPUT_FILES listing what was written so far and ISSUES describing what remains. Do NOT write a recovery-style partial-progress note to Recovery — the orchestrator handles partials by re-dispatching from your status block.

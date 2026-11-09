@@ -131,12 +131,7 @@ flowchart LR
 /planwise plan my-new-feature
 ```
 
-This walks you through creating a structured session plan. Claude will ask about:
-- What abbreviation to use (like `APP` for app features, `BUG` for bug fixes)
-- How many sprints you need
-- What tasks go in each session
-
-Your plan gets saved as organized markdown files you can review anytime.
+Claude asks for an abbreviation (like `APP` or `BUG`), the sprints, and the tasks in each session. It writes one metadata spec, then `plan_build.py keys` lists the sections that need prose. Claude writes those bodies, and `plan_build.py build` renders every plan file and prints a gate report. Claude edits the bodies or the spec until the plan is built: the report shows `fill_remaining=0` with `exit=0`, or with exit 1 from a recorded large-file scan finding alone. When `mcp__planwise__build_plan` is listed, Claude calls that tool instead and falls back to the Bash form if it is not listed or refuses the call. In delegated authoring, Claude can offer to run the plan-bodies workflow through the Workflow tool, which checks the spec first and then writes the session bodies in parallel at a higher token cost. If the script is missing or `build` keeps failing, Claude writes the files from the per-template steps.
 
 > **What's a sprint?** A group of related work sessions. If your feature is small, one sprint with one session is enough. Bigger features might need multiple sprints.
 
@@ -240,6 +235,10 @@ Opens an interactive view of all your tracked items, scored and prioritized. For
 /planwise backlog BUG-042
 ```
 
+#### Refining named items
+
+`/planwise backlog --refine <ids>` takes one item id or a comma-separated list. It runs the creation process's preflight, planner and author on the named items and asks any planner question in the same run. It then stops, so you read `git diff -- <item>` before triage. It commits nothing and sets no status except an already-met close. It is a different flag from the loop's `--refine-max N`.
+
 #### Loop mode
 
 Loop mode works through several items without you at the keyboard. Each session triages exactly one item. Then the plugin's hooks module compacts the context and re-enters `/planwise backlog` for the next item.
@@ -249,9 +248,9 @@ Loop mode works through several items without you at the keyboard. Each session 
 - **The hooks module.** Looping needs a Claude Code build that loads the plugin's hooks module. No environment variable is needed.
 - **Graceful degradation.** Without the module the marker line prints and nothing else happens. Continue by hand with `/planwise backlog --loop-resume <run-id>`.
 - **Where state lives.** Each run keeps one file, `Backlog-Runs/{YYYYMMDD-HHMMSS}.json`, in your backlog folder. The run id is the file name without `.json`.
-- **Answering skipped items.** `/planwise backlog --answer [item-id]` asks you each open question an item carries and records your answer in the item file. It changes no status and commits nothing.
+- **Answering skipped items.** `/planwise backlog --answer [item-id]` asks you each open question an item carries, with the item's context and the planner's recommendation, and records your answer in the item file. It changes no status and commits nothing.
 
-After the setup questions, loop mode asks nothing. An item that needs a user decision is skipped. It gets a `### Q{n}. Loop decision (run …)` block under `## Open Questions` in its own item file, and its status returns to its pre-loop value. The end summary lists every such item, and `/planwise backlog --answer` answers it. Phase 8 files any lesson on its own. Refining is opt-in. An unrefined item is refined in place by the creation process only when you name it in specific mode, or when the run's `--refine-max N` cap covers it (default 0). `--init --dry-run` previews the queue and its exclusions without writing a run file. Route C no longer authors a session plan, in an interactive run or a loop run: an item that needs one is marked `needs_plan: true` for a later planning session.
+After the setup questions, loop mode asks nothing. An item that needs a user decision is skipped. It gets a `### Q{n}. Loop decision (run …)` block under `## Open Questions` in its own item file, and its status returns to its pre-loop value. The end summary lists every such item, and `/planwise backlog --answer` answers it. Phase 8 files any lesson on its own. Refining is opt-in. An unrefined item is refined in place by the creation process only when you name it in specific mode, when the run's `--refine-max N` cap covers it (default 0), or when every open question it carries is answered. A refined item stops there for review: the iteration ends with a skip note, and a later loop run executes the design. `--init --dry-run` previews the queue and its exclusions without writing a run file. Route C no longer authors a session plan, in an interactive run or a loop run: an item that needs one is marked `needs_plan: true` for a later planning session.
 
 **Archival stays in sync.** Closing an item moves its file to `Archive/`, and re-runs are safe. The next `generate_backlog_index.py --write` renders the new link from the file's new location. If an item was closed by hand and its file left stranded, `backlog` detects the drift on open and offers to reconcile it — nothing is moved without your consent. It also detects a legacy `**Status:**` line that an older item writer left under an item's title, and offers to strip it, so frontmatter `status:` stays the only status field. `--no-check` skips both detect passes for fast triage.
 
@@ -356,7 +355,7 @@ flowchart LR
 
 `doctor` opens with a version-state gate, then runs a set of read-only checks and prints a report. A bare `doctor` never writes a file and exits cleanly even when it flags something:
 
-- **Version-state gate** — before any diagnostics, verifies the project is initialized and the pinned `plugin_version` matches the installed plugin; when it doesn't, recommends `/planwise init` or `/planwise upgrade` and stops there.
+- **Version-state gate** — before any diagnostics, verifies the project is initialized and the pinned `plugin_version` matches the installed plugin; when it doesn't, recommends `/planwise init` or `/planwise upgrade` and stops there. It also prints a non-stopping advisory when the running copy is not the project's marketplace install. The advisory never changes the gate's verdict.
 - **Rule scope** — lists any `.claude/rules/**` still scoped to plan/backlog/lessons paths. These inject into every plan-brief read and can overflow a 200K-window task-runner, so `doctor` flags them with their size.
 - **Token Saver overhead staleness** — reports the stored `/context`-measured overheads and flags them stale after a plugin upgrade or a change in your agent/skill count.
 - **Read-gate scan** — checks your active plan's files against the Read-tool limits (the ~25K-token page cap — the binding gate on text — plus the 256 KiB byte cap and the 2,000-line window) and flags any that can't be read in one pass.
@@ -607,7 +606,7 @@ planwise is built entirely on markdown files and Python scripts — no databases
 
 ### Custom agents
 
-planwise uses ten specialized AI agents behind the scenes:
+planwise uses fourteen specialized AI agents behind the scenes:
 
 | Agent | What it does |
 |-------|-------------|
@@ -620,7 +619,11 @@ planwise uses ten specialized AI agents behind the scenes:
 | **backlog-preflight** | Proves backlog candidates against the live repository before anything is designed or filed |
 | **backlog-planner** | Designs the solution for one backlog item: approach, numbered steps, verification, or the questions only the user can answer; never authors a session plan |
 | **backlog-author** | Files or rewrites backlog items from the planner's designs, writes the executable sections and the `refined` flag, and regenerates the index |
-| **plan-author** | Fills one plan session's rendered task files from the metadata spec and the plan-notes state file when plan authoring is delegated; stops with the open questions when any remain |
+| **plan-author** | Writes one plan session's bodies file from the metadata spec, the `plan_build.py keys` output and the plan-notes state file when plan authoring is delegated, then lints it; stops with the open questions when any remain |
+| **plan-preflight** | Checks the metadata spec, the bodies folder, the plan bodies file and the notes file before the plan-bodies workflow starts any author, and reports the loaded plugin's root; writes nothing |
+| **ei-extractor** | Extracts one sprint's Execution Input and its Deferred / Out-of-Scope Log from the Meta-plan's discovery sources when `/planwise plan --scaffold` fans out, copying content verbatim and reporting measured retention |
+| **sprint-scaffolder** | Fills one sprint's rendered plan files (Sprint Plan, Orchestration and Recovery files, task files, Sprint Signoff) from the metadata spec and the sprint's Execution Input; returns BLOCKED on a missing input and never executes the plan |
+| **scaffold-harmonizer** | Runs once after every sprint is filled, restores template wording for each deviation the gate reports until it reports zero, and reports everything else to the caller |
 
 You don't need to interact with these directly — they're called automatically when you use `/planwise plan`, `/planwise review`, `/planwise run`, `/planwise backlog`, `/planwise lessons`, `/planwise upgrade`, and `/planwise harvest`. Agents run straight from the plugin (invoked as `planwise:<name>`); nothing is copied into your project.
 
@@ -674,12 +677,12 @@ planwise/                           # Plugin root
     plugin.json                     # Plugin identity
   skills/planwise/SKILL.md          # The /planwise command router
   handlers/                         # 12 subcommand handlers across 22 files (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, feedback, harvest; help is served inline by the skill router)
-  agents/                           # 10 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
+  agents/                           # 13 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
   references/                       # Knowledge base documents (4 installed as path-scoped rules + 2 installed as global style rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
   templates/                        # Markdown templates
   manifests/                        # Artifact manifest and agent history
   seed/                             # Index file seeds for init
-  scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py, list_plans.py, skill_preflight.py (the zero-call list, the upgrade card and the plan Config Gate) and scaffold_plan.py (the plan skeleton render))
+  scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py, list_plans.py, skill_preflight.py (the zero-call list, the upgrade card and the plan Config Gate) and scaffold_plan.py (the plan skeleton render), plan_build.py (the plan build driver: keys, lint, build))
   hooks/                            # hooks.json and register.ts — the backlog loop's compaction-and-re-entry module
   examples/                         # Sample outputs
   config.yaml.template              # Config template

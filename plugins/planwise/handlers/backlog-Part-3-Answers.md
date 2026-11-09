@@ -22,7 +22,19 @@ This file is Part 3 of `handlers/backlog.md`. Read it when `--answer` is present
 python {plugin_root}/scripts/backlog_questions.py --config {planwise_root}/config.yaml --list [--id {item-id}]
 ```
 
-The list prints each unanswered block: item id, `Q{n}`, the first line of the question and its `Options:` line when present. It reads only.
+The list reads only. For each item with an unanswered block it prints one header line (`{id}: {title} ({priority}, {abbrev}) {file}`), then each block: `{id} Q{n}: {question}`, its `Options:` line and its `Recommendation:` line when present. Run it a second time with `--json` to get the fields Step 2 is built from:
+
+| Payload key | Carries |
+|---|---|
+| `items[id].title`, `.priority`, `.abbrev`, `.file` | the item's frontmatter and its file path, relative to the backlog folder |
+| `items[id].summary`, `.problem` | the first paragraph of `## Summary` and of `## Problem` |
+| `items[id].preamble` | the text between `## Open Questions` and its first `### Q` block, where the item records decisions already made |
+| `questions[].q`, `.question` | the block number and the question text |
+| `questions[].choices` | the `Options:` line split per letter: `[{"letter": "A", "text": "..."}, ...]` |
+| `questions[].recommended`, `.reason` | the planner's letter and its one-sentence reason |
+| `questions[].context`, `.evidence` | the block's other body lines, and its `Evidence:` line |
+
+A missing value is `null`, or `[]` for `choices`. Never hand-read an item file to recover a field the payload carries.
 
 When the output ends with a legacy-section count and the line `run --fold --all first`, ask once whether to fold now. On yes, show the plan, then fold and regenerate the index:
 
@@ -34,11 +46,48 @@ python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/
 
 Then list again. On no, continue with the blocks already listed. When nothing is unanswered, say so and stop.
 
-### Step 2: Ask each question
+### Step 2: Brief the user, then ask each question
 
 <!-- AUTO-MODE: critical -->
 
-Ask one `AskUserQuestion` per unanswered block, one question per call. Build the options from the block's `Options:` line and add "Skip this question". A skipped block stays unanswered and is not written.
+The user answers from what the dialog shows. Give them the same context triage gives before a route decision: what the item is, what is already decided, and what the planner recommends. Both parts below are built from the `--json` payload of Step 1.
+
+**2a. Print one Question Briefing Block per item**, before that item's first question:
+
+> [!template] Question Briefing Block
+> ```
+> ITEM: {id} — {items[id].title}
+> Priority: {items[id].priority} | Domain: {items[id].abbrev} | File: {items[id].file}
+>
+> ## What This Is About
+>
+> {2-4 sentences from items[id].summary, or from items[id].problem when summary is null}
+>
+> ## Already Decided
+>
+> {items[id].preamble, or "Nothing recorded."}
+>
+> ## Open Questions
+>
+> - Q{n}: {question} — recommended: {recommended, or "none"}
+> ```
+>
+> When `summary` and `problem` are both `null`, `Read` the item file once and write the 2-4 sentences from it. Otherwise do not open the item file.
+
+**2b. Ask one `AskUserQuestion` per unanswered block, one question per call.** The user may see only the dialog while it is open, so each question carries its own context:
+
+| `AskUserQuestion` field | Value |
+|---|---|
+| `header` | `Q{n} {id}`, 12 characters at most. Shorten the id, never the Q number |
+| `question` | `{id} — {title}.` Then one sentence from `summary`. Then the question text. Then `Why: {context or evidence}`, or `Why: {the first sentence of problem}` when both are null. Four sentences at most |
+| option `label` | `({letter}) {choice text}`. The dialog shows a label on one line, so when the choice text runs past eight words, shorten it and open that option's `description` with the full choice text |
+| option order | the recommended choice first with ` (Recommended)` appended to its label, then the other choices in letter order, then `Skip this question` |
+| recommended option `description` | `reason`, after the full choice text when its label was shortened |
+| other option `description` | the full choice text when its label was shortened. Otherwise `Not the planner's choice.`, or `No recommendation recorded.` when `recommended` is null |
+| `Skip this question` `description` | `Leaves Answer: empty. The item stays excluded from the loop.` |
+| `preview` | none. The context sits in the question and the descriptions |
+
+When `choices` is empty, offer `Skip this question` alone and put the question text and its context in `question`. The user types a free answer through the dialog's own "Other" entry. A skipped block stays unanswered and is not written.
 
 Auto Mode cannot infer an answer. It lists the unanswered questions and asks nothing, per the "Answer open questions" row of `references/auto-mode-policy.md`.
 
@@ -67,7 +116,7 @@ On a refusal, show the message, fix the text with the user and run the call agai
 
 Print one line per item: the id, the blocks answered and the blocks skipped.
 
-- An unrefined item with every block answered is eligible on the next loop run.
-- A refined item with an answered block fails the shape gate until the refine path folds the answer into `## Resolution`. Use `--refine-max` or `--mode specific` on the next loop run.
+- An unrefined item with every block answered is eligible on the next loop run. Or refine it now with `/planwise backlog --refine {id}`.
+- A refined item with an answered block fails the shape gate until the refine path folds the answer into `## Resolution`. Run `/planwise backlog --refine {id}` to fold it now. On the next loop run, pick the item in Q2 specific mode (`--mode specific`), or start the run with `/planwise backlog --refine-max N`.
 
 Do not set `refined`, change a status or commit. The user triages the item through the normal route.

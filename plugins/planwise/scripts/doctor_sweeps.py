@@ -44,6 +44,14 @@ except ImportError:
     )
 
 try:
+    from frontmatter_parser import parse_frontmatter_map, split_frontmatter_block
+except ImportError:
+    raise ImportError(
+        "frontmatter_parser is required for doctor_sweeps's overscope-ack "
+        "marker read; the scripts/ directory appears to be partially installed"
+    )
+
+try:
     from read_limits import estimate_tokens
 except ImportError:
     raise ImportError(
@@ -139,6 +147,58 @@ def load_agent_history(plugin_root: Path) -> dict[str, set[str]]:
     return history
 
 
+OVERSCOPE_ACK_KEY = "overscope-ack"
+
+
+def _extract_overscope_ack(content: str) -> str | None:
+    """Return the one-line reason of a rule's ``overscope-ack:`` marker, or None.
+
+    The marker is a top-level frontmatter key whose value is the reason the rule
+    is plan-scoped on purpose. An absent key, an empty value, a multi-line value
+    and an unparseable frontmatter block all return None, so the rule keeps its
+    full advisory. A matching pair of surrounding quotes is removed.
+    """
+    block = split_frontmatter_block(content)
+    if block is None:
+        return None
+    fm_map = parse_frontmatter_map(block[0])
+    if not fm_map:
+        return None
+    value = fm_map.get(OVERSCOPE_ACK_KEY)
+    if value is None or "\n" in value:
+        return None
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        value = value[1:-1].strip()
+    return value or None
+
+
+def split_acknowledged(flagged: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Split lint_rule_overscope() entries into (unacknowledged, acknowledged).
+
+    An entry is acknowledged when its ``ack_reason`` is a non-empty string.
+    Input order is kept in both lists. Pure: reads and writes nothing.
+    """
+    unacked = [item for item in flagged if not item.get("ack_reason")]
+    acked = [item for item in flagged if item.get("ack_reason")]
+    return unacked, acked
+
+
+def format_overscope_ack_footer(acked: list[dict]) -> str:
+    """Return the one-line footer for acknowledged rules, or "" when none.
+
+    The token figure sums every acknowledged rule, because an acknowledged rule
+    still injects into context.
+    """
+    if not acked:
+        return ""
+    total_tokens = sum(item["approx_tokens"] for item in acked)
+    return (
+        f"{len(acked)} acknowledged plan-scoped rule(s), ~{total_tokens} tokens "
+        f"— listed by /planwise doctor --verbose"
+    )
+
+
 def lint_rule_overscope(cfg: "InitConfig") -> list[dict]:
     """Flag installed rules scoped to plan/backlog/lessons globs. Read-only.
 
@@ -146,8 +206,11 @@ def lint_rule_overscope(cfg: "InitConfig") -> list[dict]:
     project-authored rules), parses its paths: frontmatter, and records a flag
     when the value references the plans, backlog, or lessons globs derived from
     cfg. Each flagged entry carries the path, a line count, an approximate
-    injected-token estimate (bytes-based), and the matched glob so the
-    caller can render a re-scope hint.
+    injected-token estimate (bytes-based), the matched glob so the
+    caller can render a re-scope hint, and ``ack_reason``: the text of the
+    rule's ``overscope-ack:`` frontmatter marker, or None when the marker is
+    absent or empty. An acknowledged rule is still flagged, because it still
+    injects. The caller decides how to render it (split_acknowledged()).
 
     Never writes or deletes anything — purely diagnostic.
     """
@@ -185,6 +248,7 @@ def lint_rule_overscope(cfg: "InitConfig") -> list[dict]:
             "approx_bytes": num_bytes,
             "approx_tokens": estimate_tokens(num_bytes),
             "matched_glob": matched,
+            "ack_reason": _extract_overscope_ack(content),
         })
     return flagged
 

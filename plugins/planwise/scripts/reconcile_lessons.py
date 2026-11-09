@@ -408,7 +408,7 @@ def main():
     parser.add_argument("--json", action="store_true", help="Additionally write a JSON temp file and print its path.")
     parser.add_argument("--next-id", action="store_true", help="Print the true next lesson ID (computed from the union of all sources, NOT read from the counter line) and exit.")
 
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args()
 
     config = load_config(Path(__file__))
     lessons_dir = config.get("_lessons_dir")

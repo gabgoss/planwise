@@ -54,9 +54,6 @@ PAIR_EXEMPTIONS = {
     ("agent-orchestration-delegated.md", "## 1.1 Mandatory Triggers"): 2,  # @ becccfe (2026-10-20)
     ("agent-orchestration-delegated.md", "## 1.6 Path-Scoped Rule Injection in Spawn Prompts"): 2,  # @ becccfe (2026-10-20)
     ("artifact-self-containment.md", "### 3.1 Rule body must inline, not cite the source lesson"): 3,  # @ becccfe (2026-10-20)
-    ("dispatch-preflight-claim-expiry.md", "## 7. A Routed Flag Carries Decisions and Measurements: Classify Every Literal, Re-Measure the Cheap, De-Anchor the Expensive"): 2,  # @ becccfe (2026-10-20)
-    ("ei-fidelity.md", "## 1. EI as Archival — Transform at Task Layer"): 2,  # @ becccfe (2026-10-20)
-    ("ei-source-promise-integrity.md", "### 10.2 Pre-Extraction Verification Protocol (Task Execution)"): 2,  # @ becccfe (2026-10-20)
     ("execution-time-binding-rules.md", "## 19. Narrow Fix Reveals a Systemic Gap — Bounded Temp Fix That Seeds the Deferred Discovery (BINDING)"): 2,  # @ becccfe (2026-10-20)
     ("exit-criteria-fidelity.md", "#### 16.3 Extension — BLI-Cited Audit-Anchor Re-Verification"): 2,  # @ becccfe (2026-10-20)
     ("lessons-curate-workflow.md", "## 7. Constraints"): 3,  # @ becccfe (2026-10-20)
@@ -81,7 +78,6 @@ PAIR_EXEMPTIONS = {
     ("task-content-fidelity.md", "### 9.A.8 Token Saver Large-File Ladder"): 2,  # @ becccfe (2026-10-20)
     ("task-content-fidelity.md", "### 9.A.14 Measure every Required Context row at scaffold close"): 2,  # @ becccfe (2026-10-20)
     ("task-file-and-tracking-requirements.md", "### Task File Template"): 3,  # @ becccfe (2026-10-20)
-    ("verify-before-cite.md", "### 9.B.2 Identifier reconciliation against the live contract"): 2,  # @ becccfe (2026-10-20)
 }
 
 

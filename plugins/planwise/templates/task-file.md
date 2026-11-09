@@ -13,7 +13,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 **Token Budget:** ~{X}K (exception: {none | 1M (cost) | paged-read (read) | refactor-pending})  <!-- OPTIONAL — Token Saver only. Add only when the warning engine flags this task. `1M (cost)` raises the dispatch to Opus/1M (cost-reason Critical, oversized indivisible file); `paged-read (read)` means a Required Context file trips a Read gate and the runner pages it (read-reason Critical — NOT 1M-resolvable); `refactor-pending` means a core/edited file must be split before this task is safe. -->
 **Depends On:** {task numbers for same-session producers; "cross-session: {Abbrev}-S{XX}-{YY}-{##}" for a file from an earlier session of the SAME sprint; "cross-sprint: {Abbrev}-S{XX}-{YY}-{##}" for a file from an earlier sprint; or "-"}  <!-- Every Required Context row that cites another task's output is mirrored here with that producer's full Task ID and the prefix its class requires (task-file-and-tracking-requirements.md §9 mirroring table). A same-sprint prior-session read is `cross-session:`, never `cross-sprint:` — the reviewer's Check 038 matches on the literal prefix. Listing the file in Cross-Sprint Refs below does not replace the mirror. -->
 **Cross-Sprint Refs:** {list of cross-sprint files in Required Context, or "None"}  <!-- Add only when Required Context cites cross-sprint files (per task-file-and-tracking-requirements.md cross-sprint dependency convention). This field names the FILES; the producer Task IDs still go in Depends On. -->
-**Output:** {path where deliverable should be saved, e.g., Outputs/{Abbrev}-{description}.md}
+**Output:** {path where deliverable should be saved, e.g., Outputs/{Abbrev}-{description}.md}  <!-- When the Change-Surface Census section below applies, this line is the union of the census paths the task edits, not the files the design says change. -->
 
 ---
 
@@ -48,6 +48,10 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
      - No unmeasured size adjective: `small`, `full (small)`, `read in full`, `scoped`, `brief`, `large` may not
        stand in place of a number in a size cell, a Purpose column, or a Notes for Agent line. The adjective is
        fine beside its measured figure; the adjective without it is a scaffold-close failure. -->
+<!-- Every file the Execution Steps read, Grep or Edit gets a measured row above, including a prior task's or prior
+     sprint's Recovery.md read for a prerequisite check (references/task-content-fidelity.md §9.A.17). A DELEGATED
+     later task takes its base from the spawn prompt's `Base commit:` line and never reads Recovery for it
+     (references/gate-diff-baseline-pinning.md §8.1). -->
 <!-- Delete rows 3 and 4 above when the task cites no span and no command corpus. -->
 
 
@@ -80,6 +84,8 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 >
 > **Where a consolidation multiplier applies**, it is an explicit factor on the reads term — `~{R}K reads × {M} (consolidation overhead)` per `references/task-content-fidelity.md` §9.A.5 — and the identity holds with the factor applied. Apply it **once**: a multiplier stated in the formula plus a second allowance folded into `working` double-counts the same overhead.
 >
+> **Where the output mirrors a table shape**, the output addend declares its column arithmetic, so a reviewer can check N against the Schema Pin: `+ ~{O}K (output: {N} columns × {L} lines + {C} fixed = {lines} lines; {b} bytes per entry measured from {same-shape file}, ÷ {ratio})` per `references/task-content-fidelity.md` §9.A.18.
+>
 > **Budget the ceiling, not the hope.** Where a row's cost is a range, the row carries the ceiling. An under-budget task costs nothing; an over-budget one stalls mid-run.
 >
 > **One formula per task.** If two derivations appear in one file, the file has no single answer and a reader cannot tell which is authoritative. Two derivations can also disagree with each other while landing on the same total — so the totals agreeing is not evidence that either derivation is right.
@@ -96,6 +102,18 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 ### Comparison-Task Coverage Row (Required when the task's deliverable is a comparison or reconciliation)
 
 Where the task's deliverable is a comparison or reconciliation (enumerate discrepancies, reconcile A against B, find drift between a spec and an implementation), the Required Context table MUST carry the reference source's **measured coverage** as its own row — the sample size, the coverage fraction, and the date measured. The brief's framing follows the measurement (per `references/task-content-fidelity.md` §9.A.12 — Size comparison tasks by reference coverage): high coverage → a reconciliation; near-zero coverage → a census with an actionable tail, budgeted for listing volume.
+
+### Change-Surface Census (Required when the task adds a parameter, flag or field, or changes a shared function's side effect)
+
+Run the four searches against the live tree before writing the `**Output:**` line, and record each search with its hits. The Output line is the union of the paths the change edits. A census path left off the line carries a one-line reason. Pin tests also go into Required Context and the test gate, and the task records a base-commit run of them before the first edit. See `references/verify-caller-before-complete.md` §6. When a new option's default differs from its no-op value, also fill the Default blast radius row. See `references/verify-caller-before-complete.md` §7.
+
+| Surface | Search run | Hits | On Output line? |
+|---------|------------|------|-----------------|
+| Definition site | {Grep pattern and path} | {file:line list} | {yes / no — reason} |
+| Callers | {Grep pattern and path} | {file:line list} | {yes / no — reason} |
+| Tests that reach it, including tests that pin the edited artifact's shape | {Grep pattern and path} | {file:line list} | {yes / no — reason} |
+| Documents and manifests that describe it | {Grep pattern and path} | {file:line list} | {yes / no — reason} |
+| Default blast radius (only when the new default differs from the no-op value) | {Grep for default construction of the type in tests and production} | {test groups needing an explicit opt-out; construction sites that ship the change} | {yes / no — reason} |
 
 ### Schema Pin <!-- CONDITIONAL — required when the task touches DB writes -->
 
@@ -204,12 +222,21 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
 
 {What the subagent should produce - be specific about format and content}
 
+<!-- Column-enumerating output: a line figure states its column term, for example `{N} columns × {L} lines + {C}` (references/task-content-fidelity.md §9.A.18). -->
+
 <!-- Structure-as-checklist + template pointer: when this task's output is consumed
      structurally by a named downstream task (an aggregator reading a named section, a
      script parsing headers, a table cell read by column position), point at a template file
      rather than inlining the shape, and list every required heading and table-column header
      here as an explicit checklist. State that the post-dispatch acceptance step greps the
      produced file for these headings/columns before accepting it. -->
+
+**Required headings:** <!-- one literal label per line, copied byte for byte into the output. A fan-out task lists the labels, never only their count and meaning, so every output of one layer carries one label set. -->
+- `{## Heading 1}`
+- `{## Heading 2}`
+
+**Sweep counts:** <!-- sweep tasks only: a task that finds and corrects every occurrence of a pattern -->
+found {N} · corrected {N} · left {N}, each left occurrence as `{location} — {reason}`
 
 ### References Moved That May Now Be False (Required when the task moves or splits text)
 
@@ -221,19 +248,21 @@ The later stale-reference sweep task lists this slot in its `## Required Context
 
 ## Verification Commands <!-- CONDITIONAL — required if task touches code, tests, or schemas -->
 
+**Working directory:** `.` (repo root; the default)
+
 > [!verify] Before / After Commands
 > **Before:**
 > ```
 > {cmd_before_1}   # e.g., {lint-cmd} on changed files
-> {cmd_before_2}   # e.g., wc -l on the edited file
+> {cmd_before_2}   # e.g., wc -l on {plan_path}/{Session}/Outputs/{Report}.md
 > ```
 > **After:**
 > ```
-> {cmd_after_1}    # e.g., {lint-cmd} on files from git diff $..._BASE -- <paths> (expect: pass)
+> {cmd_after_1}    # e.g., {lint-cmd} on files from { git diff --name-only $..._BASE -- <paths>; git ls-files --others --exclude-standard -- <paths>; } | sort -u (expect: pass)
 > # pre-edit: {measured value} → expect {post-edit expectation}
 > {cmd_after_2}    # e.g., {test-cmd} on this task's own test files — never the whole suite per task
 > # pre-edit: {measured value} → expect {post-edit expectation}
-> {cmd_after_3}    # e.g., {test-cmd} on the touched module
+> {cmd_after_3}    # e.g., {test-cmd} on the touched module, or wc -l on {plan_path}/{Session}/Outputs/{Report}.md
 > # pre-edit: {measured value} → invariant: {value}   (mark invariant only if this gate must NOT move)
 > ```
 > If one of the three command types (connectivity/precondition, lint/format, exec/smoke)
@@ -242,6 +271,11 @@ The later stale-reference sweep task lists this slot in its `## Required Context
 > Every `{cmd_after_N}` line carries the `# pre-edit: {value} → expect {expectation}` annotation
 > immediately beneath it (or `→ invariant: {value}` for a preservation gate) — see the constraint
 > below.
+>
+> Every After gate reports its Actual beside its `expect`, a plain count-equality gate included.
+> When Actual contradicts `expect` per the operator, the verdict is FAIL or `[UNCERTAIN]`, never PASS.
+> A gate that could not run is `[UNCERTAIN]` with the exact command and error.
+> See `references/gate-verdict-contract-and-adjudication.md` §5, §5.1 and §5.2.
 
 ### Per-File-Type Commands
 
@@ -255,18 +289,58 @@ The later stale-reference sweep task lists this slot in its `## Required Context
 > [!practice] Connectivity Precheck Placement
 > When the task requires network/DB connectivity, the connectivity precheck command MUST appear in the **Before** block (not inline in Execution Steps).
 
+> [!practice] A Command Over the Foreground Ceiling Carries a Poll and a Stall Rule
+> A command expected to run longer than the 600000 ms foreground ceiling carries two comment lines beneath it:
+> ```
+> {long_cmd}   # runs in the background
+> # poll: {progress-probe} every 60-90 s
+> # stall: halt and report after two consecutive polls with no advance
+> ```
+> The progress probe MUST NOT depend on the job. A row count and a latest timestamp over an audit table qualify, and a line in the job's own log does not. See `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.27.2.
+
 > [!constraint] Every Verification Command Names Its Owner
 > Each command in the Before/After blocks MUST name its owner — **runner** or **orchestrator** — the one who runs it. An unattributed command that mutates the artifact it checks is the specific shape that invites a double execution: both the runner and the orchestrator may run it, and a mutating check run against a file the runner still owns produces a two-writer measurement that is indistinguishable from a settled one.
+
+> [!constraint] Every Verification Commands Block Declares Its Working Directory
+> The `**Working directory:**` line above the block names the one directory every command runs from. It defaults to `.`, the repo root. Write every plan-internal path from that base, as `{plan_path}/{Session}/Outputs/{Report}.md`. A block that mixes a repo-root tool path with a bare `Outputs/` or `../` path has no base that satisfies both. Part of it fails on every run, and the failure reads as the work failing. Check 34 of the gate linter flags that mixed shape. It also flags a path that does not resolve from the declared base, which catches a `../../X` written for `../../../X`.
+>
+> WRONG — one block, two bases, and no declared directory:
+> ```
+> .venv/Scripts/python.exe -m ruff check src/app.py
+> wc -l Outputs/{Report}.md
+> test -f ../{Abbrev}-S{XX}-Sprint-Plan.md
+> ```
+> CORRECT — one declared base, and every path written from it:
+> ```
+> **Working directory:** `.`
+> .venv/Scripts/python.exe -m ruff check src/app.py
+> wc -l {plan_path}/{Session}/Outputs/{Report}.md
+> test -f {plan_path}/{Abbrev}-S{XX}-Sprint-Plan.md
+> ```
+
+> [!checklist] Every Verification Command, Before It Ships
+> - [ ] 1. The command quotes or references the criterion it implements.
+> - [ ] 2. The command states its population scope whenever that scope is narrower than the file it reads.
+> - [ ] 3. The command carries a concrete expected value or an explicit formula.
+> - [ ] 4. The command's target exists when the block runs.
+> - [ ] 5. Where a comment or criterion names N members, the match set provably covers all N, never a representative subset. Write the set as a one-row-per-member table that the command counts.
+>
+> Point 5 is the one that fails silently. A comment that says "nine URLs" beside a pattern with a `{type}` placeholder can expand to 13 URLs, and the runner then reports N/N against the wrong N. Expand every placeholder, count the members the expansion reaches, and compare that count with the number the comment names. See `references/gate-input-set-and-compared-window.md` §16 and Reviewer Check 110.
 
 > [!constraint] Diff-Derived Verification Commands Are Baseline-Scoped
 > Any command in the Before/After blocks whose input is `git diff` MUST be scoped to a
 > recorded `{ABBREV}_S{NN}_BASE` — never a bare `git diff`, `git diff HEAD`, or
 > `git diff --name-only` with no operand. Path-scope with `-- <paths>`, never
 > `| grep <path>`: the piped form reads the whole tree, so a sibling sprint's concurrent
-> work trips the gate as if it were this sprint's own edit. The baseline itself is
+> work trips the gate as if it were this sprint's own edit. Every `--name-only` scope,
+> list or count gate also joins the untracked files, because `git diff <commit>` lists
+> tracked paths only and never shows a new file the task has not staged. The baseline itself is
 > recorded once — by the sprint's first task that touches the repo, in Recovery Key
 > Findings, before that task's first edit — behind a clean-scope precondition
-> (`git status --porcelain -- <write paths>` empty, else HALT). See
+> (`git status --porcelain -- <write paths>` empty, else HALT). A later task takes the
+> base from its spawn prompt's `Base commit:` line, proves it with
+> `git -C <repo> cat-file -e <sha>^{commit}` before its first diff gate, and never reads
+> it back from Recovery. See
 > `references/gate-diff-baseline-pinning.md` §8 for the full rule; this block states the
 > requirement, the reference carries the doctrine.
 >
@@ -277,6 +351,40 @@ The later stale-reference sweep task lists this slot in its `## Required Context
 > CORRECT — scoped to the recorded base and to this sprint's own paths:
 > ```bash
 > git diff $<ABBREV>_S<NN>_BASE -- <paths> | grep -E '<pattern>'   # expect empty
+> { git diff --name-only $<ABBREV>_S<NN>_BASE -- <paths>; git ls-files --others --exclude-standard -- <paths>; } | sort -u | wc -l   # expect exactly N
+> ```
+>
+> See `references/gate-diff-baseline-pinning.md` §8.5 for the union form.
+
+> [!constraint] Anchors and Rewrites Name the Write-Set
+> Other sessions and the user may write to the same repository. A whole-directory anchor then fails on files this plan never touched.
+>
+> - Name the plan's own files in every count anchor and diff gate. Never write `pytest {dir}` or `git diff $BASE -- {dir}` when the plan owns only some files in `{dir}`.
+> - A task that rewrites or splits a file runs `git -C <repo> status --porcelain -- <those files>` as its first command. A non-empty result is a HALT to surface. The runner never merges it.
+> - After a mid-session user commit, re-derive the expected `git status` lists of later gates, because they shrink.
+> - Stage by name, so scratch output stays out of commits.
+>
+> The orchestrator classifies foreign dirt after each dispatch (`references/agent-orchestration-delegated.md` §1.4).
+>
+> WRONG — the anchor counts a whole directory:
+> ```bash
+> pytest tests/adapters -q   # expect 54 passed
+> ```
+> CORRECT — the anchor names the files this plan owns:
+> ```bash
+> pytest tests/adapters/test_<owned>.py -q   # expect the owned file's measured count
+> ```
+
+> [!constraint] A Live-Tree Figure Is a Census Placeholder
+> A figure a gate or step asserts about the live tree (a file count, a split boundary, a scan-set size, a line number, a line-ending tally) MUST be a `{census:<name>}` placeholder that names a row of the session orchestration file's Session Start Census. A bare literal is a claim about one tree at one moment, and the tree can move between the scaffold and the dispatch. The `# pre-edit:` annotation keeps the scaffold reading with its artifact, commit and date. The runner substitutes the value from its spawn prompt's `Census:` line and never reads it from Recovery. Put the placeholder in the trailing annotation where possible: a `{...}` token inside the command text makes `scripts/lint_verification_gates.py` treat the line as a placeholder and skip its checks.
+>
+> WRONG — the scaffold-time count is a literal the gate asserts at dispatch:
+> ```bash
+> <count command over references/*.md>   # expect 104
+> ```
+> CORRECT — the scaffold reading is recorded, and the expectation is the census row:
+> ```bash
+> <count command over references/*.md>   # pre-edit: 104 (references/*.md at <sha>, <date>) -> expect {census:ref_count}
 > ```
 
 > [!constraint] Every Before/After Gate Records Its Measured Pre-Edit Value
@@ -311,6 +419,7 @@ The later stale-reference sweep task lists this slot in its `## Required Context
 
 - [ ] {Measurable criterion 1}
 - [ ] {Measurable criterion 2}
+- [ ] Discharges sprint criterion {n}: "{verbatim quote}" -- measured by {gate} <!-- OPTIONAL: add this line only when the task discharges a sprint criterion. The named gate measures the criterion's own comparand, population and operator. See references/gate-anchor-outcome-set.md §10.11 -->
 
 ### Verbatim-Copy Line-Count Range (Required when task copies verbatim content from an EI section)
 

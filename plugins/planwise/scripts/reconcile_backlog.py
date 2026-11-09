@@ -35,8 +35,10 @@ Two operations:
     own frontmatter reader. A COMPLETE/CLOSED item in the backlog dir is
     drift (`needs_move`). Anomalies are reported and never acted on: an open
     item inside `Archive/`, a file with no parseable frontmatter status, two
-    files carrying one id, or a closed item whose filename already exists in
-    `Archive/`.
+    files carrying one id, a closed item whose filename already exists in
+    `Archive/`, or an open item file whose frontmatter carries a `closed:`
+    date. The `closed:` field is not a schema field, so the date alone never
+    makes an item closed.
   - reconcile(config): re-scans the item files fresh (race-safe against a
     concurrent writer that may have moved a file since a prior detect call)
     and moves each still-drifted file into `Archive/` with
@@ -127,8 +129,10 @@ _FENCE_OPEN_RE = re.compile(r" {0,3}(`{3,}|~{3,})(.*)")
 _FENCE_CLOSE_RE = re.compile(r" {0,3}(`{3,}|~{3,})[ \t]*")
 
 
-def _read_item(path: Path) -> tuple[str | None, str | None, str | None]:
-    """Return (display_id, compare_key, status) from one item file's frontmatter.
+def _read_item(
+    path: Path,
+) -> tuple[str | None, str | None, str | None, str | None]:
+    """Return (display_id, compare_key, status, closed_date) from one item file.
 
     Uses the generator's own reader, so the audit sees the status exactly as
     the generator renders it. Any value is None when it cannot be read.
@@ -145,17 +149,21 @@ def _read_item(path: Path) -> tuple[str | None, str | None, str | None]:
     `update_backlog.py`'s own disk lookups use -- for EQUALITY ONLY, so a
     file storing "PFX-005" and one storing "005" are still recognized as one
     id for duplicate detection, even though their displayed ids differ.
+
+    `closed_date` is the quote-stripped frontmatter `closed:` value, or None
+    when the key is absent or empty. Only `detect_drift` uses it.
     """
     try:
         fm_map = _read_frontmatter_map(path)
     except (GeneratorError, OSError, UnicodeDecodeError):
-        return None, None, None
+        return None, None, None, None
 
     status = _strip_quotes(fm_map.get("status", "").strip()) or None
     raw_id = fm_map.get("id")
     display_id = _strip_quotes(str(raw_id).strip()) or None if raw_id is not None else None
     compare_key = _frontmatter_id(fm_map)
-    return display_id, compare_key, status
+    closed_date = _strip_quotes(fm_map.get("closed", "").strip()) or None
+    return display_id, compare_key, status, closed_date
 
 
 def _same_dir(a: Path, b: Path) -> bool:
@@ -178,7 +186,7 @@ def detect_drift(config: dict) -> dict:
     anomalies = []
     for path in _iter_item_files(backlog_dir, archive_dir, index_path):
         in_archive = archive_dir.exists() and _same_dir(path.parent, archive_dir)
-        display_id, compare_key, status = _read_item(path)
+        display_id, compare_key, status, closed_date = _read_item(path)
         if status is None:
             anomalies.append(
                 {
@@ -194,6 +202,7 @@ def detect_drift(config: dict) -> dict:
                 "id": display_id,
                 "key": compare_key,
                 "status": status,
+                "closed_date": closed_date,
                 "path": path,
                 "in_archive": in_archive,
             }
@@ -224,6 +233,16 @@ def detect_drift(config: dict) -> dict:
             continue
 
         closed = item["status"].upper() in CLOSED_STATUSES
+        if not closed and item["closed_date"]:
+            # A `closed:` date is not a schema field, so it never closes an item.
+            # Reported on its own, so an archived open file with a date reports both.
+            anomalies.append(
+                {
+                    **base,
+                    "reason": f"frontmatter closed: {item['closed_date']} beside an open "
+                    "status: — never moved",
+                }
+            )
         if closed and not item["in_archive"]:
             if (archive_dir / path.name).exists():
                 anomalies.append(
@@ -475,7 +494,7 @@ def detect_body_status(config: dict) -> dict:
     anomalies = []
     for path in _iter_item_files(backlog_dir, archive_dir, index_path):
         in_archive = archive_dir.exists() and _same_dir(path.parent, archive_dir)
-        display_id, _compare_key, status = _read_item(path)
+        display_id, _compare_key, status, _closed_date = _read_item(path)
         base = {
             "id": display_id or "?",
             "status": status or "?",
@@ -595,7 +614,7 @@ def reconcile_body_status(config: dict) -> int:
         try:
             text = reconcile_common.read_text_preserving_newlines(path)
             scan = _scan_body_status(text)
-            _display_id, _compare_key, status = _read_item(path)
+            _display_id, _compare_key, status, _closed_date = _read_item(path)
             if (
                 not scan["has_h1"]
                 or len(scan["header_hits"]) != 1
@@ -661,6 +680,7 @@ def _run_body_status_cli() -> None:
         format_report=_format_body_status_report,
         json_prefix="reconcile-backlog-body-status-",
         write_message=lambda n: f"Stripped {n} body status line(s).",
+        mode_flags=("--body-status",),
     )
 
     # Same reasoning as the archival failure check in main(): the shared
@@ -698,10 +718,10 @@ def main():
     _last_body_status_failures = []
 
     # Mode switch, pre-parsed on its own so the shared scaffold stays
-    # unchanged. `allow_abbrev=False`: only the exact flag selects the mode,
-    # so an abbreviation that used to be ignored still is. A form the
-    # pre-parser rejects (such as `--body-status=1`) never exits here: it
-    # falls through to the default mode, which ignores it as it always has.
+    # unchanged. `allow_abbrev=False`: only the exact flag selects the mode.
+    # A form the pre-parser rejects (such as `--body-status=1`) never exits
+    # here: it falls through to the default mode, whose main parse then
+    # refuses it as an unrecognized argument.
     mode_parser = _TolerantModeParser(add_help=False, allow_abbrev=False)
     mode_parser.add_argument("--body-status", action="store_true")
     try:

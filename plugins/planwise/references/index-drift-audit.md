@@ -128,9 +128,9 @@ Example: an index row reads `IN_PROGRESS` and its Master Plan reads `READY_TO_EX
 
 ### Backlog — `reconcile_backlog.py`
 
-- Source of truth: each item file's frontmatter `status:` compared with the file's location. The audit reads item files, never an index, so it works the same on a generated index and a legacy one. Archival is **state-coupled, not transition-coupled**: a COMPLETE/CLOSED item's file must live under `Archive/`. The generator renders each File link from wherever the file sits, so the file's location is the one fact to audit.
+- Source of truth: each item file's frontmatter `status:` compared with the file's location. The audit reads item files, never an index, so it works the same on a generated index and a legacy one. Archival is **state-coupled, not transition-coupled**: a COMPLETE/CLOSED item's file must live under `Archive/`. The generator renders each File link from wherever the file sits, so the file's location is the one fact to audit. A row cannot read open while its file reads closed, because the generator renders the row from the file.
 - Drift: a COMPLETE/CLOSED item file in the top-level backlog dir. Row identifier: `{ID}`.
-- Anomaly: an open item file inside `Archive/`, a file with no readable frontmatter status, two files carrying one id, or a closed file whose name already exists in `Archive/`. None of these files is ever moved.
+- Anomaly: an open item file inside `Archive/`, an open item file whose frontmatter carries a `closed:` date, a file with no readable frontmatter status, two files carrying one id, or a closed file whose name already exists in `Archive/`. None of these files is ever moved.
 - Banner drift line: `{ID} ({STATUS}): {file} — {reason}`.
 - Consent prompt: "Archive {K} closed item file(s) — move them into `Archive/`?"
 - The `--write` run re-scans the item files and moves only files still drifted. It never edits or writes an index file. After a move, run `generate_backlog_index.py --write` so the index links follow the moved files. A legacy index's stale links are the migrator's concern, not this audit's.

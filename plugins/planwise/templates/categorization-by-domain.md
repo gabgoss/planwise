@@ -16,6 +16,8 @@ Generated: 2026-09-26
 
 Lessons captured during this project's sessions.
 
+The bucket tables list every lesson of every status. Each lesson appears in exactly one table, chosen by its technology and domain, never by its status. A bold ID marks a landed lesson (`applied` or `rule`). An `orphaned` lesson stays in its domain bucket, unbolded like `documented` and `promoted`. Its owner closed without landing this content, and it has no live owner. It resurfaces ahead of `documented` in the next promotion pass. The Status column of [00-Index-LessonsLearned.md](00-Index-LessonsLearned.md) names each lesson's status.
+
 ---
 
 ## A. Database / SQL (0)

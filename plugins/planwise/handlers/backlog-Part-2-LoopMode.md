@@ -37,6 +37,7 @@ python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yam
 | Item state at `--init` | In the loop set? | Reason recorded |
 |---|---|---|
 | Selectable, `refined: false`, or refined with a failing shape gate, inside the refine cap or named by `--mode specific` | Yes, disposition `refine` | none |
+| Selectable, with every question under `## Open Questions` answered, whatever the refine cap | Yes, disposition `refine` | none |
 | Selectable, provisional route A or B, `refined: true` or past the refine cap | Yes, disposition `run` | none |
 | Selectable, `refined: false`, route C by the conservative default (`LARGE_SCOPE` false), past the refine cap | No, listed as excluded | `needs refine` |
 | Selectable, route C by a strong signal (`LARGE_SCOPE` true), or `refined: true` with a passing shape gate and route C | No, listed as excluded | `plans deferred in loop mode` |
@@ -49,7 +50,7 @@ python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yam
 
 Queue order is highest score first, then item id. Mode `n` keeps the first N of that order. Mode `specific` keeps the user's order and drops an ineligible id with a warning line.
 
-Refining is opt-in. `--init --refine-max N` (default 0) queues up to N unrefined items for the refine step, highest score first. `--mode specific` refines every named unrefined item.
+Refining is opt-in. `--init --refine-max N` (default 0) queues up to N unrefined items for the refine step, highest score first. `--mode specific` refines every named unrefined item. One exception sits outside the cap: an item whose questions are all answered is always queued as `refine`, so the answers are folded into `## Resolution` before anything runs it.
 
 An open question is unanswered while its `Answer:` line is empty. It is answered once an `Answer:` line with text follows its `### Q` heading.
 
@@ -73,7 +74,7 @@ Each session handles exactly one item. The numbered steps run in order.
 4. `{"next": null, ...}` means the queue is empty. Run `--boundary` and finish at Phase 9.
 5. Set only the popped item IN_PROGRESS, regenerate the index, then run `--mark --phase selected --run {run-id} --id {item-id}`.
 
-   5a. When `--next` reported disposition `refine`, run § Refine step before Phase 3. An item with disposition `run` skips it.
+   5a. When `--next` reported disposition `refine`, run § Refine step before Phase 3. An item with disposition `run` skips it. A refine result of `REFINED` ends the iteration there, and a later run queues the item as `run`.
 6. Phase 3 RESOLVE. Re-run `score_backlog.py --route --id {item-id}` and note any divergence from `route_at_init` in `Reason:`.
 7. Phase 4 ACT. Ask nothing. Take the recommended route when it is A or B. A Route C result is a documented skip (see § No questions after setup). Run `--mark --phase acting --run {run-id} --id {item-id}` before the Route A or B dispatch.
 8. Phase 5 VERIFY. Run `--mark --phase verifying --run {run-id} --id {item-id}` before the gates. Ask nothing. After the gates, run the `build_commands.verify` list (§ Verification is in scope). Apply the Phase 5 default in § No questions after setup.
@@ -87,6 +88,7 @@ Each session handles exactly one item. The numbered steps run in order.
    | Route C re-assessed in Phase 4 | `SKIPPED`, with `--needs-plan` and `--decision` |
    | Halted item skipped at the HALT question | `SKIPPED`, with `--note halted-mid-item` |
    | Refine step returned `QUESTIONS` (§ Refine step) | `SKIPPED`, with `--note "open questions"` |
+   | Refine step returned `REFINED` | `SKIPPED`, with `--note "refined; review before run"`; the design waits in the item for the user to read |
    | Refine step returned `DECOMPOSE` | `SKIPPED`, with `--note "decomposed: {ids}"` |
    | Refine step returned `NEEDS_PLAN` | `SKIPPED`, with `--note "needs plan"` |
    | Refine step returned `ALREADY_MET` | `COMPLETE`, with `--note "already met"` |
@@ -100,7 +102,7 @@ Each session handles exactly one item. The numbered steps run in order.
 
 ## Refine step
 
-**Purpose:** Turn an unrefined item into one the loop can run, before Phase 3. The step runs when `--next` reported disposition `refine`. An item with `disposition: run` skips this section.
+**Purpose:** Turn an unrefined item into one the loop can run. The step runs when `--next` reported disposition `refine`, before Phase 3. An item with `disposition: run` skips this section. A `REFINED` design ends the iteration: the user reads it, and a later run queues the item as `run`.
 
 The refine step asks nothing. A `QUESTIONS` design is written into the item. In loop mode the question round-trip of `references/backlog-creation-process.md` does not run.
 
@@ -122,7 +124,7 @@ Then map the result to the loop action:
 
 | Planner or preflight result | Loop action |
 |---|---|
-| `REFINED` | `--mark --refined REFINED`. Regenerate the index. Re-run `score_backlog.py --route --id {item-id}`. Continue at Phase 3 in the same iteration |
+| `REFINED` | `--mark --refined REFINED`. Run `--mark --outcome SKIPPED --note "refined; review before run"`. Regenerate the index. Continue to Phase 7. The item now carries `refined: true`, so a later run queues it as `run` once the user has read `## Resolution` or the item's diff |
 | `QUESTIONS` | `--mark --refined QUESTIONS`. Run `--mark --outcome SKIPPED --note "open questions"`. Regenerate the index. Continue to Phase 7 |
 | `ALREADY_MET` | The author writes the close record. Run `update_backlog.py --status COMPLETE`, then regenerate the index. Run `--mark --refined ALREADY_MET`, then `--mark --outcome COMPLETE --note "already met"` |
 | `DECOMPOSE` | The author files the sub-items with `blocks: [{parent}]`. Run `--mark --refined DECOMPOSE --sub-items {ids}`, then `--mark --outcome SKIPPED --note "decomposed: {ids}"`. Regenerate the index |
@@ -147,7 +149,9 @@ Q1, Q2, Q3 and the HALT question are the only questions in loop mode. Every othe
 | Phase 3 scoped-rule verdict `inject` or `none` | Proceed. An `inject` verdict carries the listed rules into the fix-agent prompt |
 | Phase 3 scoped-rule verdict `placement` | Documented skip. The evidence names the destination and the rule or content tree |
 | Phase 3 acceptance criteria already met | Unattended close (§ Unattended close): every criterion's proving command is run, the record is written under `## Resolution`, and the item is closed `COMPLETE`; the refine step closes an item whose preflight proved every criterion MET the same way, with the close record under `## Resolution` |
+| Phase 3 conditional check resolves to close | Documented skip. The evidence is the item's `Conditional:` lines. Never an unattended close: a resolved conditional is not a met criterion |
 | Refine step returns `QUESTIONS` | Written into `## Open Questions`; skip with the short note; no `--decision` |
+| Refine step returns `REFINED` | Skip with the note `refined; review before run`; no `--decision`. The user reads `## Resolution` or the item's diff before a later run executes it |
 | Phase 4 route | Take the recommended route when it is A or B. A Route C result is a documented skip that also writes `needs_plan: true` (`--needs-plan`) |
 | Route A fix-agent returns `BLOCKED` | Documented skip. The evidence is the agent's blocker |
 | Phase 5 gates pass | Mark `COMPLETE` |
@@ -279,10 +283,10 @@ If the answer is No, run the normal Phase 2 and skip this file.
 Then run `--init` with the answers:
 
 ```bash
-python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yaml --init --mode {all|specific|n} [--n {N}] [--items {004,009}] [--no-check]
+python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yaml --init --mode {all|specific|n} [--n {N}] [--items {004,009}] [--no-check] [--refine-max {N}]
 ```
 
-Pass the Phase 1 filters (`--priority`, `--abbrev`, `--status`) through. Pass `--no-check` when the run was started with it. Print the init report to the user: the queue with each score and provisional route, then the excluded list with reasons.
+Pass the Phase 1 filters (`--priority`, `--abbrev`, `--status`) through. Pass `--no-check` when the run was started with it. Pass `--refine-max {N}` when the run was started with it, so the cap in § Eligibility is the one the user typed. Print the init report to the user: the queue with each score and provisional route, then the excluded list with reasons.
 
 ---
 

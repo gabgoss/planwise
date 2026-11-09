@@ -5,6 +5,7 @@ Every fixture tree is built under `tempfile.mkdtemp()` and removed in
 """
 
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -20,6 +21,7 @@ from scoped_rules import (
     extract_destinations,
     glob_to_regex,
     load_rule_scopes,
+    match_destinations,
     scoped_rules_block,
     split_paths_value,
     strip_loop_sections,
@@ -588,6 +590,52 @@ class TestClassify(_ScratchProject):
         self.assertEqual(block["rules_bytes"], 0)
         self.assertEqual(block["inject_form"], "none")
         self.assertEqual(block["rules_scanned"], 1)
+
+
+class DestinationsCliTests(_ScratchProject):
+    """The `--destinations` entry point: plan-task paths with no backlog item."""
+
+    SCRIPT = Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts" / "scoped_rules.py"
+
+    def run_cli(self, *args):
+        proc = subprocess.run(
+            [sys.executable, "-B", str(self.SCRIPT), "--project-root", str(self.root), *args],
+            capture_output=True, check=False,
+        )
+        return proc.returncode, proc.stdout.decode("utf-8")
+
+    def test_match_destinations_fires_and_misses(self):
+        self.write_rule("behaviour-rule.md", 'paths: "src/**"')
+        rows = match_destinations(["src/a.py", "docs/b.md"], self.root)
+        self.assertEqual(rows, [("src/a.py", [BEHAVIOUR_RULE]), ("docs/b.md", [])])
+
+    def test_match_destinations_drops_read_rules(self):
+        self.write_rule("behaviour-rule.md", 'paths: "src/**"')
+        rows = match_destinations(["src/a.py"], self.root, (BEHAVIOUR_RULE,))
+        self.assertEqual(rows, [("src/a.py", [])])
+
+    def test_match_destinations_relativizes_absolute_path(self):
+        self.write_rule("behaviour-rule.md", 'paths: "src/**"')
+        absolute = (self.root / "src" / "a.py").as_posix()
+        rows = match_destinations([absolute], self.root)
+        self.assertEqual(rows, [(absolute, [BEHAVIOUR_RULE])])
+
+    def test_cli_exits_1_listing_the_rule_that_fires(self):
+        self.write_rule("behaviour-rule.md", 'paths: "src/**"')
+        code, out = self.run_cli("--destinations", "src/a.py", "docs/b.md")
+        self.assertEqual(code, 1)
+        self.assertIn(f"src/a.py: {BEHAVIOUR_RULE}\n", out)
+        self.assertIn("docs/b.md: none\n", out)
+        self.assertIn("rules scanned: 1; unread matches: 1\n", out)
+        self.assertNotIn("\r", out)
+
+    def test_cli_exits_0_when_no_unread_rule_fires(self):
+        self.write_rule("behaviour-rule.md", 'paths: "src/**"')
+        code, out = self.run_cli("--destinations", "docs/b.md")
+        self.assertEqual(code, 0)
+        code, out = self.run_cli("--destinations", "src/a.py", "--read", BEHAVIOUR_RULE)
+        self.assertEqual(code, 0)
+        self.assertIn("src/a.py: none\n", out)
 
 
 if __name__ == "__main__":

@@ -194,6 +194,367 @@ def test_callout_without_after_fires_check_015():
     assert (lint.RULE_CALLOUT, "Reviewer Check 015") in _rules(text)
 
 
+# --- content rules: used-helper, field-mapping, schema-pin ----------------------
+
+DOC_TEMPLATE = """# Task: Sonnet-Doc
+
+**Task ID:** AB-S01-01-01
+**Output:** {output}
+
+## Required Context
+
+{context}
+
+## Execution Steps
+
+{steps}
+
+{extra}
+## Expected Output
+
+- the report
+
+{verification}## Notes for Agent
+
+{notes}
+"""
+
+VERIFICATION_BLOCK = E11_INLINE.split("## Verification Commands")[1].split("## Success Criteria")[0]
+
+
+def _doc(context="- `notes/input.md`", steps="1. Write the report.", extra="", notes="- none",
+         code=True):
+    """A task file. By default it is a code task: a .py output with its verification."""
+    output = "`scripts/widget.py` (new)" if code else "`notes/report.md` (new)"
+    verification = "## Verification Commands" + VERIFICATION_BLOCK if code else ""
+    return DOC_TEMPLATE.format(context=context, steps=steps, extra=extra, notes=notes,
+                               output=output, verification=verification)
+
+
+def _by_rule(text: str, rule: str) -> list:
+    return [f for f in lint.lint_text(text, TASK_NAME) if f.rule == rule]
+
+
+COPY_CONTEXT = "| 1 | `scripts/retry_helpers.py` | copy the backoff helper from it |"
+HELPER_HEADING = "### USED-Helper Enumeration\n\n- `backoff` - used\n"
+
+
+def test_used_helper_known_bad_fires_one_warning():
+    findings = _by_rule(_doc(context=COPY_CONTEXT), lint.RULE_USED_HELPER)
+    assert len(findings) == 1
+    assert findings[0].severity == lint.SEVERITY_WARNING
+    assert "verify-before-cite.md §9.B.7" in findings[0].message
+
+
+def test_used_helper_known_good_with_either_heading_level():
+    for heading in (HELPER_HEADING, HELPER_HEADING.replace("###", "##")):
+        text = _doc(context=COPY_CONTEXT, extra=heading)
+        assert _by_rule(text, lint.RULE_USED_HELPER) == []
+
+
+def test_used_helper_no_trigger_fires_nothing():
+    plain = _doc(context="| 1 | `scripts/retry_helpers.py` | the module this task reads |")
+    assert _by_rule(plain, lint.RULE_USED_HELPER) == []
+    assert _by_rule(_doc(), lint.RULE_USED_HELPER) == []
+
+
+def test_used_helper_heading_must_be_line_anchored():
+    prose = _doc(context=COPY_CONTEXT, notes="- this task lacks a USED-Helper Enumeration")
+    assert len(_by_rule(prose, lint.RULE_USED_HELPER)) == 1
+
+
+MERGE_STEPS = "1. Write a MERGE statement for the widgets table."
+MAPPING_HEADING = "### Field Mapping\n\n| Source | DDL |\n|---|---|\n"
+
+
+def test_field_mapping_known_bad_fires_one_warning():
+    findings = _by_rule(_doc(steps=MERGE_STEPS), lint.RULE_FIELD_MAPPING)
+    assert len(findings) == 1
+    assert findings[0].severity == lint.SEVERITY_WARNING
+    assert "§9.B.8" in findings[0].message
+
+
+def test_field_mapping_known_good_and_crlf():
+    text = _doc(steps=MERGE_STEPS, extra=MAPPING_HEADING)
+    assert _by_rule(text, lint.RULE_FIELD_MAPPING) == []
+    assert _by_rule(text.replace("\n", "\r\n"), lint.RULE_FIELD_MAPPING) == []
+
+
+def test_field_mapping_no_trigger_and_fence_and_case():
+    assert _by_rule(_doc(steps="1. Write a SELECT statement."), lint.RULE_FIELD_MAPPING) == []
+    fenced = _doc(steps="1. Run:\n\n```\nMERGE INTO widgets\n```")
+    assert len(_by_rule(fenced, lint.RULE_FIELD_MAPPING)) == 1
+    lower_fence = _doc(steps="1. Run:\n\n```\nmerge into widgets\n```")
+    assert len(_by_rule(lower_fence, lint.RULE_FIELD_MAPPING)) == 1
+    inline = _doc(steps="1. Run `ON CONFLICT DO NOTHING`.")
+    assert len(_by_rule(inline, lint.RULE_FIELD_MAPPING)) == 1
+    lower_prose = _doc(steps="1. Merge the lists, merge the rows and do an upsert.")
+    assert _by_rule(lower_prose, lint.RULE_FIELD_MAPPING) == []
+    mention = _doc(steps=MERGE_STEPS, notes="- no ### Field Mapping here")
+    assert len(_by_rule(mention, lint.RULE_FIELD_MAPPING)) == 1
+
+
+SQL_STEPS = "1. Run `INSERT INTO widgets (id) VALUES (1)`."
+PIN_HEADING = "### Schema Pin\n\n```sql\nCREATE TABLE widgets (id int);\n```\n"
+PRE_SQL = "- Pre-SQL Schema Verification: read the DDL first."
+
+
+def test_schema_pin_both_absent_is_warning_naming_neither():
+    findings = _by_rule(_doc(steps=SQL_STEPS), lint.RULE_SCHEMA_PIN)
+    assert len(findings) == 1
+    assert findings[0].severity == lint.SEVERITY_WARNING
+    assert "§9.B.5" in findings[0].message
+    assert "neither" in findings[0].message
+
+
+def test_schema_pin_exactly_one_absent_is_warning():
+    pin_only = _by_rule(_doc(steps=SQL_STEPS, extra=PIN_HEADING), lint.RULE_SCHEMA_PIN)
+    block_only = _by_rule(_doc(steps=SQL_STEPS, notes=PRE_SQL), lint.RULE_SCHEMA_PIN)
+    for findings in (pin_only, block_only):
+        assert len(findings) == 1
+        assert findings[0].severity == lint.SEVERITY_WARNING
+        assert "one of the two is absent" in findings[0].message
+
+
+def test_schema_pin_known_good_with_template_heading_and_bold_form():
+    good = _doc(steps=SQL_STEPS, extra=PIN_HEADING, notes=PRE_SQL)
+    assert _by_rule(good, lint.RULE_SCHEMA_PIN) == []
+    bold = _doc(steps=SQL_STEPS, extra="**Schema Pin** - ddl.sql#widgets\n", notes=PRE_SQL)
+    assert _by_rule(bold, lint.RULE_SCHEMA_PIN) == []
+
+
+def test_schema_pin_lower_case_prose_never_triggers():
+    prose = _doc(steps="1. Update the docs and insert a note. Merge the lists.")
+    assert _by_rule(prose, lint.RULE_SCHEMA_PIN) == []
+    assert _by_rule(_doc(), lint.RULE_SCHEMA_PIN) == []
+
+
+def test_schema_pin_fenced_lower_case_statement_triggers():
+    fenced = _doc(steps="1. Run:\n\n```\nalter table widgets add column x int;\n```")
+    assert len(_by_rule(fenced, lint.RULE_SCHEMA_PIN)) == 1
+
+
+def test_structure_subsections_inside_execution_steps_are_not_triggers():
+    # DDL inside the Schema Pin subsection is the pin, not a step that emits SQL.
+    text = _doc(steps="1. Read the table.\n\n" + PIN_HEADING.replace("```sql", "```"))
+    assert _by_rule(text, lint.RULE_SCHEMA_PIN) == []
+    steps = "1. Read.\n\n### Field Mapping (Required for MERGE tasks)\n\nMERGE rows map.\n"
+    assert _by_rule(_doc(steps=steps), lint.RULE_FIELD_MAPPING) == []
+
+
+def test_content_rules_honour_exemption():
+    bad = _doc(steps=MERGE_STEPS)
+    assert _by_rule(bad, lint.RULE_FIELD_MAPPING) != []
+    exempt = bad + "<!-- VERIFICATION: not-applicable (doc-only) -->\n"
+    assert lint.lint_text(exempt, TASK_NAME) == []
+
+
+def test_documentation_task_is_outside_every_content_rule():
+    steps = "1. Copy `scripts/retry_helpers.py` rows and merge the lists. Run MERGE INTO t."
+    text = _doc(context=COPY_CONTEXT, steps=steps + "\n2. Run `INSERT INTO t`.", code=False)
+    assert lint.lint_text(text, TASK_NAME) == []
+
+
+def test_code_task_with_lower_case_prose_merge_has_no_field_mapping_finding():
+    text = _doc(steps="1. Merge the two lists, then merge the results.")
+    assert _by_rule(text, lint.RULE_FIELD_MAPPING) == []
+
+
+def test_code_task_with_fenced_merge_and_no_mapping_has_one_finding():
+    text = _doc(steps="1. Emit:\n\n```\nMERGE INTO widgets USING src ON (a = b)\n```")
+    assert len(_by_rule(text, lint.RULE_FIELD_MAPPING)) == 1
+
+
+# --- cross-repo fix-task rules (verify-cross-repo-fix-discipline.md §7) ---------
+
+XR_TASK = """# Task: Sonnet-Fix
+
+**Task ID:** AB-S01-01-01
+**Output:** {output}
+
+## Required Context
+
+| Priority | File | Purpose |
+|----------|------|---------|
+{rows}
+
+## Execution Steps
+
+{steps}
+
+## Expected Output
+
+{expected}
+
+## Success Criteria
+
+{criteria}
+"""
+
+XR_TARGET = "vendor/upstream/lib/mod.md"
+XR_YAML = "vendor/upstream/conf/app.yaml"
+XR_GOOD_ROW = (f"| 1 | `{XR_TARGET}` | **BINDING SOURCE — full read required, do not work "
+               "from audit excerpts** |")
+XR_BAD_ROW = f"| 1 | `{XR_TARGET}` | the module this task edits |"
+XR_GOOD_STEPS = (f"1. Read `{XR_TARGET}` in full before any fix reasoning. Do NOT begin from "
+                 "audit excerpts.\n2. Edit the `## Usage` section.")
+XR_BAD_STEPS = "1. Read the audit notes.\n2. Edit the `## Usage` section."
+
+
+def _xr_text(output=f"`{XR_TARGET}`", rows=XR_GOOD_ROW, steps=XR_GOOD_STEPS,
+             expected="- the fixed module", criteria="- [ ] The section is fixed"):
+    return XR_TASK.format(output=output, rows=rows, steps=steps, expected=expected,
+                          criteria=criteria)
+
+
+def _xr_file(tmp_path: Path, text: str) -> Path:
+    """A plan repository holding a nested repository at vendor/upstream, and the task."""
+    root = tmp_path / "proj"
+    (root / ".git").mkdir(parents=True)
+    (root / "vendor" / "upstream" / ".git").mkdir(parents=True)
+    for rel in (XR_TARGET, XR_YAML, "docs/guide.md"):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text("# file\n", encoding="utf-8")
+    task_dir = root / "plans" / "s1"
+    task_dir.mkdir(parents=True)
+    return _write(task_dir, text)
+
+
+def _xr(tmp_path: Path, rule=None, **parts) -> list:
+    path = _xr_file(tmp_path, _xr_text(**parts))
+    findings = lint.lint_text(path.read_text(encoding="utf-8"), str(path))
+    return [f for f in findings if rule is None or f.rule == rule]
+
+
+def test_cross_repo_binding_known_bad_is_one_blocker(tmp_path):
+    findings = _xr(tmp_path, rows=XR_BAD_ROW)
+    assert [(f.rule, f.severity) for f in findings] == [
+        (lint.RULE_CROSS_REPO_BINDING, lint.SEVERITY_BLOCKER)]
+    assert "verify-cross-repo-fix-discipline.md §7.2" in findings[0].message
+
+
+def test_cross_repo_known_good_has_no_finding(tmp_path):
+    assert _xr(tmp_path) == []
+
+
+def test_cross_repo_binding_row_must_be_priority_one(tmp_path):
+    row = XR_GOOD_ROW.replace("| 1 |", "| 2 |", 1)
+    assert len(_xr(tmp_path, lint.RULE_CROSS_REPO_BINDING, rows=row)) == 1
+
+
+def test_cross_repo_exempt_audit_task_reads_only(tmp_path):
+    # A §7.6 audit task: the cross-repo file is read, the output is an in-repo report.
+    findings = _xr(tmp_path, output="`plans/s1/Outputs/report.md`", rows=XR_BAD_ROW,
+                   steps=XR_BAD_STEPS)
+    assert findings == []
+
+
+def test_cross_repo_in_repo_target_is_not_cross_repo(tmp_path):
+    findings = _xr(tmp_path, output="`docs/guide.md`", rows="| 1 | `docs/guide.md` | edit |",
+                   steps=XR_BAD_STEPS)
+    assert findings == []
+
+
+def test_cross_repo_undecided_root_is_a_warning_naming_the_path():
+    findings = lint.lint_text(_xr_text(rows=XR_BAD_ROW, steps=XR_BAD_STEPS), TASK_NAME)
+    assert [(f.rule, f.severity) for f in findings] == [
+        (lint.RULE_CROSS_REPO_BINDING, lint.SEVERITY_WARNING)]
+    assert XR_TARGET in findings[0].message
+
+
+def _xr_no_git(tmp_path: Path, output: str, row_path: str) -> list:
+    """A project with planwise/config.yaml and no .git anywhere above it."""
+    root = tmp_path / "proj"
+    (root / "planwise").mkdir(parents=True)
+    (root / "planwise" / "config.yaml").write_text("x: 1\n", encoding="utf-8")
+    (root / "docs").mkdir()
+    (root / "docs" / "guide.md").write_text("# file\n", encoding="utf-8")
+    task_dir = root / "planwise" / "Plans" / "s1"
+    task_dir.mkdir(parents=True)
+    path = _write(task_dir, _xr_text(output=output, rows=f"| 1 | `{row_path}` | edit |",
+                                     steps=XR_BAD_STEPS))
+    return lint.lint_text(path.read_text(encoding="utf-8"), str(path))
+
+
+def test_cross_repo_no_git_in_project_path_has_no_finding(tmp_path):
+    assert not (tmp_path / ".git").exists()
+    assert _xr_no_git(tmp_path, "`docs/guide.md`", "docs/guide.md") == []
+
+
+def test_cross_repo_no_git_path_outside_project_is_a_warning(tmp_path):
+    outside = (tmp_path / "elsewhere" / "mod.md").as_posix()
+    findings = _xr_no_git(tmp_path, f"`{outside}`", outside)
+    assert [(f.rule, f.severity) for f in findings] == [
+        (lint.RULE_CROSS_REPO_BINDING, lint.SEVERITY_WARNING)]
+    assert outside in findings[0].message
+
+
+def test_cross_repo_step1_known_bad_is_one_blocker(tmp_path):
+    findings = _xr(tmp_path, steps=XR_BAD_STEPS)
+    assert [(f.rule, f.severity) for f in findings] == [
+        (lint.RULE_CROSS_REPO_STEP_ONE, lint.SEVERITY_BLOCKER)]
+    assert "verify-cross-repo-fix-discipline.md §7.3:" in findings[0].message
+
+
+def test_cross_repo_step1_accepts_bold_read(tmp_path):
+    steps = XR_GOOD_STEPS.replace("1. Read", "1. **Read**", 1)
+    assert _xr(tmp_path, steps=steps) == []
+
+
+def test_cross_repo_parser_gate_known_bad_is_one_warning(tmp_path):
+    output = f"`{XR_TARGET}`, `{XR_YAML}`"
+    rows = XR_GOOD_ROW + f"\n| 1 | `{XR_YAML}` | **BINDING SOURCE — full read required** |"
+    findings = _xr(tmp_path, output=output, rows=rows)
+    assert [(f.rule, f.severity) for f in findings] == [
+        (lint.RULE_CROSS_REPO_PARSER, lint.SEVERITY_WARNING)]
+    assert "§7.3d" in findings[0].message
+    good = "- [ ] `python -c \"import yaml; yaml.safe_load(open('app.yaml'))\"` exits 0"
+    assert _xr(tmp_path / "g", output=output, rows=rows, criteria=good) == []
+
+
+def test_cross_repo_parser_gate_ignores_expected_output_mention(tmp_path):
+    expected = f"- the fix; re-read `{XR_YAML}` for the version"
+    assert _xr(tmp_path, expected=expected) == []
+
+
+def test_cross_repo_naked_line_ref_known_bad_is_one_warning(tmp_path):
+    steps = XR_GOOD_STEPS + "\n3. Replace line 40 of the file."
+    findings = _xr(tmp_path, steps=steps)
+    assert [(f.rule, f.severity) for f in findings] == [
+        (lint.RULE_CROSS_REPO_LINE_REF, lint.SEVERITY_WARNING)]
+    assert "§7.3a" in findings[0].message
+
+
+@pytest.mark.parametrize("step, expected", [
+    ("3. Replace line 40, the `def load()` function.", 0),
+    ('3. Replace line 40 under "## Usage".', 0),
+    ("3. Keep the §6 citation (line 40 at audit time).", 0),
+    (f"3. Replace `{XR_TARGET}` line 40.", 1),
+    ("3. Insert the step at Step 4.4.", 1),
+    ("3. Edit L40.", 1),
+])
+def test_cross_repo_naked_line_ref_content_anchor_precision(tmp_path, step, expected):
+    findings = _xr(tmp_path, lint.RULE_CROSS_REPO_LINE_REF, steps=XR_GOOD_STEPS + "\n" + step)
+    assert len(findings) == expected
+
+
+def test_cross_repo_line_ref_in_step_one_is_not_checked(tmp_path):
+    steps = XR_GOOD_STEPS.replace("Do NOT begin", "Line 40 is a hint. Do NOT begin", 1)
+    assert _xr(tmp_path, steps=steps) == []
+
+
+def test_cross_repo_rules_survive_the_verification_exemption(tmp_path):
+    text = _xr_text(rows=XR_BAD_ROW) + "<!-- VERIFICATION: not-applicable (doc fix) -->\n"
+    path = _xr_file(tmp_path, text)
+    rules = [f.rule for f in lint.lint_text(text, str(path))]
+    assert rules == [lint.RULE_CROSS_REPO_BINDING]
+
+
+def test_cross_repo_cli_exits_1(tmp_path):
+    path = _xr_file(tmp_path, _xr_text(rows=XR_BAD_ROW))
+    assert lint.main([str(path.parent)]) == lint.EXIT_FINDING
+
+
 # --- exemption ------------------------------------------------------------------
 
 def test_exemption_comment_silences_the_file():

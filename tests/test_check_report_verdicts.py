@@ -66,6 +66,14 @@ def test_contradicted_pass_exits_1_and_names_the_row(tmp_path: Path) -> None:
     assert "'44'" in result.stdout
 
 
+def test_count_equality_mismatch_marked_pass_exits_1(tmp_path: Path) -> None:
+    # The WRONG example of the count-equality row in §5: a bare Expected parses as equality.
+    report = write(tmp_path, "count.md", HEADER + "| path-scoped file count | 3 | 4 | PASS |\n")
+    result = run(str(report))
+    assert result.returncode == 1, result.stdout
+    assert "Actual '3'" in result.stdout
+
+
 def test_no_numeric_row_exits_3(tmp_path: Path) -> None:
     report = write(
         tmp_path,

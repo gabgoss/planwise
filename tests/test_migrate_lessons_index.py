@@ -170,6 +170,22 @@ def test_row_resolving_to_zero_files_relocates_verbatim(tmp_path):
     assert ledger["verification"]["verified"] is True
 
 
+def test_zero_file_row_names_a_listed_file_that_cannot_be_read(tmp_path, monkeypatch):
+    """A lesson file the directory listing shows but `is_file()` cannot see (the Windows
+    path-length limit) is named in the row's reason, so the zero-file wording does not read as a
+    missing file. The control row, whose file really is missing, keeps the plain wording."""
+    config, index_path, _lessons_dir = _build(tmp_path, drop_lesson="LL-003-PROC-Three.md")
+    real_is_file = Path.is_file
+    monkeypatch.setattr(Path, "is_file", lambda self, *a, **k: False if self.name.startswith("LL-002")
+                        else real_is_file(self, *a, **k))
+    plan = _plan(config, index_path, mig.RepairOptions.all_on())
+    bodies = {body for heading, body in plan["relocate_sections"] if heading == "Master Table row with no lesson file"}
+    named = [b for b in bodies if "| LL-002 " in b]
+    plain = [b for b in bodies if "| LL-003 " in b]
+    assert len(named) == 1 and "LL-002-PROC-Two.md is in the directory listing" in named[0]
+    assert len(plain) == 1 and "is in the directory listing" not in plain[0]
+
+
 def test_refuses_id_resolving_to_more_than_one_file(tmp_path):
     config, index_path, lessons_dir = _build(tmp_path)
     (lessons_dir / "LL-001-PROC-Dup.md").write_bytes(LESSON_001.encode("utf-8"))

@@ -21,6 +21,56 @@ DATE_GLOB = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]"
 DRAFT_LINE = f"planwise/feedback-drafts/{DATE_GLOB}-draft-*.md"
 
 
+class LineStateTest(unittest.TestCase):
+    """`line_state` and `read_state`: the predicate `ensure_line` writes by and
+    the read-only form a checker such as doctor calls."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.path = Path(self._tmp.name) / ".gitignore"
+
+    def test_classifies_each_state(self):
+        line = DRAFT_LINE.encode()
+        cases = {
+            b"": "absent",
+            b"dist/\n": "absent",
+            line + b"\n": "present",
+            line + b"  \r\n": "present",
+            b"!" + line + b"\n": "negated",
+            b"!" + line + b"  \r\n": "negated",
+            line + b"-extra\n": "absent",
+            b"# " + line + b"\n": "absent",
+        }
+        for data, expected in cases.items():
+            with self.subTest(data=data):
+                self.assertEqual(ge.line_state(data, DRAFT_LINE), expected)
+
+    def test_the_later_of_a_line_and_its_negation_decides(self):
+        line = DRAFT_LINE.encode()
+        self.assertEqual(ge.line_state(line + b"\n!" + line + b"\n", DRAFT_LINE), "negated")
+        self.assertEqual(ge.line_state(b"!" + line + b"\n" + line + b"\n", DRAFT_LINE), "present")
+
+    def test_ensure_line_writes_exactly_when_the_state_is_absent(self):
+        line = DRAFT_LINE.encode()
+        for data in (b"", b"dist/\n", line + b"\n", b"!" + line + b"\n", line + b"\n!" + line, b"x" + line):
+            with self.subTest(data=data):
+                self.path.write_bytes(data)
+                state = ge.read_state(self.path, DRAFT_LINE)
+                self.assertEqual(ge.ensure_line(self.path, DRAFT_LINE), state == "absent")
+
+    def test_a_missing_file_reads_as_absent_and_is_not_created(self):
+        self.assertEqual(ge.read_state(self.path, DRAFT_LINE), "absent")
+        self.assertFalse(self.path.exists())
+
+    def test_read_state_leaves_the_bytes_alone(self):
+        for original in (b"dist/\n*.log", b"a\r\nb", DRAFT_LINE.encode(), b""):
+            with self.subTest(original=original):
+                self.path.write_bytes(original)
+                ge.read_state(self.path, DRAFT_LINE)
+                self.assertEqual(self.path.read_bytes(), original)
+
+
 class EnsureLineTest(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()

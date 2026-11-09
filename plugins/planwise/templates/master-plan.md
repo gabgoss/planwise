@@ -159,13 +159,13 @@ recomputed: {today's date}.
 ## Success Criteria <!-- REQUIRED -->
 
 ### Sprint-01 Complete When:
-- [ ] {Measurable criterion 1}
-- [ ] {Measurable criterion 2}
+- [ ] {Measurable criterion 1} — Owner: {task-id}
+- [ ] {Measurable criterion 2} — Owner: {task-id}
 
 ### Project Complete When:
-- [ ] All sprints complete
-- [ ] {Final deliverable criterion}
-- [ ] Every item in **Resolves:** is COMPLETE with a dated resolution note (or Resolves is "none")
+- [ ] All sprints complete — Owner: {sprint signoff or closeout task-id}
+- [ ] {Final deliverable criterion} — Owner: {task-id}
+- [ ] Every item in **Resolves:** is COMPLETE with a dated resolution note (or Resolves is "none") — Owner: {closeout task-id}
 
 ---
 

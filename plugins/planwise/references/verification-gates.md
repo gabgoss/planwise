@@ -1,14 +1,14 @@
 ---
 description: Family index for verification gates — which short gate-* reference governs a cross-process or build-versus-deploy boundary, a Sprint exit verdict, a diff-scoped gate's recorded base, the instrument's proof obligations, change- versus state-detecting shapes, or a run sheet's control; carries the reserved section numbers (§9 relocated, §12 a pointer), the `$..._BASE` definition pointer, and the map from this file's former section numbers to the topic files that now hold them.
-consult-when: Finding which gate reference governs a boundary, a verdict, a diff base, an instrument or a battery — the family index: a read-when table over the six `gate-*` topic files it indexes, the reserved §9 and §12 pointers, the `$..._BASE` definition pointer, and the map from this file's former section numbers to the topic file that now holds each one
+consult-when: Finding which gate reference governs a boundary, a verdict, a diff base, an instrument or a battery — the family index: the reserved §9 and §12 pointers, the `$..._BASE` definition pointer, and the map from this file's former section numbers to the topic file that now holds each one
 paths: {planwise_root}/{plans_dir}/**
 ---
 
 # Verification Gates (Family Index)
 
-**Purpose:** The index for the verification-gates family. The rules live in the short topic files below. They were split out of this file on 2026-10-08, when it passed the Read-tool token gate. Each topic file keeps the section numbers this file used, so a citation of the form `verification-gates.md §N` resolves through the section map at the end of this file.
+**Purpose:** The index for the verification-gates family. The rules live in short `gate-*` topic files. They were split out of this file on 2026-10-08, when it passed the Read-tool token gate. A citation of the form `verification-gates.md §N` resolves in the topic file that keeps the number. The citations of §1, §7, §9, §12 and the `$..._BASE` site resolve through the checker's redirect table.
 
-**Read this when** a session touches an IPC, protocol or codec boundary, writes a Sprint exit verdict, builds a gate on `git diff`, delivers a gate-shaped artifact, composes a verification battery, or pins a run sheet. Open the topic file the table names. Read this index only to find it.
+**Read this when** a session touches an IPC, protocol or codec boundary, writes a Sprint exit verdict, builds a gate on `git diff`, delivers a gate-shaped artifact, composes a verification battery, or pins a run sheet. Open the topic file the Section Map names. Read this index only to find it.
 
 ## Table of Contents
 
@@ -20,14 +20,7 @@ paths: {planwise_root}/{plans_dir}/**
 
 ## Topic Files
 
-| File | Sections | Read when |
-|------|----------|-----------|
-| [gate-runtime-boundary-evidence.md](gate-runtime-boundary-evidence.md) | §1, §2, §5, §6, §7 | a deliverable touches an IPC, protocol or codec boundary, in-process numeric or codec code, a deploy step, or multi-target runtime code |
-| [gate-exit-verdict-and-smoke-reports.md](gate-exit-verdict-and-smoke-reports.md) | §3, §4, Checks 013, 014, 015, 034, 035, 036 | you write a Sprint Overview status, a smoke report or a closeout Recovery file, or review Verification Commands for a notebook, lint or database task |
-| [gate-diff-baseline-pinning.md](gate-diff-baseline-pinning.md) | §8-§8.6, Check 077 | you write, review or run any gate built on `git diff`, or pin a sprint or series base. This file defines `$..._BASE` |
-| [gate-instrument-proof-obligations.md](gate-instrument-proof-obligations.md) | §10, Checks 087, 088 | a deliverable is a gate, guard, hook, linter or validation pass, or a criterion cites a gate run as proof |
-| [gate-change-vs-state-detecting.md](gate-change-vs-state-detecting.md) | §11-§11.5 | you compose a battery, a change adds a member to an enumerated set, or you write or accept an extractor that anchors on a string |
-| [gate-run-sheet-and-grader-fields.md](gate-run-sheet-and-grader-fields.md) | §13, §14 | you write a run sheet or probe driver that pins flags, or a grader predicate over a numeric log field |
+The read-when rows live in [00-Reference-Library.md](00-Reference-Library.md), one row per `gate-*` topic file, and `scripts/check_section_citations.py` resolves the sections that moved.
 
 ---
 
@@ -41,7 +34,7 @@ Relocated to [measurement-discipline.md](measurement-discipline.md) §8 (wc-l li
 
 ### 12. Reachability Gates — a Definition Is Not a Caller
 
-Every gate in the topic files above measures **presence**; none measures whether production ever reaches the thing. The reachability gate — assert a **caller** that supplies the activating argument, not a definition; quote a production call site per behaviour-adding deliverable in the closing-sweep ledger; classify a runner's "dormant until a follow-up wires it" return as PARTIAL, never COMPLETE — lives in its own reference: [verify-caller-before-complete.md](verify-caller-before-complete.md). The body is not restated here.
+Every gate in the `gate-*` topic files measures **presence**; none measures whether production ever reaches the thing. The reachability gate — assert a **caller** that supplies the activating argument, not a definition; quote a production call site per behaviour-adding deliverable in the closing-sweep ledger; classify a runner's "dormant until a follow-up wires it" return as PARTIAL, never COMPLETE — lives in its own reference: [verify-caller-before-complete.md](verify-caller-before-complete.md). The body is not restated here.
 
 ### The `$..._BASE` Pointer
 
@@ -51,17 +44,15 @@ Every gate in the topic files above measures **presence**; none measures whether
 
 ## Section Map
 
-A citation written as `verification-gates.md §N` resolves here. The section keeps its number in the file that now holds it.
+A citation written as `verification-gates.md §N` resolves in the file this map names. The section keeps its number there. The redirect table in `scripts/check_section_citations.py` holds the sections this map no longer lists.
 
 | Former section | Now in |
 |----------------|--------|
-| §1 The Two Failure Modes | `gate-runtime-boundary-evidence.md` |
 | §2 Round-Trip Evidence for Cross-Process Boundaries | `gate-runtime-boundary-evidence.md` |
 | §3 The Gate Is the Gate (Checks 013, 014, 034, 035, 036) | `gate-exit-verdict-and-smoke-reports.md` |
 | §4 Operational Rules for Smoke Reports (Check 015) | `gate-exit-verdict-and-smoke-reports.md` |
 | §5 Build-Clean ≠ Computation-Correct | `gate-runtime-boundary-evidence.md` |
 | §6 Build-Fresh ≠ Deploy-Fresh | `gate-runtime-boundary-evidence.md` |
-| §7 Runtime-Correct on One Target ≠ Correct on All Targets | `gate-runtime-boundary-evidence.md` |
 | §8 Diff-Scoped Gates Pin a Recorded Baseline, §8.1-§8.6 (Check 077) | `gate-diff-baseline-pinning.md` |
 | §9 Empirical Verification Discipline | `measurement-discipline.md` §8 (relocated earlier) |
 | §10 The Instrument's Four Proof Obligations (Checks 087, 088) | `gate-instrument-proof-obligations.md` |

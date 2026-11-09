@@ -29,6 +29,64 @@ Rules, each named after the reviewer check it mechanises (the checks live in
     ``> [!verify]`` callout that holds both a ``**Before`` and an ``**After``
     line.
 
+``used-helper`` (Reviewer Check 030, ``references/verify-before-cite.md`` §9.B.7)
+    A task whose Required Context or Execution Steps pair a copy, reuse or port
+    verb with a ``.py`` path has a ``## USED-Helper Enumeration`` heading (or
+    the template's ``###`` form). Severity WARNING.
+
+``field-mapping`` (Reviewer Check 033, ``references/verify-before-cite.md`` §9.B.8)
+    A task whose Execution Steps match ``MERGE|UPSERT|ON CONFLICT`` has a
+    line-anchored ``### Field Mapping`` heading. Severity WARNING.
+
+``schema-pin`` (``references/verify-before-cite.md`` §9.B.5)
+    A task whose Execution Steps carry SQL-emitting verbs has a Schema Pin
+    section and a ``Pre-SQL Schema Verification`` block in Notes for Agent.
+    Severity WARNING. The message tells "neither present" (the reference's
+    flag condition) from "one of the two is absent".
+
+The three content rules report at WARNING because they match prose, and a run
+over two live plan trees showed false positives for each. Reviewer Checks 030
+and 033 are BLOCKER in the reference; the lint does not gate on a heuristic.
+
+The three content rules read the section text. They run only for a task file
+whose output the module classifies as code, a notebook, a schema or a
+migration, and the verification exemption silences them too. ``field-mapping``
+matches upper-case MERGE, UPSERT and ON CONFLICT in prose, and any case inside
+a fence or inline code.
+They are heuristics over prose: a hit is a finding to read, not a proof.
+
+Four cross-repo fix-task rules (``references/verify-cross-repo-fix-discipline.md``
+§7) fire only on a task that edits a file in another repository. That file is a
+target: a path the ``**Output:**`` line names and a Required Context row names
+too. It is cross-repo when it resolves outside the repository that holds the
+task file, or inside a nested repository below it (§7.7). A Required Context
+path the task only reads is no target, so the §7.6 exempt types (audit,
+research, decision and triage tasks, which write an in-repo report) never fire.
+
+``cross-repo-binding-source`` (§7.2, BLOCKER)
+    A Priority 1 Required Context row names the target and carries
+    ``BINDING SOURCE — full read required``. When the task file has no
+    repository root to resolve against, the rule cannot decide and reports a
+    WARNING naming the path, never a BLOCKER.
+
+``cross-repo-step1-read`` (§7.3, BLOCKER; Reviewer Check 066 (a))
+    Execution Step 1 matches ``Read .* in full before any fix reasoning``.
+
+``cross-repo-parser-gate`` (§7.3d, WARNING; Reviewer Check 066 (c))
+    An ``**Output:**`` line that names a ``.yaml``, ``.yml``, ``.json`` or
+    ``.toml`` file has a ``safe_load``, ``json.load`` or ``tomllib`` gate in
+    Success Criteria. A structured file Expected Output only mentions is not a
+    file the task writes.
+
+``cross-repo-naked-line-ref`` (§7.3a, WARNING; Reviewer Check 066 (b))
+    A step after Step 1 that names ``line N``, ``Step N.N`` or ``LN`` carries a
+    content anchor on the same line: a quoted string, a section citation, or a
+    code span that is neither a bare path nor a number. Judging the anchor is heuristic, so the
+    rule reports and never gates on its own.
+
+These four run on documentation tasks too, and the verification exemption does
+not silence them.
+
 Placeholder versus inline commands. The template's Per-File-Type table is one
 way to satisfy the section rule, not the only way. A plan may omit the table
 and write concrete commands inline. The script therefore never asks for the
@@ -44,7 +102,8 @@ only fenced lines are slots, comments or ``<!-- NEEDS-COMMAND -->`` markers
 holds no command.
 
 Exemption. The comment ``<!-- VERIFICATION: not-applicable (reason) -->`` with
-a non-empty reason, outside a fenced block, exempts the whole file.
+a non-empty reason, outside a fenced block, exempts the file from every rule
+except the four cross-repo rules.
 
 Output is one line per finding, ``{file}:{line}: {severity}: {message}``.
 Exit status: 0 when no finding, 1 on any finding, 2 on a usage error (a path
@@ -57,6 +116,7 @@ for heading purposes.
 """
 
 import argparse
+import os
 import re
 import sys
 from dataclasses import dataclass
@@ -77,6 +137,13 @@ SEVERITY_WARNING = "WARNING"
 RULE_SECTION = "verification-section"
 RULE_PER_TYPE = "per-type-commands"
 RULE_CALLOUT = "verify-callout"
+RULE_USED_HELPER = "used-helper"
+RULE_FIELD_MAPPING = "field-mapping"
+RULE_SCHEMA_PIN = "schema-pin"
+RULE_CROSS_REPO_BINDING = "cross-repo-binding-source"
+RULE_CROSS_REPO_STEP_ONE = "cross-repo-step1-read"
+RULE_CROSS_REPO_PARSER = "cross-repo-parser-gate"
+RULE_CROSS_REPO_LINE_REF = "cross-repo-naked-line-ref"
 
 # {Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md, per templates/task-file.md.
 _TASK_FILE_NAME_RE = re.compile(
@@ -138,6 +205,51 @@ _SCHEMA_PIN_RE = re.compile(r"^\*\*Schema Pin\*\*")
 _VERIFY_CALLOUT_RE = re.compile(r"^\s*>\s*\[!verify\]", re.IGNORECASE)
 _BEFORE_LABEL_RE = re.compile(r"^\*\*Before\b", re.IGNORECASE)
 _AFTER_LABEL_RE = re.compile(r"^\*\*After\b", re.IGNORECASE)
+
+# Content rules: helper enumeration, field mapping, schema pin.
+_HELPER_VERB_RE = re.compile(
+    r"\b(?:cop(?:y|ies|ying|ied)|reus(?:e|es|ing|ed)|port(?:s|ing|ed)?)\b",
+    re.IGNORECASE,
+)
+_PY_PATH_RE = re.compile(r"[\w./\\-]*[\w-]\.py\b")
+_USED_HELPER_HEADING_RE = re.compile(r"^#{2,3}[ \t]+USED-Helper Enumeration\b")
+# Upper-case in prose, any case inside a fence or inline code. Lower-case
+# prose ("merge the lists") never triggers.
+_MERGE_UPPER_RE = re.compile(r"\b(?:MERGE|UPSERT|ON CONFLICT)\b")
+_MERGE_CODE_RE = re.compile(r"\b(?:MERGE|UPSERT|ON\s+CONFLICT)\b", re.IGNORECASE)
+_FIELD_MAPPING_HEADING_RE = re.compile(r"^### Field Mapping\b")
+# Upper-case SQL verbs count in prose. Lower-case prose ("update the docs") never does.
+_SQL_UPPER_VERB_RE = re.compile(r"\b(?:INSERT|UPDATE|MERGE|CREATE TABLE|ALTER TABLE)\b")
+# A statement shape counts in any case, inside a fence or inline code.
+_SQL_STATEMENT_RE = re.compile(
+    r"\b(?:INSERT\s+INTO|UPDATE\s+[\w.\"`\[\]]+\s+SET|MERGE\s+INTO|"
+    r"CREATE\s+TABLE|ALTER\s+TABLE)\b",
+    re.IGNORECASE,
+)
+_INLINE_CODE_RE = re.compile(r"`[^`\n]+`")
+_SCHEMA_PIN_HEADING_RE = re.compile(r"^#{2,4}[ \t]+Schema Pin\b")
+_STRUCTURE_SUBSECTION_RE = re.compile(
+    r"^#{3,4}[ \t]+(?:Schema Pin|Field Mapping|USED-Helper Enumeration)\b"
+)
+_PRE_SQL_TEXT ="Pre-SQL Schema Verification"
+
+# Cross-repo fix-task rules (references/verify-cross-repo-fix-discipline.md §7).
+_CODE_SPAN_RE = re.compile(r"`([^`\n]+)`")
+_PATH_SUFFIX_RE = re.compile(r"(?:#[\w-]*|:\d+(?:-\d+)?)$")
+_BINDING_ROW_RE = re.compile(r"BINDING SOURCE\s*[—–-]{1,2}\s*full read required")
+_PRIORITY_ONE_ROW_RE = re.compile(r"^\|\s*1\s*\|")
+_STEP1_READ_RE = re.compile(r"\bRead .* in full before any fix reasoning")
+_TOP_STEP_RE = re.compile(r"^(\d+)\.\s")
+_STRUCTURED_EXT_RE = re.compile(r"\.(?:ya?ml|json|toml)\b", re.IGNORECASE)
+_PARSER_GATE_RE = re.compile(r"safe_load|json\.loads?\b|tomllib")
+_NAKED_LINE_REF_RE = re.compile(r"\blines? \d+|\bStep \d+\.\d+|\bL\d+\b", re.IGNORECASE)
+_QUOTED_ANCHOR_RE = re.compile(r"\"[^\"\n]{3,}\"|“[^”\n]{3,}”")
+_PATH_LIKE_SPAN_RE = re.compile(
+    r"^[\w.~-]*(?:[/\\][\w.~-]+)*\.[A-Za-z0-9]+(?::\d+(?:-\d+)?)?$|^[\w.~-]*(?:[/\\][\w.~-]*)+$"
+)
+_LINE_NUMBER_SPAN_RE = re.compile(r"^(?:L?\d+|lines? \d+|Step \d+(?:\.\d+)?)$", re.IGNORECASE)
+_SECTION_ANCHOR_RE = re.compile(r"§\s?\d")
+_XREF = "verify-cross-repo-fix-discipline.md"
 
 
 @dataclass
@@ -341,18 +453,373 @@ def _verify_callout_complete(lines: list) -> tuple:
     return found, False, False
 
 
+def _section_items(section) -> list:
+    """Return (line number, text, in_fence) for each non-fence line of ``section``.
+
+    A missing section gives an empty list. HTML comments on one line are cut
+    out, so template guidance in a comment is never a trigger.
+    """
+    if section is None:
+        return []
+    items = []
+    in_fence = False
+    skipping = False
+    for offset, raw in enumerate(section.lines, start=1):
+        line = _strip_blockquote(raw).rstrip()
+        if _FENCE_RE.match(line):
+            in_fence = not in_fence
+            continue
+        if not in_fence and line.startswith("#"):
+            # The structure subsections are the required structure, not steps.
+            skipping = bool(_STRUCTURE_SUBSECTION_RE.match(line))
+        if skipping:
+            continue
+        items.append((section.heading_line + offset, _HTML_COMMENT_RE.sub("", line), in_fence))
+    return items
+
+
+def _unfenced_heading(lines: list, pattern) -> bool:
+    """True when a line outside fences starts with the heading ``pattern``."""
+    return any(pattern.match(line) for _n, line in _unfenced_lines(lines))
+
+
+def _used_helper_findings(name: str, lines: list, sections: dict) -> list:
+    """Rule ``used-helper``: a copied helper module needs an enumeration heading."""
+    for key in ("required context", "execution steps"):
+        for number, text, in_fence in _section_items(_section_starting(sections, key)):
+            if in_fence or not _HELPER_VERB_RE.search(text) or not _PY_PATH_RE.search(text):
+                continue
+            if _unfenced_heading(lines, _USED_HELPER_HEADING_RE):
+                return []
+            return [Finding(name, number, SEVERITY_WARNING, RULE_USED_HELPER,
+                            "Reviewer Check 030 (verify-before-cite.md §9.B.7): the task "
+                            "copies, reuses or ports a helper module but has no "
+                            "'USED-Helper Enumeration' heading")]
+    return []
+
+
+def _field_mapping_findings(name: str, lines: list, sections: dict) -> list:
+    """Rule ``field-mapping``: MERGE or upsert steps need a ``### Field Mapping`` heading."""
+    number = _sql_line(sections, _MERGE_UPPER_RE, _MERGE_CODE_RE)
+    if number:
+        if _unfenced_heading(lines, _FIELD_MAPPING_HEADING_RE):
+            return []
+        return [Finding(name, number, SEVERITY_WARNING, RULE_FIELD_MAPPING,
+                        "Reviewer Check 033 (verify-before-cite.md §9.B.8): Execution "
+                        "Steps match MERGE, UPSERT or ON CONFLICT but the file has no "
+                        "'### Field Mapping' heading")]
+    return []
+
+
+def _sql_line(sections: dict, upper_re, code_re):
+    """Return the line number of the first SQL trigger in Execution Steps, or 0.
+
+    ``upper_re`` is tried on prose, case-sensitive. ``code_re`` is tried on a
+    fenced line and on each inline code span.
+    """
+    for number, text, in_fence in _section_items(_section_starting(sections, "execution steps")):
+        if in_fence:
+            hit = code_re.search(text)
+        else:
+            spans = _INLINE_CODE_RE.findall(text)
+            hit = upper_re.search(text) or any(code_re.search(span) for span in spans)
+        if hit:
+            return number
+    return 0
+
+
+def _schema_pin_findings(name: str, lines: list, sections: dict) -> list:
+    """Rule ``schema-pin``: SQL verbs need a Schema Pin and a Pre-SQL verification block."""
+    number = _sql_line(sections, _SQL_UPPER_VERB_RE, _SQL_STATEMENT_RE)
+    if not number:
+        return []
+    has_pin = any(_SCHEMA_PIN_HEADING_RE.match(line) or _SCHEMA_PIN_RE.match(line)
+                  for _n, line in _unfenced_lines(lines))
+    notes = _section_starting(sections, "notes for agent")
+    has_block = notes is not None and _PRE_SQL_TEXT in "\n".join(notes.lines)
+    if has_pin and has_block:
+        return []
+    if not has_pin and not has_block:
+        return [Finding(name, number, SEVERITY_WARNING, RULE_SCHEMA_PIN,
+                        "verify-before-cite.md §9.B.5: Execution Steps emit SQL but the "
+                        "file has neither a Schema Pin section nor a 'Pre-SQL Schema "
+                        "Verification' block in Notes for Agent")]
+    missing = "Schema Pin section" if not has_pin else "'Pre-SQL Schema Verification' block"
+    return [Finding(name, number, SEVERITY_WARNING, RULE_SCHEMA_PIN,
+                    "verify-before-cite.md §9.B.5: one of the two is absent (the "
+                    f"{missing}); Execution Steps emit SQL")]
+
+
+def _repo_root(path: Path):
+    """Return the nearest ancestor of ``path`` (itself included) holding ``.git``, or None."""
+    for candidate in (path, *path.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
+def _plan_root(path: Path) -> tuple:
+    """Return ``(root, has_git)`` for the plan whose task folder is ``path``.
+
+    The root is the nearest ancestor holding ``.git``. With none, it is the
+    nearest ancestor holding ``planwise/config.yaml``, the project root of a
+    plan not under git. ``(None, False)`` when neither exists.
+    """
+    root = _repo_root(path)
+    if root is not None:
+        return root, True
+    for candidate in (path, *path.parents):
+        if (candidate / "planwise" / "config.yaml").is_file():
+            return candidate, False
+    return None, False
+
+
+def _inside(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _path_tokens(text: str) -> list:
+    """Return the file paths written as inline code in ``text``.
+
+    A span with a space, a placeholder brace or a glob star is not a path. A
+    trailing ``#anchor`` or ``:line`` is cut off.
+    """
+    tokens = []
+    for span in _CODE_SPAN_RE.findall(text):
+        span = span.strip()
+        if not span or any(c in span for c in " {}*<>|"):
+            continue
+        span = _PATH_SUFFIX_RE.sub("", span)
+        if "/" in span or "\\" in span or _PATH_TOKEN_RE.fullmatch(span):
+            tokens.append(span)
+    return tokens
+
+
+def _resolve(token: str, task_dir: Path, plan_root: Path) -> Path:
+    """Resolve a written path: absolute as given, relative against the task's folder
+    when it exists there, else against the plan's repository root."""
+    path = Path(token).expanduser()
+    if path.is_absolute():
+        return Path(os.path.normpath(path))
+    local = Path(os.path.normpath(task_dir / path))
+    if local.exists():
+        return local
+    return Path(os.path.normpath(plan_root / path))
+
+
+def _is_cross_repo(path: Path, plan_root: Path) -> bool:
+    """True when ``path`` lives outside the plan's repository (§7, §7.7).
+
+    Outside the plan's root is cross-repo. Inside it, a nested repository (an
+    ancestor below the root that holds ``.git``) is cross-repo too.
+    """
+    try:
+        path.relative_to(plan_root)
+    except ValueError:
+        return True
+    existing = path
+    while not existing.exists() and existing != plan_root:
+        existing = existing.parent
+    root = _repo_root(existing)
+    return root is not None and root != plan_root
+
+
+def _canonical_targets(name: str, lines: list, sections: dict) -> tuple:
+    """Return (cross-repo targets, undecided targets) for a task file.
+
+    A target is a path the ``**Output:**`` line names that a Required Context
+    row names too: the existing file the task fixes (§7.2). A Required Context
+    path the task only reads is no target, so audit, research, decision and
+    triage tasks (the §7.6 exempt types, which write an in-repo report) never
+    trigger. A target is undecided when the task file has no repository root to
+    resolve against. Each list holds (path text, Required Context line).
+    """
+    _line, output_tokens = _output_paths(lines)
+    context =[(n, t) for n, t, f in _section_items(_section_starting(sections, "required context"))
+               if not f and t.lstrip().startswith("|")]
+    if not output_tokens or not context:
+        return [], []
+    location = Path(name)
+    plan_root, has_git = _plan_root(location.resolve().parent) if location.is_file() else (None, False)
+    if plan_root is None:
+        names = {Path(t).as_posix() for t in output_tokens}
+        undecided = []
+        for number, text in context:
+            undecided.extend((t, number) for t in _path_tokens(text) if Path(t).as_posix() in names)
+        return [], _first_per_path(undecided)
+    task_dir = location.resolve().parent
+    outputs = {_resolve(t, task_dir, plan_root) for t in output_tokens}
+    targets = []
+    undecided = []
+    for number, text in context:
+        for token in _path_tokens(text):
+            resolved = _resolve(token, task_dir, plan_root)
+            if resolved not in outputs:
+                continue
+            # With no git, a path outside the project root cannot be decided:
+            # it may sit in another repository or in a plain folder.
+            if not has_git and not _inside(resolved, plan_root):
+                undecided.append((token, number))
+            elif _is_cross_repo(resolved, plan_root):
+                targets.append((token, number, resolved))
+    return _first_per_path(targets), _first_per_path(undecided)
+
+
+def _output_paths(lines: list) -> tuple:
+    """Return (Output line number, paths written as inline code on the Output line)."""
+    for number, line in _unfenced_lines(lines):
+        match = _OUTPUT_FIELD_RE.match(line.strip())
+        if match:
+            return number, _path_tokens(match.group(1))
+    return 1, []
+
+
+def _first_per_path(items: list) -> list:
+    seen: set = set()
+    kept = []
+    for item in items:
+        key = item[-1] if len(item) == 3 else item[0]
+        if key not in seen:
+            seen.add(key)
+            kept.append(item)
+    return kept
+
+
+def _binding_row_names(text: str, target, task_dir, plan_root) -> bool:
+    """True when a Required Context row is a Priority 1 BINDING SOURCE row for ``target``."""
+    plain = text.replace("*", "")
+    if not _PRIORITY_ONE_ROW_RE.match(plain.lstrip()) or not _BINDING_ROW_RE.search(plain):
+        return False
+    tokens = _path_tokens(text)
+    if plan_root is None:
+        return target in tokens
+    return any(_resolve(t, task_dir, plan_root) == target for t in tokens)
+
+
+def _steps(sections: dict) -> tuple:
+    """Return (Execution Steps section, step 1 items, later items) as (line, text) pairs.
+
+    A step starts at a line opening with ``N.``. Fenced lines belong to the step
+    they sit in.
+    """
+    section = _section_starting(sections, "execution steps")
+    first: list = []
+    later: list = []
+    current = 0
+    for number, text, _in_fence in _section_items(section):
+        match = _TOP_STEP_RE.match(text)
+        if match and not _in_fence:
+            current = int(match.group(1))
+        if current == 1:
+            first.append((number, text))
+        elif current > 1:
+            later.append((number, text))
+    return section, first, later
+
+
+def _has_content_anchor(text: str) -> bool:
+    """True when a line names its edit target by content: a quoted string or a
+    code span that is neither a bare path nor a line or step number. A section
+    citation (``§6``) names a heading, so it is an anchor too."""
+    if _QUOTED_ANCHOR_RE.search(text) or _SECTION_ANCHOR_RE.search(text):
+        return True
+    for span in _CODE_SPAN_RE.findall(text):
+        span = span.strip()
+        if span and not _LINE_NUMBER_SPAN_RE.match(span) and not _PATH_LIKE_SPAN_RE.match(span):
+            return True
+    return False
+
+
+def _cross_repo_findings(name: str, lines: list, sections: dict) -> list:
+    """Rules 34 to 37 of the cross-repo fix-task discipline (§7.2, §7.3, §7.3d, §7.3a).
+
+    They run on every task type that is not exempt, documentation tasks included,
+    because a cross-repo fix may edit markdown. The verification exemption
+    comment does not silence them: it exempts verification, not the fix.
+    """
+    targets, undecided = _canonical_targets(name, lines, sections)
+    findings: list = []
+    context = _section_items(_section_starting(sections, "required context"))
+    for token, number in undecided:
+        if any(_binding_row_names(t, token, None, None) for _n, t, f in context if not f):
+            continue
+        findings.append(Finding(
+            name, number, SEVERITY_WARNING, RULE_CROSS_REPO_BINDING,
+            f"{_XREF} §7.2: cannot decide whether '{token}' lives in another repository "
+            "(no repository root above the task file); if it does, its Priority 1 row "
+            "needs 'BINDING SOURCE — full read required'"))
+    if not targets:
+        return findings
+    location = Path(name).resolve()
+    task_dir, plan_root = location.parent, _plan_root(location.parent)[0]
+    for token, number, resolved in targets:
+        if not any(_binding_row_names(t, resolved, task_dir, plan_root)
+                   for _n, t, f in context if not f):
+            findings.append(Finding(
+                name, number, SEVERITY_BLOCKER, RULE_CROSS_REPO_BINDING,
+                f"{_XREF} §7.2: '{token}' lives in another repository and the task edits it, "
+                "but no Priority 1 Required Context row names it with 'BINDING SOURCE — "
+                "full read required'"))
+    section, first, later = _steps(sections)
+    step1 = " ".join(t.replace("*", "") for _n, t in first)
+    if not _STEP1_READ_RE.search(step1):
+        anchor = first[0][0] if first else (section.heading_line if section else 1)
+        findings.append(Finding(
+            name, anchor, SEVERITY_BLOCKER, RULE_CROSS_REPO_STEP_ONE,
+            f"{_XREF} §7.3: Execution Step 1 of a cross-repo fix task does not match "
+            "'Read .* in full before any fix reasoning'"))
+    # Only a path the Output line declares is a file the task writes. A
+    # structured file Expected Output merely mentions (re-read, a report
+    # heading) is not an edit.
+    output_line, written = _output_paths(lines)
+    if any(_STRUCTURED_EXT_RE.search(token) for token in written):
+        criteria = _section_starting(sections, "success criteria")
+        body = "\n".join(criteria.lines) if criteria else ""
+        if not _PARSER_GATE_RE.search(body):
+            anchor = criteria.heading_line if criteria else output_line
+            findings.append(Finding(
+                name, anchor, SEVERITY_WARNING, RULE_CROSS_REPO_PARSER,
+                f"{_XREF} §7.3d: the output touches a YAML, JSON or TOML file but Success "
+                "Criteria holds no parser-load gate (safe_load, json.load or tomllib)"))
+    for number, text in later:
+        if _NAKED_LINE_REF_RE.search(text) and not _has_content_anchor(text):
+            findings.append(Finding(
+                name, number, SEVERITY_WARNING, RULE_CROSS_REPO_LINE_REF,
+                f"{_XREF} §7.3a: a later step names a line or step number with no content "
+                "anchor (heading text, function name or quoted string); a heuristic signal"))
+    return findings
+
+
+# Content rules, in report order. Each takes (name, lines, sections) and returns
+# a list of Finding. A new rule is one function plus one entry here.
+_CONTENT_RULES = (_used_helper_findings, _field_mapping_findings, _schema_pin_findings)
+
+
+def _content_findings(name: str, lines: list, sections: dict) -> list:
+    findings: list = []
+    for rule in _CONTENT_RULES:
+        findings.extend(rule(name, lines, sections))
+    return findings
+
+
 def lint_text(text: str, name: str) -> list:
     """Return the findings for one task file's text."""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     lines = text.split("\n")
-    if _exemption(lines):
-        return []
     sections = _sections(text, lines)
+    # The cross-repo rules run before both early returns: a cross-repo fix may
+    # be a documentation edit, and the exemption covers verification only.
+    findings: list = _cross_repo_findings(name, lines, sections)
+    if _exemption(lines):
+        return findings
     output_text, output_line = _output_text(lines, sections)
     kinds = _kinds_of(output_text)
     if any(_SCHEMA_PIN_RE.match(line) for _n, line in _unfenced_lines(lines)):
         kinds.db_write = True
-    findings: list = []
     if not kinds.needs_verification:
         return findings
 
@@ -396,6 +863,7 @@ def lint_text(text: str, name: str) -> list:
                 Finding(name, anchor, SEVERITY_BLOCKER, RULE_CALLOUT,
                         f"Reviewer Check 015: task with a runnable output {detail}")
             )
+    findings.extend(_content_findings(name, lines, sections))
     return findings
 
 

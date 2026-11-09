@@ -185,7 +185,10 @@ def changelog_state(text: str, shape: str, index_path: Path, changelog: Path) ->
     return "populated" if existing.replace("\r\n", "\n") == planned else "foreign"
 
 
-def refuse_unless_generated(index_path: Path, read_text) -> tuple[str, str] | None:
+PENDING_PROSE = "pending-prose"
+
+
+def refuse_unless_generated(index_path: Path, read_text, pending_prose=None) -> tuple[str, str] | None:
     """Classify the on-disk index at `index_path` via `classify_shape`.
     Returns `None` when the file is absent, classifies `migrated`, or is a
     `legacy`-shaped table whose single footer is already a migration
@@ -193,10 +196,15 @@ def refuse_unless_generated(index_path: Path, read_text) -> tuple[str, str] | No
     `populated` per `changelog_state` (`migrate_backlog_index.py` has
     already extracted it, so only the table itself is left in the old
     shape). A pointer naming any other file, or a missing or header-only
-    changelog, is refused. Otherwise `(shape, detail)`, naming the shape a caller
-    should refuse writing over or reading drift from. `read_text` is the
-    caller's own text-reading function, kept injectable rather than
-    imported here, so this stays pure and prints nothing."""
+    changelog, is refused. A pointer that passes is still refused as
+    `PENDING_PROSE` when `pending_prose(text, header_idx)` returns any
+    line, because the generator would drop that prose. Otherwise
+    `(shape, detail)`, naming the shape a caller
+    should refuse writing over or reading drift from. `read_text` and
+    `pending_prose` are the caller's own functions, kept injectable rather
+    than imported here, so this stays pure and prints nothing.
+    `pending_prose` stays injected because its scan lives in
+    `migrate_backlog_checks`, which imports this module."""
     if not index_path.exists():
         return None
     text = read_text(index_path)
@@ -209,7 +217,11 @@ def refuse_unless_generated(index_path: Path, read_text) -> tuple[str, str] | No
         own = index_path.with_name(_changelog_filename(_index_naming(index_path)))
         if (pointer and own.name in (pointer.group(1), pointer.group(2))
                 and changelog_state(text, shape, index_path, own) == "populated"):
-            return None
+            pending = pending_prose(text, detail[0]) if pending_prose else []
+            if not pending:
+                return None
+            more = f" (and {len(pending) - 3} more)" if len(pending) > 3 else ""
+            return PENDING_PROSE, "; ".join(pending[:3]) + more
     return shape, detail
 
 
@@ -218,8 +230,15 @@ def refusal_message(index_path: Path, shape: str, detail, config: dict, mode: st
     rejected; `mode` is "write" or "check". A hand-authored index points at
     `/planwise upgrade`. An unrecognized one names the classifier's reason
     and the migrator's read-only report instead, because the upgrade leaves
-    that shape untouched too. `--replace-legacy` overwrites with no backup."""
+    that shape untouched too. A `PENDING_PROSE` index points at its changelog
+    but still holds prose the generator would drop. `--replace-legacy`
+    overwrites with no backup."""
     replace = " or pass --replace-legacy to overwrite it WITHOUT a backup."
+    if shape == PENDING_PROSE:
+        what = "--write would drop it" if mode == "write" else "the generator cannot read it as migrated"
+        tail = f"; to discard it instead,{replace}" if mode == "write" else ""
+        return (f"Error: {index_path} points at its changelog but still carries un-migrated prose ({detail}); "
+                f"{what}. Run /planwise upgrade to move it into its item files first{tail}")
     if shape == "unrecognized":
         cfg = Path((config or {}).get("_planwise_root") or "{planwise_root}") / "config.yaml"
         tail = f"; to discard it instead,{replace}" if mode == "write" else ""

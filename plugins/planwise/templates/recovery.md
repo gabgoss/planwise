@@ -60,7 +60,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Recovery.md`.
 
 ## Cross-Task Coordination Flags
 
-*Populated when a task surfaces an observation that constrains, sequences, or unlocks work in a DIFFERENT session, sprint, or plan. The orchestrator MUST record the row at surface time (not at closeout) and propagate each row into the downstream consumer's task or orchestration file at Phase 4 closeout. See `references/read-confirm-act-protocol.md` §1.3.*
+*Populated when a task surfaces an observation that constrains, sequences, or unlocks work in a DIFFERENT session, sprint, or plan. The orchestrator MUST record the row at surface time (not at closeout) and propagate each row into the downstream consumer's task or orchestration file at Phase 4 closeout. The orchestrator is the only writer of this table and the only allocator of `Flag #`. A task-runner returns a `FLAG:` bullet with no id. See `references/read-confirm-act-protocol.md` §1.3.*
 
 | Flag # | Source Task | Downstream Consumer | Observation | Recommended Action |
 |--------|-------------|---------------------|-------------|---------------------|
@@ -70,7 +70,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Recovery.md`.
 
 | Column | Content |
 |--------|---------|
-| Flag # | Sequence number within this Recovery file (1, 2, 3...) |
+| Flag # | Allocated by the orchestrator only: the highest id in this section plus 1, carried rows included (1, 2, 3...). Never reuse an id |
 | Source Task | Task ID that surfaced the flag (e.g., `{Abbrev}-S{XX}-{YY}-{##}`) |
 | Downstream Consumer | The task / session / sprint / plan that must act on the flag (most specific identifier available) |
 | Observation | One-paragraph description of the constraint, dependency, ambiguity, or opportunity |
