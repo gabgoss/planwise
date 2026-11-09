@@ -209,6 +209,7 @@ def test_card_inline_next_mirrors_the_default_path(project):
     for sentence in NEXT_SENTENCES:
         assert sentence in lines, sentence
     assert any(ln.startswith("when mcp__planwise__build_plan is listed, call it") for ln in lines)
+    assert not any(ln.startswith("when the Workflow tool is listed") for ln in lines)  # delegated branch only
 
 
 def test_card_delegated_next_follows_the_delegated_loop(project):
@@ -230,6 +231,9 @@ def test_card_delegated_next_follows_the_delegated_loop(project):
     assert "do not Read a template" not in lines  # the delegated loop reads templates/plan-notes.md
     assert "do not Read a template other than templates/plan-notes.md" in lines
     assert "do not Write a task file; write bodies" in lines
+    workflow = [ln for ln in lines if ln.startswith("when the Workflow tool is listed")]
+    assert len(workflow) == 1 and "/planwise:plan-bodies" in workflow[0]
+    assert "run the /planwise:plan-bodies workflow through the Workflow tool" in workflow[0]
 
 
 def test_card_absent_index_prints_a_distinct_unavailable_value(project):

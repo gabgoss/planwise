@@ -45,6 +45,9 @@ NEXT_DONE_NO_ABBREVS = ("the config and index gate above are already resolved: d
                         "for a clash before you choose an abbreviation")
 NEXT_TOOL = ("when mcp__planwise__build_plan is listed, call it for keys, lint and build instead of the "
              "python commands, and fall back to them if it is not listed or refuses the call")
+NEXT_WORKFLOW = ("when the Workflow tool is listed, ask the opt-in question in the plan handler before step 4, "
+                 "and on a yes run the /planwise:plan-bodies workflow through the Workflow tool "
+                 "in place of the per-session dispatches")
 NEXT_NO_TEMPLATE = "do not Read a template"
 NEXT_NO_TEMPLATE_DELEGATED = "do not Read a template other than templates/plan-notes.md"
 NEXT_NO_TASK_FILE = "do not Write a task file; write bodies"
@@ -159,6 +162,7 @@ def next_block(mode: str, config_path: Path, plans_path: str, abbrevs_known: boo
             build,
         ]
         no_template = NEXT_NO_TEMPLATE_DELEGATED
+        workflow = [NEXT_WORKFLOW]
     else:
         steps = [
             keys,
@@ -168,10 +172,12 @@ def next_block(mode: str, config_path: Path, plans_path: str, abbrevs_known: boo
             build,
         ]
         no_template = NEXT_NO_TEMPLATE
+        workflow = []
     return [
         f"NEXT: {mode}",
         *(f"{n}. {step}" for n, step in enumerate(steps, 1)),
         NEXT_TOOL,
+        *workflow,
         NEXT_DONE if abbrevs_known else NEXT_DONE_NO_ABBREVS,
         no_template,
         NEXT_NO_TASK_FILE,
