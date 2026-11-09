@@ -46,7 +46,7 @@ NEXT_DONE_NO_ABBREVS = ("the config and index gate above are already resolved: d
 NEXT_TOOL = ("when mcp__planwise__build_plan is listed, call it for keys, lint and build instead of the "
              "python commands, and fall back to them if it is not listed or refuses the call")
 NEXT_WORKFLOW = ("when the Workflow tool is listed, ask the opt-in question in the plan handler before step 4, "
-                 "and on a yes run the /planwise:plan-bodies workflow through the Workflow tool "
+                 "and on a yes call the Workflow tool with name planwise:plan-bodies (a workflow, not a skill) "
                  "in place of the per-session dispatches")
 NEXT_NO_TEMPLATE = "do not Read a template"
 NEXT_NO_TEMPLATE_DELEGATED = "do not Read a template other than templates/plan-notes.md"

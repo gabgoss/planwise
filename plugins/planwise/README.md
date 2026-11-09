@@ -131,7 +131,7 @@ flowchart LR
 /planwise plan my-new-feature
 ```
 
-Claude asks for an abbreviation (like `APP` or `BUG`), the sprints, and the tasks in each session. It writes one metadata spec, then `plan_build.py keys` lists the sections that need prose. Claude writes those bodies, and `plan_build.py build` renders every plan file and prints a gate report. Claude edits the bodies or the spec until the plan is built: the report shows `fill_remaining=0` with `exit=0`, or with exit 1 from a recorded large-file scan finding alone. When `mcp__planwise__build_plan` is listed, Claude calls that tool instead and falls back to the Bash form if it is not listed or refuses the call. In delegated authoring, Claude can offer to run the `/planwise:plan-bodies` workflow through the Workflow tool, which writes the session bodies in parallel at a higher token cost. If the script is missing or `build` keeps failing, Claude writes the files from the per-template steps.
+Claude asks for an abbreviation (like `APP` or `BUG`), the sprints, and the tasks in each session. It writes one metadata spec, then `plan_build.py keys` lists the sections that need prose. Claude writes those bodies, and `plan_build.py build` renders every plan file and prints a gate report. Claude edits the bodies or the spec until the plan is built: the report shows `fill_remaining=0` with `exit=0`, or with exit 1 from a recorded large-file scan finding alone. When `mcp__planwise__build_plan` is listed, Claude calls that tool instead and falls back to the Bash form if it is not listed or refuses the call. In delegated authoring, Claude can offer to run the plan-bodies workflow through the Workflow tool, which checks the spec first and then writes the session bodies in parallel at a higher token cost. If the script is missing or `build` keeps failing, Claude writes the files from the per-template steps.
 
 > **What's a sprint?** A group of related work sessions. If your feature is small, one sprint with one session is enough. Bigger features might need multiple sprints.
 
@@ -606,7 +606,7 @@ planwise is built entirely on markdown files and Python scripts — no databases
 
 ### Custom agents
 
-planwise uses thirteen specialized AI agents behind the scenes:
+planwise uses fourteen specialized AI agents behind the scenes:
 
 | Agent | What it does |
 |-------|-------------|
@@ -620,6 +620,7 @@ planwise uses thirteen specialized AI agents behind the scenes:
 | **backlog-planner** | Designs the solution for one backlog item: approach, numbered steps, verification, or the questions only the user can answer; never authors a session plan |
 | **backlog-author** | Files or rewrites backlog items from the planner's designs, writes the executable sections and the `refined` flag, and regenerates the index |
 | **plan-author** | Writes one plan session's bodies file from the metadata spec, the `plan_build.py keys` output and the plan-notes state file when plan authoring is delegated, then lints it; stops with the open questions when any remain |
+| **plan-preflight** | Checks the metadata spec, the bodies folder, the plan bodies file and the notes file before the plan-bodies workflow starts any author, and reports the loaded plugin's root; writes nothing |
 | **ei-extractor** | Extracts one sprint's Execution Input and its Deferred / Out-of-Scope Log from the Meta-plan's discovery sources when `/planwise plan --scaffold` fans out, copying content verbatim and reporting measured retention |
 | **sprint-scaffolder** | Fills one sprint's rendered plan files (Sprint Plan, Orchestration and Recovery files, task files, Sprint Signoff) from the metadata spec and the sprint's Execution Input; returns BLOCKED on a missing input and never executes the plan |
 | **scaffold-harmonizer** | Runs once after every sprint is filled, restores template wording for each deviation the gate reports until it reports zero, and reports everything else to the caller |

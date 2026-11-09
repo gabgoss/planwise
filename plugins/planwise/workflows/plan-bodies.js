@@ -1,12 +1,23 @@
 export const meta = {
   name: 'plan-bodies',
   description: 'Author, review and fix the bodies files of every listed plan session, linting each session with plan_build.py lint --session. Never builds the plan.',
-  phases: ['Read', 'Author', 'Review', 'Apply'],
+  phases: [
+    { title: 'Preflight', detail: 'one agent checks the spec and the inputs, and reports the plugin root' },
+    { title: 'Read', detail: 'one reader per Required Context cluster' },
+    { title: 'Author', detail: 'one author per session, at the same time' },
+    { title: 'Review', detail: 'one reviewer per authored session' },
+    { title: 'Apply', detail: 'one fixer per session with findings' },
+  ],
 }
 
 // Runtime contract this script keeps:
 // - Plain JavaScript with top-level await. No module loading, no clock, no random source.
 // - The script touches no file and runs no command. Every read, write and lint is an agent's job.
+// - The caller passes no plugin path. The preflight agent runs as the plugin's own agent type,
+//   whose definition carries the loaded plugin's root, and returns that root. Every later
+//   command is built from it, so the commands always name the plugin that is loaded.
+// - A refused spec or a missing input returns from the preflight stage. No author starts,
+//   and the result names every cause the stage found. The preflight agent writes nothing.
 // - No agent can wait on a user answer. A choice that belongs to the user comes back
 //   in the result as an open question, and the caller asks it after the run. A cause
 //   the caller can fix itself comes back as a caller action, never as a question.
@@ -16,15 +27,29 @@ export const meta = {
 // - The workflow runs only the per-session lint. The whole-plan lint and the build
 //   belong to the caller, because the per-session lint prints no plan summary line.
 
-const REQUIRED_ARGS = ['plugin_root', 'planwise_root', 'plan_name', 'abbrev', 'spec_path', 'notes_path', 'timestamp']
+const REQUIRED_ARGS = ['planwise_root', 'plan_name', 'abbrev', 'spec_path', 'notes_path', 'timestamp']
 
 function trimSlash(p) {
   return String(p).replace(/[\\/]+$/, '')
 }
 
+// A caller that reaches the workflow through its slash name passes args as a JSON string,
+// sometimes encoded twice. Parse up to two layers before the checks.
+function readArgs(raw) {
+  let value = raw
+  for (let i = 0; i < 2 && typeof value === 'string'; i++) {
+    try {
+      value = JSON.parse(value)
+    } catch (e) {
+      return raw
+    }
+  }
+  return value
+}
+
 function checkArgs(a) {
-  if (a === undefined || a === null || typeof a !== 'object') {
-    return ['args is missing: pass an object with the required fields plugin_root, planwise_root, plan_name, abbrev, spec_path, notes_path, timestamp and sessions, and the optional fields bodies_dir and clusters']
+  if (a === undefined || a === null || typeof a !== 'object' || Array.isArray(a)) {
+    return ['args is missing or is not an object: pass a JSON object with the required fields planwise_root, plan_name, abbrev, spec_path, notes_path, timestamp and sessions, and the optional fields bodies_dir and clusters']
   }
   const problems = []
   for (const key of REQUIRED_ARGS) {
@@ -41,25 +66,135 @@ function checkArgs(a) {
   return problems
 }
 
-const argProblems = checkArgs(args)
+const input = readArgs(args)
+const argProblems = checkArgs(input)
 if (argProblems.length > 0) {
   return { error: 'invalid args', problems: argProblems, sessions: [], clean_sessions: [], open_questions: [], caller_actions: [], issues: [] }
 }
 
-const pluginRoot = trimSlash(args.plugin_root)
-const planwiseRoot = trimSlash(args.planwise_root)
-const bodiesDir = trimSlash(args.bodies_dir || (planwiseRoot + '/plan-build/' + args.plan_name))
-const planBodiesPath = bodiesDir + '/' + args.abbrev + '-bodies-plan.md'
-const specPath = args.spec_path
-const notesPath = args.notes_path
-const clusters = Array.isArray(args.clusters) ? args.clusters : []
+const planwiseRoot = trimSlash(input.planwise_root)
+const bodiesDir = trimSlash(input.bodies_dir || (planwiseRoot + '/plan-build/' + input.plan_name))
+const planBodiesPath = bodiesDir + '/' + input.abbrev + '-bodies-plan.md'
+const specPath = input.spec_path
+const notesPath = input.notes_path
+const clusters = Array.isArray(input.clusters) ? input.clusters : []
+
+function bodiesPath(session) {
+  return bodiesDir + '/' + input.abbrev + '-bodies-' + session + '.md'
+}
+
+function asList(v) {
+  return Array.isArray(v) ? v : []
+}
+
+// Every cause the preflight stage found comes back in one result, so the caller fixes
+// them all before the next run. Each cause is { reason, action }.
+function blockedEarly(causes, extra) {
+  const actions = causes.map(c => c.action)
+  const sessions = input.sessions.map(session => ({
+    session, status: 'BLOCKED', stage: 'preflight', reason: causes[0].reason, bodies_paths: [], keys_missing: null, errors: null,
+    findings: 0, applied: 0, declined: [], open_questions: [], caller_actions: actions, issues: [],
+  }))
+  return Object.assign({
+    sessions,
+    clean_sessions: [],
+    open_questions: [],
+    caller_actions: actions.map(action => ({ session: input.sessions[0], action })),
+    issues: [],
+    bodies_dir: bodiesDir,
+    reader_facts: 0,
+    readers_skipped: 0,
+    agents_started_after_preflight: 0,
+    next: 'The caller fixes each cause named in caller_actions, then launches a new run. A resume replays this result.',
+  }, extra || {})
+}
+
+// ---- Stage 0: Preflight. One agent, as the plugin's own agent type. It reports the loaded
+// plugin's root, runs the free spec check, and checks the inputs every author needs.
+// It writes nothing.
+
+const preflightSchema = {
+  type: 'object',
+  required: ['plugin_root', 'spec_refused', 'spec_lint_lines', 'bodies_dir_exists', 'plan_bodies_exists', 'notes_exists', 'open_questions_none', 'progress_section_exists'],
+  properties: {
+    plugin_root: { type: 'string' },
+    spec_refused: { type: 'boolean' },
+    spec_lint_lines: { type: 'array', items: { type: 'string' } },
+    spec_summary_line: { type: 'string' },
+    spec_exit: { type: ['integer', 'null'] },
+    bodies_dir_exists: { type: 'boolean' },
+    plan_bodies_exists: { type: 'boolean' },
+    notes_exists: { type: 'boolean' },
+    open_questions_none: { type: 'boolean' },
+    progress_section_exists: { type: 'boolean' },
+    problems: { type: 'array', items: { type: 'string' } },
+  },
+}
+
+const preflight = await agent(
+  [
+    'Preflight for a plan-bodies run. Report facts only. Write no file and author nothing.',
+    'Your instructions hold a line that starts "Plugin root:". Use that path wherever a command or path below shows <plugin root>. Return it in plugin_root, copied exactly.',
+    'Inputs:',
+    '  metadata spec: ' + specPath,
+    '  bodies folder: ' + bodiesDir,
+    '  plan bodies file: ' + planBodiesPath,
+    '  notes file: ' + notesPath,
+    '  sessions: ' + input.sessions.join(', '),
+    'Check 1, the spec. Run exactly, as one command with nothing chained after it: python -B "<plugin root>/scripts/plan_build.py" keys --spec "' + specPath + '". Return each output line that starts LINT: or REFUSED: in spec_lint_lines. Set spec_refused to true when a line starts REFUSED:, and to false otherwise. Return the last output line that starts fill_markers= in spec_summary_line, or an empty string when none printed. Return the exit code in spec_exit when the tool shows one, and null otherwise. Copy no other output.',
+    'Check 2, the bodies folder. Return whether it exists.',
+    'Check 3, the plan bodies file. Return whether it exists.',
+    'Check 4, the notes file. Return whether it exists, whether the body of its "## Open Questions" section is exactly none, and whether it has a "## Authoring Progress" section.',
+    'Put anything else the caller must know in problems, one sentence each.',
+  ].join('\n'),
+  { label: 'preflight', phase: 'Preflight', agentType: 'planwise:plan-preflight', effort: 'low', schema: preflightSchema },
+)
+
+if (!preflight) {
+  return { error: 'preflight agent stopped', problems: ['the preflight agent returned no result, so no author started'], sessions: [], clean_sessions: [], open_questions: [], caller_actions: [], issues: [] }
+}
+
+const pluginRoot = trimSlash(preflight.plugin_root || '')
+if (pluginRoot.length === 0 || pluginRoot.indexOf('${') !== -1) {
+  return { error: 'plugin root not resolved', problems: ['the preflight agent reported the plugin root as ' + JSON.stringify(preflight.plugin_root)], preflight, sessions: [], clean_sessions: [], open_questions: [], caller_actions: [], issues: [] }
+}
+
+// The spec check. A REFUSED: line is the refusal. The fill_markers= line, or exit code 0,
+// is the proof that the check ran to its end. Neither signal means the check did not run,
+// and that is a cause too: an author would hit the same failure after spending tokens.
+const specLines = asList(preflight.spec_lint_lines).filter(l => typeof l === 'string')
+const specRefused = preflight.spec_refused === true || specLines.some(l => l.trim().indexOf('REFUSED:') === 0)
+const specExit = Number.isInteger(preflight.spec_exit) ? preflight.spec_exit : null
+const specRan = /^fill_markers=\d+ docs=\d+/.test(String(preflight.spec_summary_line || '').trim()) || specExit === 0
+const specCommand = 'python -B "' + pluginRoot + '/scripts/plan_build.py" keys --spec "' + specPath + '"'
+
+const causes = []
+if (specRefused) {
+  causes.push({ reason: 'spec refused', action: 'The metadata spec ' + specPath + ' fails the spec check: ' + specLines.join(' | ') + ' Fix the spec, then launch a new run.' })
+} else if (!specRan || (specExit !== null && specExit !== 0)) {
+  causes.push({ reason: 'spec check did not run', action: 'The spec check gave no proof that it ran to its end: it printed no REFUSED: line, and its fill_markers= line or a zero exit code is missing (exit code ' + (specExit === null ? 'not reported' : specExit) + '). Run ' + specCommand + ' yourself, fix what it reports, then launch a new run.' })
+}
+if (!preflight.notes_exists) {
+  causes.push({ reason: 'notes file missing', action: 'The notes file ' + notesPath + ' does not exist. Write it from templates/plan-notes.md, then launch a new run.' })
+} else {
+  if (!preflight.open_questions_none) {
+    causes.push({ reason: 'open questions', action: 'The notes file ' + notesPath + ' has open questions. Ask the user, write each answer under Decisions, reset Open Questions to none, then launch a new run.' })
+  }
+  if (!preflight.progress_section_exists) {
+    causes.push({ reason: 'progress section missing', action: 'The notes file ' + notesPath + ' has no "## Authoring Progress" section. Add it from templates/plan-notes.md with one row per session reading pending, then launch a new run.' })
+  }
+}
+if (!preflight.bodies_dir_exists) {
+  causes.push({ reason: 'bodies folder missing', action: 'The bodies folder ' + bodiesDir + ' does not exist. Create it and write the plan bodies file ' + planBodiesPath + ' in it, then launch a new run.' })
+} else if (!preflight.plan_bodies_exists) {
+  causes.push({ reason: 'plan bodies file missing', action: 'The plan bodies file ' + planBodiesPath + ' does not exist. Write the MASTER and sprint bodies in it, then launch a new run.' })
+}
+if (causes.length > 0) {
+  return blockedEarly(causes, { preflight, plugin_root: pluginRoot })
+}
 
 function lintCommand(session) {
   return 'python -B "' + pluginRoot + '/scripts/plan_build.py" lint --spec "' + specPath + '" --bodies-dir "' + bodiesDir + '" --session ' + session
-}
-
-function bodiesPath(session) {
-  return bodiesDir + '/' + args.abbrev + '-bodies-' + session + '.md'
 }
 
 // The bodies grammar, restated in every author and apply prompt. Source: the module
@@ -113,7 +248,7 @@ const readerResults = await pipeline(clusters, cluster => {
       'Report only what the files state. Report a measured size only when you ran the plugin measuring script: python "' + pluginRoot + '/scripts/measure_files.py" <files>.',
       NO_QUESTIONS.replace(' with status BLOCKED', ''),
     ].join('\n'),
-    { label: 'read ' + name, schema: factSchema },
+    { label: 'read ' + name, phase: 'Read', schema: factSchema },
   )
 })
 
@@ -182,10 +317,12 @@ const applySchema = {
 }
 
 // Causes the caller fixes itself. They go into caller_actions and never reach the user.
+// The preflight stage already proved the spec, the bodies folder, the plan bodies file
+// and the notes file, so none of those is a caller action here.
 const CALLER_ACTIONS = [
   'Put each of these causes into caller_actions, never into open_questions, and return BLOCKED:',
   '  - a needed section has no Plan-Specific Sections heading in keys: name the section and the doc, so the caller adds "Plan-Specific Sections" to that doc\'s optional_sections;',
-  '  - an input is missing, or the lint prints a REFUSED: line: name the path or the input;',
+  '  - an input went missing during the run, or the lint prints a REFUSED: line: name the path or the input;',
   '  - a cited heading or symbol still does not resolve after one Grep: name it, so the caller corrects the spec or the Execution Input.',
   'open_questions holds only a choice that belongs to the user: scope, an architectural option or a documented invariant.',
 ].join('\n')
@@ -201,7 +338,7 @@ function authorPrompt(session) {
     '  notes file: ' + notesPath,
     '  plan bodies file (context only, never write it): ' + planBodiesPath,
     '  session id: ' + session,
-    '  notes timestamp: ' + args.timestamp,
+    '  notes timestamp: ' + input.timestamp,
     'Get the keys with: python -B "' + pluginRoot + '/scripts/plan_build.py" keys --spec "' + specPath + '". Read only the doc blocks whose id starts ' + session + '-.',
     'Write the whole session into ' + bodiesPath(session) + ' in one Write. Overflow goes to -part2, -part3 files holding whole document blocks.',
     'Return bodies_paths as absolute paths: the main bodies file first, then every -part{n} file you wrote, in order.',
@@ -248,23 +385,19 @@ function applyPrompt(session, paths, findings) {
     '  ' + lintCommand(session),
     LINT_LINE,
     'If the lint shows an error your rewrite caused, rewrite the file whole and lint again.',
-    'After the last lint, read the notes file ' + notesPath + ' again immediately before one Edit. In that Edit, update only the Authoring Progress row keyed ' + args.abbrev + '-' + session + ': the bodies files, the final keys_missing and errors, and complete when both are 0, otherwise partial. Touch nothing else in the notes file.',
+    'After the last lint, read the notes file ' + notesPath + ' again immediately before one Edit. In that Edit, update only the Authoring Progress row keyed ' + input.abbrev + '-' + session + ': the bodies files, the final keys_missing and errors, and complete when both are 0, otherwise partial. Touch nothing else in the notes file.',
     'Write only this session\'s bodies files and that one notes row. Never run build. ' + NO_QUESTIONS,
     CALLER_ACTIONS,
     'Return keys_missing and errors from the last session= line, or null when none printed, and the number of findings applied. Put each LINT: line still open in issues.',
   ].join('\n')
 }
 
-function asList(v) {
-  return Array.isArray(v) ? v : []
-}
-
 function stopped(session, stage) {
   return { session, status: 'PARTIAL', reason: 'agent stopped', stage, bodies_paths: [bodiesPath(session)], keys_missing: null, errors: null, findings: 0, applied: 0, declined: [], open_questions: [], caller_actions: [], issues: [] }
 }
 
-const sessionResults = await pipeline(args.sessions, async session => {
-  const author = await agent(authorPrompt(session), { label: 'author ' + session, schema: authorSchema })
+const sessionResults = await pipeline(input.sessions, async session => {
+  const author = await agent(authorPrompt(session), { label: 'author ' + session, phase: 'Author', schema: authorSchema })
   if (!author) return stopped(session, 'author')
   const paths = asList(author.bodies_paths).filter(p => typeof p === 'string' && p.length > 0)
   const base = {
@@ -283,7 +416,7 @@ const sessionResults = await pipeline(args.sessions, async session => {
     return Object.assign(base, { status: author.status, stage: 'author' })
   }
 
-  const review = await agent(reviewPrompt(session, base.bodies_paths), { label: 'review ' + session, schema: reviewSchema })
+  const review = await agent(reviewPrompt(session, base.bodies_paths), { label: 'review ' + session, phase: 'Review', schema: reviewSchema })
   if (!review) return Object.assign(base, { status: 'PARTIAL', reason: 'agent stopped', stage: 'review' })
   const findings = asList(review.findings)
   base.findings = findings.length
@@ -291,7 +424,7 @@ const sessionResults = await pipeline(args.sessions, async session => {
     return Object.assign(base, { status: 'COMPLETE', stage: 'review' })
   }
 
-  const applied = await agent(applyPrompt(session, base.bodies_paths, findings), { label: 'apply ' + session, schema: applySchema })
+  const applied = await agent(applyPrompt(session, base.bodies_paths, findings), { label: 'apply ' + session, phase: 'Apply', schema: applySchema })
   if (!applied) {
     return Object.assign(base, { status: 'PARTIAL', reason: 'agent stopped', stage: 'apply', keys_missing: null, errors: null })
   }
@@ -324,7 +457,7 @@ function settle(s) {
   return Object.assign(s, { status: 'PARTIAL', reason: 'unknown status ' + JSON.stringify(s.status) })
 }
 
-const sessions = sessionResults.map((r, i) => settle(r || stopped(args.sessions[i], 'author')))
+const sessions = sessionResults.map((r, i) => settle(r || stopped(input.sessions[i], 'author')))
 const cleanSessions = sessions.filter(s => s.status === 'COMPLETE').map(s => s.session)
 const openQuestions = []
 const callerActions = []
@@ -342,7 +475,9 @@ return {
   caller_actions: callerActions,
   issues,
   bodies_dir: bodiesDir,
+  plugin_root: pluginRoot,
+  preflight,
   reader_facts: facts.length,
   readers_skipped: readersSkipped,
-  next: 'The caller routes each caller action, asks each open question, re-dispatches every session not in clean_sessions, writes the Plan Boundary Note, then runs the whole-plan lint and build.',
+  next: 'The caller routes each caller action, asks each open question, launches a new run for every session not in clean_sessions, writes the Plan Boundary Note, then runs the whole-plan lint and build.',
 }

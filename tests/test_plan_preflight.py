@@ -232,8 +232,9 @@ def test_card_delegated_next_follows_the_delegated_loop(project):
     assert "do not Read a template other than templates/plan-notes.md" in lines
     assert "do not Write a task file; write bodies" in lines
     workflow = [ln for ln in lines if ln.startswith("when the Workflow tool is listed")]
-    assert len(workflow) == 1 and "/planwise:plan-bodies" in workflow[0]
-    assert "run the /planwise:plan-bodies workflow through the Workflow tool" in workflow[0]
+    assert len(workflow) == 1
+    assert "call the Workflow tool with name planwise:plan-bodies (a workflow, not a skill)" in workflow[0]
+    assert "/planwise:plan-bodies" not in workflow[0]  # the slash form sends a caller to the Skill tool
 
 
 def test_card_absent_index_prints_a_distinct_unavailable_value(project):
