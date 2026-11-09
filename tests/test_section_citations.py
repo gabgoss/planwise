@@ -61,14 +61,8 @@ LEDGERED_PLUGIN = (
     ("references/dispatch-edit-surface-sweep.md", 152, "§4.B"),  # EXAMPLE: quoted citation in a callout table
     ("references/ei-citation-and-token-reconciliation.md", 2, "§5"),  # HISTORY: frontmatter provenance
     ("references/ei-citation-and-token-reconciliation.md", 2, "§8"),  # HISTORY: frontmatter provenance
-    ("references/ei-citation-and-token-reconciliation.md", 305, "§10"),  # EXAMPLE: template text naming a design output's section
+    ("references/ei-citation-and-token-reconciliation.md", 185, "§10"),  # EXAMPLE: template text naming a design output's section
     ("references/ei-completeness.md", 2, "§9"),  # HISTORY: frontmatter provenance
-    ("references/ei-completeness.md", 180, "§5"),  # EXAMPLE: prose about an example input's sections
-    ("references/ei-completeness.md", 180, "§1"),  # EXAMPLE: prose about an example input's sections
-    ("references/ei-completeness.md", 180, "§2"),  # EXAMPLE: prose about an example input's sections
-    ("references/ei-completeness.md", 192, "§5"),  # EXAMPLE: prose about an example input's sections
-    ("references/ei-completeness.md", 192, "§1"),  # EXAMPLE: prose about an example input's sections
-    ("references/ei-completeness.md", 192, "§4"),  # EXAMPLE: prose about an example input's sections
     ("references/ei-fidelity.md", 2, "§5"),  # HISTORY: records sections that left the file
     ("references/ei-fidelity.md", 2, "§11"),  # HISTORY: records sections that left the file
     ("references/ei-fidelity.md", 25, "§9.1"),  # EXAMPLE: example citation forms

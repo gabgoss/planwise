@@ -26,10 +26,10 @@ consult-when: Checking EI fidelity across scaffolding tiers — source preservat
 
 | Segment | §-Range | Content | File |
 |---------|---------|---------|------|
-| A | §1-§4 | EI-as-archival, severity vocabulary preservation, threshold alignment (+3.1 retention-band calibration), UNCONFIRMED four-site enforcement | `ei-fidelity.md` (this file) |
-| B | §5-§8 (+8.1, 8.2) | Cross-tier duplicate preservation, citation propagation to implementation, §-citation discipline, token reconciliation gate | [ei-citation-and-token-reconciliation.md](ei-citation-and-token-reconciliation.md) |
+| A | §1-§4 (+3.1, 4.5, 4.6) | EI-as-archival, severity vocabulary preservation, threshold alignment (+3.1 retention-band calibration), UNCONFIRMED four-site enforcement, hedge preservation, executable-check execution | `ei-fidelity.md` (this file) |
+| B | §5-§8 (+7.1, 8.1-8.3) | Cross-tier duplicate preservation, citation propagation to implementation, §-citation discipline, token reconciliation gate, size-band derivation | [ei-citation-and-token-reconciliation.md](ei-citation-and-token-reconciliation.md) |
 | C | §9 (+9.1-9.3) | EI completeness — three-axis scope coverage | [ei-completeness.md](ei-completeness.md) |
-| D | §10-§11 (+10.1-10.4) | Source-promise integrity (body⇄citation presence, pre-extraction verification, fallback hierarchy), verbatim-block behavioral freshness | [ei-source-promise-integrity.md](ei-source-promise-integrity.md) |
+| D | §10-§12 (+10.1-10.4) | Source-promise integrity (body⇄citation presence, pre-extraction verification, fallback hierarchy, cited-authority currency), verbatim-block behavioral freshness, quoting a design pin with its fallback | [ei-source-promise-integrity.md](ei-source-promise-integrity.md) |
 
 ---
 
@@ -51,24 +51,19 @@ consult-when: Checking EI fidelity across scaffolding tiers — source preservat
 > 4. **Sprint Plan / Master Plan layer:** list the transform in success criteria
 >    to propagate enforcement upward.
 >
-> WRONG — EI rewrites source naming to match final target. Audit trail lost —
-> when a reviewer compares the EI to source, both files agree but neither
-> matches the original research vocabulary.
->
-> WRONG — task file silently renames without citing the design decision. Future
-> maintainer cannot tell whether the rename was a mistake or an intentional
-> transform.
+> WRONG — the EI rewrites source naming to match the final target, or a task file
+> renames silently without citing the design decision. The first loses the audit
+> trail: when a reviewer compares the EI to source, both files agree but neither
+> matches the original research vocabulary. The second loses traceability: a
+> future maintainer cannot tell whether the rename was a mistake or an
+> intentional transform.
 >
 > CORRECT — EI keeps source-as-extracted; task file declares the transform with
 > a verifiable success criterion; Orchestration carries the transform note. The
 > EI remains archival, the transform is auditable, and the final artifact is
 > correct.
 
-Red flags during fidelity review:
-
-- EI rewrites source naming to match the final target (audit trail lost)
-- Task file silently renames without citing a design decision (traceability lost)
-- Design decision documented in only one layer (no redundant enforcement)
+A design decision documented in only one layer is a red flag: it has no redundant enforcement.
 
 ---
 
@@ -92,16 +87,10 @@ How to apply:
 
 1. In the EI's Open Questions section and any severity-tagged tables, quote the source tag verbatim.
 2. In the EI's header (or a glossary subsection), provide a source-vocabulary-to-project-vocabulary mapping table.
-3. In task-file templates, phrase fidelity checkpoints as "preserve source severity tag" rather than "find a `{specific tag}` tag." Allow for the possibility that the source uses a different scale.
+3. In task-file templates, phrase fidelity checkpoints as "preserve source severity tag" or "most-severe tag in source", rather than "find a `{specific tag}` tag." Allow for the possibility that the source uses a different scale.
 4. Flag severity-vocabulary mismatches during the inventory task so downstream tasks know to preserve source terms.
 
-Template phrasing for fidelity checkpoints: "most-severe tag in source" rather than a vocabulary mandate.
-
-Red flags:
-
-- EI uses canonical tags for items that source files tagged differently
-- EI Open Questions section has tags not traceable to source files
-- Template fidelity checks mandate a vocabulary without checking if source uses it
+**Script:** `scripts/lint_execution_input.py` rule `severity-vocabulary` runs this check. It cannot see a tag written without brackets, and it still counts a tag inside a code fence.
 
 #### Reviewer Check 001 — EI Severity Tag Catalog Present
 
@@ -149,11 +138,9 @@ Structural fix for future templates:
 - State fidelity checkpoints in terms of substance (spot-check items, compression signals) rather than line-count ratios
 - Reserve hard numbers for true auto-reject cases
 
-Red flags during template authoring:
+Two different retention percentages in the same task file are a red flag during template authoring.
 
-- Two different retention percentages in the same task file
-- Threshold in task file does not match threshold in Sprint Plan
-- "Floor" defined without pointing to the source that sets it
+**Script:** `scripts/lint_execution_input_plan.py` rule `threshold-alignment`, registered through `scripts/lint_execution_input.py`, runs this check. It cannot see a percentage threshold, a figure that names no session, or a session the Sessions table does not list.
 
 #### Reviewer Check 002 — EI Threshold Alignment With Operational Dispatch Contracts
 
@@ -173,16 +160,26 @@ Fix: Reconcile per references/ei-fidelity.md §3 | Confidence: HIGH
 ### 3.1 Algorithm-Sprint Retention-Band Calibration
 
 > [!constraint] Algorithm-sprint EIs are calibrated against an algorithm-specific retention band; retention >100% MUST be checked against the legitimate-driver checklist BEFORE it is flagged as bloat
-> Retention (output line count ÷ source line count) is the cross-tier fidelity
-> signal for an Execution Input. The default 80–120% band is sprint-type-agnostic.
+> Retention is EI tokens ÷ source tokens, measured over the whole EI. It is the
+> cross-tier fidelity signal for an Execution Input. The generic 80–120% band is
+> sprint-type-agnostic:
+>
+> | Retention (tokens, whole EI) | Verdict |
+> |------------------------------|---------|
+> | below 0.80 | BLOCKER — investigate as a GAP; content likely lost |
+> | 0.80 to below 0.95 | WARNING |
+> | 0.95 or more | PASS unless other signals fire |
+> | above 1.20 | ADVISORY — likely bloat or duplicated source; investigate |
+>
 > Algorithm sprints legitimately exceed 100% retention: preserved formula notes,
 > pseudocode, and cross-tier duplicate annotations all add lines without adding
-> drift. Applying the generic band to an algorithm-sprint EI auto-rejects
+> drift. Applying the generic band alone to an algorithm-sprint EI auto-rejects
 > fidelity-correct work.
 >
 > When a fidelity-review task computes retention >100% for an algorithm sprint,
 > it MUST first check the legitimate-driver checklist; bloat is flagged only
-> after a non-legitimate driver surfaces.
+> after a non-legitimate driver surfaces. From 115% to 120% is a border zone:
+> the EI preamble states an explicit justification.
 >
 > Legitimate-driver checklist:
 >
@@ -195,16 +192,6 @@ Fix: Reconcile per references/ei-fidelity.md §3 | Confidence: HIGH
 > | Restated count claims (numerical exemplars cited multiple times) | YES | YES — preserves verification anchors |
 > | Reworded verbatim source | YES | NO — counts as drift, not legitimate retention |
 >
-> Band interpretation:
->
-> | Retention | Action |
-> |-----------|--------|
-> | < 80% | Investigate as GAP — content likely lost |
-> | 80–100% | Standard band; PASS unless other signals fire |
-> | 100–115% | Algorithm-sprint normal; check the legitimate-driver checklist before flagging |
-> | 115–120% | Border zone; require explicit justification in the EI preamble |
-> | > 120% | Likely bloat or duplicated source; investigate |
->
 > Sprint-type calibration:
 >
 > | Sprint type | Expected retention band |
@@ -215,7 +202,7 @@ Fix: Reconcile per references/ei-fidelity.md §3 | Confidence: HIGH
 > | Pure discovery | 70–95% (Discovery → EI compresses) |
 >
 > WRONG — a fidelity-review task computes 112% retention for an algorithm-sprint
-> EI and flags it as bloat against the generic band, without checking what drove
+> EI and flags it as bloat because it sits above 100%, without checking what drove
 > the extra lines. Those lines are preserved pseudocode and duplicate formula
 > tables; the flag auto-rejects fidelity-correct work and burns a remediation
 > cycle.
@@ -226,7 +213,7 @@ Fix: Reconcile per references/ei-fidelity.md §3 | Confidence: HIGH
 > duplicate formula tables are legitimate drivers → PASS. Only a non-legitimate
 > driver (reworded verbatim source) converts the result to a bloat finding.
 
-Apply order: when a fidelity-review task computes retention >100% for an algorithm sprint, FIRST check the legitimate-driver checklist; flag bloat only after a non-legitimate category surfaces.
+**Script:** `scripts/lint_execution_input.py` rule `retention-band-class` runs this check. It cannot see a band declared below Part 1's first `##` heading or in another Part, or an Objective that names the work with other words, and "model" also matches unrelated uses. Rule `retention-threshold` in the same script reads the Part 1 `Retention:` figure against this section's token bands. It does not recompute the figure, so it cannot see whether the figure is tokens over the whole EI.
 
 #### Reviewer Check 003 — EI Algorithm-Sprint Retention Band Calibration
 
@@ -285,17 +272,15 @@ How to apply during scaffolding:
 - The design task should route each caveated item to a specific session/task so the Orchestration / task-file authors can add the success criterion
 - The fidelity-review task should spot-check one UNCONFIRMED item and verify the four-site coverage
 
-Red flags during review:
+A source file that says "unverified" while the EI shows the field as normal is a red flag during review: the verification status was dropped.
 
-- UNCONFIRMED item appears only in the EI's primary section (Data Quality Caveats subsection missing the entry)
-- Source file says "unverified" but EI shows the field as normal (verification status dropped)
-- Design document lists the table/field but no session/task is tagged as enforcing the exclusion
+**Script:** `scripts/lint_execution_input.py` rule `four-site-caveat` runs this check over the four §4 sites. It reads a marker inside a code span or fence, or one followed by a word such as "caveat" or "claim", as a mention. It cannot see a site that names the item in other words, or whether an Orchestration criterion really enforces the exclusion.
 
 #### Reviewer Check 004 — EI UNCONFIRMED Four-Site Enforcement
 
 - **Severity / Role / Type:** BLOCKER | EI Reviewer | NEW
-- **What:** Every UNCONFIRMED claim MUST appear at all four sites: (a) EI header note, (b) inline `> [!constraint]` callout (NOT `> [!practice]`), (c) Cross-References annotation column, (d) Exit-Criteria caveat.
-- **Detection:** Grep EI for `UNCONFIRMED`. For each occurrence, verify presence at all four sites. If `> [!practice]` callout used → BLOCKER. If missing from any site → BLOCKER.
+- **What:** Every UNCONFIRMED claim MUST appear at all four §4 sites: (a) the EI primary section where the item first appears, (b) the EI Data Quality Caveats subsection, (c) a Session Orchestration success criterion, (d) a task file's Required Context or Success Criteria. The callout that carries it is `> [!constraint]` (NOT `> [!practice]`).
+- **Detection:** Grep EI for `UNCONFIRMED`. For each occurrence, verify presence at all four sites: the EI primary section, the EI Data Quality Caveats subsection, an Orchestration success criterion, and a task file's Required Context or Success Criteria. If `> [!practice]` callout used → BLOCKER. If missing from any site → BLOCKER.
 - **Finding template:**
 ```
 [BLOCKER] UNCONFIRMED claim missing four-site enforcement
@@ -333,16 +318,9 @@ Fix: Replicate per references/ei-fidelity.md §4 | Confidence: HIGH
 > EI row (hedge resolved): "The citations map to §1.2/§1.3 (confirmed by {measurement}, {date}; source's original 'most likely' hedge is now resolved)."
 > ```
 
-How to apply during compression:
+A word like "reconfirmed" that survives compression while nothing records what re-confirmation actually checked, or when, is a red flag during review.
 
-- Grep the source passage for hedge markers before drafting the compressed row: "most likely", "probably", "appears to", "pending", "preliminary", "tentative", "subject to", "except", "reconfirmed".
-- If a hedge marker is present and the compressed row states the claim as flat fact with no hedge and no cited resolution, that is the defect this subsection names.
-- A hedge that has been resolved needs the resolution's evidence cited inline (what was measured, when) — not just the hedge word deleted.
-
-Red flags during review:
-
-- A compressed row states a claim as settled fact when the source sentence carried a hedge word.
-- A word like "reconfirmed" survives compression but nothing records what re-confirmation actually checked or when.
+**Script:** `scripts/lint_execution_input.py` rule `hedge-preservation` prints candidates for this check. It is advisory and never changes the exit code. It cannot see a paraphrase sharing under 60 % of the content words, a source absent from the plan root, or a resolution cited without a date or the word "measured".
 
 #### Reviewer Check 080 — Hedge Preservation Through Compression
 
@@ -388,17 +366,6 @@ Fix: Restore the hedge or cite the resolving measurement, per references/ei-fide
 > SELECT COUNT(*) FROM {view} WHERE ISNULL(CAST(a AS INT), -1) <> ISNULL(CAST(b AS INT), -1);
 > ```
 
-How to apply during scaffolding:
-
-- List every executable snippet in the EI that a task or a signoff quotes. Run each one, or mark it UNVERIFIED with the name of the task that deploys its object.
-- Read the stamp as the evidence. A stamp whose value came from a retry with a changed query is not a stamp for the original text.
-
-Red flags during review:
-
-- A query, command or assertion in the EI carries no `Executed` stamp and no UNVERIFIED mark.
-- An UNVERIFIED check names no deploying task, or the deploying task never runs it.
-- The recorded value is 0 and the check raised on its first run.
-
 #### Reviewer Check 117 — Executable EI Check Never Executed
 
 - **Severity / Role / Type:** ERROR | EI Reviewer | NEW
@@ -415,5 +382,3 @@ Fix: Execute the check once, stamp the result or mark it UNVERIFIED with its dep
 ---
 
 *Cross-references: [session-planning-protocol.md](session-planning-protocol.md) (plan hierarchy and naming), [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) (Required Context and task-file structure), [verify-before-cite.md](verify-before-cite.md) (§9.B verify-before-cite), [task-content-fidelity.md](task-content-fidelity.md) (§9.A Required Context fidelity), [scaffolding-hygiene.md](scaffolding-hygiene.md) §11 (mega-scaffold review-gate — the scaffold-time enforcement that prevents [destructive-change-requirements.md](destructive-change-requirements.md) §10.1 promises from being silently introduced).*
-
-**Companion files (this split, 2026-08-10):** [ei-citation-and-token-reconciliation.md](ei-citation-and-token-reconciliation.md) (§5-§8, cross-tier citation propagation and token reconciliation), [ei-completeness.md](ei-completeness.md) (§9, three-axis scope coverage), [ei-source-promise-integrity.md](ei-source-promise-integrity.md) (§10-§11, source-promise integrity and verbatim-block freshness).
