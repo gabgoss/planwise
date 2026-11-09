@@ -98,6 +98,7 @@ def index_shapes(config: dict) -> dict[str, str]:
 def index_abbreviations(config: dict, plans_shape: str) -> set[str]:
     """The Abbrev cells of a generated plans index. Raises `Unavailable` with the reason otherwise."""
     from generate_plans_index import TABLE_HEADER
+    from markdown_parser import split_row_cells
 
     if plans_shape != "generated":
         raise Unavailable(f"{plans_shape} index")
@@ -108,7 +109,8 @@ def index_abbreviations(config: dict, plans_shape: str) -> set[str]:
     for line in lines[lines.index(TABLE_HEADER) + 2:]:  # the header, then the separator row
         if not line.startswith("|"):
             break
-        cell = line.strip().strip("|").split("|")[0].strip()
+        cells = split_row_cells(line)
+        cell = cells[0] if cells else ""
         if cell:
             found.add(cell)
     return found

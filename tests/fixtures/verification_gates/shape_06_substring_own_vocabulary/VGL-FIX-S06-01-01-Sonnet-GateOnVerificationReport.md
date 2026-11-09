@@ -16,7 +16,7 @@ downstream chain on the report showing no failed criterion.
 ## Execution Steps
 
 1. Fill `templates/verification-report.md` into `Outputs/VGL-FIX-S06-VerificationReport.md`.
-2. Re-measure every criterion and record its verdict in the status cell.
+2. Measure every criterion and record its verdict in the status cell.
 
 ---
 
