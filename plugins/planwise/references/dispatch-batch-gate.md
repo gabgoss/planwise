@@ -25,13 +25,22 @@ Three neighbouring rules own machinery this file builds on and does not restate.
 > [!protocol] A named stage between per-task acceptance and consolidation
 > The three checks in §2, §3 and §4 run once, after every per-task gate has passed, and before the consolidator is dispatched. Give the stage a name in the orchestration. A check that belongs to "whoever notices" belongs to nobody.
 
-**The blindness is structural, not an oversight.** A per-task gate is scoped to that task's own outputs. That scoping is exactly what makes it cheap and parallelisable, and it is the same property that makes it unable to see anything true only of the set: a claim that appears in two outputs and disagrees with itself, a label vocabulary that diverges three ways, a session criterion that nobody's task owns yet.
+WRONG — the set checks belong to whoever notices, so the batch goes straight to consolidation:
+```
+every per-task gate green → dispatch the consolidator
+```
+CORRECT — a named stage runs the set checks between the two steps:
+```
+every per-task gate green → batch gate (§2, §3, §4) → dispatch the consolidator
+```
 
-**Recompute is not a substitute, and the reason is worth holding.** Recomputing a delegated verdict from its own reported evidence catches an agent that misread its evidence. **It cannot catch an agent that read its evidence correctly and drew a true-but-partial conclusion**, because there is no internal inconsistency to detect. Nothing a stricter per-task gate could do would help — the output is conformant, the reasoning is sound, and the defect is entirely outside the window.
+**The blindness is structural, not an oversight.** A per-task gate is scoped to that task's own outputs. That scoping makes it cheap and parallelisable, and the same property makes it unable to see anything true only of the set: a claim that appears in two outputs and disagrees with itself, a label vocabulary that diverges three ways, a session criterion that nobody's task owns yet.
 
-**So the site is forced.** The orchestrator holds more than one slice. It is the only party that can compare them. That is the same argument that makes it the right recompute site, applied one level up.
+**Recompute is not a substitute.** Recomputing a delegated verdict from its own reported evidence catches an agent that misread its evidence. **It cannot catch an agent that read its evidence correctly and drew a true-but-partial conclusion**, because there is no internal inconsistency to detect. No stricter per-task gate would help. The output is conformant, the reasoning is sound, and the defect is entirely outside the window.
 
-Fan-out makes this systematic rather than rare. Splitting work across agents to get fresh context means each agent sees a slice. Wherever two slices overlap or must compose, each can be locally right and jointly wrong.
+**So the site is forced.** The orchestrator holds more than one slice, so it is the only party that can compare them. The same argument makes it the right recompute site, applied one level up. Fan-out makes this systematic rather than rare: each agent sees a slice, and wherever two slices overlap or must compose, each can be locally right and jointly wrong.
+
+`scripts/batch_gate.py` runs two of the stage's checks, and `templates/orchestration.md` calls it. Its `labels` command diffs the emitted section-label sets (§4). Its `items --ids` command requires each required id to appear exactly once across the outputs, and names every MISSING and DUPLICATE id.
 
 The single-runner form of the same blindness — a status block whose every field is accurate and which still cannot see a coverage or uniqueness invariant — is [`verify-verdict-source.md`](verify-verdict-source.md) §4, with the member-naming gate output in its §6.
 
@@ -39,26 +48,28 @@ The single-runner form of the same blindness — a status block whose every fiel
 
 ## 2. Run Every Session Criterion at the First Task That Makes It Runnable
 
-> [!constraint] Ownership says who must make it pass, not when it may first be checked
-> |  | Owning task | First runnable |
-> |---|---|---|
-> | Who the plan names | Task 4 | — |
-> | When the command first executes at all | — | Task 1 |
-> | Cost of a defect found here | 3 tasks of rework | 1 corrective dispatch |
+At every acceptance gate, ask which session-level criteria just became runnable, and run them, whichever task the plan assigns them to.
 
-**Four operative rules.**
+WRONG — the criterion first runs at the task the plan names as its owner:
+```
+Task 1 creates the config file the criterion invokes → its own gate passes 5 of 5
+Task 4 (owner) runs the criterion → 321 tests collected from the wrong directory, 9 collection errors
+→ 3 tasks of rework, and the wrong invocation already copied into three more sets of verification commands
+```
+CORRECT — the criterion first runs at the task that makes it runnable:
+```
+Task 1 gate: a collection-only test run, under a second → the same failure, three tasks early
+→ 1 corrective dispatch
+```
 
-1. **At every acceptance gate, ask which session-level criteria just became runnable.** Then run them, regardless of which task the plan assigns them to.
-2. **Distinguish "owns" from "first runnable".** Ownership says who must make the criterion pass. It says nothing about when it may first be checked. Treating the two as the same defers every session gate to the point where rework is most expensive.
-3. **A green per-task gate is no evidence about session-level properties.** In the measured session Task 1 passed 5 of 5, and its output still could not satisfy criterion 1.
-4. **Prefer a check that is cheap and early over one that is authoritative and late.** A collection-only test run took under a second and was enough to expose the defect three tasks early.
+1. **Distinguish "owns" from "first runnable".** Ownership says who must make the criterion pass. It says nothing about when it may first be checked. Treating the two as the same defers every session gate to the point where rework is most expensive.
+2. **A green per-task gate is no evidence about session-level properties.** Task 1 passed 5 of 5, and its output still could not satisfy the session criterion.
+3. **Prefer a check that is cheap and early over one that is authoritative and late.**
 
 > [!constraint] Run a failing session criterion as a diagnostic, not as a verdict on the runner
 > Establish provenance before assigning cause. In the measured case the artifact was byte-identical to the pinned spec, so the defect was upstream in the plan. Skipping that step would have sent a correct runner to "fix" correct work.
 >
 > **Cost if this is ignored.** A session-level defect surfacing at the last task arrives bundled with that task's own results. It is easily misread as *that task's* failure. The runner is then sent into a retry loop against a defect it did not cause and cannot fix from inside its own scope.
-
-**The measured case.** A four-task session's first success criterion — a full selftest suite green at zero cost — belonged, by the plan's own wording, to Task 4. Task 1 merely created the config file the criterion invokes. The orchestrator ran the session criterion at Task 1's gate anyway, purely because Task 1 had just made it *runnable*. It failed immediately: 321 tests collected from the wrong directory, 9 collection errors, with the root cause in the pinned Execution Input rather than in Task 1's work. Applied at that moment it cost one corrective dispatch. Discovered at Task 4 it would have landed after three tasks had built on the broken contract, and after the same wrong invocation had been copied into three more sets of verification commands.
 
 ---
 
@@ -96,31 +107,37 @@ The single-runner form of the same blindness — a status block whose every fiel
 
 ## 4. Pin the Output Vocabulary Before Fan-Out; Diff the Emitted Shapes After
 
-> [!constraint] The field with a pinned literal converged; the field with only a semantic description diverged three ways
-> |  | Session A — semantics only | Session B — literal pin |
-> |---|---|---|
-> | What the task files gave | "a contract across seven dimensions" — a count plus a semantics | the canonical labels as literal strings, in a stated order, with the downstream consumer named |
-> | Shapes emitted by three runners | three (bolded prose labels; numbered subsections plus two extra dimensions; `### D1`…`### D7` plus three extra) | one, identical, in canonical order, on the first attempt |
-> | Crosswalk needed at the join | nine vocabularies mapped onto seven | none |
-> | Residue | one runner also drifted inside its own output, renumbering every dimension after the second and silently turning an internal "see §6 below" into a dangling pointer | one runner emitted the labels unnumbered where the others numbered them — same words, same order, normalized with zero content change |
+Before fan-out, give every task file the canonical output labels as literal strings, and after the batch returns, diff the label sets the runners emitted.
 
-**The diagnosis.** "Seven dimensions" names a **count and a semantics**, not a **shape**. A runner told what to cover but not what to emit invents a reasonable local format, and every such invention is defensible in isolation. In Session A all three runners delivered all seven dimensions, in full, with citations, and all three passed their own gates.
+WRONG — the task files give a count plus a semantics:
+```
+task files: "a contract across seven dimensions"
+→ three runners emit three shapes, and every runner passes its own gate
+→ the join needs a crosswalk mapping nine vocabularies onto seven
+```
+CORRECT — the task files give the labels as literal strings, in a stated order, with the downstream consumer named:
+```
+task files: the canonical labels verbatim, in order, consumer named
+→ three runners emit one identical shape, in canonical order, on the first attempt
+→ no crosswalk
+```
 
-**Two scaffold-time rules carry the load.**
+**The diagnosis.** "Seven dimensions" names a **count and a semantics**, not a **shape**. A runner told what to cover but not what to emit invents a reasonable local format, and every such invention is defensible in isolation.
 
-1. **Pin the output vocabulary in the task scaffold, not just the dimension count.** Give the canonical labels as literal strings to be emitted verbatim, in a stated order, the way a heading contract already does. A count plus a semantics under-determines the artifact. A literal template determines it.
+**Scaffold-time rules.**
+
+1. **Pin the output vocabulary in the task scaffold, not just the dimension count.** Give the canonical labels as literal strings to be emitted verbatim, in a stated order, the way a heading contract already does. A count plus a semantics under-determines the artifact. A literal template determines it. The task template's `**Required headings:**` field holds the list, and Check 46 in `scripts/lint_gate_checks_dispatch.py` flags an Expected Output that lists no backticked label.
 2. **State the downstream consumer.** A runner told that a label is a machine-read contract treats it as one. A runner told a label is "the seven dimensions" treats it as prose.
+3. **Require supplementary labels to go *after* the canonical set**, never in place of one.
+4. **Pin the numbering too when a downstream consumer parses positionally.** The pin fixes the **label set and order**, which is where the expensive divergence lives. A **typographic form** left unpinned is where the cheap divergence lives: one runner emitted the labels unnumbered where the others numbered them, normalized with zero content change.
 
-**What the counterfactual bounds, as well as proves.** Session B ran the identical decomposition the next day with the canonical labels written into all three task files, the consumer named, and supplementary dimensions required to go *after* the canonical set rather than in place of one. The pin fixed the **label set and order**, which is where the expensive divergence lives. It left the **typographic form** unpinned, which is where the cheap divergence lives, and that is exactly where the one residue appeared. Pin the numbering too when a downstream consumer parses positionally.
+A pinned literal also makes a deviation cheap to find. A heading bound to a literal string, with the stated rationale that two downstream consumers search for that exact prefix, was emitted correctly by all three runners, and the single parenthetical deviation was caught in one search.
 
-**The one shape that was pinned in Session A held perfectly.** A heading bound to a literal string, with the stated rationale that two downstream consumers search for that exact prefix, was emitted correctly by all three runners. The single parenthetical deviation was caught in one search, because there was an exact string to compare against.
+**Batch-time rules.**
 
-**Two remaining rules, with their honest status.**
-
-- **Add a cross-runner shape check to the batch gate.** After a parallel batch, diff the emitted section-label sets across outputs and flag divergence before dispatching the consolidator. It is cheap, and it moves discovery from the expensive join to the cheap reconciliation. It is the backstop for a session that inherits un-pinned task files. **It remains unproven** — it was never exercised, because the pin meant there was no divergence for it to catch. Presenting it as validated alongside the pin would misstate the evidence and inflate a backstop into a proven control.
+- **Add a cross-runner shape check to the batch gate.** Diff the emitted section-label sets across outputs and flag divergence before dispatching the consolidator. `scripts/batch_gate.py labels` runs that diff. It is the backstop for a session that inherits un-pinned task files. **It remains unproven**: in the measured session the pin left no divergence for it to catch. Presenting it as validated alongside the pin would misstate the evidence.
 - **When divergence has already happened, crosswalk — do not rewrite.** Rewriting outputs to match risks the content loss consolidation exists to prevent. A crosswalk costs a dozen lines and preserves provenance. File the divergence upstream against the scaffold afterwards.
-
-**The intra-runner variant.** A runner that declares a framework at its own head can still drift across its own sections. Renumbering drift breaks internal `§N` cross-references silently. A shape check inside a single long output is worth the one search it costs.
+- **Check the intra-runner variant.** A runner that declares a framework at its own head can still drift across its own sections. Renumbering drift breaks internal `§N` cross-references silently. A shape check inside a single long output is worth the one search it costs.
 
 > [!practice] Keep the pin and the diff in one section
 > §4 is the only section here carrying work on both sides of the dispatch — a scaffold-time pin and a batch-time diff. The pin is motivated only by the divergence the diff would otherwise have to catch. Split into a separate scaffold rule, the pin reads as a style preference.

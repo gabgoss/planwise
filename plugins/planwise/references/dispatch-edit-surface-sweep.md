@@ -7,8 +7,6 @@ paths: {planwise_root}/{plans_dir}/**
 
 **Purpose:** An edit brief that changes a value bound to many sites — a count, a section number, an enum member — is written by an author who maps the artifact the way they *think* about it. A count is thought of as living in one sentence; a section number as living in a heading; a partition key as living in the criterion that names it. In every case the artifact carried more referents than the mental model did, and the brief bounded the runner's search set to the ones the author happened to see.
 
-**Read this when** you are writing a brief that changes a count, a section number, a selector or an enum member; when you are renumbering headings; when you are applying an upstream change in place; when you are reading a flag that asserts such an edit was applied; when you are writing an audit-then-repair inventory; when you are briefing a stale-reference sweep after text moved; when a change moves a source of truth; and when you correct a state assertion that another file may restate.
-
 The two halves of such a surface are not equally visible, and **the invisible half is the one that fails quietly.** A stale *heading* is self-announcing — a reader sees `## 5.` above `### 4.A` and knows something is wrong. A stale *pointer* reads as a perfectly ordinary instruction and lands nowhere, or worse, on a renumbered section that now means something else. A partially applied edit is worse still: the file reads as updated, which invites nobody to check it.
 
 Recurrence is high and measured. One session carried the same class in three separate files, and in **every** case the authoring brief named fewer sites than the artifact had. The precision of a site-named instruction is what makes it dangerous: it carries a line number, which reads as evidence someone measured — but what was measured is where the value *is*, not where it *isn't*.
@@ -59,6 +57,8 @@ A task appending a 12th row was told to fix the section intro at `:168` reading 
 
 Two supporting statements. **Precision about location substitutes for completeness of coverage** — the site-named framing is seductive because it is *more specific*, and specificity usually helps a brief. And **requiring the runner to report the occurrence count is what closes the loop**: a "1 found, 1 corrected" is auditable, where a silent single edit is indistinguishable from a missed second site.
 
+The task-file template carries that report as the `**Sweep counts:**` field of `templates/task-file.md`.
+
 ---
 
 ## 2. A Brief That Names ZERO Sites Is a Distinct Defect From One That Names Too Few
@@ -68,6 +68,20 @@ Two supporting statements. **Precision about location substitutes for completene
 
 The preflight question is: *what in this file describes the thing this brief changes?* A brief that cannot answer it has not been checked against the artifact, however precise its edit instructions are.
 
+WRONG — the append brief never asks what in the file describes the table:
+
+```
+Append ten rows to the quick-reference table.
+# the frontmatter still reads "the 95-row quick-reference table"
+```
+
+CORRECT — the brief answers the preflight question, then hands over the count:
+
+```
+Sites that describe the table: frontmatter "the 95-row quick-reference table"
+Append ten rows, re-derive that count, and report "1 found, 1 corrected".
+```
+
 ---
 
 ## 3. The Value Lives in Metadata Surfaces, Not Only in Body Prose
@@ -76,6 +90,20 @@ The preflight question is: *what in this file describes the thing this brief cha
 > Sites found across one session: a frontmatter `description:` line, a `**Purpose:**` paragraph, a section intro, and a closing italic footer. The frontmatter is the worst of these — it is the file's own advertised self-description, it renders in rule-injection contexts, and it sits above every heading a body-scoped reader looks at.
 
 [`scaffolding-hygiene.md`](scaffolding-hygiene.md) §12.4 carries the whole-document rule — key the sweep on the claim's shape, reconcile every hit against the measured value, and the two shapes that escape a digit-plus-noun pattern. This section adds the *sites* a body-scoped reader never opens: the metadata above the first heading and the footer below the last.
+
+WRONG — the sweep reads only the hits inside the section that owns the table:
+
+```
+Grep  pattern='[0-9]+-row'  path=<file>  output_mode='content'  -n=true
+# reads the section intro; skips the description: line, the **Purpose:** paragraph and the footer
+```
+
+CORRECT — the sweep reads every hit, from the frontmatter to the footer:
+
+```
+Grep  pattern='[0-9]+-row'  path=<file>  output_mode='content'  -n=true
+# description: line, **Purpose:** paragraph, section intro, closing italic footer: each one re-derived
+```
 
 ---
 
@@ -90,7 +118,15 @@ The preflight question is: *what in this file describes the thing this brief cha
 > *Ten binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding.*
 > ```
 >
-> A numeral-only locator — the `(all|for) [0-9]+ checks|[0-9]+-row` pattern §1 hands over — **cannot match any of them**, which is how all three survived. Two of them had already drifted out of agreement with each other before either sprint touched the file (`seven mechanical` + 3 advisory = 10 versus `Ten binding` + 3 = 13) — which is what a count nobody can search for looks like after enough appends. The widened pair:
+> A numeral-only locator — the `(all|for) [0-9]+ checks|[0-9]+-row` pattern §1 hands over — **cannot match any of them**, which is how all three survived. Two of them had already drifted out of agreement with each other before either sprint touched the file (`seven mechanical` + 3 advisory = 10 versus `Ten binding` + 3 = 13) — which is what a count nobody can search for looks like after enough appends.
+>
+> WRONG — the numeral-only locator, run alone:
+>
+> ```
+> Grep  pattern='(all|for) [0-9]+ checks|[0-9]+-row'  path=<file>  output_mode='content'  -n=true
+> ```
+>
+> CORRECT — the widened pair, one pass per register:
 >
 > ```
 > Grep  pattern='[0-9]+-row|[0-9]+ rows|(all|for) [0-9]+ (checks|rules|sections)'  path=<file>  output_mode='content'  -n=true  -i=true
@@ -129,9 +165,7 @@ This is stated as a failure of the earlier prescription, not presented as a comp
 >   → enumerate every site found, at every level, in the instruction
 > ```
 
-The failure shape is that the author maps the artifact as a list of sections, and a section list is exactly what a `^## ` search returns, so **the map confirms the mental model instead of testing it.** The visibility asymmetry is the reason this matters: a stale heading announces itself, a stale pointer reads as an ordinary instruction and lands nowhere. The preflight caught the sub-headings by widening the map one level; it did **not** catch the two prose citations, which surfaced only at land time via a content search for `§4.A`/`§4.B`.
-
-The verified payoff: the runner renumbered all six sites, final state `### 5.A`/`### 5.B` with zero `### 4.` remaining and both table cells citing `§5.A`/`§5.B`; the whole-file diff was **42 insertions / 6 deletions**, all six deletions classifying as numbering lines — which is what proves the renumbering touched only numbering and left both section bodies byte-unchanged.
+The failure shape is that the author maps the artifact as a list of sections, and a section list is exactly what a `^## ` search returns, so **the map confirms the mental model instead of testing it.** Prove the result by its diff: when every deleted line classifies as a numbering line, the renumbering touched only numbering and left the section bodies byte-unchanged.
 
 ---
 
@@ -139,6 +173,10 @@ The verified payoff: the runner renumbered all six sites, final state `### 5.A`/
 
 > [!constraint] Renumbering creates the numbers it searches for
 > The brief's After gate was `grep -nE '## [34]\.'`, annotated *"no stale references to the old numbering in prose"*. On a **correct** post-state that returns **2** — the legitimate `## 3.` and `## 4.` headings that now exist. Read as must-be-zero it false-fails correct work into retry ×3 → BLOCKED.
+>
+> WRONG — annotate the gate "must be zero".
+>
+> CORRECT — annotate the gate with its true expected value and what each deviation means:
 >
 > | Result | Meaning |
 > |---|---|
@@ -157,14 +195,7 @@ The old-home citation sweep that follows a reference split has the same shape an
 ## 7. When Applying an Upstream Change in Place, Enumerate the Operative Sites — Not the Prose Sites
 
 > [!constraint] Prose describes intent; steps, searches, gates and projections ARE the behavior
-> A brief-owner decision added a sixth value, `interactive`, to a Modality enum partitioning 200 claims across parallel design tasks, and three claims were re-stamped out of `headless`. The settling session applied it in place — correctly — and enumerated what it had touched: *"updated at its objective, its claim-selection criterion, and all four Scope-string sites including its acceptance grep."* What had actually been updated was the objective prose, a new binding callout, and the four Scope strings. What had **not**:
->
-> - Execution Step 2's claim-pull procedure, still reading `Grep '\*\*Modality:\*\* observational'` — one modality
-> - The Required Context row describing the same pull
-> - Both claim-pull dry-run gates, testing only the `observational` spelling
-> - The population projection ("~12 expected" against a true 19)
->
-> So the file held a binding callout saying *"your pull MUST select on both stamps"* and an Execution Step saying, in the imperative and with a copy-pasteable search, to select on one. A runner following the steps returns 16, silently drops three claims, and the failure surfaces two tasks downstream as a cross-count of `197 ≠ 200` — with no indication which three are missing.
+> A brief-owner decision added a sixth value to a Modality enum that partitioned claims across parallel design tasks. The settling session applied it in place — correctly — and enumerated what it had touched: *"updated at its objective, its claim-selection criterion, and all four Scope-string sites including its acceptance grep."* What had actually been updated was the objective prose, a new binding callout, and the four Scope strings. The operative sites the first half of the pair below lists had **not** been updated. So the file held a binding callout saying *"your pull MUST select on both stamps"* and an Execution Step saying, in the imperative and with a copy-pasteable search, to select on one. A runner following the steps silently drops claims, and the failure surfaces two tasks downstream as a cross-count mismatch, with no indication which claims are missing.
 >
 > ```
 > WRONG — update where the change is described, and report that as done:
@@ -201,6 +232,20 @@ Three sub-rules:
 
 The §7 assertion was specific, confident, and still incomplete; only re-reading the Execution Steps against the callout exposed the contradiction. A reader who trims this section to "apply changes in place" retains exactly the behaviour that caused the incident.
 
+WRONG — the receiver trusts the flag because its enumeration is specific:
+
+```
+flag:     "updated at its objective, its claim-selection criterion, and all four Scope sites"
+receiver: accepts the list and dispatches on the file
+```
+
+CORRECT — the receiver re-derives the claim with one search for the old value:
+
+```
+Grep  pattern='<old value>'  path=<file>  output_mode='content'  -n=true
+# each surviving hit is justified in place, or it is a site the edit missed
+```
+
 ---
 
 ## 9. A Sweep and a Diff-Shape Gate Collide by Construction — Say So in the Brief
@@ -210,6 +255,20 @@ The §7 assertion was specific, confident, and still incomplete; only re-reading
 
 §6 and §9 both concern a gate that misreads correct work and are separated deliberately: §6's gate has a *wrong expected value* and is fixed by writing the right one; §9's gate has a *correct prediction* that the runner mistook for a constraint, and is fixed by saying so in the annotation. Merging them produces "check your gates", which prescribes neither fix. The gate author's side of the same principle — an annotation predicts the shape of correct work and never constrains it, and a runner reports the true value rather than reshaping the artifact — is [`gate-artifact-over-instrument.md`](gate-artifact-over-instrument.md) §11. The runner who withholds a correct fix to protect a predicted diff count needs the statement where it is reading — inside the sweep instruction — not only in the gate rule.
 
+WRONG — the brief predicts the diff shape and says nothing about the sweep's deletions:
+
+```
+gate:   ^- count = <predicted value>
+runner: finds 3 stale count sites, declines to fix them to keep the ^- count
+```
+
+CORRECT — the brief states that the sweep's deletions are expected:
+
+```
+gate:   ^- count = <predicted value> plus one per stale site the sweep corrects (a prediction, not a limit)
+runner: fixes all 3 and reports "3 found, 3 corrected"
+```
+
 ---
 
 ## 10. An Audit-Then-Repair Inventory Is a Class Query, Not a List of Sites
@@ -217,15 +276,17 @@ The §7 assertion was specific, confident, and still incomplete; only re-reading
 > [!constraint] Enumerate a defect by its class across the whole subject, never by the instances a brief happens to name
 > A named site is one member of a class. Once one member is known, query the class.
 
-A plan repaired a legacy index table before a port. Its Execution Input listed the defects by site: a blank line, a split row, one row with 10 cells from an unescaped `|` in inline code, and out-of-order runs. Task 1 captured every row's `cell_count`. Task 2 repaired the four named sites. A later scorer then halted on its strict row walk: 293 of 299 rows parsed.
+A plan repaired a legacy index table before a port. Its Execution Input listed the defects by site, and one named site was a row with 10 cells from an unescaped `|` in inline code. Task 1 captured every row's `cell_count`. Task 2 repaired the named sites. A later scorer then halted on its strict row walk: six more rows were the same class as that named site, and the capture had already recorded their cell counts of 10 to 12. Nothing asked "which rows have a cell count other than 9", because the inventory was a list of sites.
 
-Six more rows carried 11 unescaped pipes in the Title cell. They were the same class as the third named site. The capture had already recorded their cell counts of 10 to 12. Nothing asked "which rows have a cell count other than 9", because the inventory was a list of sites. A repair task had to be inserted mid-session, and the byte chain gained a ledger.
+WRONG — the inventory is the list of sites the author noticed:
 
 ```text
-WRONG — the inventory is the list of sites the author noticed:
 T3: <row-A> has 10 cells (unescaped | in inline code) -> repair <row-A>
+```
 
 CORRECT — the named site defines a class, and the class is queried over every row:
+
+```text
 T3 class: any table row whose cell count != 9
 query:    rows where cell_count != 9  -> <row-A>, <row-B>, <row-C>, <row-D>, <row-E>, <row-F>, <row-G>
 repair:   every hit, each ledgered
@@ -246,16 +307,18 @@ repair:   every hit, each ledgered
 > [!constraint] A grep-term list is a sample of phrasings, not a complete set
 > The agent that moved the text has already read every line of it. That agent is the cheapest source of the phrasings the list misses.
 
-A task split one module into a facade plus seven siblings. A later task swept comments and docstrings for cross-references the move made false. It built its candidates by searching eight terms: `above`, `below`, `this module`, `this file`, `one file`, `section`, `next to` and `defined next`.
+A task split one module into a facade plus seven siblings. A later sweep task built its candidates from eight fixed search terms. The moving task's runner had reported one comment it moved but did not fix, and none of the eight terms matched that comment's text. The orchestrator widened the terms and pre-seeded the comment as a candidate before dispatch, and the comment was among the lines the sweep reworded.
 
-The moving task's runner had reported one comment it moved but did not fix. In `<function>` the comment said "see the module docstring's carve-outs", and the carve-outs now lived in the facade's docstring. None of the eight terms matches that text. The orchestrator added `docstring`, `carve-out`, `see ` and `module's` to the terms and pre-seeded the known comment as a candidate before dispatch. The sweep then classified 48 candidates and reworded 2. One of the 2 was the pre-seeded comment.
+WRONG — the sweep trusts its fixed list:
 
 ```
-WRONG — the sweep trusts its fixed list:
 Sweep step 2: search {above, below, this module, this file, one file, section, next to, defined next}
 # "see the module docstring's carve-outs" matches none; the stale pointer ships.
+```
 
 CORRECT — the mover's report feeds the sweep:
+
+```
 Move task report: "<function> comment points at 'the module docstring' — now the facade's"
 Orchestrator -> sweep task: add {docstring, carve-out, "see ", module's}; seed that comment as a candidate
 ```
@@ -273,16 +336,7 @@ Orchestrator -> sweep task: add {docstring, carve-out, "see ", module's}; seed t
 
 An empty answer from a reader whose input no longer holds its subject is the "empty is not clean" failure in a new form.
 
-A redesign made item-file frontmatter the only record of an item's status. The index became a generated artifact, stale between regenerations. It rendered closed items into archive shards, never into the hub. The session's tasks were scoped to the writers: retire the row append, the index-cell status write and the score write-back. Every writer task passed its own gates and the suite was green. Every reader still pointed at the old source.
-
-| Reader | What it still read | What broke |
-|---|---|---|
-| `--create` duplicate-id check | the hub only | shard, leaf and unregenerated ids passed as new |
-| `--status` | old status and file list from the hub | closed and leaf items reported "not found"; an undo after a stale hub reported "No change" |
-| archival audit | CLOSED rows in the hub | could never fire on a generated index, because closed items never appear in the hub |
-| handler and doctor prose | "the audit catches a closed item never moved" | described an audit that could not see its subject |
-
-No test failed. The whole-tree coherence sweep found the dead audit. A separate adversarial code review found the three lookup regressions. The task gates found neither.
+A redesign made item-file frontmatter the only record of an item's status, and the index became a generated artifact. The session's tasks were scoped to the writers. Every writer task passed its own gates and the suite was green. Every reader still pointed at the old source: a duplicate-id check, a status lookup, and an archival audit that could never fire on a generated index. No test failed. A whole-tree coherence sweep and a separate code review found them, and the task gates found neither.
 
 Take three steps in the same change as the move.
 
@@ -290,12 +344,16 @@ Take three steps in the same change as the move.
 2. **Ask of each reader whether its subject can still appear in what it reads.** A CLOSED-row audit over a hub that never holds CLOSED rows is vacuous by construction.
 3. **Repoint each reader to the new source, or retire it.** Give each a test whose fixture uses the new shape: a heading-less generated hub with no closed rows, or an item that exists only on disk. Build that fixture by hand, not through the API under test ([`gate-fixture-provenance.md`](gate-fixture-provenance.md) §5).
 
-```
 WRONG — the plan retires the old writes and trusts the suite:
+
+```
 retire <append-row> / <index-status-write> / <score-write-back> -> suite green -> done
 (<create>, <status> and <archival-audit> still read <old-source>)
+```
 
 CORRECT — sweep every reader of the old source in the same change:
+
+```
 search openers of <old-source> -> <create>, <status>, <drift-detector> -> each repointed to <new-source>
 -> tests with a <new-source>-shaped fixture that holds no closed rows
 ```
@@ -309,11 +367,7 @@ search openers of <old-source> -> <create>, <status>, <drift-detector> -> each r
 > [!constraint] "No producer writes X any more" says nothing about artifacts already on disk
 > It establishes that X will not appear in new artifacts. A reader path for a legacy input is compatibility, not a dependency. Retire it only when you can show no unmigrated artifact reaches that reader. Either the migration is mandatory and enforced, or the reader refuses the legacy shape loudly. §12 ("Moving a Source of Truth Invalidates Every Reader of the Old One") is the inverse. There, a source moves and the readers of the old one go stale. Here, a writer retires and the readers must still accept what it wrote.
 
-A backlog index moved from a hand-maintained file to a generated one. The legacy file recorded dependencies in a `## Dependencies` table. The generator records them in a `Blocks` column and writes no such table. A carried-forward flag said: "retire or rewire the legacy-table union … so no reader depends on a section the generator never writes."
-
-The cutover's pre-write task took the first option. It deleted `<legacy-table reader>` and removed the table from the blocked-by map builder's edge sources. Every test passed. The live project's generated index behaved identically. The change looked like dead-code removal.
-
-A code review before commit found the consumer this removed. A project upgrading from the previous release keeps its legacy 6- or 7-column index until it runs the migrator, and that index has no `Blocks` column. Its only dependency data was the table the parser no longer read. After the upgrade, `--show-blocked` would report nothing. Every blocked item would become selectable for triage, with no warning. The fix restored the table as a read-if-present source, which changes nothing for a generated index.
+A backlog index moved from a hand-maintained file to a generated one. The legacy file recorded dependencies in a `## Dependencies` table, and the generator records them in a `Blocks` column instead. A pre-write task deleted the legacy-table reader as dead code, and every test passed. A code review before commit found the consumer this removed: a project upgrading from the previous release keeps its legacy index until it runs the migrator, so every blocked item would become selectable for triage with no warning. The fix restored the table as a read-if-present source, which changes nothing for a generated index.
 
 > [!constraint] Keep the reader as read-if-present until migration is enforced
 > WRONG — delete the reader because the generator never writes its input:
@@ -350,13 +404,17 @@ A code review before commit found the consumer this removed. A project upgrading
 
 Two reported shapes show the failure. A task corrected a table row that gives a sibling file's section range. The sibling file's own header carried the same range and kept the old value. Another task corrected a claim that one item keeps a second item open, in the second item's file. An index file kept the old claim.
 
-```
 WRONG — the task edits the files it names and stops:
+
+```
   xref.md      row corrected to "sibling.md covers §1–§14"
   item-Y.md    line corrected to "Y is no longer kept open by X"
   (sibling.md still reads "This file carries §1–§12" and index.md still reads "X keeps Y open")
+```
 
 CORRECT — the task searches the wider tree for the claim's shape before it closes:
+
+```
   Grep  pattern='§1–§1[0-9]'   path=<tree>    → sibling.md header, corrected
   Grep  pattern='X.*keeps.*Y'     path=<tree>    → index.md note, corrected
   Report: "2 found, 2 corrected"

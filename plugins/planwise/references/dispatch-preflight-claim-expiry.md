@@ -33,16 +33,7 @@ Two neighbouring rules own machinery this file builds on and does not restate. [
 > [!constraint] This is a numbered step of the pre-dispatch gate, never a note
 > A plan authored for immediate execution has near-zero expiry. One held behind an external event accrues expiry proportional to how long it waits. Nothing re-runs when the gate clears, so the re-take must be a step that executes.
 
-One sprint held BLOCKED for two days guarded this thoroughly and still shipped six expired facts. Every task brief carried a re-derive instruction. A sweep for pre-committing phrasing returned zero hits across all seven files. All six expired facts sat **outside** task execution steps:
-
-| Expired fact | Surface it lived on |
-|---|---|
-| a binding "quoted from the live handler" — the binding had moved to a reference section | **two success criteria** |
-| a Required Context row describing a section as "the binding definition" — it had become a summary deferring elsewhere | **a Required Context row** |
-| a corpus count ("2 active lessons… 18 active items") — actually 8 and 36, with one named defect already repaired | **a Prerequisites block + a Dependencies row** |
-| four named coordination-flag consumers — all four sessions had completed | **a task step's "expect at least" list + a Recovery flag table** |
-| "Sprints 02–06 are NOT STARTED" + a quoted standing do-not-run note — both false | **a Prerequisites gate callout** |
-| eleven line counts, one contradicting a corrected figure in the same file | **Required Context tables + a Context Boundary note** |
+Expired facts sit **outside** task execution steps, so a re-derive instruction in every brief does not reach them. Use this list of surfaces as the checklist: success criteria, Required Context rows and tables, a Prerequisites block and its gate callout, a Dependencies row, a task step's "expect at least" list, a Recovery flag table, and a Context Boundary note.
 
 **A task file is not the only thing that expires.** A success criterion naming a file is a premise. A gate specification naming a source is a premise. A Required Context row describing what a section contains is a premise. A downstream-consumer list asserting a session is still in the future is a premise. None of them reads like a "brief", and each fails differently:
 
@@ -50,45 +41,78 @@ One sprint held BLOCKED for two days guarded this thoroughly and still shipped s
 - A stale Required Context row silently mis-scopes a read.
 - A stale consumer list spends real effort drafting for sessions that already finished.
 
+> [!constraint] The re-take is a gate step over every surface, not a sentence in the briefs
+> WRONG — every brief says "re-derive", and the surfaces outside the steps keep their authoring-time values:
+> ```
+> briefs:            "re-derive before use"        # sweep for pre-committing phrasing: zero hits
+> success criterion: a binding "quoted from the live handler"   # the binding had moved to a reference section
+> ```
+> CORRECT — a numbered pre-dispatch step re-takes each surface on the checklist:
+> ```
+> Step 0.N: re-take success criteria, Required Context rows, Prerequisites, Dependencies rows,
+>           consumer lists and line counts; correct every copy before dispatch
+> ```
+
+**Adding another "re-derive this" sentence to the briefs changes nothing.** What is missing is a step that *runs*.
+
 ### Four obligations
 
 Each carries its threshold and its action, per §6.
 
-1. **Stamp every measured figure with its measurement date, inline, and name its source command.** The refresh pass then finds them by `Grep` rather than by reading. No threshold applies — this is an authoring rule, not a measurement.
-2. **Enumerate the expiring surfaces explicitly**, using the table above as the checklist. **Threshold:** any surface whose re-take disagrees with the recorded value. **Action:** correct it in every copy together, record the cause rather than only the new value, and where the disagreement touches a success criterion or a gate specification, revise that criterion **before dispatch** — not at closeout, where it is unsatisfiable.
-3. **Re-derive conclusions, not just counts.** One headline conclusion here survived only by coincidence, resting on eight entirely different lessons, while a sibling claim was outright refuted because the defect it named had been fixed and its owner archived COMPLETE. **Threshold:** the re-derived conclusion differs from the recorded one, in any direction. **Action:** revise the plan before dispatch. Do not annotate the old conclusion and proceed.
+1. **Stamp every measured figure with its measurement date, inline, and name its source command.** The refresh pass then finds them by `Grep` rather than by reading. No threshold applies — this is an authoring rule, not a measurement. Check 44 in `scripts/lint_gate_checks_dispatch.py` flags a Required Context row that states a measured figure with no ISO date or no source command.
+2. **Enumerate the expiring surfaces explicitly**, using the checklist above. **Threshold:** any surface whose re-take disagrees with the recorded value. **Action:** correct it in every copy together, record the cause rather than only the new value, and where the disagreement touches a success criterion or a gate specification, revise that criterion **before dispatch** — not at closeout, where it is unsatisfiable.
+3. **Re-derive conclusions, not just counts.** A conclusion can survive by coincidence on different evidence, and a sibling claim can be refuted because the defect it named was fixed. **Threshold:** the re-derived conclusion differs from the recorded one, in any direction. **Action:** revise the plan before dispatch. Do not annotate the old conclusion and proceed.
 4. **A downstream consumer's existence is a measurement too.** Before drafting a coordination flag, check its target is still a future session. **Threshold:** the named consumer has already completed. **Action:** do not draft the flag. Route the observation to the genuine consumer, or record it as discharged with the date the target closed.
 
-**Adding another "re-derive this" sentence to the briefs would have changed nothing.** The briefs already said it, repeatedly and well. What was missing was a step that *runs*.
+> [!constraint] A figure carries its date and its source command
+> WRONG — a bare corpus count in a Prerequisites block:
+> ```
+> 2 active lessons… 18 active items
+> ```
+> CORRECT — the count with the date and command that produced it, so the refresh pass finds it:
+> ```
+> 8 active lessons, 36 active items (measured <date>, <source command>)
+> ```
 
 ---
 
 ## 2. Quote the Edge, Then Enumerate — Never Enumerate Instead of Quoting
 
 > [!constraint] A prerequisite is a derived artifact, and restating a quantifier as an enumeration is a lossy derivation
-> ```
 > WRONG — the quantifier restated as the sprint set that existed at authoring time:
->   **Sprints 01–06 ALL COMPLETE** (E6 edge) — verify each Sprint Signoff verdict PASS.
+> ```
+>   **Sprints 01–06 ALL COMPLETE** (edge X) — verify each Sprint Signoff verdict PASS.
 >      ← the edge said "all". Sprints 08, 10 and 11 were dropped silently.
 >      ← the citation certifies a narrowing the source does not contain.
->
+> ```
 > CORRECT — the derivation stays visible and re-checkable on the line itself:
->   E6 = all→ES7  ⇒  {ES1…ES6, ES8, ES10, ES11}
+> ```
+>   X = all→ES7  ⇒  {ES1…ES6, ES8, ES10, ES11}
 >      ← a reader can falsify the enumeration against the edge without leaving the line.
 > ```
 
-The citation is what made it dangerous. Written as a bare list, `Sprints 01–06` invites the question *"why those?"*. Written with the edge name attached it reads as already reconciled, and a reader's natural verification — *does the plan say that edge exists?* — returns yes. A 27-finding review fixed 5 BLOCKERs and 9 ERRORs and never flagged it.
+The citation is what makes it dangerous. Written as a bare list, `Sprints 01–06` invites the question *"why those?"*. Written with the edge name attached it reads as already reconciled, and a reader's natural verification — *does the plan say that edge exists?* — returns yes.
 
 Three rules follow.
 
 - **The two forms agree only at the instant of authoring.** A quantifier keeps tracking the set. An enumeration freezes it.
-- **When an edge names a quantifier (`all`, `every`, `any`), treat the enumeration as expiring.** Re-derive the member set at Phase 1 whenever new members have been scaffolded since.
-- **Add the reconciliation to plan review explicitly.** For every prerequisite citing a graph edge, re-derive the edge's member set and diff it against the stated list. This is mechanical and cheap, and no existing check covers it — prerequisites are treated as premises rather than as derived claims.
+- **When an edge names a quantifier (`all`, `every`, `any`), treat the enumeration as expiring.** Re-derive the member set at Phase 1 whenever new members have been scaffolded since. `scripts/dispatch_preflight.py prereq --sprint-plan <file> --sprint-folder <dir>` checks a quantified prerequisite against the sprint folder list.
+- **Add the reconciliation to plan review explicitly.** For every prerequisite citing a graph edge, re-derive the edge's member set and diff it against the stated list. This is mechanical and cheap, and no existing review check covers it — prerequisites are treated as premises rather than as derived claims.
 
 ### The same expiry lands on what the session publishes
 
-- **A sprint that publishes "final" anything owes a freshness predicate, not a prerequisite.** "Runs last" is meaningful only relative to a set. State the validity condition — *"these counts are final iff no sprint lands after this session"* — so that reordering makes the staleness self-announcing.
+- **A sprint that publishes "final" anything owes a freshness predicate, not a prerequisite.** "Runs last" is meaningful only relative to a set. State the validity condition so that reordering makes the staleness self-announcing.
 - **When such a sprint is suspended mid-flight, re-label its outputs at suspension time, with the void scope enumerated** (which files, which counts). A delta report authored as *the gate* for the next session, and left labelled that way, hands that session an expired claim wearing a gate's name.
+
+> [!constraint] A published "final" figure states the condition it holds under
+> WRONG — the figure claims finality relative to a set nobody named:
+> ```
+> these counts are final (this sprint runs last)
+> ```
+> CORRECT — the validity condition travels with the figure:
+> ```
+> these counts are final iff no sprint lands after this session
+> ```
 
 ---
 
@@ -97,42 +121,59 @@ Three rules follow.
 > [!constraint] "Prerequisite COMPLETE" answers a question nobody was worried about
 > It establishes that the upstream finished and its outputs exist. The actual risk — that what the upstream *found* invalidates the downstream plan — is untouched by it, and the green checkmark feels like clearance.
 
-In one measured case both upstream sprints were COMPLETE and all six discovery documents existed. The mandated re-read found a routing table in which **14 of 21 hypotheses had no owning task** — ten of them unanswerable by the probe apparatus every authored task had built. The session as written could not have answered two thirds of what it existed to answer.
+**Diligence alone will not fix this.** The context boundary forbids the orchestrator from reading upstream outputs, so it is the one actor guaranteed not to see that its own plan has gone stale.
 
-**Diligence alone will not fix this, for a structural reason.** The context boundary that keeps an orchestrator's budget intact forbids it from reading upstream outputs. So the orchestrator is the one actor guaranteed not to see the evidence that its own plan has gone stale. Everything visible from inside the session — statuses, dependency graph, file existence — reads clean. Staleness is visible only from outside the boundary, which is precisely where nobody is looking.
+> [!constraint] Re-read what the upstream found, not only that it finished
+> WRONG — the gate checks completion and dispatches:
+> ```
+> upstream sprints: COMPLETE; discovery documents: all exist  -> dispatch as authored
+> ```
+> CORRECT — the gate re-reads the upstream findings against the plan and records the outcome:
+> ```
+> re-read the upstream routing table against this session's tasks -> hypotheses with no owning task?
+>   -> revise before dispatch; write "confirmed unchanged" when nothing moved
+> ```
 
 ### Five application rules
 
-1. **Put the re-validation gate in the file the executor is required to read.** Under delegated execution that is the orchestration file, with an explicit statement that the context boundary is suspended for this one read. The same warning existed in four places here. Only the one positioned in the execution path fired.
+1. **Put the re-validation gate in the file the executor is required to read.** Under delegated execution that is the orchestration file, with an explicit statement that the context boundary is suspended for this one read. A warning placed anywhere else does not fire. Only the one positioned in the execution path does.
 2. **Make "confirmed unchanged" an artifact.** Require the outcome written down either way. An empty record is indistinguishable from a re-read that never happened, and a resuming session cannot tell the difference.
-3. **State the gate as an action with a named input.** *"Re-read X against Y and revise before dispatch"* is executable. *"This decomposition is provisional"* will be read as context.
+3. **State the gate as an action with a named input.**
 4. **Author upstream findings in checkable form.** A routing table with an owner column per hypothesis makes staleness countable. The same information as narrative advice is a judgement call under time pressure.
 5. **Expect the revision to change the task count, not just the task contents.** Where an upstream finding says an entire class of question is unanswerable by the authored apparatus, widening existing tasks cannot fix it. A gate phrased as "expect scope to change" under-prepares for that.
 
 **Preserve identifiers across the revision** wherever anything downstream cites them.
 
+> [!constraint] A gate names its action and its input
+> WRONG — the gate reads as context:
+> ```
+> This decomposition is provisional.
+> ```
+> CORRECT — the gate is executable:
+> ```
+> Re-read X against Y and revise before dispatch.
+> ```
+
 ---
 
 ## 4. `Depends On` and `Required Context` Are Two Different Assertions
 
-> [!constraint] Only the first survives a preserved-numbering revision
-> ```
-> Depends On      says "this task cannot start until that one finishes."
->                 → preserving task numbers keeps it TRUE.
-> Required Context says "these specific files contain the evidence I need."
->                 → a new sibling task producing new evidence FALSIFIES it,
->                   and no amount of careful numbering repairs that.
-> ```
+`Depends On` says a task cannot start until another finishes, and preserving task numbers keeps it true. `Required Context` says specific files hold the evidence a task needs, and a new sibling task that produces new evidence falsifies it, whatever the numbering. A dependency graph that still resolves therefore says nothing about Required Context. **When an upstream moves, re-derive both.**
 
-An upstream added two tasks and deliberately preserved numbering 1–4 so downstream `Depends On` stayed valid. Between them the two new tasks owned **15 of 21 hypotheses**. The downstream's Required Context listed the outputs of Tasks 3 and 4. Dispatched as authored, it would have marked fifteen questions UNRESOLVED and produced a verdict table that looked complete and carried a plausible tally.
-
-**An upstream that revised itself correctly is exactly why nobody caught it.** Numbering was preserved precisely so downstream declarations stayed valid — which is correct for `Depends On`, and is what made the staleness invisible, because the dependency graph still resolved so nothing looked broken. Every safeguard worked as designed and none covered this: the prerequisite gate passed 6/6, seven coordination flags were routed, the upstream's own record was accurate and detailed, and both sessions were internally consistent. The gap lived *between* the two records.
+[`dispatch-mandate-routing.md`](dispatch-mandate-routing.md) § "A Repair Is Not Delivered Until Its Consumer Can Reach It" holds the check spec: name each new upstream output in the consumer's Required Context by explicit path, and reconcile the `Outputs/` listing against the Required Context rows. On the receiving side, `scripts/outputs_coverage.py named --side receiver --outputs <upstream Outputs dir> --tasks <your task files>` runs that reconciliation.
 
 **For the sender.** Recording the revision in your own Recovery is necessary and not sufficient. Your closeout owes every downstream session a flag naming which **output files are new, by path**, and which downstream **deliverables or questions now depend on them**. "We went from 4 tasks to 6" is not that flag. If you preserved numbering to protect the dependency graph, say so *and* say that Required Context is the thing you did not protect.
 
-**For the receiver.** At the step-zero gate, do not check only that `Depends On` still resolves. Enumerate the upstream's output directory and reconcile it against your own Required Context tables, file by file, asking the question the dependency graph cannot answer: *is there evidence on disk that no task of mine has been told to read?*
-
-**A gate that validates relationships between tasks will not catch a change in the artifacts those tasks produce. When an upstream moves, re-derive both.**
+> [!constraint] The step-zero gate re-derives both assertions
+> WRONG — the receiver checks only the dependency graph:
+> ```
+> step zero: Depends On resolves; numbering 1–4 preserved  -> dispatch
+> ```
+> CORRECT — the receiver also reconciles the upstream output directory against its Required Context:
+> ```
+> step zero: Depends On resolves
+>            every file in the upstream Outputs/ is named by a Required Context row?  -> no -> add the row before dispatch
+> ```
 
 ---
 
@@ -142,35 +183,33 @@ This is a third Phase-1 preflight source, alongside the sprint plan's Carried-Fo
 
 > Sweep sibling sprints whose session closed ON OR AFTER this session's scaffold date. Read their Recovery `Files Modified` and `Key Findings`. For each file they touched that intersects this session's edit set OR any sweep surface a task declares, derive the fact and route it into the affected task files as an orchestrator-measured preflight entry — labelled as such, distinct from an upstream-routed flag.
 
-**Threshold and action, per §6.** The threshold is any intersecting file. The action is to route the derived fact into every affected task file before dispatch, and — where the fact changes a gate's expected value — to restate that expected value in the task file itself, not merely to note the change.
+**Threshold and action, per §6.** The threshold is any intersecting file. The action is to route the derived fact into every affected task file before dispatch, and — where the fact changes a gate's expected value — to restate that expected value in the task file itself, not merely to note the change. `scripts/dispatch_preflight.py siblings --since <scaffold date> --recoveries <sibling Recovery files> --edit-set <file>` compares the sibling `Files Modified` lists against the edit set you pass. Include the read and sweep surfaces in that set.
 
-**The two-hop flag model cannot cover this.** It routes flags to their consumer. It does not route situational awareness to a concurrent sibling, and a sprint that closes between your scaffold and your dispatch has changed your inputs without owing you a flag. One sibling closed the same day this session ran and routed all three of its flags correctly, to their genuine consumer, a different sprint. Four material side effects reached no file this session's orchestrator reads:
+**The two-hop flag model cannot cover this.** A sprint that closes between your scaffold and your dispatch has changed your inputs without owing you a flag.
 
-- a brand-new 186-line reference entering a task's file sweep by design, naming forbidden shell verbs;
-- a shipped decision resting on two anchors another task was about to edit, one of which it then deleted;
-- a landed edit changing a cross-sprint content grep gate's expected value from 1 to 0;
-- a reciprocal control that pre-answered part of this session's own gate.
-
-**The intersection test is not just "files we both edit".** That is what a Cross-Sprint File Touches table already covers. It must include **files a task will only read or sweep** — which is how a brand-new file enters a sweep surface with no shared-edit declaration anywhere. A file nobody declared as shared is exactly the file no existing table lists, so an edit-set-only test is blind to the whole class.
+**The intersection test is not just "files we both edit".** It must include **files a task will only read or sweep**, because no Cross-Sprint File Touches table lists a file nobody declared as shared.
 
 Two supporting practices:
 
-- **State the expected value, not just the command, for a cross-sprint gate.** "1 = not yet landed; 0 = landed" merely records a value. "Expect 0, the sibling landed it" converts it into a gate that can *fail*.
+- **State the expected value, not just the command, for a cross-sprint gate.**
 - **Label orchestrator measurements distinctly from routed flags.** A runner treats an upstream flag as validated context not to re-derive, and a sweep that echoes the orchestrator's numbers is not independent.
+
+> [!constraint] A cross-sprint gate states the value it expects
+> WRONG — the gate merely records a value, so it cannot fail:
+> ```
+> 1 = not yet landed; 0 = landed
+> ```
+> CORRECT — the gate states the expected value:
+> ```
+> Expect 0, the sibling landed it
+> ```
 
 ---
 
 ## 6. A "Re-Measure at Dispatch" Instruction Without a Divergence Action Is a No-Op
 
 > [!constraint] It reliably produces a measurement and reliably changes nothing
-> ```
-> Task 1: <!-- Register rows (projected) — re-measure at dispatch, re-roll if >10% off. -->
-> Task 2: <!-- Register rows (projected) — re-measure at dispatch. -->
-> Task 3: <!-- Register rows (projected) — re-measure at dispatch. -->
-> ```
-> The `re-roll if >10% off` clause — the only part naming an **action** — was present on the one task whose projection was accurate, and absent from the two that needed it.
-
-Task 2 duly re-measured, reported `85` against a projected `~45` in its verification block, and proceeded on the wrong budget. It surfaced the gap in `ISSUES` at completion: correct behaviour, far too late to change any decision.
+> Without an action clause the runner has no licence to act, so it does the only thing it can: absorbs the divergence and mentions it at the end, too late to change any decision.
 
 Every re-measure instruction needs all three parts:
 
@@ -180,11 +219,19 @@ Every re-measure instruction needs all three parts:
 | The **threshold** | `if >10% off the projection` |
 | The **action** | `re-roll the token estimate AND the output-file budget derived from it, and report the new figures in your status block before authoring` |
 
-Without the third part the runner has no licence to act, so it does the only thing it can: absorbs the divergence and mentions it at the end.
-
-**When a divergence-action clause exists on some siblings and not others, that is a defect, not a style difference.** Sibling task files are usually written by one pass over one template, so a clause present on one and missing on two is an authoring slip that a reviewer reads as intentional variation. `Grep` the sibling set for the clause and normalize it.
+**When a divergence-action clause exists on some siblings and not others, that is a defect, not a style difference.** `Grep` the sibling set for the clause and normalize it. Check 45 in `scripts/lint_gate_checks_dispatch.py` flags a re-measure instruction that has no threshold clause and no action clause.
 
 This section binds §1 and §5 of this file, and both carry their threshold and their action inline. A rule that prescribes re-measurement without them would ship the exact defect it records.
+
+> [!constraint] The instruction names its measurement, its threshold and its action
+> WRONG — the measurement alone:
+> ```
+> Task 2: <!-- Register rows (projected) — re-measure at dispatch. -->
+> ```
+> CORRECT — all three parts, on every sibling:
+> ```
+> Task 2: <!-- Register rows (projected) — re-measure at dispatch, re-roll if >10% off. -->
+> ```
 
 ---
 
@@ -200,25 +247,21 @@ This section binds §1 and §5 of this file, and both carry their threshold and 
 **Second example, a corpus count.** A closing session measured a corpus on a morning: 238 item files, 50 active and 188 archived. The next session's evening preflight routed the figures as orchestrator-validated context marked "do NOT re-derive". The runner's dry run reported 376 items (183 open, 193 closed). The orchestrator first suspected the scanner. One file count settled it: 185 and 193 files in the two directories. `git log --since=<date> --diff-filter=A` then showed 140 files added by that day's commits. A batch harvest had landed between the two readings.
 
 > [!constraint] Route the decision, and re-anchor or de-anchor the number
-> WRONG — route the flag's number as the expected value:
+> WRONG — route the flag's number as the expected value, and route a morning measurement as validated context in the evening:
 > ```
 > Flag:  "proven invocation -> 29 passed / 5 skipped"
 > Brief: "Step 3's expected tests line reads `tests (ok: 29 passed, 5 skipped)`"
 > # Runner measures 38 before its first edit. The brief now asserts a false number.
+>
+> 1. Corpus facts the scanner will meet: 238 item files (50 active / 188 archived). Do NOT re-derive.
 > ```
-> CORRECT — route the decision, and re-anchor or de-anchor the number:
+> CORRECT — route the decision and de-anchor the number, and re-measure at dispatch and route the number with its provenance:
 > ```
 > Flag:  "proven invocation -> path argument carries scope; $0 depends on X and Y"
 > Brief: "Step 3 records the observed count and asserts on scope: zero node IDs
 >         outside <tests-dir>/. The last recorded count was 29
 >         (<session>, <date>); a different figure is data, not a defect."
-> ```
-> WRONG — route a morning measurement as validated context in the evening:
-> ```
-> 1. Corpus facts the scanner will meet: 238 item files (50 active / 188 archived). Do NOT re-derive.
-> ```
-> CORRECT — re-measure at dispatch, and route the number with its provenance:
-> ```
+>
 > 1. Corpus measured at this session's dispatch (<date> evening, `ls <dir>/*.md | wc -l`,
 >    `ls <dir>/Archive/*.md | wc -l`): 376 items (183 / 193). The earlier morning count was 238;
 >    140 files landed in today's commits between the two readings.
@@ -234,6 +277,16 @@ This section binds §1 and §5 of this file, and both carry their threshold and 
 
 **Applies to** any `Pre-Known Cross-Task Coordination Flags` block carrying a pass count, a file count, a line count, an offset, a wall time or a token estimate. Test-suite sizes are the common case, because a suite grows through every session that touches its tree. Corpus sizes are the second, because a concurrent session can add a batch in one commit.
 
+> [!constraint] A routed figure carries its date and its source command
+> WRONG — the figure alone tells the reader to trust it:
+> ```
+> 238 files
+> ```
+> CORRECT — the figure with its provenance tells the reader how to refresh it:
+> ```
+> 238 files (measured `<date>` morning, `ls <dir>/*.md`)
+> ```
+
 ---
 
 ## 8. A Requirement Derived From an Unbuilt Upstream Artifact Is Tagged, Then Grepped Against the Shipped One at Dispatch
@@ -242,14 +295,6 @@ This section binds §1 and §5 of this file, and both carry their threshold and 
 > A row in a Decisions table records what its author believed at planning time. When the implementing plan ships, the decision's wording and the artifact's behaviour are two separate records. Only one of them is what a downstream task's success criterion is measured against.
 >
 > A task whose acceptance is "matches the upstream tool's output" turns every other content requirement on the same artifact into a claim about that tool. Each such claim is one `Grep` of the tool away from being verified or refuted.
-
-A Master Plan locked two decisions on one day. One said a changelog moves to its own file, with a one-line pointer left behind. The other said a `## Dependencies` section survives as a generated section sourced from `blocks:` frontmatter. A later plan's task files were scaffolded the same day from those decisions.
-
-The first task told the runner to derive a shipped seed from the generator's zero-item output and prove it byte-identical. In the same Execution Steps it told the runner to give the seed a changelog pointer, a title-budget comment and a `## Dependencies` section. The last task and the orchestration's first success criterion asserted all three in a fresh-init hub.
-
-Three weeks later the upstream plan built the generator. It implemented the second decision as a `Blocks` column, not a section, and it emitted no footer at all. Its review recorded that the legacy table and footer disappear at cutover, and routed that to the cutover session. Nothing re-read the earlier plan's task files. They still carried the decision's wording as if it were the tool's behaviour.
-
-One `Grep` per requirement showed the generator matched none of `Dependencies`, `Last Updated`, `Changelog` or a title comment. The init routine copied a fixed list of three seeds, so the changelog seed the first task was told to create could never reach a fresh project. Executed literally, the first task could not satisfy its own success criterion. The last task would have failed against correct upstream behaviour. The gap surfaced at CONFIRM as a structural finding and cost four task-file amendments before the first dispatch.
 
 > [!constraint] Tag the requirement, then check it against the tool before dispatch
 > WRONG — the task text is the decision verbatim, and the success criterion measures the tool:
@@ -268,7 +313,7 @@ One `Grep` per requirement showed the generator matched none of `Dependencies`, 
 Three rules follow.
 
 1. **Tag at scaffold time.** Tag every requirement that depends on an unbuilt upstream artifact with the decision it derives from ("per `<decision>`, generated"). The tag lets the dispatching orchestrator find the claims that need re-checking.
-2. **Grep at dispatch time, before CONFIRM.** Search the shipped artifact for each tagged requirement. The cost is one search per requirement. In the example the four searches took under a minute and turned a guaranteed FAIL into an approved scope decision.
+2. **Grep at dispatch time, before CONFIRM.** Search the shipped artifact for each tagged requirement. The cost is one search per requirement, and it turns a guaranteed FAIL into a scope decision before the first dispatch.
 3. **Route a departure to every downstream session.** When the implementing plan departs from a locked decision, route the departure as a flag to every downstream session scaffolded from that decision, and amend the Decisions table. Routing it only to the session whose runtime would notice misses the session whose task text already assumed the decision.
 
 **Applies to** any task scaffolded before the artifact it verifies exists. The decision was honest when written and the implementation moved afterwards. This differs from a decision that knowingly expires a downstream criterion. There, the check belongs at the decision. Here, it belongs at dispatch. §4 ("`Depends On` and `Required Context` Are Two Different Assertions") splits what a task needs from what it merely reads. A tagged requirement is a third kind: a claim about an artifact that did not exist when the task was written.
@@ -346,7 +391,7 @@ Three consequences follow.
 > [!constraint] A doc section drafted to describe an in-flight decision is a snapshot of a state expected to change
 > Nothing marks the section for a re-visit once the state changes. The task that wrote the narration is the one that knows it is conditional. A downstream task has no way to tell "this reads as final" from "this was true when written".
 
-Two docs (`<doc-a>`, `<doc-b>`) were written while a ceiling escalation was still open. They said: "escalated, not resolved; the ceiling's numeric value is unchanged pending an explicit re-statement decision". The first resume of the task applied the fix, which re-stated the ceiling to `0.25`. That resume was scoped to touch only the test file. The two doc sections kept narrating a decision that had already landed. Left alone, the closeout task would have quoted the superseded `0.05` value and the "unresolved" framing into the sprint's permanent record.
+A resume that applies the decision is often scoped to the file that encodes it. The doc sections the same task wrote keep narrating the pending state, and a closeout that quotes them carries the superseded value into the permanent record.
 
 > [!constraint] When a decision lands, sweep every doc section the deciding task itself wrote that narrated the pending state
 > WRONG — resolve the decision but scope the fix to only the file that encodes it:
@@ -375,22 +420,15 @@ Two operative points follow.
 
 ## 12. A Claim True When Recorded and False When Consumed: Self-Counts, Uncommitted Exits and Absence-Gate Denominators
 
-> [!constraint] The party who can cheaply fix a claim is never the party who observes it breaking
-> A claim can be true when its author records it and false when something consumes it. The author's own gates still pass, because the expiry lives in a relationship no per-task gate is scoped to observe. Three classes follow, one per scale: a file's claim about itself (§12.1), a session's claim about the repository (§12.2), and a gate's claim about a tree (§12.3). §12.4 states the obligation they share.
->
-> The earlier sections cover expiry across a held gate. These classes expire inside one run, with no gap to re-measure across.
+Three classes follow, one per scale: a file's claim about itself (§12.1), a session's claim about the repository (§12.2), and a gate's claim about a tree (§12.3). §12.4 states the obligation they share. The earlier sections cover expiry across a held gate. These classes expire inside one run, with no gap to re-measure across.
 
 ### 12.1 A Section Append Is an Edit to Every Self-Referential Claim in the File, Not Only the ToC
 
-A task appended a new `##` section to a reference that held eleven binding rules. It named two obligations: write the section, and add the ToC entry. Both were satisfiable without touching anything else, so every After-gate would have passed.
-
-The file also described itself in three places that are not the ToC. The frontmatter `description:` opened "Eleven binding hygiene rules plus…". A Purpose line and the closing footer made the same claim. All three now said "Eleven" about a file holding twelve. The frontmatter `description:` is what a rule-loading harness surfaces when it decides whether to inject the file.
-
-The ToC is the zone everybody remembers, because it sits next to the change. The self-counts rot because they are prose, they sit far from the insertion point, and no heading-shaped gate can see them. Three zones need the sweep:
+An append task that names only the new section and its ToC entry can pass every After-gate while the file still counts itself wrong. The ToC is the zone everybody remembers, because it sits next to the change. The self-counts rot because they are prose, they sit far from the insertion point, and no heading-shaped gate can see them. Three zones need the sweep:
 
 | Zone | Why it rots |
 |---|---|
-| YAML frontmatter `description:` | Tooling reads it and the author never does mid-edit. It often lists topics too, and the new topic needs appending. |
+| YAML frontmatter `description:` | Tooling reads it and the author never does mid-edit. A rule-loading harness surfaces it when it decides whether to inject the file. It often lists topics too, and the new topic needs appending. |
 | Purpose / intro paragraph | The author wrote it once at file creation and rarely revisits it. |
 | Closing footer / cross-reference line | It sits furthest from an append point, which lands just above it. |
 
@@ -423,12 +461,10 @@ Two closing rules follow.
 
 ### 12.2 A Session's Exit State Includes Its Commit, Because the Successor's Baseline Is Defined Relative to It
 
-A session finished every task, passed an independent verification sweep, filled its signoff PASS, and set `Session Status: COMPLETE`. It committed neither repo. Its own Recovery routed a flag forward in the confident future tense, about a commit that never happened. The successor's preflight found `HEAD` still at the pre-session commit with six files modified.
+A session that sets `Session Status: COMPLETE` without committing leaves its successor a false baseline, with two consequences:
 
-An uncommitted predecessor has two consequences. Only the first is obvious.
-
-1. **The clean-scope gate HALTs.** The successor's first task pins its base behind `git status --porcelain -- <write paths>` being empty. It is not empty, because the predecessor's own delta fills it. Run literally, the session delivers nothing.
-2. **Waiving the gate is worse than the HALT.** With `HEAD` un-advanced, the successor's `{ABBREV}_SPRINT_BASE = rev-parse HEAD` returns the same commit as the inherited `{ABBREV}_SERIES_BASE`. The two-base design collapses into one base. This is the base collapse. The positive scope test is the casualty. It filters the sprint-scoped diff against that sprint's declared write-set, so the predecessor's non-shared files surface as out-of-scope edits. The successor FAILS for work it never did.
+1. **The clean-scope gate HALTs.** The successor's `git status --porcelain -- <write paths>` is not empty, because the predecessor's own delta fills it.
+2. **Waiving the gate is worse than the HALT.** With `HEAD` un-advanced, `{ABBREV}_SPRINT_BASE = rev-parse HEAD` equals the inherited `{ABBREV}_SERIES_BASE`. This is the base collapse. The successor's scope test then FAILS for work it never did.
 
 Four rules follow.
 
@@ -439,11 +475,23 @@ Four rules follow.
 
 **The flag-tense rule generalises past commits.** A flag written at closeout narrates the state the author intends to leave, not necessarily the state on disk. Verify the state a flag presupposes before relying on it.
 
+> [!constraint] Commit, then set the status, and the successor measures `HEAD`
+> WRONG — the status is set and the repos are left uncommitted:
+> ```
+> Session Status: COMPLETE                                  # neither repo committed
+> successor: git status --porcelain -- <write paths>        # not empty -> HALT, or waive -> base collapse
+> ```
+> CORRECT — the commit comes first, and the successor reads the measurement, not the self-report:
+> ```
+> commit each repo -> Session Status: COMPLETE
+> successor: git log --oneline <series-base>..HEAD          # predecessor's delta present; bases distinct
+> ```
+
 ### 12.3 An Absence Gate Re-Measures Its Own Denominator at Execution Time
 
-A plan stated that a search for a legacy directory name MUST return empty, in nine places. The upstream sprint's own approved write-set expansion added a migration that necessarily names the legacy directory. The tree-wide count went from 6 to 10. The downstream sprint's edit list of 6 stayed exactly correct. The gate became unsatisfiable by construction before anyone could run it.
+An upstream session's approved work can add occurrences of a string a downstream gate asserts absent. The downstream edit list stays correct, and the gate becomes unsatisfiable by construction before anyone runs it.
 
-The pre-edit measurement is the trap. A flag reading "re-measured clean, count unchanged" looks freshly validated, and downstream sessions are told not to re-derive orchestrator-validated context. But an absence gate's input set is the whole tree. Any session that writes anywhere in that tree can move the count, including the session that recorded the flag, after it recorded it.
+An absence gate's input set is the whole tree. Any session that writes in that tree can move the count, including the session that recorded a "count unchanged" flag, after it recorded it.
 
 > [!constraint] Measuring the denominator before your own edits land propagates a number your own edits then break
 > WRONG — the upstream sprint measures its own denominator before doing its work, and propagates it as settled:
@@ -473,7 +521,17 @@ Three rules follow.
 ### 12.4 The Recording Party's Obligation
 
 > [!practice] Ask who consumes the claim and what would make it false
-> Each of the three classes is invisible from the consuming side and cheap to fix from the recording side. Before recording a count, a cleanliness claim, or a self-description, ask: *who consumes this, and what would have to change between now and then to make it false?* Where the answer is "my own later edits", re-measure at the end of your own work, not at the start of it.
+> The party who can cheaply fix a claim is never the party who observes it breaking. The author's own gates still pass, because the expiry lives in a relationship no per-task gate is scoped to observe. Each of the three classes is invisible from the consuming side and cheap to fix from the recording side. Before recording a count, a cleanliness claim, or a self-description, ask: *who consumes this, and what would have to change between now and then to make it false?* Where the answer is "my own later edits", re-measure at the end of your own work, not at the start of it.
+
+> [!constraint] Record the claim after your own edits land
+> WRONG — the claim is recorded at the start of the recorder's own work:
+> ```
+> record "count unchanged" -> land your own edits -> close
+> ```
+> CORRECT — the claim is re-measured at the end of the recorder's own work:
+> ```
+> land your own edits -> re-measure -> record the claim -> close
+> ```
 
 ---
 

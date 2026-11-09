@@ -57,13 +57,8 @@ LEDGERED_PLUGIN = (
     ("references/discovery-and-exit-criteria.md", 10, "§16"),  # HISTORY: records the three-way split
     ("references/discovery-and-exit-criteria.md", 10, "§17"),  # HISTORY: records the three-way split
     ("references/discovery-and-exit-criteria.md", 10, "§21"),  # HISTORY: records the three-way split
-    ("references/dispatch-batch-gate.md", 105, "§6"),  # EXAMPLE: quotes a runner's internal pointer in an incident table
-    ("references/dispatch-edit-surface-sweep.md", 115, "§4.A"),  # EXAMPLE: quoted citation in a callout table
-    ("references/dispatch-edit-surface-sweep.md", 116, "§4.B"),  # EXAMPLE: quoted citation in a callout table
-    ("references/dispatch-edit-surface-sweep.md", 132, "§4.A"),  # EXAMPLE: example section letters
-    ("references/dispatch-edit-surface-sweep.md", 132, "§4.B"),  # EXAMPLE: example section letters
-    ("references/dispatch-edit-surface-sweep.md", 134, "§5.A"),  # EXAMPLE: example section letters
-    ("references/dispatch-edit-surface-sweep.md", 134, "§5.B"),  # EXAMPLE: example section letters
+    ("references/dispatch-edit-surface-sweep.md", 151, "§4.A"),  # EXAMPLE: quoted citation in a callout table
+    ("references/dispatch-edit-surface-sweep.md", 152, "§4.B"),  # EXAMPLE: quoted citation in a callout table
     ("references/ei-citation-and-token-reconciliation.md", 2, "§5"),  # HISTORY: frontmatter provenance
     ("references/ei-citation-and-token-reconciliation.md", 2, "§8"),  # HISTORY: frontmatter provenance
     ("references/ei-citation-and-token-reconciliation.md", 305, "§10"),  # EXAMPLE: template text naming a design output's section
