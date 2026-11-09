@@ -36,16 +36,16 @@ Three neighbouring rules own machinery this file builds on. [`agent-orchestratio
 >
 > The discriminator is one question: **could knowing this change the number the agent reports?** If yes, withhold it — even when injecting would be cheaper, and even when you are confident the agent would resist anchoring.
 >
-> ```
 > WRONG — the orchestrator injects everything it knows, including the answer:
+> ```
 > spawn: "…pinned form is X. For reference, Wave 1 measured list at $0.71/98s/17 turns
 >         and a 10-file write set. Re-measure and report."
 > → runner measures $0.89/151s/19 turns, 0 files
 > → reconciles toward the injected anchor, or reports it as an anomaly needing explanation
 > → the 2-to-1 split is never visible; the non-determinism ships as "deterministic"
->
-> CORRECT — procedural facts injected, figures withheld, and the reason stated so the runner
-> does not experience the gap as an oversight and go looking:
+> ```
+> CORRECT — procedural facts injected, figures withheld, and the reason stated:
+> ```
 > spawn: "…pinned form is X [+ 8 other procedural facts].
 >         I am deliberately NOT giving you sibling cost figures — your value here is
 >         independence. Compare against the ORIGINAL anchor only. Report what you
@@ -55,13 +55,11 @@ Three neighbouring rules own machinery this file builds on. [`agent-orchestratio
 >   is evidence; divergence on another is a finding
 > ```
 
-The qualitative twin of this rule — a stated *expectation* or a named cause rather than a figure, why hedging it does not help, and what to do once such a premise has already shipped — is [`dispatch-brief-neutrality.md`](dispatch-brief-neutrality.md) §1, §2 and §7. The two meet on the same discriminator question.
+The qualitative twin of this rule — a stated *expectation* or a named cause rather than a figure, why hedging it does not help, and what to do once such a premise has already shipped — is [`dispatch-brief-neutrality.md`](dispatch-brief-neutrality.md) §1, §2 and §7.
 
-**Say why you are withholding.** An agent that notices a conspicuous gap in an otherwise thorough briefing may go and find the data itself — reading a sibling's output file, or asking. Naming the withholding as deliberate closes that path. Telling the runner that a surprising honest number outranks a plausible one licenses it to report the outlier.
+**Say why you are withholding.** An agent that notices a conspicuous gap in an otherwise thorough briefing may go and find the data itself, by reading a sibling's output file or by asking. Naming the withholding as deliberate closes that path. Telling the runner that a surprising honest number outranks a plausible one licenses it to report the outlier.
 
-**The withholding paid twice in the measured session.** On the surface that agreed, a warm-run cache-read token count came in at **30,705 against 30,691**, across separate operating-system processes that never saw each other's data. That is corroboration anyone can trust. On the surface that disagreed, the divergence *was* the finding: one run wrote **zero** files and enumerated a different project, where two same-day runs had written the expected 10-file tree. The 2-to-1 split proved the surface non-deterministic and invalidated an inherited baseline finding the whole plan rested on.
-
-**The sample-size corollary — plan for three or more observations on any surface you intend to call deterministic.** Two blind measurements that agree are corroboration. Two that disagree are only a puzzle. It was the *third* observation that made the split legible as non-determinism rather than as one runner's error. When a plan's binding constraints rest on a surface being deterministic, the sample size is a design decision, not an accident of how many tasks happened to touch it.
+**The sample-size corollary — plan for three or more observations on any surface you intend to call deterministic.** Two blind measurements that agree are corroboration. Two that disagree are only a puzzle. A third observation makes a split legible as non-determinism rather than as one runner's error. When a plan's binding constraints rest on a surface being deterministic, the sample size is a design decision, not an accident of how many tasks happened to touch it.
 
 ---
 
@@ -70,15 +68,19 @@ The qualitative twin of this rule — a stated *expectation* or a named cause ra
 > **A fork announces itself. A confidently-wrong consumer does not.**
 
 > [!constraint] Check every flag that names an item, not only the ones that look undecided
-> The graded example is what shows an existing "pin unresolved forks before dispatch" rule to be necessary and insufficient:
+> A "pin unresolved forks before dispatch" rule is necessary and not sufficient. It trips only on the first flag below, and the third is exactly as capable of being wrong as the first.
 >
-> | Flag text | How it reads | What trips on it |
-> |---|---|---|
-> | `"Task 1 or Task 3 — assign at Phase 1"` | visibly a fork | the pin-the-forks rule |
-> | `"Task 3, or whichever task takes {claim-id}"` | mostly decided | nothing reliably — it slips past |
-> | `"Task 3"`, in a confident tone | settled | nothing at all |
->
-> The third is exactly as capable of being wrong as the first.
+> WRONG — check only the flag that reads as undecided:
+> ```
+> "Task 1 or Task 3 — assign at Phase 1"          → visibly a fork: the pin-the-forks rule trips
+> "Task 3, or whichever task takes {claim-id}"    → mostly decided: nothing reliably trips; it slips past
+> "Task 3", in a confident tone                   → settled: nothing trips at all
+> ```
+> CORRECT — resolve every named consumer against the partition key:
+> ```
+> Grep the claim id → its authoritative stamp → ruling, with the stamp and file:line:
+>   confirmed | re-pinned | no-op for this session
+> ```
 
 **The four-step receiving preflight.**
 
@@ -87,11 +89,9 @@ The qualitative twin of this rule — a stated *expectation* or a named cause ra
 3. **Tell the non-owning tasks explicitly.** Write "this flag is NOT yours, and its absence from your pull is expected, not a coverage gap" into their task files. Otherwise a runner that correctly finds nothing cannot distinguish that from a broken pull.
 4. **State that the key outranks prose wherever prose appears** — including an assignment written inside the authoritative artifact itself.
 
-**Why nothing errors, in either direction.** Route a flag to the task it names, and that runner finds the claim absent from its own pull. It either designs a claim it does not own — double-design, discovered later at cross-count if at all — or drops it as "not mine", which is silent. Route in a flag no task owns, and a runner spends effort on a passage no claim in its set references. The runner's report describes either outcome as success.
+**Why nothing errors, in either direction.** A runner that receives a flag naming it finds the claim absent from its own pull. It either designs a claim it does not own (double-design, found later at cross-count if at all) or drops it as "not mine", which is silent. A flag routed in that no task owns spends effort on a passage no claim in the set references. The runner's report describes either outcome as success.
 
-**Why this lands on the receiver and can land nowhere else.** Hop 1, upstream delivering into the downstream orchestration file, is owned by a session that knows its own findings but not the receiver's decomposition. Hop 2, orchestration into task files, is owned by the receiver, which knows both. **The preflight is the only point where the flag and the partition key are visible at the same time.** An upstream author cannot do this check. A dispatched runner sees only its own slice. If the receiver does not do it, nobody does.
-
-**The measured case.** A session dispatched three parallel designers over one frozen register of 200 claims, each selecting its work by a mechanical key — a `Modality` stamp on disk. Ten inbound flags each named a downstream consumer in prose, and **two of the ten were wrong**. One named a fork between two tasks for a claim stamped `headless`, which belonged to a third task the flag never mentioned. Another named two claims stamped `observational` that **no task in the session owned** — they belonged to the next session. The upstream authors were not careless. They had read the source closely enough to find a genuine contradiction. What they had not read was the final reconciled partition, which did not exist when the flags were written. A third variant appeared in the authoritative register itself, which named a resolver task on a line predating an enum change that had moved the boundary.
+**Why this lands on the receiver and can land nowhere else.** Hop 1, upstream into the downstream orchestration file, is owned by a session that knows its own findings but not the receiver's decomposition. Hop 2, orchestration into task files, is owned by the receiver, which knows both. **The preflight is the only point where the flag and the partition key are visible at the same time.** An upstream author cannot do this check, and a dispatched runner sees only its own slice. If the receiver does not do it, nobody does.
 
 > [!hazard] Two conditions raise the rate
 > The risk rises when the partition was reconciled *after* the upstream flags were authored, and when the partition key changed mid-plan. An enum gaining a value moves boundaries under flags already in flight.
@@ -124,7 +124,9 @@ The qualitative twin of this rule — a stated *expectation* or a named cause ra
 
 **Do not solve this by committing per task.** The single-commit-per-session convention exists for good reasons. The fix is to stop asking runners a question their view cannot answer.
 
-**The damage, even where no artifact was harmed.** A runner appending four sections reported that three deletions were its own anchored Edit re-inserting heading lines. Inspecting every deleted line showed the three were the **previous task's** sanctioned repair lines. It had deleted nothing. The runner was not careless — it saw three deletions in "its" diff, knew it had performed anchored Edits, and constructed a plausible story, because nothing in its view distinguished its own changes from its predecessor's. An incorrect account of the diff still enters the record and propagates to any downstream reader, reviewer or sweep that trusts the status block. In this case it also **understated** the runner's own result: correctly attributed, those three lines were the file's entire session-wide deletion set, which proves about fifteen pre-existing sections were byte-unchanged apart from two intended repairs.
+**The damage, even where no artifact was harmed.** A runner that sees deletions in "its" diff and knows it made anchored Edits will construct a plausible story, because nothing in its view separates its own changes from a predecessor's. The incorrect account still enters the record and propagates to any downstream reader, reviewer or sweep that trusts the status block. It can also **understate** the runner's own result, because correctly attributed deletions may prove the rest of the file byte-unchanged.
+
+This section answers who interprets a diff. When the orchestrator may verify a runner's artifact, and why that verification stays read-only, is "The Ownership Window — Orchestrator Verification Is Read-Only" (§1.26) in [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md).
 
 ---
 
@@ -138,24 +140,25 @@ The qualitative twin of this rule — a stated *expectation* or a named cause ra
 > | **Resume also returns silent**, Output still complete | The reply exists and is not routing | **Recover from the transcript** — do not ask a third time |
 >
 > An idle notification carries no information about either state. It means "available", not "finished".
+>
+> WRONG — treat the second silence as another non-answer:
+> ```
+> idle, no block → disk shows complete → resume for report → idle again
+> → ask a third time (same failure path), or re-dispatch a fresh runner
+> # Re-dispatch is the expensive error: it re-reads everything, may race a live agent,
+> # and can duplicate writes to the same declared Output path.
+> ```
+> CORRECT — the second silence reclassifies the problem from "no answer" to "no delivery":
+> ```
+> resume → idle again
+> → glob ~/.claude/projects/**/subagents/agent-a<name>-*.jsonl
+> → bounded `-o` extraction of the field names, take the LAST match
+> → cross-check every recovered field against the orchestrator's own measurements
+> ```
 
-The first two rows are existing practice, owned in detail by [`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) §1.17 (classify the return before consuming it) and [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) §1.7.1 (the read-only resolution ladder on an idle notification). They are restated as rows here because the discriminator that selects the third row is only legible beside them. The third row is this section's own content.
+The first two rows are existing practice, owned in detail by [`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) §1.17 (classify the return before consuming it) and [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) §1.7.1 (the read-only resolution ladder on an idle notification). They are restated here because the discriminator that selects the third row is only legible beside them. The third row is this section's own content.
 
-```
-WRONG — treat the second silence as another non-answer:
-idle, no block → disk shows complete → resume for report → idle again
-→ ask a third time (same failure path), or re-dispatch a fresh runner
-# Re-dispatch is the expensive error: it re-reads everything, may race a live agent,
-# and can duplicate writes to the same declared Output path.
-
-CORRECT — the second silence reclassifies the problem from "no answer" to "no delivery":
-resume → idle again
-→ glob ~/.claude/projects/**/subagents/agent-a<name>-*.jsonl
-→ bounded `-o` extraction of the field names, take the LAST match
-→ cross-check every recovered field against the orchestrator's own measurements
-```
-
-**The bounded-recovery mechanics, because the unbounded form fails.** The `.jsonl` is the full subagent conversation and will overflow the orchestrator's context if read whole. What works is a targeted `-o` extraction of the status-block field names with a small capture window, taking the **last** matching line. Earlier hits are the spawn prompt's own template echoed back, so a recovery that takes the first match recovers the prompt rather than the report.
+**The bounded-recovery mechanics, because the unbounded form fails.** The `.jsonl` is the full subagent conversation and will overflow the orchestrator's context if read whole. Extract the status-block field names with a small capture window, and take the **last** matching line. Earlier hits are the spawn prompt's own template echoed back, so a recovery that takes the first match recovers the prompt rather than the report. The orchestration template runs this extraction with `scripts/extract_status_block.py` (`--pattern '{field regex}'` over the transcript). The native form is:
 
 ```
 Grep pattern='(TASK_STATUS:|TASK_ID:|OUTPUT_FILES:|LINES_PRODUCED:|KEY_FINDINGS:)[^\\]{0,120}'
@@ -164,13 +167,13 @@ Grep pattern='(TASK_STATUS:|TASK_ID:|OUTPUT_FILES:|LINES_PRODUCED:|KEY_FINDINGS:
 
 A whole-line match on the same file returns `[Omitted long matching line]` and yields nothing. The small capture window is what makes it work. Keep the field list aligned with the status-block contract in [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) §1.28, since a pattern naming a field the contract does not define can never match.
 
-**The recovered block is corroboration, not the source of truth.** Every load-bearing field a status block reports — output paths, line counts, byte counts, repo invariants — the orchestrator can and should measure itself, and the acceptance gate already requires it. Treat recovery as filling in the narrative fields (key findings, issues, budget spent) around measurements you already own. That is also why a delivery failure never blocks acceptance: **you were never supposed to be accepting on the strength of the final message anyway.**
+**The recovered block is corroboration, not the source of truth.** The orchestrator measures every load-bearing field itself — output paths, line counts, byte counts, repo invariants — and the acceptance gate already requires it. Recovery fills in the narrative fields (key findings, issues, budget spent) around measurements you already own. That is also why a delivery failure never blocks acceptance: **you were never supposed to be accepting on the strength of the final message anyway.**
 
 > [!hazard] Do not turn this into "always skip the message layer"
-> Three of six blocks arrived fine in the measured session, and an earlier one recorded four of five. The failure is intermittent, so blanket transcript-scraping burns calls on the majority that work. The trigger is specific: **a resume that also comes back silent while the deliverable is verifiably complete.** In the measured case the reply was recoverable from the subagent transcript and matched the orchestrator's own independent measurements field for field.
+> The failure is intermittent, and most blocks arrive, so blanket transcript-scraping burns calls on the majority that work. The trigger is specific: **a resume that also comes back silent while the deliverable is verifiably complete.**
 
 > [!practice] §3 and §4 are adjacent and must not be merged
-> §3 is about a status block that **arrived and said something its window could not support**. §4 is about a status block that **never arrived at all**. The correctives run in opposite directions — §3 discounts the report and re-derives from the artifact, §4 goes and fetches the report. A merged section collapses into "don't trust status blocks", which is true of neither.
+> §3 is about a status block that **arrived and said something its window could not support**. §4 is about a status block that **never arrived at all**. The correctives run in opposite directions: §3 discounts the report and re-derives from the artifact, and §4 goes and fetches the report. A merged section collapses into "don't trust status blocks", which is true of neither.
 
 Sustained silence with **no** idle signal at all is a different question again. [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) §1.30 answers that one: establish death before dispatching a replacement.
 
@@ -201,16 +204,14 @@ Sustained silence with **no** idle signal at all is a different question again. 
 - **When you recover a flag whose id is already taken at the destination, renumber it rather than overwrite** (`G-06b`), and state in the routed text that the id was reused upstream. Silently replacing the occupant destroys a live flag in order to deliver another.
 - **Record the propagation gap as a finding, not a fix.** The sender's record stays wrong until someone corrects it. A receiver who quietly patches the hole leaves the next session inheriting the same false assurance.
 
-**Why this lands on the receiver, and can land nowhere else.** The sender cannot verify its own delivery. It writes the `Delivered To` cell in the same pass that performs — or fails to perform — the write, so the claim and the act come from one intent. An intermediate session reading the sender's column propagates the claim without testing it. That is how a false assurance gains a second, more credible-looking source: the second record comes from a different party and is therefore read as independent corroboration, while in fact it is a copy. **The destination file is only ever readable from the destination.** Without this, the section reads as optional diligence that a careful sender could make unnecessary, and a reader will reasonably conclude the sender should simply be more careful.
+**Why this lands on the receiver, and can land nowhere else.** The sender cannot verify its own delivery. It writes the `Delivered To` cell in the same pass that performs — or fails to perform — the write, so the claim and the act come from one intent. An intermediate session that restates the sender's column propagates the claim untested. The copy then reads as independent corroboration from a second party. **The destination file is only ever readable from the destination**, so this check is a requirement, not diligence a careful sender could make unnecessary.
 
-**The measured incident, and how the flag was recovered.** A sprint plan's Carried-Forward table recorded a flag whose `Delivered To` column named the downstream session's orchestration file. An intermediate session's preflight then recorded, in its own Recovery file, that the flag was "a no-op for this session — it belongs to that session and was already delivered there." Both records were half right. The flag genuinely belonged to the downstream session, and it had never been written into that session's orchestration file. Two mechanisms kept the absence invisible and they compound: **the id was occupied** — the receiving orchestration already carried a row with that number from an unrelated flag by the same upstream session, so a reader scanning for the id finds it and stops — and **two independent records asserted delivery, neither of which was the destination file.** It was recovered only because the receiving orchestrator searched the *destination folder* for the flag's subject matter rather than for its id, and got zero hits across the entire session directory. Had it stayed lost, both claims the flag governs were in that session's pull, and their protocols would have been authored against a field that disagreed with the ledger.
-
-**This is not planwise-specific.** The shape appears in any hand-off protocol where a producer records what it delivered and a consumer reads a separate front-door location: cross-session and cross-sprint carried-forward sections, ticket hand-offs with a "notified" field, migration checklists with a "propagated" column. The risk is highest when flag ids are sender-scoped, so collisions are expected, and when an intermediate party restates the sender's claim.
+**This is not planwise-specific.** The shape appears in any hand-off where a producer records what it delivered and a consumer reads a separate front-door location: carried-forward sections, ticket hand-offs with a "notified" field, migration checklists with a "propagated" column. The risk is highest when flag ids are sender-scoped and when an intermediate party restates the sender's claim.
 
 > [!practice] §5 is a distinct section, not part of §2
 > §2's subject is a flag that **arrived and named the wrong consumer**. §5's is a flag that **never arrived**. The correctives run in opposite directions: one re-adjudicates a row that is in front of you, the other goes looking for a row that is not. This is the same arrived-but-wrong versus never-arrived distinction that keeps §3 and §4 apart. Merged, the pair collapses into "check your flags", which is true of neither.
 
-[`../handlers/run.md`](../handlers/run.md) Step 1.1a owns the four-source enumeration and the union-diff against task files. This section is the half that check does not specify: **how to match.** A union-diff run on ids alone returns a false negative exactly when the destination already carries that id, which is the condition the measured incident was in.
+[`../handlers/run.md`](../handlers/run.md) Step 1.1a owns the four-source enumeration and the union-diff against task files, and runs `scripts/flag_subject_diff.py` for it. This section is the half that check does not specify: **how to match.** A union-diff run on ids alone returns a false negative exactly when the destination already carries that id.
 
 ---
 
@@ -239,7 +240,7 @@ A background task's output-file path is not a reliable carrier across agents. Th
 >          In your gate file, record which text you worked from."
 > ```
 
-**The measured case.** A review ran as a forked background skill. Its 10 findings reached the orchestrator in a task notification. The resume message carried the triage lines plus the file path. The file was 0 bytes when the runner opened it. The runner fixed every finding from the triage lines and recorded the gap. That worked only because each triage line restated file, line and remedy. A bare "see the output file" resume would have left it nothing to act on.
+The spawn-prompt skeleton in `templates/orchestration.md` carries a `Findings to fix:` line for this list.
 
 **Applies to** any DELEGATED session where the orchestrator runs a skill or a background agent (a code review, a reviewer fan-out) and resumes a task-runner with the result. It also applies to any hand-off that points at a temp-directory output file rather than a session `Outputs/` file.
 
