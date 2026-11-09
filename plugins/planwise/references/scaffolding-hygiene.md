@@ -428,6 +428,20 @@ The point is not "never scaffold inline". The inline path is only safe when pair
 
 Applies to any `/planwise plan` invocation that produces 2+ Sprint Plan files in one pass, and to any hand-authored multi-sprint scaffolding session where 2+ sprints are authored before any review runs.
 
+**A second fragile surface is token-estimate reconciliation.** It applies to every batch scaffold, with or without Execution Inputs. A batch scaffold copies one figure across files, or leaves one stale when a task total changes. The figures sit at five levels:
+
+- task header against `**Context subtotal:**`
+- Orchestration task-list cells and `**Total Estimated:**`
+- Sprint Plan `## Sessions` row
+- Sprint Plan `## Session Details` cells and total
+- Sprint Plan `**Estimated Tokens:**` header
+
+In one reviewed plan, every task header in a session carried the same unreconciled figure, with drifts of 42-61% against the 10% threshold. Step 9b of `handlers/plan-Part-3-VerifyConfirmAndReview.md` runs the check at scaffold close, and a drift above 10% exits 1:
+
+```
+python -B "{plugin_root}/scripts/estimate_reconcile.py" check {exec_dir}
+```
+
 Red flags during reviewer audit:
 
 - Master Plan Status is `READY_TO_EXECUTE` AND `n_sprints_scaffolded_this_pass ≥ 2` AND no `/planwise review` report is referenced — gate skipped.

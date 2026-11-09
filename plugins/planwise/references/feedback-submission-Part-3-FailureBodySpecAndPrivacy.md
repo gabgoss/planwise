@@ -50,7 +50,7 @@ break an otherwise-successful parent flow. The site still carries
 **The draft carries the scan result.** In Auto Mode the duplicate scan still runs — it is a
 step, not a gate, so the gate 3–5 skip does not govern it, and if `gh` is missing or
 unauthenticated it simply lands on its own UNKNOWN caveat. Its result is appended to the
-draft file, after `### Environment`:
+draft file, at the end of the draft body:
 
 ```markdown
 <!-- planwise:scan-annotation — local annotation, not part of the issue body. Strip before posting. -->
@@ -75,6 +75,12 @@ draft at the `<!-- planwise:scan-annotation` marker.** The annotation is local; 
 the file (rather than posting a filtered copy) keeps shown bytes, on-disk bytes, and posted
 bytes identical.
 
+**When `feedback.include_environment` is `false`, the same step also deletes the
+`### Environment` heading and its list lines from the draft file.** Deleting from the file
+keeps shown, on-disk, and posted bytes identical. It also covers a promoted model draft and a
+swept draft, because the model-draft renderer writes the block without reading the key and
+promotion copies the body verbatim.
+
 This adds **no** consent site: no question is asked, so nothing here is classified
 critical or convenience, and no new `<!-- AUTO-MODE: -->` marker is introduced.
 
@@ -84,6 +90,11 @@ critical or convenience, and no new `<!-- AUTO-MODE: -->` marker is introduced.
 
 Deliberately free of any authoring project's bookkeeping vocabulary (no ID prefixes, no
 required ID fields — a consumer does not have them).
+
+**The `### Environment` block renders only when `feedback.include_environment` resolves
+`true`.** The key defaults to `true`. When it is `false`, the bug body and the lesson|idea
+body below end at their third section, and the comment variant carries no Environment block
+either. The key adds no placeholder to the Placeholder Reference table.
 
 **`kind: bug`:**
 
@@ -108,7 +119,8 @@ required ID fields — a consumer does not have them).
 ```
 
 **`kind: lesson|idea`:** the first three headings become **What I learned / Why it
-matters / Where it would apply**; Environment is unchanged.
+matters / Where it would apply**. The Environment block is unchanged, and the same
+`feedback.include_environment` condition applies.
 
 ```markdown
 ### What I learned
@@ -136,7 +148,7 @@ approved body with one lead-in line prepended:
 ```markdown
 Filed with `/planwise feedback` as a comment rather than a new issue — this looked like the same subject as this thread. **{title}**
 
-{the approved body, verbatim, including its `### Environment` block}
+{the approved body, verbatim, including its `### Environment` block when the new-issue body carries one}
 ```
 
 The lead-in is the **only** difference. Nothing is dropped, reworded, or reordered, and the
@@ -149,6 +161,8 @@ is a consumer-local absolute path, which the Privacy Contract forbids attaching.
 ## Privacy Contract — Default-Closed
 
 `plugin_version` and `OS / shell` are auto-filled; everything else is user-typed or user-confirmed.
+`feedback.include_environment: false` is the opt-out for the auto-filled Environment block. It
+removes the block from every issue and comment body, model drafts included.
 
 **NEVER auto-attach:**
 - consumer project file contents

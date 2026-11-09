@@ -111,6 +111,16 @@ class _RepointFixtureBase(unittest.TestCase):
         rules_patch.start()
         self.addCleanup(rules_patch.stop)
 
+        # The doctor gate reads the install record under CLAUDE_CONFIG_DIR.
+        # Point it at an empty fixture folder so no case reads the host's
+        # real ~/.claude/plugins/installed_plugins.json.
+        self.claude_config_dir = self.tmp / "claude-config"
+        env_patch = mock.patch.dict(
+            "os.environ", {"CLAUDE_CONFIG_DIR": str(self.claude_config_dir)}
+        )
+        env_patch.start()
+        self.addCleanup(env_patch.stop)
+
     @staticmethod
     def _write_plugin_json(root: Path, version: str) -> None:
         claude_plugin_dir = root / ".claude-plugin"
@@ -486,6 +496,79 @@ class TestDoctorPluginRootChecks(_RepointFixtureBase):
             gate["state"], "drift",
             "version drift must be reported before the root is ever inspected",
         )
+
+
+# ---------------------------------------------------------------------------
+# Doctor: the install-check advisory never changes the gate state
+# ---------------------------------------------------------------------------
+class TestDoctorInstallCheckAdvisory(_RepointFixtureBase):
+
+    ADVISORY = "running copy is not the project's marketplace install"
+
+    def _write_install_record(self, install_path: Path) -> None:
+        plugins_dir = self.claude_config_dir / "plugins"
+        plugins_dir.mkdir(parents=True, exist_ok=True)
+        record = {
+            "version": 2,
+            "plugins": {
+                "planwise@fixture-mkt": [
+                    {
+                        "scope": "project",
+                        "projectPath": str(self.project_root),
+                        "installPath": str(install_path),
+                        "version": self.LIVE_VERSION,
+                    }
+                ]
+            },
+        }
+        (plugins_dir / "installed_plugins.json").write_text(
+            json.dumps(record), encoding="utf-8"
+        )
+
+    def test_advisory_present_and_state_ok_when_no_install_record(self):
+        self.write_config(self.config_text(self.plugin_root, self.LIVE_VERSION))
+
+        gate = ip._doctor_version_gate(self.cfg)
+
+        self.assertEqual(gate["state"], "ok")
+        self.assertIn(self.ADVISORY, gate["report"])
+        self.assertIn("up to date", gate["report"])
+
+    def test_no_advisory_when_running_copy_is_the_install(self):
+        self.write_config(self.config_text(self.plugin_root, self.LIVE_VERSION))
+        self._write_install_record(self.plugin_root)
+
+        gate = ip._doctor_version_gate(self.cfg)
+
+        self.assertEqual(gate["state"], "ok")
+        self.assertNotIn(self.ADVISORY, gate["report"])
+
+    def test_advisory_present_when_install_is_another_copy(self):
+        self.write_config(self.config_text(self.plugin_root, self.LIVE_VERSION))
+        self._write_install_record(self.old_plugin_root)
+
+        gate = ip._doctor_version_gate(self.cfg)
+
+        self.assertEqual(gate["state"], "ok")
+        self.assertIn(self.ADVISORY, gate["report"])
+
+    def test_no_advisory_and_state_unchanged_when_check_raises(self):
+        self.write_config(self.config_text(self.plugin_root, self.LIVE_VERSION))
+        import install_check
+
+        with mock.patch.object(install_check, "check", side_effect=RuntimeError("boom")):
+            gate = ip._doctor_version_gate(self.cfg)
+
+        self.assertEqual(gate["state"], "ok")
+        self.assertNotIn(self.ADVISORY, gate["report"])
+
+    def test_advisory_rides_a_stopping_state_without_changing_it(self):
+        self.write_config(self.config_text(self.plugin_root, self.OLD_VERSION))
+
+        gate = ip._doctor_version_gate(self.cfg)
+
+        self.assertEqual(gate["state"], "drift")
+        self.assertIn(self.ADVISORY, gate["report"])
 
 
 if __name__ == "__main__":

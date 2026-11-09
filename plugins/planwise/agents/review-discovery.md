@@ -12,9 +12,10 @@ description: >
 # file on disk, and no dedicated file tool produces one (see
 # references/native-tool-use.md, "The One Sanctioned Count"). This agent runs
 # that measurement once per review so every reviewer cites one measured number
-# instead of each deriving its own. Bash is for those counts, and for running
-# each count anchor's Before command once (Step 4), and nothing else here —
-# listing, viewing, and searching route through Glob, Read, and Grep.
+# instead of each deriving its own. Bash is for those counts, for the one
+# token-estimate reconciliation run (Step 2b), and for running each count
+# anchor's Before command once (Step 4), and nothing else here — listing,
+# viewing, and searching route through Glob, Read, and Grep.
 tools: Read, Glob, Grep, Bash, Write
 # disallowedTools denies the rest of the default subagent tool set so those
 # schemas never load into this agent's context. Write is Step 5's fact-sheet
@@ -34,8 +35,9 @@ findings.
 
 The native-tool doctrine in `references/native-tool-use.md` applies to you
 unchanged: `Glob` lists, `Read` views, `Grep` searches. The shell is correct
-here only for the authoritative counts in Step 2 and the count-anchor
-executions in Step 4, which no dedicated tool produces.
+here only for the authoritative counts in Step 2, the token-estimate
+reconciliation in Step 2b, and the count-anchor executions in Step 4, which no
+dedicated tool produces.
 
 ## Inputs (from the spawn prompt)
 
@@ -79,6 +81,29 @@ a file in bytes and tokens rather than lines.
 > If a file cannot be measured, it gets a row in §4 (Unmeasured) with the
 > reason. A missing measurement is reported, never guessed.
 
+## Step 2b — Reconcile the token estimates
+
+Run the estimate checker once with `Bash`, from the project root:
+
+```bash
+python -B "{plugin_root}/scripts/estimate_reconcile.py" check "{plan_path}"
+```
+
+It compares each declared token figure with the figure it must equal, at
+every level: the task header against its context subtotal, each orchestration
+cell and total, each Sprint Plan session row, details row and header. Each
+output line names its level first. It prints one `MISMATCH` line per pair that
+differs by more than 10%, one `UNREAD` line per figure it could not parse, and
+a last line `estimates: sessions={n} mismatches={n} unread={n}`.
+
+Exit 0 means no mismatch. Exit 1 means at least one `MISMATCH` line, and it is
+a normal result, not a failed run. Exit 2 means a usage or read error.
+
+Copy the whole stdout verbatim into the sheet's Estimate Reconciliation
+section, with the exit code. Do not filter, summarise or judge the lines. A
+reviewer check reads them. If the run exits 2, or cannot start, also add a row
+to the Unmeasured table with `not run: {reason}`.
+
 ## Step 3 — Map the headings
 
 `Grep` each file for `^#{1,4} ` with line numbers, and record the `##`/`###`
@@ -113,7 +138,7 @@ Unmeasured table with `not run: {reason}`.
 `Write` the sheet to `fact_sheet_path` in this shape. Keys are stable: a
 reviewer cites a row as `review discovery fact sheet → {key}: {lines} lines`.
 
-```markdown
+````markdown
 # {abbrev} Review Discovery Fact Sheet — {YYYY-MM-DD}
 
 **Plan path:** {plan_path}
@@ -145,6 +170,14 @@ Kind vocabulary: `master-plan`, `sprint-plan`, `orchestration`,
 | `{key}` | `required_context` | `{cited path}` — KiB {n}, ~Tokens {n} |
 | `{key}` | `count_anchor` | `{command}` — plan {n}, executed {n} |
 
+## 3b. Estimate Reconciliation
+
+```
+{the verbatim stdout of estimate_reconcile.py check}
+```
+
+exit: {n}
+
 ## 4. Unmeasured
 
 | Key | Reason |
@@ -159,7 +192,7 @@ Cite a row by its key and the measured value. A finding whose own count
 differs from the row above MUST say that it re-measured, and give the command
 it ran — a differing number with no such statement reads as a silent
 override.
-```
+````
 
 ## Step 6 — Report
 

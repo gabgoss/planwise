@@ -36,13 +36,47 @@ This handler MUST use Claude Code's dedicated tools for all file operations:
 - **Read** to read plugin source files (references, seeds, templates)
 - **Write** to create files in the project
 - **Glob** to check if files already exist (skip if they do)
-- **Bash** ONLY for `mkdir -p` (directory creation)
+- **Bash** ONLY for `mkdir -p` (directory creation), the Step 0 `install_check.py` run, and the Step 0 `claude plugin install` command
 
 Do NOT use `cat`, `cp`, `sed`, `awk`, or other bash commands for file operations.
 
 ---
 
 ## Workflow
+
+### Step 0 — Verify the running plugin copy
+
+<!-- AUTO-MODE: critical -->
+Before anything is created, check which copy of planwise runs this handler. Claude Code can load planwise from a marketplace install, an account-synced copy or a `--plugin-dir` tree, and init pins whichever copy runs it into the new project. Here `{plugin_root}` is the plugin base directory that SKILL.md provides, and `{project_root}` is the current working directory.
+
+```bash
+python -B "{plugin_root}/scripts/install_check.py" --project-root "{project_root}" --refresh
+```
+
+The script reads `installed_plugins.json` and `known_marketplaces.json` under the Claude config directory and writes nothing. `--refresh` first runs `claude plugin marketplace update {marketplace}`. When the refresh fails, the script prints a `refresh failed:` line and the clone's `lastUpdated`, then checks against the clone as it is. It then prints one `INSTALL_CHECK: {verdict} ...` line, and a `reason:` line for any verdict other than `OK`. Show every line it prints to the user.
+
+| Verdict | Meaning | Action |
+|---|---|---|
+| `OK` | The running copy is the install that applies to this project, and it is not older than the marketplace | Continue to Step 1 |
+| `NOT_MARKETPLACE_INSTALL` | No planwise marketplace install applies to this project, or the one that applies is a different copy | Ask the question below |
+| `BEHIND_MARKETPLACE` | The running copy is this project's install, but the refreshed marketplace carries a newer version | Ask the question below |
+
+If the script exits non-zero or prints no `INSTALL_CHECK:` line, show its output and ask the same question without the install option.
+
+Use `AskUserQuestion`: "This planwise copy ({running_root}, version {running}) is not this project's current marketplace install: {reason}. Install planwise from the marketplace before init?"
+- **Install from the marketplace (Recommended)** — offer this only when the line's `marketplace_name` is not `none`.
+- **Continue with this copy** — a deliberate `--plugin-dir` dev run. Continue to Step 1, and Step 2 uses this copy's root.
+- **Cancel** — STOP. Nothing was created.
+
+On **Install**, run:
+
+```bash
+claude plugin install planwise@{marketplace_name} --scope {scope}
+```
+
+`{scope}` is the line's `scope=` value, or `project` when it reads `none`. If the call fails or the harness denies it, print the command and tell the user to run it with the `!` prefix. In both cases STOP here, and do not continue to Step 1, because this session still runs the old copy. Tell the user to type `/reload-plugins` (adding `--force` if it warns) and then run `/planwise init` again.
+
+**Auto Mode.** Never install unattended. On any verdict other than `OK`, print the script's lines and STOP.
 
 ### Step 1 — Gather project information
 
@@ -91,7 +125,7 @@ Store responses as:
 
 Try running the Python init script first. It handles directory creation, seed files, config generation, rule installation, and settings configuration (Agent Teams + plugin permissions) in one command.
 
-**Resolve `{plugin_root}`:** For first-time init, resolve the plugin root from this handler's known location (the plugin base directory provided by SKILL.md). For re-init, read `plugin_root` from the existing `config.yaml`.
+**Resolve `{plugin_root}`:** For first-time init, use the root that Step 0 verified as `OK`, or the copy the user chose to keep at Step 0. Either one is the plugin base directory that SKILL.md provides. For re-init, read `plugin_root` from the existing `config.yaml`.
 
 Run the script (append `--token-saver`, `--feedback-drafts` and `--feedback-enabled` only as Step 1 recorded them):
 

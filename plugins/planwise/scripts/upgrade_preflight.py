@@ -480,8 +480,35 @@ def render_next(branch: str, noop: bool, ctx: dict) -> list[str]:
     return lines
 
 
+INSTALL_RELAY = "Before step 1, show the user the ! line above. It never stops the upgrade."
+
+
+def install_lines(install: "dict | None") -> list[str]:
+    """The card's install_check header line, plus a `!` warning line on NOT_MARKETPLACE_INSTALL.
+
+    BEHIND_MARKETPLACE shows in the header only: the running copy is then the
+    project's install, so the plugin_root an upgrade writes is still correct."""
+    if install is None:
+        return ["install_check: unavailable"]
+    verdict = install.get("verdict") or "unavailable"
+    reason = install.get("reason") or "the running copy is this project's install"
+    lines = [f"install_check: {verdict} ({reason})"]
+    if verdict == "NOT_MARKETPLACE_INSTALL":
+        marketplace = install.get("marketplace")
+        if marketplace:
+            how = (f"claude plugin install planwise@{marketplace} --scope {install.get('scope') or 'project'}, "
+                   "then /reload-plugins and rerun /planwise upgrade")
+        else:
+            how = "install planwise from its marketplace, then /reload-plugins and rerun /planwise upgrade"
+        lines.append(f"! running copy is not the project's marketplace install ({reason}). "
+                     f"Running {install.get('running_root')}; applicable install "
+                     f"{install.get('install_path') or 'none'}. Install: {how}")
+    return lines
+
+
 def render_card(ctx: dict, rows: list, questions: list, transfers: list, found: dict, artifacts: list,
                 noop: tuple) -> str:
+    install = install_lines(ctx.get("install"))
     lines = [
         BEGIN,
         "UPGRADE CARD — read-only preflight, nothing was written",
@@ -491,6 +518,7 @@ def render_card(ctx: dict, rows: list, questions: list, transfers: list, found: 
         (f"token_saver: {'on' if ctx['token_saver'] else 'off'}    "
          f"feedback_drafts: {ctx['feedback_drafts'].replace('-', ' ')}    yaml: {ctx['yaml']}"),
         f"user settings: {ctx['user_settings'].as_posix()} ({ctx['user_step']})",
+        *install,
         "",
         f"Diverged rules ({len(rows)}):",
         "| filename | set | installed_sha256 | inline | agent |",
@@ -517,8 +545,11 @@ def render_card(ctx: dict, rows: list, questions: list, transfers: list, found: 
     else:
         lines.append("Recovery artifacts: none")
     lines.append("")
-    lines += render_next(ctx["branch"], noop[0], {**ctx, "questions": questions,
-                                                  "any_agent": any(r["agent"] == "yes" for r in rows)})
+    next_lines = render_next(ctx["branch"], noop[0], {**ctx, "questions": questions,
+                                                      "any_agent": any(r["agent"] == "yes" for r in rows)})
+    if len(install) > 1:
+        next_lines.insert(1, INSTALL_RELAY)  # the card path reads only NEXT, so the relay lives here
+    lines += next_lines
     lines.append(END)
     return "\n".join(lines)
 
@@ -534,6 +565,22 @@ def yaml_state() -> str:
         return f"absent (install: {pyyaml_remedy.pyyaml_install_command()})"
     except Exception:  # noqa: BLE001 - the field is informational
         return "absent"
+
+
+def install_state(plugin_root, project_root) -> "dict | None":
+    """The offline install_check verdict for the running copy, or None when the check fails.
+
+    Reads the install record only, with the config directory from
+    install_check.default_config_dir(), so CLAUDE_CONFIG_DIR is honoured. The
+    card never refreshes the marketplace clone. A failure returns None, so a bad install
+    record prints `install_check: unavailable` instead of turning the whole
+    card into the fallback line."""
+    try:
+        import install_check
+
+        return install_check.check(plugin_root, project_root, install_check.default_config_dir())
+    except Exception:  # noqa: BLE001 - the field is informational; it must never drop the card
+        return None
 
 
 def build_card(rest: list[str]) -> str:
@@ -562,6 +609,7 @@ def build_card(rest: list[str]) -> str:
         "pair": pair, "branch": branch, "token_saver": cfg.token_saver, "yaml": yaml_state(),
         "user_settings": user_settings, "user_step": user_step,
         "feedback_drafts": config_gen.drafts_key_state(config),
+        "install": install_state(cfg.plugin_root, project_root),
         "config_rel": config_path.relative_to(project_root).as_posix()
         if project_root in config_path.parents else config_path.as_posix(),
     }

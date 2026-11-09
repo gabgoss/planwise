@@ -118,6 +118,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 109 — Per-File Requirement in Notes for Agent With No Per-File Command in the Creating Task → references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md §16.18
 - Check 023 — Task DELEGATED Context Boundary Leak → references/agent-orchestration-delegated.md §1.3
 - Check 024 — Task Token-Estimate Arithmetic Gate → references/session-context-budget.md Token Estimate Reconciliation
+- Check 132 — Session and Sprint Token-Estimate Rollup Gate (reads the review discovery fact sheet's Estimate Reconciliation section) → references/session-context-budget.md Token Estimate Reconciliation
 - Check 025 — Task Re-Glob Live Counts Before Authoring → references/task-content-fidelity.md §9.A.4
 - Check 026 — Task Consolidation 1.5-2× Budgeting → references/task-content-fidelity.md §9.A.5
 - Check 027 — Task Generator-Script Pattern (≥100-file Walks) → references/task-content-fidelity.md §9.A.6

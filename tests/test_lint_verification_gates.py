@@ -64,11 +64,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 # exists to produce -- do not add a stub to silence it.
 import lint_verification_gates as lint_module
 from lint_verification_gates import (
+    _PLUGIN_ROOT,
     ALLOWED_EXECUTABLES,
     _count_line_and_occurrence_totals,
     _lint,
     coverage_line,
     extract_commands,
+    gate_counts,
     lint_plan,
     run_command,
 )
@@ -568,6 +570,52 @@ class TestPlaceholderInsideQuotedSpan(unittest.TestCase):
         after_gates = [c for c in commands if c.command.startswith("grep")]
         self.assertEqual(len(after_gates), 1)
         self.assertTrue(after_gates[0].is_placeholder)
+        self.assertEqual(findings, [])
+
+
+class TestPluginRootGateIsLinted(unittest.TestCase):
+    """A gate that keeps the literal ``{plugin_root}`` token is resolved
+    against the linter's own plugin root, so it stays in the coverage
+    denominator and in front of the static checks. Every other template slot
+    still marks the gate as a placeholder."""
+
+    L1 = 'python -B "{plugin_root}/scripts/measure_files.py" out.md   # expect OK'
+    L2 = "python -B --version   # expect OK"
+
+    def _run(self, gate_line):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_root = Path(tmp)
+            _write_task(plan_root, [gate_line])
+            findings, context = _lint(plan_root, execute=False)
+        return findings, context
+
+    def test_plugin_root_gate_counts_and_meets_check2_like_its_plain_twin(self):
+        findings, context = self._run(self.L1)
+        twin_findings, twin_context = self._run(self.L2)
+        self.assertEqual(gate_counts(context)[0], 1)
+        self.assertEqual(gate_counts(twin_context)[0], 1)
+        self.assertEqual(_severities_for_check(findings, 2), ["WARNING"])
+        self.assertEqual(_checks_present(findings), _checks_present(twin_findings))
+
+    def test_plugin_root_gate_is_resolved_and_raw_keeps_the_token(self):
+        _, context = self._run(self.L1)
+        gates = [c for c in context.commands if c.is_gate]
+        self.assertEqual(len(gates), 1)
+        self.assertFalse(gates[0].is_placeholder)
+        self.assertIn(_PLUGIN_ROOT, gates[0].command)
+        self.assertNotIn("{plugin_root}", gates[0].command)
+        self.assertIn("{plugin_root}", gates[0].raw)
+
+    def test_unknown_placeholder_is_still_skipped(self):
+        findings, context = self._run("grep -c '{ABBREV}_BASE' out.md   # expect 1")
+        self.assertEqual(gate_counts(context)[0], 0)
+        self.assertEqual(findings, [])
+
+    def test_plugin_root_beside_an_unknown_placeholder_stays_a_placeholder(self):
+        findings, context = self._run(
+            'grep -c \'{ABBREV}\' "{plugin_root}/scripts/out.md"   # expect 1'
+        )
+        self.assertEqual(gate_counts(context)[0], 0)
         self.assertEqual(findings, [])
 
 

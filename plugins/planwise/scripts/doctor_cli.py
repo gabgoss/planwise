@@ -552,8 +552,49 @@ def _read_configured_plugin_root(config_path: "Path") -> "Path | None":
     return Path(value) if value else None
 
 
+def _install_check_advisory(cfg: "InitConfig") -> str | None:
+    """One advisory line when the running copy is not the project's marketplace install.
+
+    Reads the install record offline through install_check.check(), with the
+    config directory from install_check.default_config_dir(), so
+    CLAUDE_CONFIG_DIR is honoured. Doctor never passes --refresh: the network
+    call belongs to init. Returns None for any other verdict, and None when the
+    module is missing or the check raises, so a failure drops the advisory and
+    never the gate."""
+    try:
+        import install_check
+
+        result = install_check.check(
+            cfg.plugin_root, cfg.project_root, install_check.default_config_dir()
+        )
+    except Exception:  # noqa: BLE001 -- an advisory must never fail the gate
+        return None
+    if result.get("verdict") != "NOT_MARKETPLACE_INSTALL":
+        return None
+    install_path = result.get("install_path") or "none"
+    return (
+        "  ~ Advisory: running copy is not the project's marketplace install "
+        f"({result.get('reason', '')}). Running {result.get('running_root')}; "
+        f"applicable install {install_path}. This never stops the gate."
+    )
+
+
 def _doctor_version_gate(cfg: "InitConfig") -> dict:
     """Read-only plugin version-state preflight for /planwise doctor.
+
+    Returns _doctor_version_state(cfg), with one advisory line appended to its
+    report when the running copy is not the project's marketplace install
+    (_install_check_advisory). The advisory never changes `state`, so every
+    caller's stop-or-proceed decision and doctor's exit code are unchanged."""
+    gate = _doctor_version_state(cfg)
+    advisory = _install_check_advisory(cfg)
+    if advisory:
+        gate["report"] = gate["report"] + "\n" + advisory
+    return gate
+
+
+def _doctor_version_state(cfg: "InitConfig") -> dict:
+    """The version-state body of the doctor preflight (see _doctor_version_gate).
 
     Compares the project's pinned plugin_version against the installed plugin
     (cfg.plugin_version, from read_plugin_version() against the LIVE plugin

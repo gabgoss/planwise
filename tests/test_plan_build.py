@@ -274,6 +274,30 @@ def test_keys_refuses_an_unreadable_spec(tmp_path):
     assert run_script("keys", "--spec", str(tmp_path / "absent.json")).returncode == 2
 
 
+# A spec that json.loads cannot turn into a value: an integer past the 4,300-digit conversion limit
+# (ValueError), nesting deeper than the recursion limit (RecursionError), and plain malformed text.
+UNPARSEABLE_SPECS = {"huge-int": "1" * 5000, "deep-nesting": "[" * 100000, "bad": "{bad"}
+
+
+@pytest.mark.parametrize("payload", UNPARSEABLE_SPECS.values(), ids=UNPARSEABLE_SPECS.keys())
+@pytest.mark.parametrize("command", ["keys", "lint", "build"])
+def test_spec_load_errors_refuse_keys_lint_and_build(tmp_path, command, payload):
+    spec = tmp_path / "spec.json"
+    spec.write_text(payload, encoding="utf-8")
+    args = [command, "--spec", str(spec)]
+    if command in ("lint", "build"):
+        args += ["--bodies-dir", str(_write_bodies(tmp_path, bodies_set({})))]
+    if command == "build":
+        config = tmp_path / "config.yaml"
+        config.write_text("plans: plans\n", encoding="utf-8")
+        args += ["--out", str(tmp_path / "Exec-QZX"), "--config", str(config), "--skip-index"]
+    result = run_script(*args)
+    assert result.returncode == 2, (result.stdout, result.stderr)
+    assert "REFUSED: cannot read spec" in result.stdout
+    assert "Fix: pass a readable UTF-8 JSON spec." in result.stdout
+    assert "Traceback" not in result.stderr
+
+
 # ---- lint summary line
 
 def test_lint_summary_known_good_prints_keys_missing_zero(tmp_path, capsys, index):

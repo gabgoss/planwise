@@ -378,7 +378,7 @@ Sprint Plan header Estimated Tokens
 | Session total | Sum of task `Est. Tokens` = Orchestration `Total Estimated` | After writing orchestration |
 | Sprint total | Sum of session `Est. Tokens` = Sprint Plan header `Estimated Tokens` | After writing sprint plan |
 
-**Enforcement:** The `/planwise plan` handler's Step 8c computes estimates bottom-up. The `/planwise review` handler checks reconciliation as part of structural review. Template comments in orchestration, sprint plan, and task file templates remind the planner to verify.
+**Enforcement:** The `/planwise plan` handler's Step 8c computes estimates bottom-up. Its Step 9b (Post-Pass Harmonization) runs `estimate_reconcile.py check` over the scaffold. The `/planwise review` handler runs the same checker through the review discovery pass, and Reviewer Check 132 reads the result. Reviewer Check 024 covers the task-internal row. Template comments in orchestration, sprint plan, and task file templates remind the planner to verify.
 
 #### Reviewer Check 024 — Task Token-Estimate Arithmetic Gate
 
@@ -391,6 +391,23 @@ Sprint Plan header Estimated Tokens
 File: {task file path} | Location: Header Estimated Tokens vs Required Context subtotal
 Issue: Header "{header_value}" deviates {deviation_pct}% from subtotal "{subtotal_value}"
 Fix: Reconcile per references/session-context-budget.md Token Estimate Reconciliation | Confidence: HIGH
+```
+
+#### Reviewer Check 132 — Session and Sprint Token-Estimate Rollup Gate
+
+- **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
+- **What:** Each session total and sprint total equals the figures it rolls up from, within 10%. The pairs are the session and sprint rows of the reconciliation table above: orchestration task-list cells against task headers, the orchestration `Total Estimated` against its cells, the Sprint Plan session row against the orchestration total, and the Sprint Plan header against its session rows.
+- **Detection:** Read the review discovery fact sheet's Estimate Reconciliation section. It holds the verbatim output of `estimate_reconcile.py check` and its exit code. The script already drops any drift at or under 10%.
+  - Each `MISMATCH` line whose level is not `task` → one BLOCKER. Check 024 owns the `task` level, so skip those lines here.
+  - Any `UNREAD` lines → one WARNING that lists them. An `UNREAD` line does not change the exit code, so exit 0 can still carry one.
+  - A `sessions=0` total line → not applicable, no finding.
+  - The section is missing, or reads `exit: 2` → report it to the lead as an unrun check, never as a plan finding.
+- **Finding template:**
+```
+[BLOCKER] Session or sprint token-estimate rollup gate failed
+File: {file from the MISMATCH line} | Location: line {line}, level {level}
+Issue: Declared "{declared}" but the figures it rolls up from total "{expected}" ({pct}% drift)
+Fix: Reconcile per references/session-context-budget.md Token Estimate Reconciliation, then re-run estimate_reconcile.py check | Confidence: HIGH
 ```
 
 ### Context Accumulation Formula

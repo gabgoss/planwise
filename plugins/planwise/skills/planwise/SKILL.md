@@ -92,6 +92,7 @@ Available subcommands:
                                stale/diverged rules, orphaned agent mirrors, index drift,
                                feedback capability, upgrade leftovers, and (Token Saver)
                                overhead staleness, read-gate scan, read-limit drift
+  doctor --verbose             Also list each acknowledged over-scoped rule and its reason
   doctor --prune-stale         Delete stale de-scoped rules flagged REMOVABLE (writer; opt-in)
   doctor --prune-upgrade-leftovers  Delete past-upgrade backups and caches flagged prunable (writer; opt-in)
   doctor --create-feedback-dir Create the missing feedback drafts directory (writer; opt-in)

@@ -196,6 +196,14 @@ python -B "{plugin_root}/scripts/scaffold_deviations.py" check {exec_dir}
 
 `{exec_dir}` is the plan's `Exec-{Abbrev}/` folder for a scaffold pass. For a standard pass, which has no `Exec-` folder, it is the plan's own folder, `{plans_dir}/{PlanName}/`. The gate grades Class C only when the folder is named `Exec-{Abbrev}`, so a standard pass always reports `C=0`. The gate prints one `CLASS_A`, `CLASS_B` or `CLASS_C` line per deviation, then a final `deviations: A=<n> B=<n> C=<n>` line. Exit 0 means clean, and exit 1 means deviations were found. Exit 2 means the path is missing or not a folder, a template is unreadable (`ERROR: template unreadable`), or a plan file is unreadable or not UTF-8 (`ERROR: cannot read plan file <path>`). The gate does not grade the conditional `##` headings or the `###` headings, so the orchestrator runs the Class A row's `Grep` sweep for them on both paths. Step 9's confirmation block records the gate's `deviations:` total line and the result of that `Grep` sweep.
 
+**A second script reconciles the token estimates, on both paths.** After the deviation gate, the orchestrator runs:
+
+```
+python -B "{plugin_root}/scripts/estimate_reconcile.py" check {exec_dir}
+```
+
+It reads every estimate level that `references/scaffolding-hygiene.md` §11 lists, from each task header to the Sprint Plan header. It prints one `MISMATCH` line per drift above 10%, then `estimates: sessions=<n> mismatches=<m> unread=<u>`. Exit 1 means a mismatch, and exit 2 a usage or read error. Repair a mismatch where this step repairs a deviation, then run the check again. Outside the default path, `token_saver.py --scan --plan {plan_path} --write-estimates --task {task file}` re-rolls a task's figures. Step 9's confirmation block records the `estimates:` line and names each `UNREAD` line.
+
 > [!constraint] The Output-Naming Scheme Is a Pass-Level Decision, Not a Per-Sprint One
 > Task-output filenames may number by **task** ordinal or by **session** ordinal. Either is fine. Mixing the two across sprints in one pass is not.
 >

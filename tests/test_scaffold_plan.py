@@ -339,6 +339,23 @@ def test_render_refuses_a_non_empty_out(tmp_path):
     shutil.rmtree(fresh)
 
 
+# A spec that json.loads cannot turn into a value: an integer past the 4,300-digit conversion limit
+# (ValueError), nesting deeper than the recursion limit (RecursionError), and plain malformed text.
+UNPARSEABLE_SPECS = {"huge-int": "1" * 5000, "deep-nesting": "[" * 100000, "bad": "{bad"}
+
+
+@pytest.mark.parametrize("payload", UNPARSEABLE_SPECS.values(), ids=UNPARSEABLE_SPECS.keys())
+def test_render_and_lint_spec_refuse_an_unparseable_spec(tmp_path, capsys, payload):
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(payload, encoding="utf-8")
+    out = tmp_path / "out"
+    assert sp.main(["render", "--spec", str(spec_path), "--out", str(out)]) == 2
+    assert "REFUSED: cannot read spec" in capsys.readouterr().out
+    assert not out.exists()
+    assert sp.main(["lint-spec", "--spec", str(spec_path)]) == 2
+    assert "ERROR: cannot read spec" in capsys.readouterr().out
+
+
 # ---- review fixes: one known-good and one known-bad case per correctness finding
 
 def _bare_env():

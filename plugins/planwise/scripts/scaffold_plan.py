@@ -1346,7 +1346,9 @@ def check_scope_lines(paths):
 def load_spec(path):
     try:
         return json.loads(Path(path).read_bytes().decode("utf-8")), None
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+    # ValueError covers UnicodeDecodeError, JSONDecodeError and the integer digit limit;
+    # RecursionError covers nesting deeper than the interpreter's recursion limit.
+    except (OSError, ValueError, RecursionError) as exc:
         return None, f"cannot read spec {path}: {exc}"
 
 

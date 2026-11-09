@@ -125,6 +125,13 @@ _INLINE_CODE_RE = re.compile(r"`([^`]+)`")
 # author had written a real gate there.
 _PLACEHOLDER_RE = re.compile(r"\{[^{}]*\}|<[^<>\s][^<>]*>")
 
+# The one template slot the linter can resolve: a task file keeps the literal
+# token in its gates, and the dispatcher fills it with the root of the plugin
+# the linter itself runs from. Resolving it keeps such a gate in the coverage
+# denominator and in front of the static checks instead of skipping it.
+_PLUGIN_ROOT_TOKEN = "{plugin_root}"
+_PLUGIN_ROOT = Path(__file__).resolve().parent.parent.as_posix()
+
 # A command-shaped inline span: a bare lowercase executable name followed by at
 # least one argument. A bare path, a table cell, and a lone token are not
 # commands and must not be treated as though somebody meant to run them.
@@ -200,7 +207,9 @@ class ExtractedCommand:
     comment removed. It is never whitespace-normalised, unquoted, or rewritten:
     a check that looks for a missing flag reads the text as the author typed
     it, so normalising here would destroy the evidence the checks depend on.
-    ``raw`` keeps the whole source line, comment included.
+    The one exception is the ``{plugin_root}`` token, which is replaced with
+    the plugin root. Nothing else changes. ``raw`` keeps the whole source line,
+    comment and token included.
     """
 
     file: str
@@ -259,6 +268,7 @@ def _build_command(line: str, rel: str, path: Path, number: int, block: str):
     scan = _scan(line)
     head = line if scan.comment_at < 0 else line[: scan.comment_at]
     comment = "" if scan.comment_at < 0 else line[scan.comment_at:].strip()
+    head = head.replace(_PLUGIN_ROOT_TOKEN, _PLUGIN_ROOT)
     command = head.rstrip()
     if not command.strip():
         return None
@@ -274,7 +284,9 @@ def _build_command(line: str, rel: str, path: Path, number: int, block: str):
         # template placeholder ({ABBREV}, {NN}) normally lives inside a
         # quoted grep pattern, and the masking pass blanks quoted spans to
         # spaces -- which would make exactly that, the normal place for a
-        # placeholder to live, invisible to this check.
+        # placeholder to live, invisible to this check. `{plugin_root}` is
+        # resolved above first; any other {...} or <...> slot still marks the
+        # gate as a placeholder.
         is_placeholder=bool(_PLACEHOLDER_RE.search(head)),
     )
 

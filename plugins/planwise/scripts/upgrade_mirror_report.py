@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import sys
 
+from doctor_sweeps import format_overscope_ack_footer, split_acknowledged
+
 PRUNE_LINE = "  remove the REMOVABLE set with: /planwise doctor --prune-stale"
 
 
@@ -52,6 +54,10 @@ def emit_overscope_advisory(cfg, lint) -> None:
     """Run `lint(cfg)` and print the over-scope advisory. Never raises.
 
     The advisory lists installed rules scoped to plan/backlog/lessons globs.
+    A rule whose finding carries a non-empty ``ack_reason`` is acknowledged:
+    it leaves the full list and is counted in one footer line, the same line
+    `/planwise doctor` prints. A finding without the key stays unacknowledged.
+    When every flagged rule is acknowledged, only the footer prints.
     Nothing prints until the whole block is built, so a raise leaves stdout
     untouched and costs one stderr warning. The caller's exit code holds.
     """
@@ -59,15 +65,22 @@ def emit_overscope_advisory(cfg, lint) -> None:
         overscoped = lint(cfg)
         if not overscoped:
             return
-        total_tokens = sum(item["approx_tokens"] for item in overscoped)
-        lines = ["Advisory — rules scoped to plan/backlog/lessons globs:"]
-        for item in overscoped:
-            lines.append(
-                f"  ~ {item['path']} ({item['line_count']} lines, "
-                f"~{item['approx_tokens']} tokens; matches {item['matched_glob']})"
-            )
-            lines.append("      hint: re-scope to code paths or convert to a handler-loaded reference")
-        lines.append(f"  Total always-on injected budget from flagged rules: ~{total_tokens} tokens")
+        unacked, acked = split_acknowledged(overscoped)
+        footer = format_overscope_ack_footer(acked)
+        if not unacked:
+            lines = [footer]
+        else:
+            total_tokens = sum(item["approx_tokens"] for item in overscoped)
+            lines = ["Advisory — rules scoped to plan/backlog/lessons globs:"]
+            for item in unacked:
+                lines.append(
+                    f"  ~ {item['path']} ({item['line_count']} lines, "
+                    f"~{item['approx_tokens']} tokens; matches {item['matched_glob']})"
+                )
+                lines.append("      hint: re-scope to code paths or convert to a handler-loaded reference")
+            if footer:
+                lines.append(f"  {footer}")
+            lines.append(f"  Total always-on injected budget from flagged rules: ~{total_tokens} tokens")
     except Exception as exc:  # noqa: BLE001 -- never change the exit code
         print(f"  Warning: rule overscope advisory raised unexpectedly: {exc}",
               file=sys.stderr)

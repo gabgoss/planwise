@@ -42,6 +42,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
@@ -180,6 +181,15 @@ class _ConfigFixtureBase(unittest.TestCase):
             plugin_root=self.plugin_root,
             plan_tier="max",
         )
+
+        # The doctor gate reads the install record under CLAUDE_CONFIG_DIR.
+        # Point it at an empty fixture folder so no case reads the host's
+        # real ~/.claude/plugins/installed_plugins.json.
+        env_patch = mock.patch.dict(
+            "os.environ", {"CLAUDE_CONFIG_DIR": str(self.tmp / "claude-config")}
+        )
+        env_patch.start()
+        self.addCleanup(env_patch.stop)
 
     def config_path(self) -> Path:
         return self.planwise_dir / "config.yaml"
@@ -704,6 +714,20 @@ class TestDoctorConfigParseCheck(_ConfigFixtureBase):
         self.assertEqual(code, 0)
         self.assertIn("Version drift", out)
         self.assertIn("project.backlog_dir", out)
+
+    def test_install_check_advisory_keeps_the_doctor_exit_code(self):
+        """The install-check advisory prints under a stopping gate state and
+        changes neither the state nor doctor's exit code."""
+        self.write_config('plugin_version: "0.0.1"\nproject:\n  name: "Fixture"\n')
+        buf = io.StringIO()
+
+        with contextlib.redirect_stdout(buf):
+            code = ip._run_doctor(self.cfg)
+
+        out = buf.getvalue()
+        self.assertEqual(code, 0)
+        self.assertIn("Version drift", out)
+        self.assertIn("running copy is not the project's marketplace install", out)
 
     def test_version_gate_stays_green_on_a_bricked_config(self):
         """The regression this stage exists for: the gate cannot see the break."""

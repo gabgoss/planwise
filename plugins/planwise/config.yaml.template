@@ -169,7 +169,8 @@ feedback:
   # NEVER derived from your own git remote — that would file planwise
   # issues in your project's repo.
   repo: "gabgoss/planwise"
-  # Include the auto-filled Environment block (plugin version, subcommand).
+  # Include the auto-filled Environment block (plugin version, subcommand, OS and shell).
+  # false omits the block from every posted issue and comment body.
   # No project file contents, paths, or config values are ever attached.
   include_environment: true
   # Claude-drafted feedback. notify prints one line per draft, quiet writes
