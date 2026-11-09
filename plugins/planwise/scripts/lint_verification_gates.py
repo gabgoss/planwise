@@ -2009,6 +2009,10 @@ from lint_gate_checks_dispatch import CHECKS as _DISPATCH_CHECKS
 
 CHECK_REGISTRY.extend(_DISPATCH_CHECKS)
 
+from lint_gate_checks_measure import CHECKS as _MEASURE_CHECKS
+
+CHECK_REGISTRY.extend(_MEASURE_CHECKS)
+
 
 # ---------------------------------------------------------------------------
 # CLI
