@@ -12,56 +12,24 @@ paths: {planwise_root}/{plans_dir}/**
 
 ### 8.8 After a behavior change, sweep the surfaces that describe and call it
 
-A behavior change lands on surfaces beyond the code that implements it. **The tests cover the code. Nothing covers the metadata that *describes* the code, or the document that *invokes* it.** Both can therefore be left asserting the old behavior with the suite fully green — and both are read as authoritative: the metadata by tooling and by the next author, the document by the user following it.
+A behavior change lands on surfaces beyond the code that implements it. **The tests cover the code. Nothing covers the metadata that *describes* the code, or the document that *invokes* it.** Both can be left asserting the old behavior with the suite fully green. Both are read as authoritative: the metadata by tooling and by the next author, the document by the user following it.
 
-§8.7 asks whether a gate can fail. This section asks a prior question: whether the change was even applied everywhere it is stated. Sub-rules A–C are one sweep, in causal order — C only ever arises as a consequence of acting on B, so they are not separable. Sub-rules D and E are the same discipline turned on **data cleanup** rather than behavior change: where A–C ask which surfaces still *describe* the old behavior, D asks which surface is still *producing* the old data, and E asks whether the new data actually took the shape the destination scheme defines.
+§8.7 asks whether a gate can fail. This section asks a prior question: whether the change was applied everywhere it is stated. The ten sub-rules turn one sweep on five subjects:
 
-Sub-rules F–H turn it on a third subject: **a claim whose truth changed.** Closing an item, retracting a finding, and deleting a quoted sentence each falsify statements recorded elsewhere, and every one of those statements was correct when written — so no reviewer of those files flags anything. They are wrong only relative to a change made elsewhere, later.
-
-Sub-rule I turns it on a fourth subject: **a rule re-keyed from one source to another**, whose consumers sit in two media. Code that calls the shared function inherits the change, and prose that restates the rule does not.
-
-Sub-rule J turns it on a fifth subject: **a module split into a facade plus siblings.** The census of names the facade must keep resolving is itself a sweep, and a census read from code alone is too small.
+- **A–C, a behavior change.** They are one sweep, in causal order. C arises only as a consequence of acting on B.
+- **D–E, a data cleanup.** D asks which surface is still *producing* the old data. E asks whether the new data took the shape the destination scheme defines.
+- **F–H, a claim whose truth changed.** Closing an item, retracting a finding and deleting a quoted sentence each falsify statements recorded elsewhere. Each statement was correct when written, so no reviewer of those files flags anything.
+- **I, a rule re-keyed from one source to another.** Its consumers sit in two media. Code that calls the shared function inherits the change, and prose that restates the rule does not.
+- **J, a module split into a facade plus siblings.** The census of names the facade must keep resolving is itself a sweep, and a census read from code alone is too small.
 
 > [!constraint] A — Update the field, not just the prose beside it
-> WRONG — the fix updates the human-readable half and leaves the machine-readable half asserting the old behavior. The row now asserts two contradictory things about the same key, and the authoritative half is the false one:
-> ```yaml
->   - id: <some_key>
->     <field>: <old_value>        # ← still says the old behavior
->     notes: >
->       … the commit point now rewrites this key in the SAME write …   # ← says the opposite
-> ```
+> **Rule.** When a change alters behavior that a manifest, schema or frontmatter field describes, move the structured value too, not only the free-text `notes:` or `description:` beside it. A row whose prose was fixed and whose field was not asserts two contradictory things, and the authoritative half is the false one. Three ordered steps:
 >
-> CORRECT — the field moves too, a truthful value is **added** when none exists, and the siblings are swept:
-> ```yaml
-> # (enum gains a definition comment in the file's own style)
-> #   <new_value>: <definition of what this actually means>
+> 1. **Find the field, not just the prose.** Search the manifests, schemas and frontmatter for the artifact you changed, and read the **structured** values. The enum, boolean or path-glob is the half that tooling and the next author read as authoritative, and it is the half that gets left behind.
+> 2. **If no legal value is true, add one — do not round to the nearest.** Check what consumes the field first. A value that is inert to code but wrong to a reader is a documentation defect. A value that drives a loop is a runtime defect. Then add the value to the declared enum **and** write its definition comment in the file's established style. Picking the least-wrong existing value encodes a second, subtler lie in a field that now looks deliberately chosen.
+> 3. **Audit every sibling row carrying the value you just abandoned.** The reason your row was wrong usually applies to its neighbours. **This is the step that pays.** A sibling can have been false since before your change existed, and nothing but this sweep will surface it.
 >
-> <enum_key>: [<existing values>, <new_value>]
->
->   - id: <some_key>
->     <field>: <new_value>
->   - id: <paired_key>
->     <field>: <new_value>   # ← sibling audit: was false before this fix, too
-> ```
->
-> Three ordered steps:
->
-> **(a) Find the field, not just the prose.** Grep the manifests, schemas and frontmatter for the artifact you changed, and read the **structured** values. Free-text `notes:` / `description:` are the easy half — they read as commentary and an author updates them by reflex. The enum, boolean or path-glob two lines above is the half that reads as authoritative to tooling and to the next author, and it is the half that gets left behind.
->
-> **(b) If no legal value is true, add one — do not round to the nearest.** Check what consumes the field first: a value that is inert to code but wrong to a reader is a documentation defect; one that drives a loop is a runtime defect. Then add the value to the declared enum **and** write its definition comment in the file's established style. Picking the least-wrong existing value is not a smaller fix than adding one — it encodes a second, subtler lie in a field that now looks deliberately chosen.
->
-> **(c) Audit every sibling row carrying the value you just abandoned.** The reason your row was wrong usually applies to its neighbours. **This is the step that pays.** A sibling written by the same mechanism can have been false since before your change existed — no current task owns it, no test covers it, and nothing but this sweep will surface it. Your fix did not cause it; your fix created the occasion to notice it.
->
-> When nothing in code validates the field, verify it by hand:
-> ```bash
-> python -c "
-> import yaml; d=yaml.safe_load(open('<manifest>',encoding='utf-8'))
-> enum=set(d['<enum_key>'])
-> print('off-enum:', [a['id'] for a in d['artifacts'] if a.get('<field>') not in enum] or 'NONE')
-> print('grouped:', {v: [a['id'] for a in d['artifacts'] if a.get('<field>')==v] for v in enum})
-> "
-> ```
-> The **grouped** half matters as much as the off-enum half. Off-enum catches a value that is illegal; grouped catches a value that is legal and false — it puts an inherited wrong value directly beside its correct peers, which is the only cheap way to see it.
+> When nothing in code validates the field, check it by hand in two halves. **Off-enum** catches a value that is illegal. **Grouped** lists each legal value beside the rows that carry it, which catches a value that is legal and false. For the plugin's own `manifests/artifacts.yaml`, `tests/test_artifacts_manifest.py` pins the enum half. No test pins the grouped half, so it stays a check by hand.
 
 > [!constraint] B — A detection plus a repair is not a remediation until something routes between them
 > Whenever a change adds "X detects a bad state" and "Y can fix it", the deliverable is **not done** until the path from X's recommendation to Y's execution has been traced end to end and shown to be walkable. State the trace explicitly. Do not infer it from the fact that both halves exist and both are tested — that is exactly the evidence that is available when the loop is still open.
@@ -85,116 +53,72 @@ Sub-rule J turns it on a fifth subject: **a module split into a facade plus sibl
 > ```
 
 > [!constraint] C — A previously-unreachable branch is unproven code, regardless of its age or test count
-> Fixing a gate per sub-rule B makes a dormant branch live. That is a **behavioral change to everything the branch touches** — the branch's age and the suite's green status say nothing about it, because until now it never ran.
+> Fixing a gate per sub-rule B makes a dormant branch live. That is a **behavioral change to everything the branch touches**. The branch's age and the suite's green status say nothing about it, because until now it never ran.
 >
-> Before declaring it done, walk the branch line by line against every input the newly-routed caller can supply — flags, options, environment — and ask what the branch does with each. **Anything set up after the point where that branch returns is, by construction, not applied there.**
-> ```python
->     if pinned_version == target_version:
->         # This branch is now reachable. Everything below the gate — the opt-in
->         # flag application, the backfills — never runs here. Anything a caller
->         # can pass must be honored on THIS path or explicitly declared a no-op.
->         toggled = bool(cfg.opt_in_flag) and _apply_opt_in(config_path)
+> Before declaring it done, walk the branch line by line against every input the newly-routed caller can supply — flags, options, environment — and ask what the branch does with each. **Anything set up after the point where that branch returns is, by construction, not applied there.** Anything a caller can pass must be honored on that path or explicitly declared a no-op.
+>
+> The mechanical check is a set difference. Enumerate what the caller can request, enumerate what the branch performs before it returns, and subtract:
 > ```
->
-> The mechanical check is a set difference — enumerate what the caller can request, enumerate what the branch performs before it returns, and subtract:
-> ```bash
-> # 1. what the caller can ask for: every flag/option the entry point accepts
-> grep -nE 'add_argument|opt_in|--[a-z-]+' <entry_point> | sed 's/.*--//' | sort -u
-> # 2. what the newly-live branch actually does before returning
-> sed -n '<branch_start>,<return_line>p' <module> | grep -nE '_apply_|_backfill_|write|=' 
+> Grep  pattern='add_argument|opt_in|--[a-z-]+'  path='<entry_point>'  output_mode='content'   # 1. what the caller can ask for
+> Read  file_path='<module>'  offset=<branch_start>  limit=<branch_length>                      # 2. what the branch does before returning
 > ```
 > A non-empty difference is either a bug or a decision that needs stating — never a silent no-op.
 
 **Applies-to surface (sub-rules A–C).** Any change to behavior that a manifest, schema, frontmatter field or capability table also describes — **including when the field is documentation-only and no test can fail.** Any change pairing a new diagnostic with a new remediation. Any change relaxing a gate, guard or early return so a previously-dead branch begins executing. And any codebase where prose — a handler, a runbook, a documented command sequence — is the caller of record for a script: there the document's conditions must be edited in the same change as the code's, or the code's new capability is unreachable in practice.
 
 > [!constraint] D — Grep for the instruction that regenerates the defect, not only for its instances
-> A cleanup item enumerates **instances**: the records carrying the superseded form, the call sites using the removed API, the rows holding the stale value. Before executing one, sweep for the **instruction** — the template, seed, spec, handler, authoring reference, or root project file that still tells someone to produce the old form — and bring it into the item's scope. **A migration whose source keeps emitting the old form is not a fix; it is a pause.**
+> A cleanup item enumerates **instances**: the records carrying the superseded form, the call sites using the removed API, the rows holding the stale value. Before executing one, sweep for the **instruction** — the template, seed, spec, handler, authoring reference, or root project file that still tells someone to produce the old form — and bring it into the item's scope. **A migration whose source keeps emitting the old form is not a fix. It is a pause.**
 >
-> Where the instruction lives is the operative detail, because it is never where the instances are. Instances sit in the data corpus; the instruction sits in a template, a seed, a handler, an authoring reference, or a root project file injected into every session. **Scoping the sweep to the corpus the item names is therefore precisely how the instruction is missed** — that corpus is the one place guaranteed not to contain it.
+> Instances sit in the data corpus. The instruction sits in a template, a seed, a handler, an authoring reference, or a root project file injected into every session. **Scoping the sweep to the corpus the item names is therefore precisely how the instruction is missed.** That corpus is the one place guaranteed not to contain it.
 >
-> WRONG — the sweep is scoped to the records the item enumerated, and the item closes on its own arithmetic:
-> ```
-> Grep  pattern='<old-key>'  path='<the corpus the item enumerated>'
-> → 11 hits, all 11 migrated, done.
-> ```
-> CORRECT — sweep the whole repo, then triage every hit by whether it **stores** the old form or **mandates** it:
-> ```
-> Grep  pattern='<old-key>'  path='<repo root>'  output_mode='content'  -n=true
-> → triage each hit:
->     an INSTANCE (a record carrying the old form)      → migrate; this is the item's stated scope
->     a MANDATE   (a live instruction to write it)      → fix HERE — it regenerates the defect
->     a TEMPLATE  (ships the old form to consumers)     → fix HERE — it regenerates it downstream too
->     a SPEC      (defines the old form as correct)     → deprecate or realign
-> ```
+> Run the `Grep` over the whole repository, not over the corpus the item enumerated. Then triage every hit by whether it **stores** the old form or **mandates** it:
 >
-> **A hit that instructs outranks a hit that merely stores.** Deferring the instruction to a follow-up does not split the work in half — it leaves a window in which the cleanup is actively being undone. The next write recreates a straggler, and the original item's acceptance criterion silently degrades from that moment on, having been true exactly once.
+> | Hit | Disposition |
+> |---|---|
+> | an INSTANCE (a record carrying the old form) | migrate. This is the item's stated scope |
+> | a MANDATE (a live instruction to write it) | fix here. It regenerates the defect |
+> | a TEMPLATE (ships the old form to consumers) | fix here. It regenerates the defect downstream too |
+> | a SPEC (defines the old form as correct) | deprecate or realign |
 >
-> **Corollary — deprecate rather than delete when the old form must stay readable.** Existing data still carries it, so the instruction becomes *"read this, never write it"*. That stops regeneration without breaking back-compatibility for records already written, and it keeps an account of a form the next reader will still encounter — which deleting the instruction outright would throw away.
+> **A hit that instructs outranks a hit that merely stores.** Deferring the instruction to a follow-up leaves a window in which the cleanup is actively being undone. The next write recreates a straggler, and the item's acceptance criterion silently degrades, having been true exactly once.
+>
+> **Corollary — deprecate rather than delete when the old form must stay readable.** Existing data still carries it, so the instruction becomes *"read this, never write it"*. That stops regeneration without breaking records already written, and it keeps an account of a form the next reader will still encounter.
 
 > [!constraint] E — Migrate the value FORM, not just the key
-> A spec that says *"move the value from the old key into the new one"* describes a **key** mapping and is silent on **shape**. Silence is not conformance. Read literally it is a two-key value swap — which satisfies the item's wording and every stated acceptance criterion while producing a field that no other record in the repo matches.
+> A spec that says *"move the value from the old key into the new one"* describes a **key** mapping and is silent on **shape**. Silence is not conformance. A verbatim transplant satisfies the item's wording and every stated acceptance criterion while producing a field that no other record in the repo matches.
 >
 > Two cheap checks, both against live artifacts rather than the item's prose:
 >
 > 1. **Read the destination scheme's own definition** — the template, seed or spec that states what shape the field holds. If it defines the field as an id and the source values are paths, the transplant is wrong however faithfully it follows the wording.
 > 2. **Read the records already written under the target scheme, and match them.** If the migrated rows will not look like their conformant peers, the migration is not finished.
 >
-> WRONG — the value is transplanted verbatim, and it was already rotting in the source:
-> ```yaml
-> # the destination scheme defines this field as an ID
-> <new-key>: path/to/<record>.md     # transplanted verbatim — and ALREADY STALE:
->                                    # the record it names was archived and moved
-> ```
-> CORRECT — the value is normalised into the shape the destination scheme defines:
-> ```yaml
-> <new-key>: <RECORD-ID>             # the id form every conformant record already carries;
->                                    # survives the record moving, which is why the scheme chose it
-> ```
+> **Treat staleness in the source values as an argument for normalising rather than transplanting.** When the old form has already broken for part of the set (3 of 11 stored paths named records that had since been archived), the data under migration is direct evidence that the old form is the wrong carrier.
 >
-> **Treat staleness in the source values as an argument for normalising rather than transplanting.** When the old form has already broken for part of the set under migration — 3 of 11 stored paths pointed at records that had since been archived — that is not an incidental data-quality nit to carry across faithfully. It is direct evidence, sitting in the very data being migrated, that the old form is the wrong carrier.
->
-> Report the form change in the closeout, so the human sees the migration did more than the spec's literal wording. And note what the criteria cannot do for you: acceptance criteria written in terms of **key names** ("the value now sits in the new field") **pass on a nonconformant value form**. They cannot detect this class at all, so the two reads above are the only check there is.
+> Report the form change in the closeout. Acceptance criteria written in terms of **key names** ("the value now sits in the new field") **pass on a nonconformant value form**. They cannot detect this class at all, so the two reads above are the only check there is.
 
 **Applies-to surface (sub-rules D–E).** Any item whose scope is enumerated instances of a superseded form — a frontmatter-key migration, a renamed field, a deprecated API's call sites, a normalisation pass over archived records. The sweep for the instruction is part of executing such an item, not a follow-up to it.
 
 > [!constraint] F — Closing an item is not complete until every artifact that recorded it open says otherwise
-> **Writing a claim down is distributed. Changing its truth is centralized.** A good runner records an open item wherever a reader might need it, which is exactly the behaviour you want. Closing it is one edit, in one file, by whoever owns that file. Nothing in the close touches the recording sites, and nothing errors.
+> **Writing a claim down is distributed. Changing its truth is centralized.** A good runner records an open item wherever a reader might need it. Closing it is one edit, in one file, by whoever owns that file. Nothing in the close touches the recording sites, and nothing errors.
 >
 > Required close sequence:
 >
-> ```
-> 1. BEFORE closing, Grep for the item's distinctive phrasings and list every site.
->    Do this FIRST — the phrasings are easiest to find while the open text is still in front of you.
+> 1. Before closing, `Grep` for the item's distinctive phrasings and list every site. Do this first, while the open text is still in front of you.
 > 2. Apply the substantive fix.
-> 3. Sweep every site to RESOLVED, carrying the evidence (what was checked, against what,
->    and the outcome) — not merely deleting the sentence.
-> 4. Re-run the Grep across the whole tree and confirm no live assertion survives.
->    Expect legitimate hits inside negations ("leaves NO open action item") and inside
->    labelled quotations in bookkeeping files; classify rather than blanket-fail.
+> 3. Sweep every site to RESOLVED, carrying the evidence (what was checked, against what, and the outcome), not merely deleting the sentence.
+> 4. Re-run the `Grep` across the whole tree and confirm no live assertion survives. Expect legitimate hits inside negations ("leaves NO open action item") and inside labelled quotations in bookkeeping files. Classify them rather than blanket-fail. **A sweep that fails on its own negations trains readers to ignore it.**
 > 5. Decrement any open-item tally the assertion fed, and if it reaches zero, say so explicitly.
-> ```
 >
-> Step 4's classify-don't-blanket-fail clause is load-bearing. **A sweep that fails on its own negations trains readers to ignore it.**
+> **These assertions are instructions to distrust, which is what raises this above tidiness.** A stale note that tells a designer to read it instead of the canonical entry routes that designer **away** from an entry that is in fact complete. That is strictly worse than a stale comment, which merely fails to help.
 >
-> **These assertions are instructions to distrust, which is what raises this above tidiness.** One resolved item left three live instructions behind: an Absorption note ending *"a designer working this claim must read this note, not the canonical entry"*, a `### Merged` table row asserting an unverified condition, and a finding ending *"This is the one open action item this task creates."* The edit was routed to the file's owner and verified on disk the same session. All three statements became false, and none changed — so the register now routed a downstream designer **away** from a canonical entry that was in fact complete. That is strictly worse than a stale comment, which merely fails to help.
+> **Keep the finding, change its status.** Deleting a finding loses the evidence that the limit existed. Flip OPEN → RESOLVED with the outcome, and state plainly when the premise turned out not to hold.
 >
-> **Keep the finding, change its status.** A cross-file constraint the decomposition could not satisfy is a real and reusable record, and deleting it loses the evidence that the limit exists. Flip OPEN → RESOLVED with the outcome, and state plainly when the premise turned out not to hold.
->
-> **Verification corollary — an agent's idle notification is not a completion signal.** One sweep dispatch reported idle with the target file byte-identical to its pre-instruction size (186 lines / 16,924 bytes). After a second prompt it measured 186 / 18,046 with the edit present. Two readings survive that evidence — the edit had not been written when the check ran, or it was in flight with the reply dropped — and the orchestrator cannot distinguish them from outside, since both present as "idle notification, deliverable absent from disk". **That indistinguishability is what selects the corrective.** Resuming the SAME agent is correct under both readings: under the first it does the missing work, and under the second a competent runner answers "already applied" rather than double-applying. Dispatching a *fresh* agent is wrong under both, because it re-reads everything and may race or duplicate. So check disk, resume the same agent, verify the landed artifact afterward, and treat a dropped reply as expected rather than exceptional. The general liveness reading of an idle notification is [agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md); what is specific here is that this step is what makes step 3 auditable.
+> **Verification corollary — an agent's idle notification is not a completion signal.** A sweep dispatch can report idle with its target file unchanged on disk. Two readings fit: the edit was not written yet, or it was in flight with the reply dropped. The orchestrator cannot tell them apart from outside. Resuming the SAME agent is correct under both readings, and dispatching a *fresh* agent is wrong under both, because it may race or duplicate. So check disk, resume the same agent, and verify the landed artifact afterward. The general liveness reading of an idle notification is [agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md); what is specific here is that this step is what makes step 3 auditable.
 
 > [!constraint] G — A retraction belongs inline at every citation site, not only at the original claim
-> A pointer of one clause — *"(justification superseded — see notice at §X)"* — is enough. What fails is placing it only where the claim was first made.
+> A pointer of one clause — *"(justification superseded — see notice at §X)"* — is enough. What fails is placing it only where the claim was first made. A task scoped to read named sections then reads a live citation of the finding, with the retraction outside the sections it was told to read.
 >
-> One Master Plan appended a supersession notice directly under its Empirical Baseline table, retracting three findings. Elsewhere in the same file a Binding Constraints section cited those findings as live. The consuming task was scoped to read *"§Expected Output + §Binding Constraints"* — the retraction is in neither. Not hidden, not far away, just outside the two sections it was told to read. Two other retracted findings were cited by two further constraints, so the same trap was set three times over.
->
-> **The tempting fix is wrong in the other direction.** When the retraction was routed in by hand, striking the whole constraint would have removed a requirement the new evidence makes *more* necessary:
->
-> | Half of the constraint | Disposition |
-> |---|---|
-> | **Requirement** — fresh temp dir per case, with teardown | **SURVIVES, and is strengthened.** Nondeterminism makes contamination *worse*: a leftover config file deterministically suppresses the auto-init branch in the next case, converting a flaky branch into a silently-wrong one |
-> | **Justification** — "a deterministic 10-file tree" | **RETRACTED.** 3 observations, 2 wrote the tree, 1 wrote nothing |
->
-> **A retraction invalidates a premise, not necessarily the rule the premise was used to argue for.**
+> **The tempting fix is wrong in the other direction.** Striking a whole constraint that cited a retracted finding can remove a requirement the new evidence makes *more* necessary. **A retraction invalidates a premise, not necessarily the rule the premise was used to argue for.**
 >
 > Four further rules:
 >
@@ -204,22 +128,14 @@ Sub-rule J turns it on a fifth subject: **a module split into a facade plus sibl
 > - **A retracted premise cited by a passing gate makes the gate's green result meaningless while looking identical to a real pass.**
 
 > [!constraint] H — Cite the load-bearing anchor, not the quotable prose
-> ```
-> WRONG — defend a decision with the sentence that reads best:
-> "…and §8.1 calls Read-output line numbers 'decorative, not authoritative'"
->    ← deleted one sprint later by the row whose whole job was to bound it
+> **Rule.** Defend a decision with the normative clause, and name file + section, so a reword is still findable. Do not defend it with the sentence that reads best. A citation of §8.1's scoped MUST survives. A quote of that section's vivid closing sentence does not, because a later pass deleted that sentence by design.
 >
-> CORRECT — defend it with the normative clause, and name file + section so a reword is still findable:
-> "…and §8.1's scoped MUST — 'A file's line count for a review finding MUST come
->  from `Bash` running `wc -l <path>`' — which the bounding row's paired gate asserts unchanged"
-> ```
->
-> **The two citations are not interchangeable, and the quotable one is the fragile one.** Quotable prose — the memorable closing sentence, the vivid phrase — is disproportionately likely to be the target of a later editing pass, precisely because vivid absolutes are what over-reach and get bounded. Here a sibling sprint **deleted the closing sentence by design** one day later: it was an unscoped absolute reaching past its own rule's scope, and bounding it was the entire point of that row. A closeout verifier grepping the flag's quoted evidence then gets 0 tree-wide — correct behaviour, reading as a vanished anchor. The dry, scoped MUST that reads like boilerplate is the load-bearing anchor and the one that survives.
+> **The two citations are not interchangeable, and the quotable one is the fragile one.** Vivid absolutes over-reach and get bounded, so quotable prose is disproportionately likely to be the target of a later editing pass. A closeout verifier grepping a flag's quoted evidence then gets 0 tree-wide: correct behaviour, reading as a vanished anchor. The dry, scoped MUST that reads like boilerplate is the load-bearing anchor and the one that survives.
 >
 > Four practical rules:
 >
 > - **Prefer the normative clause (MUST / MUST NOT) over the illustrative one.** Illustrative sentences are editorial. Normative clauses are contractual.
-> - **Anchor by file + section number + heading, not by quoted string alone.** A section number survives a reword. A quoted string does not.
+> - **Anchor by file + section number + heading, not by quoted string alone.** A section number survives a reword. A quoted string does not. A `§N` anchor is also the form `scripts/check_section_citations.py` checks: it reports each `§N` citation that no longer resolves.
 > - **When you delete or reword prose, `Grep` the open flags for it.** The deleting session is the only party that knows the deletion was intentional.
 > - **Supersede, don't rewrite.** Append a supersession notice naming the stale citation, quoting the replacement wording verbatim, and confirming the conclusion still stands. Never edit another session's recorded flag — that destroys the record of what was known when. The sender-side form of this rule is [read-confirm-act-protocol.md](read-confirm-act-protocol.md) §1.4.E.
 >
@@ -230,63 +146,25 @@ Sub-rule J turns it on a fifth subject: **a module split into a facade plus sibl
 > [!constraint] I — When a rule is re-keyed, enumerate its consumers by medium
 > **Rule.** When a rule is re-keyed (a scoring factor, routing signal, status enum or validation rule now reads one source instead of another), list every consumer of the rule before the edit, and split the list by medium. The two media propagate the change differently. Code that calls the shared function inherits it. Prose that restates the rule inherits nothing.
 >
-> A scoring factor awarded a bonus when a regular expression matched a keyword in the index's title cell. A cap on title length meant a keyword past the cap lost the bonus silently. The factor was re-keyed to a frontmatter field, read through one resolver. The rule had four consumers in two media:
->
-> | Consumer | Medium | What happens at the re-key |
-> |---|---|---|
-> | `<scorer>.compute_score` | code, the definition | edited |
-> | `<generator>.compute_scores_for_items` | code, calls the same function | inherits the change with zero edits, proven by a fixture run and then a regression test |
-> | a template line, "for bug items, include a keyword in the title" | prose restating the rule | still teaches the old rule. Flag it to the session or item that owns the template |
-> | a backlog item's routing signal, "keyword in the title column" | prose restating the rule | still specifies the old read. Flag it to the item, naming the replacement |
->
 > Three parts to the method:
 >
-> - **Code that calls the shared function inherits the change.** Verify it once with a fixture. Pin it with a regression test, because "inherits" is a claim about the call graph, and a later refactor can break it silently. The test asserts that the bonus moves with `<field>`.
+> - **Code that calls the shared function inherits the change.** Verify it once with a fixture. Pin it with a regression test, because "inherits" is a claim about the call graph, and a later refactor can break it silently. The test asserts that the result moves with the new source field.
 > - **Prose that restates the rule does not inherit anything.** A template line, a handler step, a backlog item's signal definition: each is a copy of the old rule that outlives the edit. Each one is a coordination flag to its owner. The flag must name the replacement (the resolver, its resolution order, the comparison) so the owner adopts it instead of re-deriving it.
-> - **Measure the population the old rule was mis-scoring before retiring it.** Build a per-item delta table. In the measured case 138 of 183 open items lost the bonus: 124 carried an automated pin-drift title, 10 carried a regenerate title, and 4 matched on incidental prose. One real bug had been missing the bonus because its title used neither word. The count was the strongest argument for the re-key, and it was invisible until the table existed. It is also the number the next cutover audit has to explain.
->
-> WRONG — treat the definition as the whole change:
-> ```
-> edit <scorer>.compute_score -> tests green -> generator "should" follow -> template and router "will be updated later"
-> ```
-> CORRECT — split consumers by medium, prove the code path, flag the prose:
-> ```
-> grep every consumer of the rule (code callers AND prose restatements)
->   code caller  -> fixture run + regression test asserting the bonus moves with <field>
->   prose copy   -> flag to its owner, naming <resolver> and its resolution order
-> measure the per-item delta table -> 138 lost / 1 gained / 44 unchanged, every one predicted
-> ```
->
-> **Supporting measurement.** The old rule's keyword failed in a second way. Thirty-six of 183 open title cells exceeded a 120-character cap. Three matched the retired keyword 1,047 to 1,392 characters deep in a paragraph-length cell with no keyword in the title. One router signal, as written, already disagreed with the scorer on one open item.
+> - **Measure the population the old rule was mis-scoring before retiring it.** Build a per-item delta table, and predict every row of it. The count is often the strongest argument for the re-key, and it is invisible until the table exists. It is also the number the next cutover audit has to explain.
 >
 > **Relationship to the neighbours.** Sub-rules A–E sweep the surfaces that describe and call a changed behavior. This sub-rule adds the split by medium and the regression test for the inheriting code path. [dispatch-edit-surface-sweep.md](dispatch-edit-surface-sweep.md) covers counts, section numbers and enum members bound to many sites.
 
 **Applies-to surface (sub-rule I).** Any scoring weight, routing signal, status enum or validation rule that is defined in one function and restated in templates, handler prose, agent instructions or backlog items. The definition is one consumer. The restatements are the ones that drift.
 
 > [!constraint] J — A module split's consumer census covers prose, and keeps every attribute the monolith bound
-> **Rule.** A markdown handler or reference that tells an agent to run `module.name(...)` is a consumer of the module, exactly like a Python import. A census grepped over `.py` files alone under-counts the surface. A parity gate built on that census reports N of N and passes over a set that is too small.
+> **Rule.** A markdown handler or reference that tells an agent to run `module.name(...)` is a consumer of the module, exactly like a Python import. A census taken over `.py` files alone under-counts the surface. A parity gate built on that census reports N of N and passes over a set that is too small.
 >
 > Two operative points:
 >
 > - **Census every surface that can call the module.** Cover scripts, tests, handlers, references, templates and manifests. Include every call form: `from m import x`, `import m as alias` followed by `alias.x`, and `m.x` written in prose or in a `python -c 'import m; m.f()'` recipe.
 > - **Preserve the monolith's full attribute set, not only the names it defined.** A name the old module imported is still an attribute consumers can reach. The facade re-exports it unless a census proves no consumer uses it.
 >
-> WRONG — the census covers code and tests only:
-> ```
-> census = grep 'from <module> import|<module>\.' scripts/ tests/
-> G3: 131/131 census names resolve on the facade -> PASS      # handler prose never scanned
-> # Result: the facade lacks two names the monolith had imported from a sibling module.
-> # A handler tells the agent to call both through the module -> AttributeError at run time.
-> ```
-> CORRECT — the census is the monolith's attribute set plus every prose surface:
-> ```
-> census = every top-level name the pre-split module bound (defined OR imported)
->        UNION grep over scripts/ tests/ handlers/ references/ templates/ manifests/
-> G3 = every census name resolves on the facade
-> plus a shipped test that pins each handler-cited name to the facade
-> ```
->
-> **Measured.** The census gate passed 131 of 131 names. A later code review found two names missing. A handler told the agent to call both through the module, and the handler's bookkeeping step then raised `AttributeError`. The fix re-exported both names and added the test that pins each handler-cited name to the facade.
+> The census is every top-level name the pre-split module bound (defined or imported), united with the module calls written in every prose surface. The gate passes when every census name resolves on the facade, plus a shipped test that pins each handler-cited name. In the plugin, `tests/test_module_call_resolution.py` resolves every `module.name(...)` call that `handlers/` and `references/` write.
 >
 > **Relationship to sub-rule I.** I splits the consumers of a re-keyed rule by medium. J applies the same split to a moved module: code that imports it is one medium, and prose that calls it is the other.
 
