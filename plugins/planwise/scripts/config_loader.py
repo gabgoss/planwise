@@ -966,7 +966,7 @@ def get_feedback_config(config: dict) -> dict:
     is absent, explicitly null, or malformed — a config that predates the
     feedback surface. Defaults are the safe status quo:
 
-      * enabled             -> False                  (opt-in, interactive only)
+      * enabled             -> False                  (an absent key reads as off; the template writes true)
       * repo                -> "gabgoss/planwise"      (upstream target)
       * include_environment -> True                    (auto-filled Environment block)
 

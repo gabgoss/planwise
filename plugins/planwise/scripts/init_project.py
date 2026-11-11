@@ -634,7 +634,7 @@ def _apply_init_feedback_answers(cfg: InitConfig, config_path: Path) -> str:
     from the values read back from the file. The `Feedback drafting:` banner is not printed:
     init asked the question, so the banner would only repeat the answer.
     """
-    answered = cfg.feedback_drafts is not None or cfg.feedback_enabled
+    answered = cfg.feedback_drafts is not None or cfg.feedback_enabled is not None
     if answered:
         _apply_feedback_keys(config_path, "set", cfg.feedback_drafts, cfg.feedback_enabled,
                              planwise_root=cfg.planwise_root, feedback_dir=cfg.feedback_dir,
@@ -651,7 +651,7 @@ def _apply_init_feedback_answers(cfg: InitConfig, config_path: Path) -> str:
     if not answered:
         return f"Feedback keys: {shown} (template defaults, no answer passed)"
     written = ((cfg.feedback_drafts is None or values["drafts"] == cfg.feedback_drafts)
-               and (not cfg.feedback_enabled or values["enabled"]))
+               and (cfg.feedback_enabled is None or bool(values["enabled"]) == cfg.feedback_enabled))
     return f"Feedback keys: {shown} ({'answered' if written else 'answer NOT written, see the warning above'})"
 
 
@@ -762,8 +762,9 @@ def main():
                              "calibrated via /planwise calibrate.")
     parser.add_argument("--feedback-drafts", choices=("notify", "quiet", "off"), default=None,
                         help="fresh init or --upgrade: set feedback.drafts to this value")
-    parser.add_argument("--feedback-enabled", action="store_true",
-                        help="fresh init or --upgrade: set feedback.enabled: true; never flips it off")
+    parser.add_argument("--feedback-enabled", action=argparse.BooleanOptionalAction, default=None,
+                        help="fresh init or --upgrade: --feedback-enabled sets feedback.enabled: true, "
+                             "--no-feedback-enabled sets it to false; with neither, the template value stays")
     parser.add_argument("--no-calibrate", action="store_true",
                         help="With --upgrade: skip the Token Saver recalibration the "
                              "upgrade runs when Token Saver is on.")
@@ -903,7 +904,7 @@ def main():
 
     # The feedback flags carry an init or upgrade answer. Every other mode would
     # drop them silently, so it refuses them instead.
-    if args.feedback_drafts is not None or args.feedback_enabled:
+    if args.feedback_drafts is not None or args.feedback_enabled is not None:
         _other = [flag for flag, on in (
             ("--migrate", args.migrate and not args.upgrade), ("--doctor", args.doctor),
             ("--list-diverged", args.list_diverged), ("--review-transfers", args.review_transfers),
@@ -1023,7 +1024,7 @@ def main():
         print(_apply_init_feedback_answers(cfg, cfg.project_root / cfg.planwise_root / "config.yaml"))
     elif result == ConfigResult.SKIPPED_EXISTS:
         print("Configuration: already exists, skipped")
-        if cfg.feedback_drafts is not None or cfg.feedback_enabled:
+        if cfg.feedback_drafts is not None or cfg.feedback_enabled is not None:
             print("Feedback keys: answers not applied, because config.yaml already exists. "
                   "Run /planwise upgrade, or set feedback.drafts and feedback.enabled by hand.")
     else:

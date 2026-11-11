@@ -276,6 +276,15 @@ def test_feedback_flags_reach_writer_argv(tmp_path, capsys, monkeypatch):
     assert exc.value.code == 2 and "invalid choice" in capsys.readouterr().err
 
 
+def test_no_feedback_enabled_reaches_writer_argv(tmp_path, capsys, monkeypatch):
+    root = ucp.make_project(tmp_path)
+    code, out = run(monkeypatch, capsys, root, "--pair", PAIR, "--no-feedback-enabled", "--dry-argv")
+    assert code == 0, out
+    argv = upgrade_run.LAST_ARGV
+    assert "--no-feedback-enabled" in argv and "--feedback-enabled" not in argv
+    assert json.loads(out.split("writer argv: ", 1)[1]) == argv
+
+
 def test_summary_passes_feedback_banner_through(capsys):
     writer_out = ("Refreshed: 1\n"
                   "Feedback drafting: ON — Claude may now save local feedback drafts under planwise/Feedback/\n"

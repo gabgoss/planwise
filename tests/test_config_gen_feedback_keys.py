@@ -17,7 +17,13 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 import config_gen
-from config_gen import InitConfig, _apply_feedback_keys, drafts_key_state
+from config_gen import (
+    InitConfig,
+    _apply_feedback_keys,
+    drafts_key_state,
+    get_plugin_root,
+    migrate_config,
+)
 
 SCRIPTS = Path(config_gen.__file__).resolve().parent
 
@@ -37,7 +43,7 @@ def _state(path: Path) -> str:
     return drafts_key_state(yaml.safe_load(path.read_bytes()))
 
 
-def _run(path, drafts=None, enabled=False, real_upgrade=False, state=None):
+def _run(path, drafts=None, enabled=None, real_upgrade=False, state=None):
     return _apply_feedback_keys(
         path, state or _state(path), drafts, enabled,
         planwise_root="planwise", feedback_dir="Feedback", plugin_root=Path("/plug"),
@@ -187,7 +193,7 @@ def test_second_call_on_the_written_file_is_idempotent(tmp_path):
     assert path.read_bytes() == after_first
 
 
-def test_enabled_true_is_never_flipped_off_and_the_flag_is_a_no_op_on_it(tmp_path):
+def test_no_flag_leaves_enabled_true_and_the_true_flag_is_a_no_op_on_it(tmp_path):
     body = HEAD + b"feedback:\n  enabled: true\n" + TAIL
     path = _write(tmp_path, body)
     _run(path)
@@ -196,6 +202,49 @@ def test_enabled_true_is_never_flipped_off_and_the_flag_is_a_no_op_on_it(tmp_pat
     before = on.read_bytes()
     assert _run(on, enabled=True) == []
     assert on.read_bytes() == before
+
+
+def test_false_writes_enabled_false_over_true(tmp_path):
+    path = _write(tmp_path, HEAD + b"feedback:\n  enabled: true\n  drafts: quiet\n" + TAIL)
+    assert _run(path, enabled=False) == ["feedback.enabled: true -> false"]
+    text = _text(path)
+    assert "  enabled: false\n" in text and "# keep this comment" in text
+    assert yaml.safe_load(text)["feedback"] == {"enabled": False, "drafts": "quiet"}
+
+
+def test_false_over_false_changes_nothing(tmp_path):
+    path = _write(tmp_path, HEAD + BLOCK_SET + TAIL)
+    before = path.read_bytes()
+    assert _run(path, enabled=False) == []
+    assert path.read_bytes() == before
+
+
+def test_none_leaves_the_enabled_value_as_it_is(tmp_path):
+    for value in (b"true", b"false"):
+        path = _write(tmp_path, HEAD + b"feedback:\n  enabled: " + value + b"\n  drafts: quiet\n" + TAIL)
+        before = path.read_bytes()
+        assert _run(path, enabled=None) == []
+        assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(("enabled", "expected", "banner"), [
+    (None, True, "feedback.enabled: unchanged"),
+    (False, False, "feedback.enabled: false (set this run)"),
+])
+def test_migrate_into_a_config_with_no_feedback_block(tmp_path, enabled, expected, banner):
+    # The migrate path copies the template block, then the writer applies the flag.
+    root = tmp_path / "proj"
+    (root / "planwise").mkdir(parents=True)
+    path = _write(root / "planwise", HEAD + TAIL)
+    state = _state(path)
+    assert state == "no-block"
+    cfg = InitConfig(project_name="p", project_root=root, plugin_root=get_plugin_root(), feedback_enabled=enabled)
+    _, added, _ = migrate_config(cfg)
+    assert "feedback" in added
+    lines = _apply_feedback_keys(path, state, None, cfg.feedback_enabled, planwise_root="planwise",
+                                 feedback_dir="Feedback", plugin_root=Path("/plug"), real_upgrade=True)
+    assert yaml.safe_load(_text(path))["feedback"]["enabled"] is expected
+    assert len(lines) == 1 and banner in lines[0]
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="the checked writer translates newlines per platform")
@@ -230,7 +279,7 @@ def test_refused_edit_when_the_result_would_not_parse(tmp_path, capsys):
 def test_init_config_defaults_ignore_the_flags():
     cfg = InitConfig(project_name="p", project_root=Path("."), plugin_root=Path("."))
     assert cfg.feedback_drafts is None
-    assert cfg.feedback_enabled is False
+    assert cfg.feedback_enabled is None
 
 
 def test_parser_accepts_both_flags_and_rejects_a_bad_value(tmp_path):
@@ -242,7 +291,13 @@ def test_parser_accepts_both_flags_and_rejects_a_bad_value(tmp_path):
         capture_output=True, text=True, check=False)
     assert ok.returncode == 0, ok.stderr
     assert "--feedback-drafts" in ok.stdout and "--feedback-enabled" in ok.stdout
+    assert "--no-feedback-enabled" in ok.stdout
     assert list(tmp_path.iterdir()) == []
+    off = subprocess.run(
+        [sys.executable, "-B", script, "--name", "p", "--project-root", str(tmp_path),
+         "--no-feedback-enabled", "--help"],
+        capture_output=True, text=True, check=False)
+    assert off.returncode == 0, off.stderr
     bad = subprocess.run(
         [sys.executable, "-B", script, "--name", "p", "--project-root", str(tmp_path),
          "--feedback-drafts", "loud"],

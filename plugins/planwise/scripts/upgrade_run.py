@@ -220,8 +220,8 @@ def writer_argv(args, config: dict, project_root: Path, pair: str, answers_path)
         argv.append("--token-saver")
     if args.feedback_drafts:
         argv += ["--feedback-drafts", args.feedback_drafts]
-    if args.feedback_enabled:
-        argv.append("--feedback-enabled")
+    if args.feedback_enabled is not None:
+        argv.append("--feedback-enabled" if args.feedback_enabled else "--no-feedback-enabled")
     if args.no_calibrate:
         argv.append("--no-calibrate")
     if args.allow_downgrade:
@@ -423,8 +423,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--token-saver", action="store_true")
     parser.add_argument("--feedback-drafts", choices=("notify", "quiet", "off"), default=None,
                         help="pass the chosen feedback.drafts value to the writer")
-    parser.add_argument("--feedback-enabled", action="store_true",
-                        help="pass --feedback-enabled to the writer: set feedback.enabled to true")
+    parser.add_argument("--feedback-enabled", action=argparse.BooleanOptionalAction, default=None,
+                        help="pass to the writer: --feedback-enabled sets feedback.enabled: true, "
+                             "--no-feedback-enabled sets it to false; with neither, the config value stays")
     parser.add_argument("--allow-downgrade", action="store_true")
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--verdicts-stdin", action="store_true", help="read the verdicts document from stdin")

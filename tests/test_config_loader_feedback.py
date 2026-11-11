@@ -181,14 +181,18 @@ class TestFeedbackConfigFoundation(unittest.TestCase):
     @unittest.skipUnless(ip.HAS_YAML, "requires PyYAML to parse the template")
     def test_template_feedback_defaults_match_loader_defaults(self):
         """The shipped config.yaml.template's feedback: block must agree with
-        get_feedback_config()'s own defaults, so the two cannot drift apart."""
+        get_feedback_config()'s own defaults, so the two cannot drift apart.
+
+        One key differs on purpose: the loader reads an absent `enabled` key as
+        False, and the template writes True, so a new project posts by default
+        while an older config without the key stays off."""
         import yaml
 
         template_path = (
             Path(ip.__file__).resolve().parent.parent / "config.yaml.template"
         )
         data = yaml.safe_load(template_path.read_text(encoding="utf-8"))
-        self.assertIs(data["feedback"]["enabled"], False)
+        self.assertIs(data["feedback"]["enabled"], True)
         self.assertEqual(data["feedback"]["repo"], "gabgoss/planwise")
         self.assertIs(data["feedback"]["include_environment"], True)
         import config_loader as cl

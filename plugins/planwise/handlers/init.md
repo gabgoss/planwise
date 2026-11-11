@@ -117,7 +117,7 @@ Store responses as:
 - `{plan_tier}` — from question 7 (use `pro` if blank; must be one of: `pro`, `max`). The companion `{context_window}` is derived: `pro` → 200000, `max` → 1000000.
 - `{token_saver}` — from question 8 (use `yes` if blank; must be one of: `yes`, `no`). When `yes`, pass `--token-saver` to `init_project.py` (Step 2 / Step 5) so the generated `config.yaml` sets `context.token_saver: true`.
 - `{feedback_drafts}` — from question 9 (`notify`, `quiet` or `off`; leave it unset if blank). When set, pass `--feedback-drafts {feedback_drafts}` to `init_project.py`.
-- `{feedback_enabled}` — from question 10 (`yes` or `no`; use `no` if blank). When `yes`, pass `--feedback-enabled`. `no` adds no flag, so `feedback.enabled` stays `false`.
+- `{feedback_enabled}` — from question 10 (`yes` or `no`; use `yes` if blank). A blank answer counts as `yes`, because the question recommends Yes. When `yes`, pass `--feedback-enabled`. When `no`, pass `--no-feedback-enabled`, so the config writes the value false.
 
 ---
 
@@ -127,13 +127,13 @@ Try running the Python init script first. It handles directory creation, seed fi
 
 **Resolve `{plugin_root}`:** For first-time init, use the root that Step 0 verified as `OK`, or the copy the user chose to keep at Step 0. Either one is the plugin base directory that SKILL.md provides. For re-init, read `plugin_root` from the existing `config.yaml`.
 
-Run the script (append `--token-saver`, `--feedback-drafts` and `--feedback-enabled` only as Step 1 recorded them):
+Run the script (append `--token-saver` and `--feedback-drafts` only as Step 1 recorded them, and always end with `{feedback_enabled_flag}`, which is `--feedback-enabled` or `--no-feedback-enabled`):
 
 ```bash
-python "{plugin_root}/scripts/init_project.py" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}" --plan-tier "{plan_tier}" --token-saver --feedback-drafts "{feedback_drafts}" --feedback-enabled
+python "{plugin_root}/scripts/init_project.py" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}" --plan-tier "{plan_tier}" --token-saver --feedback-drafts "{feedback_drafts}" {feedback_enabled_flag}
 ```
 
-Omit the `--token-saver` flag when `{token_saver}` is `no` — the generated config then sets `context.token_saver: false`. Omit `--feedback-drafts` when `{feedback_drafts}` is unset, and omit `--feedback-enabled` when `{feedback_enabled}` is `no`. With neither feedback flag the generated config keeps the template values, `feedback.drafts: notify` and `feedback.enabled: false`. The script writes the answers through the same splice writer `/planwise upgrade` uses and prints one `Feedback keys:` line with the values it read back.
+Omit the `--token-saver` flag when `{token_saver}` is `no` — the generated config then sets `context.token_saver: false`. Omit `--feedback-drafts` when `{feedback_drafts}` is unset. Always pass one of the two enabled flags: `{feedback_enabled_flag}` is `--feedback-enabled` for `yes` and `--no-feedback-enabled` for `no`. With no feedback flag at all the generated config keeps the template values, `feedback.drafts: notify` and `feedback.enabled: true`. The script writes the answers through the same splice writer `/planwise upgrade` uses and prints one `Feedback keys:` line with the values it read back.
 
 If `python` is not found, try `python3`.
 
@@ -281,7 +281,7 @@ local draft instead of posting.
 | Step 1 question 10 | `{posting_clause}` |
 |---|---|
 | `yes` | `. Posting is already on: feedback.enabled: true.` |
-| `no` | `. Posting stays off, as you chose. To turn it on later, run` `python "{plugin_root}/scripts/feedback_drafts.py" enable-posting --config "{planwise_root}/config.yaml"` |
+| `no` | `. Posting is off, as you chose: a No answer wrote the value false. To turn it on later, run` `python "{plugin_root}/scripts/feedback_drafts.py" enable-posting --config "{planwise_root}/config.yaml"` |
 
 **If it does not resolve,** use `AskUserQuestion`:
 
@@ -327,7 +327,7 @@ Until both are done, /planwise feedback saves a local draft instead of posting.
 | Step 1 question 10 | `{opt_in_status}` |
 |---|---|
 | `yes` | `done (feedback.enabled: true, answered in Step 1)` |
-| `no` | `off, as you chose in Step 1. To turn it on later, run` `python "{plugin_root}/scripts/feedback_drafts.py" enable-posting --config "{planwise_root}/config.yaml"` |
+| `no` | `off (a No answer in Step 1 wrote the value false). To turn it on later, run` `python "{plugin_root}/scripts/feedback_drafts.py" enable-posting --config "{planwise_root}/config.yaml"` |
 
 **If No:** skip silently. `/planwise feedback` degrades to local drafts, which is a
 supported configuration and not a degraded install.
