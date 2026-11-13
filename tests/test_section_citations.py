@@ -49,11 +49,11 @@ INSTRUMENT_MIN = 100
 # EXAMPLE = quoted or worked example citation; LABEL = a check title or label,
 # not a pointer; CONSUMER = a section of a document the consumer generates.
 LEDGERED_PLUGIN = (
-    ("references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md", 557, "§12"),  # HISTORY: extraction note
+    ("references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md", 555, "§12"),  # HISTORY: extraction note
     ("references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md", 649, "§12"),  # HISTORY: extraction note
     ("references/agent-orchestration-delegated.md", 2, "§12"),  # HISTORY: frontmatter provenance
     ("references/agent-orchestration-delegated.md", 8, "§12"),  # HISTORY: provenance of the extraction
-    ("references/agent-orchestration-delegated.md", 526, "§12"),  # HISTORY: extraction note
+    ("references/agent-orchestration-delegated.md", 508, "§12"),  # HISTORY: extraction note
     ("references/discovery-and-exit-criteria.md", 10, "§16"),  # HISTORY: records the three-way split
     ("references/discovery-and-exit-criteria.md", 10, "§17"),  # HISTORY: records the three-way split
     ("references/discovery-and-exit-criteria.md", 10, "§21"),  # HISTORY: records the three-way split

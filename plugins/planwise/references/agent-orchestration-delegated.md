@@ -17,8 +17,6 @@ The discipline spans **three files**, split by topic because the combined text e
 
 This file holds the foundation and everything that shapes a spawn before it goes out. §1.1 Mandatory Triggers, §1.2 Task-File Error Recovery and §1.3 Orchestration Context Boundary establish the ground rules. §1.4–§1.13 then cover dispatch-prompt construction: diagnostics verification, tool-use budget reservation, path-scoped rule injection, the wake-up protocol, the HARD CONSTRAINTS skeleton, fix tier-ranking, forward-looking-verb detection, ceiling disclaimers, the N>25 resume protocol, and the shared-edit-target strategy matrix.
 
-Part 2 carries dispatch mechanics and what happens after a runner returns. Part 3 carries the cross-cutting discipline binding every spawn prompt and the orchestrator's own conduct. [`agent-orchestration.md`](agent-orchestration.md) §11 retains only a short pointer stub back to this file — the full text lives across these three parts.
-
 ## Table of Contents
 
 - [1.1 Mandatory Triggers](#11-mandatory-triggers)
@@ -45,10 +43,12 @@ DELEGATED mode is REQUIRED when any of the four mandatory triggers is present in
 
 **The Master Plan's Execution Strategy section MUST name the trigger that fired for every DELEGATED session, and `/planwise review` MUST surface as a BLOCKING finding any DELEGATED declaration without a named trigger.**
 
-Declaring DELEGATED is a PLANNING decision (made in the Orchestration file), not an execution-time inference.
+Declaring DELEGATED is a PLANNING decision (made in the Orchestration file), not an execution-time inference. "Consistency" across a multi-session plan is not a trigger: every DELEGATED session must name one of the four mandatory triggers above. In one plan, all 8 sessions declared DELEGATED "for consistency", and only Sprint 01 met a trigger (95K Opus task + output-chaining). Sprints 02-08 each had a single 23-41K task within the 100K DIRECT budget, so ~378K of subagent-spawn overhead bought nothing. Sprint 01 declares DELEGATED (#1 + #4), and Sprints 02-08 declare DIRECT.
+
+`scripts/lint_plan_strategy.py` checks an Orchestration file against this rule. Its `[§1.1 strategy]` finding names a fired trigger under DIRECT, or a DELEGATED declaration that names no trigger.
 
 > [!constraint] DELEGATED Declaration — Planning Time Only
-> WRONG — orchestrator infers DELEGATED at runtime after reading context:
+> WRONG — orchestrator infers DELEGATED at runtime after reading context, or the plan declares it "for consistency" with no trigger:
 > ```
 > # Orchestration file: Execution Strategy: DIRECT
 > # (then orchestrator discovers tasks are too large and pivots at runtime)
@@ -59,11 +59,6 @@ Declaring DELEGATED is a PLANNING decision (made in the Orchestration file), not
 > Mode: DELEGATED
 > Trigger: Task 03 estimates >50K context load (output-chaining to Task 04)
 > ```
-
-> [!constraint] Name the Trigger — Not "For Consistency"
-> "Consistency" across a multi-session plan is not a trigger; every DELEGATED session must name one of the four mandatory triggers above.
-> WRONG: plan declares DELEGATED for all 8 sessions "for consistency"; only Sprint 01 meets a trigger (95K Opus task + output-chaining); Sprints 02-08 each have a single 23-41K task within the 100K DIRECT budget — ~378K of subagent-spawn overhead consumed for no gain.
-> CORRECT: Sprint 01 declares DELEGATED (#1 + #4); Sprints 02-08 declare DIRECT.
 
 #### Reviewer Check 010 — Task DELEGATED Mandatory Triggers Honored
 
@@ -138,6 +133,8 @@ When Execution Strategy is DELEGATED:
 - Heavy context files (reference docs, codebase modules, large output files) MUST appear ONLY in individual task file Required Context sections
 - The orchestrator reads plan files only; subagents read their full task-specific context with fresh ~100K budget
 
+`scripts/lint_plan_strategy.py` reports a breach of this boundary as `[§1.3 context-boundary]`: a DELEGATED Orchestration whose Required Context names a file other than the Orchestration, Recovery, Sprint Plan, Master Plan or the session's task files.
+
 > [!constraint] DELEGATED Context Boundary
 > WRONG — Orchestration Required Context loads heavy files (orchestrator context fills before dispatching):
 > ```
@@ -191,7 +188,7 @@ When DELEGATED dispatches modify shared files (e.g., a shared algorithm module o
 
 **Orchestrator output-size verification:**
 
-After each dispatch that produces output files, the orchestrator MUST run `measure_files.py` on every output file and compare against the Expected Output token budget declared in the task file. Deviations >20% from the declared budget are a signal to review before proceeding to the next dispatch.
+After each dispatch that produces output files, the orchestrator MUST run `measure_files.py` on every output file and compare against the Expected Output token budget declared in the task file. Deviations >20% from the declared budget are a signal to review before proceeding to the next dispatch. `scripts/check_expected_output.py` runs this comparison: it measures each Output file and compares its tokens with the task file's declared output figure at the 20 % threshold.
 
 **Foreign-dirt classification:**
 
@@ -235,23 +232,16 @@ When a DELEGATED subagent performs live HTTP probing (WebFetch/WebSearch calls i
 
 Path-specific rules (rules with `paths:` frontmatter patterns) do NOT automatically load for spawned subagents — spawned contexts start with zero file activity and inherit no path triggers from the parent. When a DELEGATED task requires path-specific rules, the orchestrator MUST inject those rule contents explicitly into the spawn prompt.
 
-> [!constraint] Path Rule Injection
-> WRONG — orchestrator assumes subagent will load path rules automatically:
-> ```
-> Agent(
->   subagent_type: "general-purpose",
->   prompt: "Execute {Abbrev}-S01-02-01-Haiku-ScanModels.md — the relevant rules will load automatically."
-> )
-> ```
-> CORRECT — orchestrator injects path-rule content or file reference explicitly:
-> ```
-> Agent(
->   subagent_type: "general-purpose",
->   prompt: "Execute {Abbrev}-S01-02-01-Haiku-ScanModels.md.
->   IMPORTANT: The following path-scoped rule applies to {src/module/file.ext} files:
->   [paste rule content or file reference here]"
-> )
-> ```
+A spawn prompt that says "the relevant rules will load automatically" leaves the runner without them. The orchestrator injects the path-rule content or file reference explicitly:
+
+```
+Agent(
+  subagent_type: "general-purpose",
+  prompt: "Execute {Abbrev}-S01-02-01-Haiku-ScanModels.md.
+  IMPORTANT: The following path-scoped rule applies to {src/module/file.ext} files:
+  [paste rule content or file reference here]"
+)
+```
 
 **The same injection discipline governs any shared pin, not only rules.** A baseline SHA — or any equivalent value every task in the session must agree on — is injected by the orchestrator as a **literal** into every task file and every spawn prompt. Instructing a runner to read it back from a shared file (Recovery, the Orchestration file, a scratch note) costs a read the §1.3 context boundary exists to avoid, and breaks outright under parallel dispatch, where that shared file is being written by a sibling runner at the moment the reader opens it. A pin the runner had to fetch is a pin that can arrive empty — and a gate pinned to an empty variable degrades **silently** rather than failing, so nothing downstream announces the loss. See [`measurement-discipline.md`](measurement-discipline.md) §8.7 sub-rule E for the liveness proof that makes such a pin falsifiable.
 
@@ -314,12 +304,10 @@ The paragraphs above tell a reader not to conclude that an idle agent has stoppe
 3. **Work present but bookkeeping stale** — ask the agent whether it is done before reconciling. Do not assume it abandoned the write.
 4. **Reconcile unilaterally only** once the agent has reported or demonstrably terminated.
 
-The positive instance is as cheap as the failure was expensive. In the measured session, the very next idle signal was handled by a read-only check that found the file byte-identical to the previous completion state. The orchestrator sent a wake-up instead of writing, and the runner resumed and finished normally. Cost of the check: one command.
-
 **Signal strength.** A `completed` status, an idle notification, and a clean-looking final message are all **weak** signals. The strong signal is deliverable evidence on disk. This is [Part 2](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) §1.17.4's acceptance gate applied one step earlier — to whether the agent is *done*, not to whether it *succeeded*. Sustained silence with no idle signal at all is a different question again, and [Part 3](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) §1.30 answers that one: establish death before dispatching a replacement.
 
 > [!practice] Record the observation; attribute a cause only when you can support it
-> When writing up *why* something went wrong, separate what you **observed** from what you **inferred**. "{Bookkeeping file} was stale at {timestamp}" is an observation. "The runner stalled" is an inference — and in the measured incident it was the wrong one, because the runner had been raced rather than stalled. An unverified causal claim written into a permanent audit trail is corrected only if the other actor happens to push back, so write the observation and leave the cause unstated until it is established.
+> When writing up *why* something went wrong, separate what you **observed** from what you **inferred**. "{Bookkeeping file} was stale at {timestamp}" is an observation. "The runner stalled" is an inference, and a runner that was raced looks the same. An unverified causal claim written into a permanent audit trail is corrected only if the other actor happens to push back, so write the observation and leave the cause unstated until it is established.
 
 ## 1.8 HARD CONSTRAINTS Spawn-Prompt Skeleton + SCOPE BOUNDARY Clause
 
@@ -436,9 +424,9 @@ When N DELEGATED dispatches in a single session must write the same target (a sh
 > | 5–6 dispatches sharing a Recovery or content file | Option B — per-dispatch shards, orchestrator merges |
 > | 7+ dispatches sharing any target, **or** when in doubt | Option C — dispatches return deltas, orchestrator reconciles centrally |
 
-**A layer annotated "disjoint" must carry the computed evidence.** The matrix above applies whenever N dispatches share a target — which means something has to decide whether they do. That decision is a set intersection over the layer members' own `**Output:**` lines, and it is shown or it did not happen. A bare annotation (`L2 = {2, 3} (disjoint target files)`) reads identically whether the property holds or not, so it can never fail review. Declare the intersection per layer: `∅` means the parallelism stands and the matrix is inert; a non-empty result means the layer must name one of the three strategies above, or serialize. [`scaffolding-hygiene-Part-2-DerivationAndParallelism.md`](scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §17 owns the scaffold-close computation and its reviewer check; this section owns what to do once the result is non-empty.
+**A layer annotated "disjoint" must carry the computed evidence.** The matrix above applies whenever N dispatches share a target — which means something has to decide whether they do. That decision is a set intersection over the layer members' own `**Output:**` lines, and it is shown or it did not happen. A bare annotation (`L2 = {2, 3} (disjoint target files)`) reads identically whether the property holds or not, so it can never fail review. Declare the intersection per layer: `∅` means the parallelism stands and the matrix is inert; a non-empty result means the layer must name one of the three strategies above, or serialize. [`scaffolding-hygiene-Part-2-DerivationAndParallelism.md`](scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §17 owns the scaffold-close computation and its reviewer check; this section owns what to do once the result is non-empty. `scripts/lint_layer_disjointness.py` computes that intersection from each layer member's `**Output:**` line and reports members that share a path as `[§1.13 intersection]`.
 
-**The shared target may be a counter rather than a file.** Two dispatches whose `**Output:**` paths genuinely do not intersect still collide when what they share is an **allocation**: the next free reviewer-check number, the next free catalog row, the next free section number. Both read the same live maximum, both compute the same next value, and both write it into *different* files — so a path-based intersection returns `∅` and the layer passes while the identifier is duplicated. Treat a next-free allocation as a shared target and apply this matrix to it. The cheapest strategy is usually not on the matrix at all: the orchestrator resolves each dispatch's number before dispatch and injects it as a literal, per §1.6.
+**The shared target may be a counter rather than a file.** Disjoint `**Output:**` paths still collide on a next-free allocation; [`parallel-layer-shared-objects.md`](parallel-layer-shared-objects.md) §1 holds the mechanism, the namespaces and the deferral for when pre-resolution is not available. Treat a next-free allocation as a shared target and apply this matrix to it. The cheapest strategy is usually not on the matrix at all: the orchestrator resolves each dispatch's number before dispatch and injects it as a literal, per §1.6.
 
 **A read of a layer-mate's Output is a dependency, not a shared target.** The "Reads from a layer-mate's Output" column of the layer table must be empty for a parallel layer. A non-empty cell means the matrix does not apply. Move the reader to a later layer, or list the layer-mate in `Depends On`. A recorded base is the common case, such as later tasks that take their base commit from Task 01's Output file. Two fixes work. (a) The orchestrator records the shared base before layer 1 and injects it as a literal in each spawn prompt, per the callout "Inject the Literal, Do Not Indirect Through a File" (§1.6) and the `Base commit:` line of the Spawn-Prompt Skeleton in `templates/orchestration.md`. (b) Each task records its own base behind its own clean check. Never take a base from a layer-mate's Output file.
 
@@ -471,21 +459,15 @@ For Recovery specifically, **Option C is the binding default whenever 3 or more 
 > ```markdown
 > ## PARALLEL DISPATCH — Recovery Handling
 > Do NOT read, edit, or write the Recovery file during this task.
-> Return your completion as the structured status block below in your FINAL message.
+> Return your completion as the structured status block defined in the prompt's Status Block section, in your FINAL message.
 > The orchestrator reconciles Recovery centrally after all parallel runners return.
 >
 > ## Status Block delivery (REQUIRED)
 > Deliver your status block by calling the SendMessage tool with to="main".
 > Plain-text output does NOT reach the orchestrator.
 > ```
-> TASK_STATUS:   COMPLETE | BLOCKED | PARTIAL
-> TASK_ID:       {Abbrev}-S{XX}-{YY}-{##}
-> OUTPUT_FILES:  {comma-separated absolute paths actually written}
-> LINES_PRODUCED: {sum of lines across output files}
-> KEY_FINDINGS:  {2-5 short bullets — preserved across compaction}
-> ISSUES:        {one line per issue, or "none"}
-> ```
-> ```
+>
+> Paste the status-block field names and the 18-line ceiling from [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) § "1.28 Status-Block Return Contract" into the Status Block section of every spawn prompt.
 >
 > **Orchestrator contract (single writer):**
 > 1. Dispatch all parallel-eligible task-runners (no inter-dependencies among them)

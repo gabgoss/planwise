@@ -136,27 +136,29 @@ This section answers who interprets a diff. When the orchestrator may verify a r
 > | Signal | State | Action |
 > |---|---|---|
 > | Idle, no status block, **Output absent or partial** | Genuinely unfinished | Resume the SAME agent to finish the work |
-> | Idle, no status block, **Output complete on disk** | Finished; report did not route | Resume the SAME agent for **the report only** |
-> | **Resume also returns silent**, Output still complete | The reply exists and is not routing | **Recover from the transcript** — do not ask a third time |
+> | Idle, no status block, **Output complete on disk** | Finished; report did not route | **Accept from disk and do not resume.** If Recovery needs the narrative fields, recover them from the transcript |
+> | **A row-1 resume also returns silent**, Output now complete | The reply exists and is not routing | **Recover from the transcript** — do not ask again |
 >
 > An idle notification carries no information about either state. It means "available", not "finished".
 >
-> WRONG — treat the second silence as another non-answer:
+> WRONG — treat a silence over a complete Output as a request to ask again:
 > ```
-> idle, no block → disk shows complete → resume for report → idle again
+> idle, no block → disk shows complete → resume for the report → idle again
 > → ask a third time (same failure path), or re-dispatch a fresh runner
+> # A resume can re-apply edits or re-run a mutating verification against the accepted Output.
 > # Re-dispatch is the expensive error: it re-reads everything, may race a live agent,
 > # and can duplicate writes to the same declared Output path.
 > ```
-> CORRECT — the second silence reclassifies the problem from "no answer" to "no delivery":
+> CORRECT — a complete Output reclassifies the problem from "no answer" to "no delivery", so fetch the report without asking:
 > ```
-> resume → idle again
+> idle, no block → disk shows complete → accept from disk, no resume
+> (or: a row-1 resume finished the work → idle again)
 > → glob ~/.claude/projects/**/subagents/agent-a<name>-*.jsonl
 > → bounded `-o` extraction of the field names, take the LAST match
 > → cross-check every recovered field against the orchestrator's own measurements
 > ```
 
-The first two rows are existing practice, owned in detail by [`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) §1.17 (classify the return before consuming it) and [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) §1.7.1 (the read-only resolution ladder on an idle notification). They are restated here because the discriminator that selects the third row is only legible beside them. The third row is this section's own content.
+The first two rows are existing practice, owned in detail by [`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) §1.17 (classify the return before consuming it), its § "1.17.1 Diagnosis table", and [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) §1.7.1 (the read-only resolution ladder on an idle notification). Row 2 follows §1.17.1: a runner whose Output is complete on disk is accepted from disk and never resumed, because a resume can re-apply edits or re-run a mutating verification against an accepted artifact. They are restated here because the discriminator that selects the third row is only legible beside them. The third row is this section's own content: a resume sent under row 1 finishes the work and still returns silent.
 
 **The bounded-recovery mechanics, because the unbounded form fails.** The `.jsonl` is the full subagent conversation and will overflow the orchestrator's context if read whole. Extract the status-block field names with a small capture window, and take the **last** matching line. Earlier hits are the spawn prompt's own template echoed back, so a recovery that takes the first match recovers the prompt rather than the report. The orchestration template runs this extraction with `scripts/extract_status_block.py` (`--pattern '{field regex}'` over the transcript). The native form is:
 
@@ -170,7 +172,7 @@ A whole-line match on the same file returns `[Omitted long matching line]` and y
 **The recovered block is corroboration, not the source of truth.** The orchestrator measures every load-bearing field itself — output paths, line counts, byte counts, repo invariants — and the acceptance gate already requires it. Recovery fills in the narrative fields (key findings, issues, budget spent) around measurements you already own. That is also why a delivery failure never blocks acceptance: **you were never supposed to be accepting on the strength of the final message anyway.**
 
 > [!hazard] Do not turn this into "always skip the message layer"
-> The failure is intermittent, and most blocks arrive, so blanket transcript-scraping burns calls on the majority that work. The trigger is specific: **a resume that also comes back silent while the deliverable is verifiably complete.**
+> The failure is intermittent, and most blocks arrive, so blanket transcript-scraping burns calls on the majority that work. The trigger is specific: **a silent runner whose deliverable is verifiably complete on disk, when Recovery needs its narrative fields.** A row-1 resume that comes back silent with the deliverable now complete is the same trigger.
 
 > [!practice] §3 and §4 are adjacent and must not be merged
 > §3 is about a status block that **arrived and said something its window could not support**. §4 is about a status block that **never arrived at all**. The correctives run in opposite directions: §3 discounts the report and re-derives from the artifact, and §4 goes and fetches the report. A merged section collapses into "don't trust status blocks", which is true of neither.
