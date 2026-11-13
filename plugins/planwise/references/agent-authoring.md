@@ -39,7 +39,7 @@ An agent definition is a Markdown file in `.claude/agents/` with YAML frontmatte
 | `mcpServers` | object | No | None | Reference existing servers or define inline. Not available in background. |
 | `hooks` | object | No | None | PreToolUse, PostToolUse, Stop lifecycle hooks. Scoped to this agent. |
 | `memory` | string | No | None | Persistent memory scope: `user`, `project`, or `local` |
-| `background` | boolean | No | `false` | `true` = always run as background task. No MCP, no AskUserQuestion. |
+| `background` | boolean | No | `false` | `true` = always run as background task. No AskUserQuestion. MCP access follows the `tools:` list, not this field. |
 | `isolation` | string | No | None | `worktree` = run in temporary git worktree |
 
 ### Required Fields
@@ -284,9 +284,9 @@ hooks:
 > disallowedTools: Skill(execute), Skill(planwise)
 > ```
 
-> [!pitfall] `background: true` with MCP-Dependent Logic
-> **Problem:** An agent uses `mcpServers` to connect to an external API but also sets `background: true`. MCP is not available in background mode — the agent silently cannot reach the API.
-> **Solution:** Remove `background: true` for agents that need MCP. If background execution is required, design the agent to work without MCP by using direct Bash calls instead.
+> [!pitfall] A `tools:` List That Leaves Out the MCP Tools the Agent Needs
+> **Problem:** An agent uses `mcpServers` to connect to an external API, but its `tools:` allowlist names none of that server's tools. The agent cannot see or load them, even through `ToolSearch`, so it silently cannot reach the API. Background mode is not the cause: a background `general-purpose` subagent listed and called an MCP tool, while a background agent whose `tools:` list held no MCP tool saw none.
+> **Solution:** Omit `tools:`, or add the server's tools to it. Do not remove `background: true` to restore MCP access; it does not withhold MCP.
 
 ---
 

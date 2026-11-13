@@ -357,7 +357,7 @@ A team here means a group of named reviewers that the main conversation spawns. 
 > | How to trigger | `run_in_background: false` on the `Agent` call | Omit `run_in_background` (the default for an unnamed spawn), set it to `true`, set `background: true` in frontmatter, or press Ctrl+B |
 
 > [!constraint] Ask for foreground explicitly
-> Measured 2026-10-25 on Claude Code 2.1.310: an unnamed `Agent` call that omitted `run_in_background` ran in the background in 15 of 15 spawns. That covered `general-purpose`, `Explore`, `Plan`, six planwise agents and two custom agents. The harness reported each with `is_backgrounded: true`. A background `general-purpose` subagent also listed a configured MCP server's tool, so background mode no longer withholds MCP.
+> Measured 2026-10-25 on Claude Code 2.1.310: an unnamed `Agent` call that omitted `run_in_background` ran in the background in 15 of 15 spawns. That covered `general-purpose`, `Explore`, `Plan`, six planwise agents and two custom agents. The harness reported each with `is_backgrounded: true`. A background `general-purpose` subagent also listed a configured MCP server's tool, so background mode no longer withholds MCP. Re-measured 2026-11-13 on Claude Code 2.1.325, one run per agent: two background `general-purpose` subagents listed and called an MCP tool. A background `planwise:task-runner`, whose `tools:` list names no MCP tool, saw none and could not load one through `ToolSearch`.
 >
 > WRONG — rely on the default and expect a foreground run:
 > ```
