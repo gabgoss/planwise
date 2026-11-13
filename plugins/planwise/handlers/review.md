@@ -79,7 +79,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If a plan's Verification Commands assert a property of a diff (comment-only, no-logic-change, N-files-touched): Read `references/gate-baseline-independence.md` — check each named target is tracked, that no `git add -N` precedes such a gate, and that any baseline was recorded before the first edit (§5 is the pre-dispatch checklist)
 - If a plan's acceptance criteria, or a runner's status block, cite a match pattern, a count, or a diff filter as evidence: Read `references/gate-predicate-discrimination.md` — check the anchor was shown to move between a known-bad and the current state, that a negative claim rests on a query whose positive result would have been believed, and that no diff filter puts a character class immediately after `^[+-]`
 - If a plan's gates assert a count, a coverage ratio, an absence criterion, or an `N in = N out` balance: Read `references/gate-denominator-integrity.md` — check each denominator comes from outside the artifact it gates, each `no X survives` has a paired presence criterion over the full set, and no balance gate is asserted against a standing artifact (§5)
-- If reviewing a DELEGATED-orchestration plan: Read all three parts of the DELEGATED dispatch discipline — `references/agent-orchestration-delegated.md` (§1.1–§1.13), `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` (§1.14–§1.22), and `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` (§1.23–§1.32). The orchestration checks draw on all three. Each part sits under the Read-tool page cap; the combined text does not, which is why it ships split.
+- If reviewing a DELEGATED-orchestration plan: Read all four parts of the DELEGATED dispatch discipline — `references/agent-orchestration-delegated.md` (§1.1–§1.13), `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` (§1.14–§1.22), `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` (§1.23–§1.28), and `references/agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md` (§1.29–§1.32). The orchestration checks draw on all four. Each part sits under the Read-tool page cap; the combined text does not, which is why it ships split.
 - If the **effective** Token Saver value is `true` for the plan under review (its Master-Plan `Token Saver:` field over the project `context.token_saver` default — `get_effective_token_saver_config(config, plan_override)`): Read `references/task-content-fidelity.md` §9.A.8 (the Token Saver Large-File Ladder — source of truth for the [Token Saver Compliance Check](../references/review-classification.md#token-saver-compliance-check))
 - When citing Error Pattern Catalog rows during synthesis or in a finding's Fix field: Read `references/error-pattern-catalog.md` (on demand -- not loaded up front)
 - For Auto Mode behavior (how a step behaves when `AskUserQuestion` cannot be answered non-interactively): Read `references/auto-mode-policy.md`
@@ -235,7 +235,7 @@ At synthesis the lead adds one ERROR finding per `[STALE]` line and one WARNING 
 
 ## Strategy Phase: Resolve the DELEGATED Reviewer Block
 
-Runs on **both** paths, after Scale Detection and **before any reviewer is spawned**. The Required References list above makes the three-part DELEGATED dispatch discipline (`references/agent-orchestration-delegated.md` and its Part-2 and Part-3 siblings) a **conditional** read for the lead. The lead does not run the delegated checks — spawned reviewers do, in fresh context windows that inherit nothing the lead resolved. This phase resolves the condition once and pushes the result into the prompts, so the rows that cite those references are actually evaluated rather than merely indexed (`references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.29.2).
+Runs on **both** paths, after Scale Detection and **before any reviewer is spawned**. The Required References list above makes the three-part DELEGATED dispatch discipline (`references/agent-orchestration-delegated.md` and its Part-2 and Part-3 siblings) a **conditional** read for the lead. The lead does not run the delegated checks — spawned reviewers do, in fresh context windows that inherit nothing the lead resolved. This phase resolves the condition once and pushes the result into the prompts, so the rows that cite those references are actually evaluated rather than merely indexed (`references/agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md` §1.29.2).
 
 1. Grep the Master Plan and every Orchestration file for `^(\*\*Mode:\*\*|Execution Strategy:)\s*DELEGATED\b`. The first alternative is the line `templates/orchestration.md` writes under its `## Execution Strategy` heading. The second is the one-line form a hand-written plan may use. The pattern anchors at the start of the line because the template's reminder text also contains `Mode: DELEGATED` mid-line, and that text sits in every DIRECT plan too. This is the same Grep Error Pattern Catalog row 66 already requires for the named-trigger check; run it once and reuse the result here.
 
@@ -252,7 +252,7 @@ Runs on **both** paths, after Scale Detection and **before any reviewer is spawn
 
 ```markdown
 This plan declares Execution Strategy: DELEGATED in {matching file paths}.
-The DELEGATED dispatch discipline ships in three parts. Read each one and
+The DELEGATED dispatch discipline ships in four parts. Read each one and
 verify every Orchestration file against the sections that part holds:
   - references/agent-orchestration-delegated.md
       -> §1.1-§1.4, §1.8-§1.13
@@ -260,6 +260,8 @@ verify every Orchestration file against the sections that part holds:
       -> §1.16
   - references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md
       -> §1.23-§1.27
+  - references/agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md
+      -> §1.29-§1.31
 Report each miss against its Error Pattern Catalog row, not as a free-form
 observation.
 ```

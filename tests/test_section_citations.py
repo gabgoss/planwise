@@ -49,11 +49,11 @@ INSTRUMENT_MIN = 100
 # EXAMPLE = quoted or worked example citation; LABEL = a check title or label,
 # not a pointer; CONSUMER = a section of a document the consumer generates.
 LEDGERED_PLUGIN = (
-    ("references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md", 555, "§12"),  # HISTORY: extraction note
-    ("references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md", 649, "§12"),  # HISTORY: extraction note
+    ("references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md", 551, "§12"),  # HISTORY: extraction note
+    ("references/agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md", 320, "§12"),  # HISTORY: extraction note
     ("references/agent-orchestration-delegated.md", 2, "§12"),  # HISTORY: frontmatter provenance
     ("references/agent-orchestration-delegated.md", 8, "§12"),  # HISTORY: provenance of the extraction
-    ("references/agent-orchestration-delegated.md", 508, "§12"),  # HISTORY: extraction note
+    ("references/agent-orchestration-delegated.md", 509, "§12"),  # HISTORY: extraction note
     ("references/discovery-and-exit-criteria.md", 10, "§16"),  # HISTORY: records the three-way split
     ("references/discovery-and-exit-criteria.md", 10, "§17"),  # HISTORY: records the three-way split
     ("references/discovery-and-exit-criteria.md", 10, "§21"),  # HISTORY: records the three-way split
@@ -118,7 +118,7 @@ FORM_EXAMPLES = (
     ("plain path-prefixed", "agents/plan-reviewer.md", 209),
     ("link text", "references/session-planning-protocol.md", 313),
     ("link then section", "references/gate-old-home-citation-sweep.md", 76),
-    ("table cell", "references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md", 14),
+    ("table cell", "references/agent-orchestration-delegated.md", 15),
     ("en-dash range", "handlers/harvest.md", 51),
     ("heading words", "handlers/doctor-Part-3-TokenSaverAndBookkeepingReadGates.md", 74),
     ("heading words holding a comma", "handlers/lessons.md", 83),

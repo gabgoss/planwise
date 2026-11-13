@@ -112,13 +112,11 @@ In the measured lists, a background subagent holds none of the checklist tools. 
 | 8 | Path-specific rules the parent already triggered | NO | Not measured | Not measured |
 | 9 | A plugin reference that is not installed as a rule | NO | NO | NO |
 
-> **Path rules follow the context's own file activity:** A spawned context starts with the global rules and no path rules. A path rule loads once the context itself reads a matching file. Measured for `general-purpose` and `planwise:task-runner`: one Read of a matching file loaded the rule. The parent's active path triggers do not carry over. A parent that read a matching file before spawning did not pass that rule to the child.
-
-> **Skill listing follows the `Skill` tool:** Every measured context with the `Skill` tool received the project skill descriptions. Every context without it, such as a custom agent whose `tools:` list omits `Skill`, received none. A context without the listing can still find skill files with `Glob` on `.claude/skills/`. A skill the parent invoked before spawning did not reach the child. Mid-session created agents are NOT dynamically registered as available `subagent_type` values.
+Rows 6 to 8 (path rules) and row 3 (skill listing) are stated as constraints in §10 rows 3, 6 and 8.
 
 > **A reference is not context:** A plugin reference file reaches a spawned context only when the context reads it, or when it is installed as a global rule. Naming a reference in an agent definition loads nothing.
 
-> **Skill-Forked MCP:** MCP is reachable from foreground skill-forked contexts. Confirmed by a live test — a `context: fork` skill loaded a configured MCP server's tool via `ToolSearch` and the subsequent call round-tripped to the MCP layer and returned a real result. Background skill-forked MCP behavior was not exercised.
+> **Skill-Forked MCP:** A live test confirmed row 4 for the foreground: a `context: fork` skill loaded an MCP tool via `ToolSearch`, and the call returned a real result. Background skill-forked MCP was not exercised.
 
 ---
 
@@ -166,27 +164,18 @@ Planwise never asks a spawned agent to delegate further. The main conversation i
 
 ### Delegation Patterns
 
-**Automatic delegation:** Claude reads all agent `description` fields and auto-delegates matching tasks. Including "Use proactively" in the description signals Claude to auto-delegate without explicit prompting.
+**Automatic delegation:** Claude reads every agent `description` and auto-delegates matching tasks. "Use proactively" in the description signals auto-delegation without explicit prompting.
 
-**Explicit delegation:** User names the agent directly (`Use the code-reviewer agent`). Claude resolves the name against available agents, preloads listed skills, and launches.
+**Explicit delegation:** The user names the agent (`Use the code-reviewer agent`). Claude resolves the name, preloads listed skills, and launches.
 
-**Disabling agents:**
-| Method | Scope |
-|--------|-------|
-| Add `"Agent(agent-name)"` to `permissions.deny` in `.claude/settings.json` | Project-wide |
-| `--disallowedTools "Agent(agent-name)"` CLI flag | Session-only |
-
-The older `"Task(agent-name)"` form still works as an alias, so settings written before the rename need no change.
+**Disabling agents:** Add `"Agent(agent-name)"` to `permissions.deny` in `.claude/settings.json` (project-wide), or pass `--disallowedTools "Agent(agent-name)"` (session only). The older `"Task(agent-name)"` form still works as an alias.
 
 ### Orchestration Patterns
 
-**Isolate high-volume operations:** Tests, docs, and log scans produce verbose output. Subagents keep it isolated and return only a summary. Use when a step produces output that would fill the main context but only the summary matters.
-
-**Parallel research:** Multiple independent investigations run simultaneously, each in a fresh context. Each subagent explores independently; lead synthesizes after all complete. Works best when research paths are independent with no data dependencies between subagents.
-
-**Chain subagents:** Sequential workflows where each step depends on the previous result. Context is explicitly passed between steps — NOT shared automatically.
-
-**Resume a previous subagent:** Resumed agents retain full conversation history. Prefer resuming when the next step needs prior reasoning; prefer a new instance when independent context budget is more valuable.
+- **Isolate high-volume operations:** tests, docs and log scans run in a subagent that returns only a summary, when only the summary matters to the main context.
+- **Parallel research:** independent investigations run at once, each in a fresh context, with no data dependencies between them. The lead synthesizes after all complete.
+- **Chain subagents:** each step depends on the previous result. Pass context explicitly between steps. It is NOT shared automatically.
+- **Resume a previous subagent:** a resumed agent keeps its full history. Resume when the next step needs prior reasoning. Start a new instance when independent context budget matters more.
 
 > [!constraint] Context Cost Warning
 > WRONG: Spawn 10 subagents with verbose output → main conversation hits context ceiling
@@ -194,37 +183,20 @@ The older `"Task(agent-name)"` form still works as an alias, so settings written
 
 ### Agent Scope (Where to Define)
 
-| Location | Scope | Priority |
-|----------|-------|----------|
-| `--agents` CLI flag | Current session only | 1 (highest) |
-| `.claude/agents/` | Current project | 2 |
-| `~/.claude/agents/` | All your projects | 3 |
-| Plugin `agents/` directory | Where plugin is enabled | 4 (lowest) |
-
-When multiple agents share the same name, the highest-priority location wins.
-
-> [!decide] Where to Define an Agent?
-> - Team-shared, version-controlled behavior → `.claude/agents/` (project scope)
-> - Personal workflow across many projects → `~/.claude/agents/` (user scope)
-> - Testing or one-off automation → `--agents` CLI flag (session scope)
-> - Distributed as part of a plugin → plugin `agents/` directory
+Four locations define an agent, and the highest-priority location wins a name clash. The scope and priority table, with the use case for each location, lives in [agent-authoring.md](agent-authoring.md) §3.
 
 **Managing agents:** `/agents` — view, create, edit, delete in the UI. `claude agents` — list from the command line.
 
 ### Subagent vs Persistent Agent
 
-A **subagent** (spawned via `Agent` tool) is ephemeral — one task, returns a result, exits.
-
-A **persistent agent** (defined in `.claude/agents/`) is reusable and named. Use when the same role is needed repeatedly, tool restrictions must be enforced consistently, or automatic delegation by description is desired.
+A **subagent** (spawned via `Agent`) is ephemeral: one task, one result. A **persistent agent** (defined in `.claude/agents/`) is reusable and named. Use one when a role recurs, tool restrictions must hold consistently, or delegation by description is wanted.
 
 ### Plugin Handler Spawns Resolve in the Consumer's Scope Chain
 
 > [!pitfall] Un-Namespaced Plugin-Handler Spawn
-> **Problem:** A plugin handler that spawns an agent by bare name (e.g., `subagent_type: "plan-reviewer"`) resolves the agent in the CONSUMER PROJECT's scope chain, not the plugin's scope chain. If the consumer has not run `/planwise init`, the agent file does not exist in `.claude/agents/` (the plugin never installs one there) and the spawn fails with "agent not found".
+> **Problem:** A plugin handler that spawns an agent by bare name (e.g., `subagent_type: "plan-reviewer"`) resolves it in the CONSUMER PROJECT's scope chain, not the plugin's. The plugin never installs an agent file in `.claude/agents/`, so the spawn fails with "agent not found". Verified 2026-05-12, not re-verified since.
 >
-> This constraint was empirically verified 2026-05-12 (behavior may not be re-verified).
->
-> **Solution:** Plugin handlers MUST spawn agents with the plugin-namespaced form: `subagent_type: "{plugin-name}:plan-reviewer"`. The `{plugin-name}:` prefix forces resolution against the plugin's own `agents/` directory, bypassing the consumer scope chain.
+> **Solution:** Plugin handlers MUST spawn agents with the plugin-namespaced form: `subagent_type: "{plugin-name}:plan-reviewer"`. The prefix forces resolution against the plugin's own `agents/` directory.
 >
 > WRONG (bare name — fails if consumer has no plan-reviewer agent):
 > ```
@@ -240,7 +212,7 @@ A **persistent agent** (defined in `.claude/agents/`) is reusable and named. Use
 >   ...
 > )
 > ```
-> See `handlers/review.md` (9 sites), `handlers/run.md` (5 sites), `handlers/backlog.md` (1 site) for spawn-call updates.
+> `tests/test_handler_spawn_namespacing.py` fails on any handler `subagent_type` that is neither a built-in type nor prefixed. It pins no site count.
 
 ---
 
@@ -330,20 +302,11 @@ An unnamed subagent needs no address. Its final message returns to the orchestra
 
 ### Finding Report Format
 
-Reviewers report findings using this structured format:
-
-```
-[SEVERITY] Finding summary (one line)
-File: {relative path}
-Location: {section or line reference}
-Issue: {what is wrong}
-Fix: {concrete change — file + what to modify}
-Confidence: HIGH | MEDIUM | LOW
-```
+Reviewers report each finding in the six-line format (severity and summary, `File`, `Location`, `Issue`, `Fix`, `Confidence`) that [review-finding-format.md](review-finding-format.md) § Finding Report Format holds, with its Severity Classification table.
 
 ### Uncertain Finding Protocol
 
-When a reviewer has MEDIUM or LOW confidence, prefix the finding with `[UNCERTAIN]`. The orchestrator cross-checks uncertain findings against other reviewers' context before including in the final report. This is the primary false-positive reduction mechanism.
+A reviewer with MEDIUM or LOW confidence prefixes the finding with `[UNCERTAIN]`. The orchestrator cross-checks it against other reviewers' context before including it in the final report. This is the primary false-positive reduction mechanism.
 
 ### Idle Named Agents
 
@@ -407,9 +370,7 @@ A team here means a group of named reviewers that the main conversation spawns. 
 
 ### Background Pre-Approval
 
-Before launching a background agent, Claude prompts for all permissions the agent will need. Anything not pre-approved is automatically denied at runtime. Design background agents to:
-- Declare all needed permissions upfront
-- Never use `AskUserQuestion`
+The §9 table and §10 row 10 hold the pre-approval gate: declare every permission upfront, and never use `AskUserQuestion` in the background.
 
 **Background failure:** If a background agent fails due to missing permissions, resume it in foreground to retry with interactive permission approval.
 
@@ -426,36 +387,26 @@ Rows 1, 2, 4 and 5 were re-measured on Claude Code 2.1.296 on 2026-10-12, for th
 | 3 | Conversation NOT inherited by spawned agents | Fresh conversation per spawn | Spawned agents start without the parent's conversation, path triggers and loaded skills. They still load CLAUDE.md and global rules, except `Explore` and `Plan`, which load neither (§3; see row 11 for shell state) | Self-contained prompts; share via explicit messages or file references |
 | 4 | No AskUserQuestion in spawned contexts | Tool restriction | Cannot interactively prompt user | Pre-gather requirements before spawning |
 | 5 | No EnterPlanMode/ExitPlanMode in spawned contexts | Tool restriction | Cannot enter plan mode | Plan in main session before delegating |
-| 6 | Path-specific rules are not inherited at spawn | Path rule loading requires OWN file activity | A spawned context starts with global rules only. A path rule loads after the context itself reads a matching file | Include rule content explicitly in the task prompt when the context needs it before its first matching read |
+| 6 | Path-specific rules are not inherited at spawn | Path rule loading requires OWN file activity | A spawned context starts with global rules only. A path rule loads after the context itself reads a matching file (one Read loaded it for `general-purpose` and `planwise:task-runner`). The parent's active path triggers never carry over, even for a file the parent read before spawning | Include rule content explicitly in the task prompt when the context needs it before its first matching read |
 | 7 | A `tools:` list decides MCP access | The definition's `tools:` allowlist. Background mode does not withhold MCP (§9) | Every measured planwise agent, each with a `tools:` list, had no MCP tool. `general-purpose`, `Explore` and `Plan` had the configured server's tool | Omit `tools:`, or add the server's tools to it (not measured) |
-| 8 | The skill listing reaches only contexts with the `Skill` tool | The project skill descriptions arrive with the `Skill` tool | A custom agent whose `tools:` list omits `Skill` sees no project skills unless it searches `.claude/skills/`. Mid-session agents not discoverable as subagent_type | Use `skills:` frontmatter to inject a skill's full body at startup |
+| 8 | The skill listing reaches only contexts with the `Skill` tool | The project skill descriptions arrive with the `Skill` tool | A custom agent whose `tools:` list omits `Skill` sees no project skills unless it searches `.claude/skills/` with `Glob`. A skill the parent invoked does not reach the child. Mid-session agents not discoverable as subagent_type ([agent-authoring.md](agent-authoring.md) §5) | Use `skills:` frontmatter to inject a skill's full body at startup. It does not restrict which skills the agent can find. Measured 2026-10-25 on Claude Code 2.1.310: the body arrived, a supporting file linked from it did not |
 | 9 | Do not branch on a spawned agent's self-reported identity | The harness sets the identity line at spawn time. Not re-measured across contexts on this build | A check written against one identity string fails silently when a build changes it | Branch on the tools in the agent's own tool list, never on its identity line |
-| 10 | Background pre-approval gate overrides `bypassPermissions` | Background agents auto-deny any permission not explicitly pre-approved at launch; `bypassPermissions` does NOT bypass this gate | Write/Edit/Bash calls silently fail if not pre-approved; agent continues without output | Launch write-producing agents in foreground; reserve background for read-only tasks |
+| 10 | Background pre-approval gate overrides `bypassPermissions` | Before launch, Claude Code prompts for every permission the agent will need, and auto-denies anything not pre-approved. `bypassPermissions` does NOT bypass this gate, and neither does prompting: both act at the runtime layer, not the policy layer | Write/Edit/Bash calls silently fail if not pre-approved; agent continues without output | Launch write-producing agents in foreground; reserve background for read-only tasks. The plugin hook `hooks/agent-guard.ts` denies a `planwise:task-runner` Agent call that sets `run_in_background: true` |
 | 11 | Spawned contexts inherit no shell state — the interpreter on `PATH` is the platform default, never the project's | Spawned shells start fresh: no inherited working directory, `PATH`, or activated environment. Extends row 3 (context non-inheritance) from conversational to shell state | Project-package imports fail and project-only dependencies appear absent. The agent typically reports the check as **environmentally impossible rather than failed** — a false PASS on everything it did reach | Name the project's interpreter path explicitly in every spawn prompt that runs project code. Have the first dispatch echo its resolved interpreter and HALT if it is not the project's. Emit the path form matching the project's OS |
 | 12 | Writes under agent startup-config paths are gated as Self-Modification, and the decision is non-deterministic | A permission classifier protects agent/rule/skill/settings config paths independently of any workflow authorization; decisions vary **within a single batch**, and some denials are hard blocks that user authorization cannot clear | A multi-edit batch half-applies, leaving a config file internally inconsistent with no record of which edits landed. Naming the file as the deliverable across every plan tier does not pre-clear the gate | Keep config-file edit batches to the smallest coherent set — denials are per-call, so a large batch half-applies. Record applied-vs-denied state immediately. STOP and ask on denial; never retry verbatim in the same mode |
 
 > [!hazard] Self-modification permission gates block live-config edits
-> A harness may refuse an agent-initiated edit to a file that is itself part of the loaded agent configuration — rules, agent definitions, skill manifests. This is a platform constraint, not a bug, and is not always visible until the write is attempted. Operational consequence: any task whose deliverable is a change to the agent-config surface must be planned to run with the appropriate authorization, or to stage its output outside the config surface for a human to apply. Every rule-promotion task has this shape, so the gate fires routinely rather than exceptionally.
+> Row 12 is a platform constraint, not a bug, and it is often invisible until the write is attempted. A task whose deliverable changes the agent-config surface (rules, agent definitions, skill manifests) runs with the needed authorization, or stages its output outside that surface for a human to apply. Every rule-promotion task has this shape, so the gate fires routinely.
 
-> **Constraint 6 — path rules detail:** Spawned contexts begin with zero file activity. Path rules check the context's OWN active files. If a spawned context later works on files matching a path rule's pattern, those rules CAN trigger dynamically for that context. What they do NOT do is inherit the parent session's already-active path triggers.
-
-> **Constraint 8 — skills note:** The `skills:` frontmatter field injects the full SKILL.md into the agent's context at startup — use it for domain knowledge needed immediately. Measured 2026-10-25 on Claude Code 2.1.310: the skill body reached the agent, and a supporting file linked from that body did not. The field does not restrict which skills the agent can find. Any context with `Glob` can still find skill files under `.claude/skills/`.
-
-> **Constraint 10 — background pre-approval detail:** Background subagents use an upfront pre-approval gate: before launch, Claude Code prompts for all permissions the agent will need. At runtime, anything not pre-approved is auto-denied — the tool call fails silently but the agent continues executing. `bypassPermissions` mode does NOT override this gate. Practical consequence: task-runner agents that write output files MUST run in foreground. Background mode is only safe for read-only operations (Explore, research).
-
-> **Constraint 10 — background pre-approval hazard:** Design background agents for read-only operations only. Before launching a background agent that you believe needs Write/Edit/Bash, convert it to foreground mode. The pre-approval gate cannot be bypassed by prompting or by `bypassPermissions` mode — both are enforced at the runtime layer, not the policy layer.
+Row 10 in practice: a task-runner that writes output files MUST run in the foreground. Before launching a background agent that needs Write, Edit or Bash, convert it to the foreground.
 
 ---
 
 ## 11. DELEGATED Dispatch Discipline
 
-When the Execution Strategy is DELEGATED (orchestrator spawns task-runner subagents), dispatch behavior — mandatory triggers, task-file error recovery, orchestration context boundary, and the full dispatch protocol set — is governed by the three-part DELEGATED dispatch discipline below. Section numbers run continuously across the three files, so a `§1.N` anchor names exactly one section.
+When the Execution Strategy is DELEGATED (orchestrator spawns task-runner subagents), dispatch behavior — mandatory triggers, task-file error recovery, orchestration context boundary, and the full dispatch protocol set — is governed by the four-part DELEGATED dispatch discipline. Section numbers run continuously across the four files, so a `§1.N` anchor names exactly one section.
 
-| Part | File | Sections | Topic |
-|---|---|---|---|
-| 1 | [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) | §1.1–§1.13 | Declaration, foundations, and dispatch-prompt construction |
-| 2 | [`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) | §1.14–§1.22 | Dispatch mechanics and post-return handling |
-| 3 | [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) | §1.23–§1.32 | Cross-cutting dispatch-prompt and orchestrator discipline |
+The part table in [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) names the file that holds each `§1.N`.
 
 The four mandatory DELEGATED triggers are canonical at [`references/session-plan-requirements.md`](session-plan-requirements.md) § Execution Strategy (Set by Planner); do not restate the trigger list here or in the extract — cite that section.
 
@@ -463,4 +414,4 @@ Verify-Before-Acting on LSP Diagnostics has similarly moved to `agent-orchestrat
 
 ---
 
-*Cross-reference: [agent-authoring.md](agent-authoring.md), [skill-authoring.md](skill-authoring.md), [agent-orchestration-delegated.md](agent-orchestration-delegated.md) (§1.1–§1.13), [agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) (§1.14–§1.22), [agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) (§1.23–§1.32 — the three-part DELEGATED dispatch discipline), [session-context-budget.md](session-context-budget.md) (read-gate canonical + Large-File Read Tactics)*
+*Cross-reference: [agent-authoring.md](agent-authoring.md), [skill-authoring.md](skill-authoring.md), [agent-orchestration-delegated.md](agent-orchestration-delegated.md) (§1.1–§1.13), [agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) (§1.14–§1.22), [agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) (§1.23–§1.28), [agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md](agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md) (§1.29–§1.32 — the four-part DELEGATED dispatch discipline), [session-context-budget.md](session-context-budget.md) (read-gate canonical + Large-File Read Tactics)*

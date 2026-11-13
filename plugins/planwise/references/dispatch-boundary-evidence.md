@@ -11,7 +11,7 @@ paths: {planwise_root}/{plans_dir}/**
 
 Outbound, what the orchestrator writes into a prompt determines what comes back. Injecting the answer converts an independent instrument into a dependent one. Injecting an upstream routing guess sends work to a task that does not own it. Inbound, a runner's report is scoped to a window that often cannot answer the question the report is answering, and the report's non-arrival carries no information at all.
 
-Three neighbouring rules own machinery this file builds on. [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) §1.6 and [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) §1.31 own the **inject** side — a shared precondition is resolved once by the orchestrator and handed to every runner as a literal. §1 below is the deliberate exception to that economy, not a contradiction of it. [`read-confirm-act-protocol.md`](read-confirm-act-protocol.md) §1.4 owns receiver-side reconciliation of an inherited flag's *claim* — its values, its judgements, its referent. §2 below covers a different field of the same flag: its named **consumer**.
+Three neighbouring rules own machinery this file builds on. [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) §1.6 and [`agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md`](agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md) §1.31 own the **inject** side — a shared precondition is resolved once by the orchestrator and handed to every runner as a literal. §1 below is the deliberate exception to that economy, not a contradiction of it. [`read-confirm-act-protocol.md`](read-confirm-act-protocol.md) §1.4 owns receiver-side reconciliation of an inherited flag's *claim* — its values, its judgements, its referent. §2 below covers a different field of the same flag: its named **consumer**.
 
 ## Table of Contents
 
@@ -177,7 +177,7 @@ A whole-line match on the same file returns `[Omitted long matching line]` and y
 > [!practice] §3 and §4 are adjacent and must not be merged
 > §3 is about a status block that **arrived and said something its window could not support**. §4 is about a status block that **never arrived at all**. The correctives run in opposite directions: §3 discounts the report and re-derives from the artifact, and §4 goes and fetches the report. A merged section collapses into "don't trust status blocks", which is true of neither.
 
-Sustained silence with **no** idle signal at all is a different question again. [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) §1.30 answers that one: establish death before dispatching a replacement.
+Sustained silence with **no** idle signal at all is a different question again. [`agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md`](agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md) §1.30 answers that one: establish death before dispatching a replacement.
 
 ---
 
@@ -248,4 +248,4 @@ The spawn-prompt skeleton in `templates/orchestration.md` carries a `Findings to
 
 ---
 
-*Cross-reference: [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) §1.6, §1.7.1 · [`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) §1.17 · [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) §1.28, §1.30, §1.31 · [`read-confirm-act-protocol.md`](read-confirm-act-protocol.md) §1.4 · [`scaffolding-hygiene-Part-2-DerivationAndParallelism.md`](scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §17.3*
+*Cross-reference: [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) §1.6, §1.7.1 · [`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) §1.17 · [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) §1.28 · [`agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md`](agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md) §1.30, §1.31 · [`read-confirm-act-protocol.md`](read-confirm-act-protocol.md) §1.4 · [`scaffolding-hygiene-Part-2-DerivationAndParallelism.md`](scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §17.3*

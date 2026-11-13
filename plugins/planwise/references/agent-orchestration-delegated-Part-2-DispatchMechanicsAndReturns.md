@@ -1,5 +1,5 @@
 ---
-description: DELEGATED dispatch discipline, Part 2 of 3. This file holds §1.14–§1.22, dispatch mechanics and post-return handling, including gating a runner's sweep table on its control rows (§1.16.5), sweeping sibling briefs after a runner-reported gate defect (§1.16.6) and the idle-while-waiting-on-a-background-command stall (§1.17.1, §1.17.3). Part 1 of 3 is agent-orchestration-delegated.md.
+description: DELEGATED dispatch discipline, Part 2 of 4. This file holds §1.14–§1.22, dispatch mechanics and post-return handling, including gating a runner's sweep table on its control rows (§1.16.5), sweeping sibling briefs after a runner-reported gate defect (§1.16.6) and the idle-while-waiting-on-a-background-command stall (§1.17.1, §1.17.3). Part 1 of 4 is agent-orchestration-delegated.md.
 consult-when: Dispatching a task-runner or handling its return in a DELEGATED session — orchestrator-only review commands, build ordering, recomputing a delegated verdict from primary evidence, dispatch failure modes, model-tier gating, gating a runner's sweep table on its control rows, and the idle wait on a background command
 ---
 
@@ -7,13 +7,9 @@ consult-when: Dispatching a task-runner or handling its return in a DELEGATED se
 
 **Purpose:** Part 2 of the DELEGATED dispatch discipline. It covers what the orchestrator does around a dispatch and after a task-runner returns: which review commands only the orchestrator may invoke, build ordering, recomputing a delegated verdict from primary evidence, classifying dispatch failure modes, verifying LSP diagnostics, model-tier and launch-mode gating, and the anti-patterns checklist.
 
-Section numbers are continuous across all three parts. A section keeps its `§1.N` identifier wherever it lands, so an existing `§`-anchor still names exactly one section — only the filename that holds it changes.
+Section numbers are continuous across all four parts. A section keeps its `§1.N` identifier wherever it lands, so an existing `§`-anchor still names exactly one section — only the filename that holds it changes.
 
-| Part | File | Sections | Topic |
-|---|---|---|---|
-| 1 | [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) | §1.1–§1.13 | Declaration, foundations, and dispatch-prompt construction |
-| 2 (this file) | `agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` | §1.14–§1.22 | Dispatch mechanics and post-return handling |
-| 3 | [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) | §1.23–§1.32 | Cross-cutting dispatch-prompt and orchestrator discipline |
+This file holds §1.14–§1.22. The part table in [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) names the file that holds every other section.
 
 Read Part 1 first when declaring a DELEGATED session — it holds the mandatory triggers and the context boundary this file assumes. Read Part 3 alongside this one when constructing a spawn prompt.
 
@@ -550,7 +546,7 @@ Quick-reference checklist for common DELEGATED-mode mistakes; several map to ful
 
 ---
 
-**Part of a three-file discipline:** [Part 1 — Foundations and Dispatch-Prompt Construction](agent-orchestration-delegated.md) (§1.1–§1.13) · [Part 3 — Cross-Cutting Dispatch Discipline](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) (§1.23–§1.32)
+**Part of a four-file discipline:** [Part 1 — Foundations and Dispatch-Prompt Construction](agent-orchestration-delegated.md) (§1.1–§1.13) · [Part 3 — Cross-Cutting Dispatch Discipline](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) (§1.23–§1.28) · [Part 4 — Delivery, Liveness and Remediation](agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md) (§1.29–§1.32)
 
 *Originally extracted from [`agent-orchestration.md`](agent-orchestration.md) §11-§12; §1.19–§1.22 folded from `handlers/run.md`'s Delegated Execution Protocol (2026-08-10). Split into three topical parts (2026-09-06) because the combined text exceeded the Read-tool page cap; section numbers were frozen across the split.*
 *Cross-reference: [agent-orchestration.md](agent-orchestration.md), [agent-authoring.md](agent-authoring.md), [skill-authoring.md](skill-authoring.md)*

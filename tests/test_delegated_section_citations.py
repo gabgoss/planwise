@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Pins the delegated part table to the `## 1.N` headings on disk.
 
-Section Map pinned: agent-orchestration.md §11 and the part table
-that every `agent-orchestration-delegated*.md` file carries. Each table row names
-one delegated file and the `§1.N-§1.M` range that file holds. Callers cite those
-ranges, so a range that disagrees with the headings sends a reader to a section
-the named file does not contain.
+Section Map pinned: the part table in `agent-orchestration-delegated.md`, which
+`agent-orchestration.md` §11 and every other `agent-orchestration-delegated*.md`
+file point at with one pointer line. Each table row names one delegated file and
+the `§1.N-§1.M` range that file holds. Callers cite those ranges, so a range that
+disagrees with the headings sends a reader to a section the named file does not
+contain.
 
 Predicate, read from disk with no copy of any range held here:
 
@@ -15,11 +16,12 @@ Predicate, read from disk with no copy of any range held here:
       duplicate;
   (c) every `agent-orchestration-delegated*.md` file on disk is named by a row;
   (d) a family file that holds no table carries a pointer line naming a file
-      that does.
+      that does, and so does `agent-orchestration.md`.
 
 The check is layout-agnostic: it finds a table wherever one sits, so it holds for
-four copies of the table and for one table plus pointer lines. Every copy of a
-row that names the same file must give the same range.
+several copies of the table and for one table plus pointer lines. Every copy of a
+row that names the same file must give the same range. The live tree carries one
+table, in the base file, and the live-tree test asserts that.
 
 Input: the markdown files under `plugins/planwise/references/`. Exit contract
 under pytest: a failed assertion names each mismatched row or file.
@@ -44,6 +46,7 @@ from markdown_parser import split_row_cells
 
 REFERENCES = Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "references"
 BASE_NAME = "agent-orchestration.md"
+TABLE_HOME = "agent-orchestration-delegated.md"
 FAMILY_GLOB = "agent-orchestration-delegated*.md"
 
 FILE_NAME = re.compile(r"agent-orchestration-delegated[A-Za-z0-9-]*\.md")
@@ -72,6 +75,10 @@ def table_rows(text: str) -> list[tuple[str, int, int]]:
 
 def heading_numbers(text: str) -> list[int]:
     return [int(n) for n in HEADING.findall(_unfenced(text))]
+
+
+def table_holders(texts: dict[str, str]) -> set[str]:
+    return {holder for holder, text in texts.items() if table_rows(text)}
 
 
 def problems(texts: dict[str, str], on_disk: list[str]) -> list[str]:
@@ -108,7 +115,7 @@ def problems(texts: dict[str, str], on_disk: list[str]) -> list[str]:
     for name in sorted(on_disk):
         if name not in ranges:
             found.append(f"{name}: on disk but named by no table row")
-    for name in sorted(on_disk):
+    for name in sorted(on_disk) + ([BASE_NAME] if BASE_NAME in texts else []):
         if name in holds_table:
             continue
         pointed = {n for n in FILE_NAME.findall(texts.get(name, "")) if n in holds_table}
@@ -129,25 +136,32 @@ class TestDelegatedPartTable(unittest.TestCase):
         texts, on_disk = _live()
         self.assertEqual(problems(texts, on_disk), [])
 
+    def test_live_tree_holds_one_table_in_the_base_file(self):
+        texts, _ = _live()
+        self.assertEqual(table_holders(texts), {TABLE_HOME})
+
     def test_the_walk_saw_the_family(self):
         texts, on_disk = _live()
-        self.assertGreaterEqual(len(on_disk), 3)
-        self.assertTrue(table_rows(texts[on_disk[0]]))
+        self.assertGreaterEqual(len(on_disk), 4)
+        self.assertTrue(table_rows(texts[TABLE_HOME]))
         self.assertTrue(heading_numbers(texts[on_disk[0]]))
 
     def test_an_off_by_one_range_fails(self):
         texts, on_disk = _live()
-        # Mutation: breaks the part-table row for Part 2 (§1.14-§1.22 becomes §1.14-§1.21)
-        # in the Part 2 copy of the table only.
+        # Mutation: the base file's part-table row for
+        # agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md
+        # (§1.14-§1.22) becomes §1.14-§1.21.
         part2 = "agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md"
-        old = "§1.14–§1.22"
-        self.assertIn(old, texts[part2])
-        texts[part2] = texts[part2].replace("| " + old + " |", "| §1.14–§1.21 |")
+        old = "| §1.14–§1.22 |"
+        self.assertIn(old, texts[TABLE_HOME])
+        texts[TABLE_HOME] = texts[TABLE_HOME].replace(old, "| §1.14–§1.21 |")
         found = problems(texts, on_disk)
         self.assertTrue(any(part2 in line for line in found), found)
 
     def test_a_file_named_by_no_row_fails(self):
         texts, on_disk = _live()
+        # Fixture: an invented agent-orchestration-delegated-Part-9-Invented.md
+        # with no `## 1.N` heading and no row in any part table.
         texts["agent-orchestration-delegated-Part-9-Invented.md"] = "# stub\n"
         on_disk = on_disk + ["agent-orchestration-delegated-Part-9-Invented.md"]
         found = problems(texts, on_disk)
@@ -155,28 +169,34 @@ class TestDelegatedPartTable(unittest.TestCase):
 
     def test_one_table_plus_pointers_layout_passes(self):
         texts, on_disk = _live()
-        base = "agent-orchestration-delegated.md"
-        pointer = f"See the part table in `{base}` for the ranges.\n"
+        pointer = f"See the part table in `{TABLE_HOME}` for the ranges.\n"
         for name in on_disk:
-            if name == base:
+            if name == TABLE_HOME:
                 continue
             texts[name] = pointer + "\n".join(
                 f"## 1.{n} Heading" for n in heading_numbers(texts[name])
             )
-        texts[BASE_NAME] = "No table here.\n"
+        texts[BASE_NAME] = pointer
         self.assertEqual(problems(texts, on_disk), [])
 
     def test_a_pointerless_tableless_file_fails(self):
         texts, on_disk = _live()
-        base = "agent-orchestration-delegated.md"
         part3 = "agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md"
         texts[part3] = "\n".join(f"## 1.{n} Heading" for n in heading_numbers(texts[part3]))
-        texts[BASE_NAME] = "No table here.\n"
+        texts[BASE_NAME] = f"See {TABLE_HOME}\n"
         for name in on_disk:
-            if name not in (base, part3):
-                texts[name] = "\n".join(f"## 1.{n} Heading" for n in heading_numbers(texts[name])) + f"\nSee {base}\n"
+            if name not in (TABLE_HOME, part3):
+                texts[name] = "\n".join(f"## 1.{n} Heading" for n in heading_numbers(texts[name])) + f"\nSee {TABLE_HOME}\n"
         found = problems(texts, on_disk)
         self.assertTrue(any(part3 in line and "no pointer" in line for line in found), found)
+
+    def test_a_pointerless_section_11_fails(self):
+        texts, on_disk = _live()
+        # Fixture: agent-orchestration.md §11 without its pointer line to the
+        # base file's part table.
+        texts[BASE_NAME] = "## 11. DELEGATED Dispatch Discipline\n\nNo pointer here.\n"
+        found = problems(texts, on_disk)
+        self.assertTrue(any(BASE_NAME in line and "no pointer" in line for line in found), found)
 
     def test_no_table_at_all_fails(self):
         self.assertEqual(len(problems({"a.md": "text\n"}, ["a.md"])), 1)

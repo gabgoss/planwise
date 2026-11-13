@@ -47,7 +47,7 @@ _SITES = (
     PLUGIN_ROOT / "references" / "agent-orchestration-delegated.md",
     PLUGIN_ROOT
     / "references"
-    / "agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md",
+    / "agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md",
 )
 
 _TEMPLATE_MODE_PLACEHOLDER = "{DIRECT | DELEGATED}"

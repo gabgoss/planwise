@@ -1,19 +1,20 @@
 ---
-description: DELEGATED dispatch discipline, Part 1 of 3 — declaration, foundations, and dispatch-prompt construction (§1.1–§1.13) for spawning task-runner subagents; extracted from agent-orchestration.md §11-§12
-consult-when: Running a DELEGATED session — the orchestrator protocol for spawning task-runners, from declaration through dispatch-prompt construction, with dispatch mechanics and returns in the Part-2 sibling and cross-cutting prompt discipline in the Part-3 sibling
+description: DELEGATED dispatch discipline, Part 1 of 4 — declaration, foundations, and dispatch-prompt construction (§1.1–§1.13) for spawning task-runner subagents; extracted from agent-orchestration.md §11-§12
+consult-when: Running a DELEGATED session — the orchestrator protocol for spawning task-runners, from declaration through dispatch-prompt construction, with dispatch mechanics and returns in the Part-2 sibling, cross-cutting prompt discipline in the Part-3 sibling, and delivery channel, liveness and remediation briefs in the Part-4 sibling
 ---
 
 # DELEGATED Dispatch Discipline — Part 1: Foundations and Dispatch-Prompt Construction
 
 **Purpose:** Operational dispatch protocols for an orchestrator running a DELEGATED session (spawning task-runner subagents). These subsections (§1.1–§1.32) were extracted from [`agent-orchestration.md`](agent-orchestration.md) §11–§12 to keep the core orchestration reference compact on every invocation; they load conditionally when DELEGATED mode is declared.
 
-The discipline spans **three files**, split by topic because the combined text exceeds the Read-tool page cap. Section numbers are continuous and unique across all three. A section keeps its `§1.N` identifier wherever it lands, so an existing `§`-anchor still names exactly one section — only the filename that holds it changes.
+The discipline spans **four files**, split by topic because the combined text exceeds the Read-tool page cap. Section numbers are continuous and unique across all four. The table below is the one part table of the family. A section keeps its `§1.N` identifier wherever it lands, so an existing `§`-anchor still names exactly one section — only the filename that holds it changes.
 
 | Part | File | Sections | Topic |
 |---|---|---|---|
 | 1 (this file) | `agent-orchestration-delegated.md` | §1.1–§1.13 | Declaration, foundations, and dispatch-prompt construction |
 | 2 | [`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) | §1.14–§1.22 | Dispatch mechanics and post-return handling |
-| 3 | [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) | §1.23–§1.32 | Cross-cutting dispatch-prompt and orchestrator discipline |
+| 3 | [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) | §1.23–§1.28 | Cross-cutting dispatch-prompt and orchestrator discipline |
+| 4 | [`agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md`](agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md) | §1.29–§1.32 | Delivery channel, liveness, shared preconditions and remediation briefs |
 
 This file holds the foundation and everything that shapes a spawn before it goes out. §1.1 Mandatory Triggers, §1.2 Task-File Error Recovery and §1.3 Orchestration Context Boundary establish the ground rules. §1.4–§1.13 then cover dispatch-prompt construction: diagnostics verification, tool-use budget reservation, path-scoped rule injection, the wake-up protocol, the HARD CONSTRAINTS skeleton, fix tier-ranking, forward-looking-verb detection, ceiling disclaimers, the N>25 resume protocol, and the shared-edit-target strategy matrix.
 
@@ -304,7 +305,7 @@ The paragraphs above tell a reader not to conclude that an idle agent has stoppe
 3. **Work present but bookkeeping stale** — ask the agent whether it is done before reconciling. Do not assume it abandoned the write.
 4. **Reconcile unilaterally only** once the agent has reported or demonstrably terminated.
 
-**Signal strength.** A `completed` status, an idle notification, and a clean-looking final message are all **weak** signals. The strong signal is deliverable evidence on disk. This is [Part 2](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) §1.17.4's acceptance gate applied one step earlier — to whether the agent is *done*, not to whether it *succeeded*. Sustained silence with no idle signal at all is a different question again, and [Part 3](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) §1.30 answers that one: establish death before dispatching a replacement.
+**Signal strength.** A `completed` status, an idle notification, and a clean-looking final message are all **weak** signals. The strong signal is deliverable evidence on disk. This is [Part 2](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) §1.17.4's acceptance gate applied one step earlier — to whether the agent is *done*, not to whether it *succeeded*. Sustained silence with no idle signal at all is a different question again, and [Part 4](agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md) §1.30 answers that one: establish death before dispatching a replacement.
 
 > [!practice] Record the observation; attribute a cause only when you can support it
 > When writing up *why* something went wrong, separate what you **observed** from what you **inferred**. "{Bookkeeping file} was stale at {timestamp}" is an observation. "The runner stalled" is an inference, and a runner that was raced looks the same. An unverified causal claim written into a permanent audit trail is corrected only if the other actor happens to push back, so write the observation and leave the cause unstated until it is established.
@@ -354,7 +355,7 @@ When a DELEGATED task produces results requiring fixes, rank the fixes by invasi
 
 Start with Tier 1 fixes before escalating; do not over-dispatch high-invasiveness fixes when lower-tier corrections suffice.
 
-When the follow-up is a remediation brief, derive its write set from where each fix lands, not from what each file is for. See [Part 3](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) §1.32 ("Derive a Remediation Brief's Write Set From Where Each Fix Lands").
+When the follow-up is a remediation brief, derive its write set from where each fix lands, not from what each file is for. See [Part 4](agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md) §1.32 ("Derive a Remediation Brief's Write Set From Where Each Fix Lands").
 
 ## 1.10 Forward-Looking-Verb Detection + SendMessage Resume Protocol
 
@@ -503,7 +504,7 @@ For Recovery specifically, **Option C is the binding default whenever 3 or more 
 
 ---
 
-**Continues in:** [Part 2 — Dispatch Mechanics and Returns](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) (§1.14–§1.22) · [Part 3 — Cross-Cutting Dispatch Discipline](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) (§1.23–§1.32)
+**Continues in:** [Part 2 — Dispatch Mechanics and Returns](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) (§1.14–§1.22) · [Part 3 — Cross-Cutting Dispatch Discipline](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) (§1.23–§1.28) · [Part 4 — Delivery, Liveness and Remediation](agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md) (§1.29–§1.32)
 
 *Originally extracted from [`agent-orchestration.md`](agent-orchestration.md) §11-§12 (DELEGATED Dispatch Discipline + Verify-Before-Acting on LSP Diagnostics); §1.19–§1.22 folded from `handlers/run.md`'s Delegated Execution Protocol (2026-08-10). `agent-orchestration.md` now carries only a short §11 pointer stub back to this file. Split into three topical parts (2026-09-06) because the combined text exceeded the Read-tool page cap; section numbers were frozen across the split.*
 *Cross-reference: [agent-orchestration.md](agent-orchestration.md), [agent-authoring.md](agent-authoring.md), [skill-authoring.md](skill-authoring.md)*
