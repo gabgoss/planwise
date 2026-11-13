@@ -4,7 +4,7 @@
 
 The chain is four ordered stages. The order is forced, not conventional: the final stage cannot land a lesson until the per-item stage has flipped its owning item to COMPLETE.
 
-1. **Categorise** — sync the categorisation file and refine each lesson's promotion target. Halts, without modifying any file, if any lesson's bucket assignment is ambiguous. The halt is deliberately conservative: an unresolved lesson either blocks the promote stage outright or drops silently out of a narrowed scope, and this command does not assume which, so it stops rather than promote a set the user did not see.
+1. **Categorise** — sync the categorisation file and set each lesson's origin, promotion target and check answer. Halts, without modifying any file, if any lesson's bucket assignment is ambiguous. The halt is deliberately conservative: an unresolved lesson either blocks the promote stage outright or drops silently out of a narrowed scope, and this command does not assume which, so it stops rather than promote a set the user did not see.
 2. **Promote** — resolve the scope, group by bucket, draft the item files and regenerate the backlog index, then capture each lesson (archive-on-capture). Never self-heals a lesson whose bucket is unknown.
 3. **Process** — for each item this run created, pre-flight its frontmatter, triage it, route it, dispatch a foreground agent, verify, and write status centrally. A per-item failure is logged and the loop advances.
 4. **Land** — set the final status and artifact pointer on every lesson whose owning item reached COMPLETE, and append the promotion-log row. Heal candidates are reported, never actioned.
@@ -152,9 +152,9 @@ The canonical policy's Inline Tagging Convention applies: critical sites emit a 
 #### Stage 1: Categorise
 
 - **Precondition:** none — always runs first.
-- **Action:** compute the uncategorised set (documented lessons minus already-categorised lessons), append bucket rows to the categorisation file, and refine each lesson's promotion target.
+- **Action:** compute the uncategorised set (documented lessons minus already-categorised lessons), append bucket rows to the categorisation file, and set each lesson's origin, promotion target and check answer.
 - **Failure:** HALT (call-site H2) on any ambiguous bucket assignment — no partial-proceed. This is HC2: the batch-promote categorisation precondition is specified more than one way across the workflow it feeds — under a corpus-wide reading, proceeding is illegal; under a scope-relative reading, it silently promotes a partial set. This command cannot know which reading the live handler implements and must be correct under both, so it halts rather than guess.
-- **Writes:** the categorisation file only (rows appended, promotion targets refined) — no lesson file, no item file.
+- **Writes:** lesson frontmatter (`domain:`, `origin:`, `promotion-target:`, `enforced-by:`) and the regenerated categorisation file — no item file.
 
 #### Stage 2: Promote
 

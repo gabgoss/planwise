@@ -621,22 +621,7 @@ Ask the user: "Were any lessons learned during this session?"
    - Domain (infer from files worked on, or ask user)
    - Technology and language involved
    - Severity (high / medium / low)
-3. Draft the lesson with pre-filled YAML frontmatter:
-   ```yaml
-   ---
-   id: LL-{next-available}
-   title: {auto-generated from context}
-   date: {today}
-   source: {session-id}
-   category: {inferred: anti-pattern | pattern | process}
-   severity: {inferred: low | medium | high}
-   language: [{inferred}]
-   technology: [{inferred}]
-   domain: [{inferred domain abbreviation}]
-   status: documented
-   applied-as: null
-   ---
-   ```
+3. Draft the lesson with the frontmatter of `templates/lesson.md`, filled from item 2. Set `origin:`, `promotion-target:` and `enforced-by:` by asking the Resolution Matrix in `references/lessons-schema.md`.
 4. Present draft to user: "Capture this lesson? (approve / edit / skip)"
 5. If approved:
    - Write file: `{lessons_dir}/LL-{NNN}-{Domain}-{Name}.md`

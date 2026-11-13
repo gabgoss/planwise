@@ -142,7 +142,7 @@ Halt without modifying any files.
 
 ### Workflow
 
-Curate runs two phases against the lesson set. **Phase 1** diffs the master index against the companion (`--companion --check --json`), reads uncategorised `LL-*` files in full, tags each lesson's frontmatter — the `domain:` bucket discriminator per `references/lessons-curate-workflow.md` §3.4, and, from the lesson's body, its `promotion-target` using its existing callout/markdown conventions (a fenced code block or diff reads as `code`; a `MUST`/`NEVER` callout reads as `rule`; and so on) — and regenerates the companion; a lesson whose body maps to more than one target type is flagged as a split candidate. **Phase 2** finds `status: promoted`, lands each lesson whose content is verified present in its destination artifact (per lesson, by content, never per item by status) — reconciling `applied-as` and flipping status to `rule`/`applied` with a Rule Promotion Log row — and also heals any `documented` lesson that turns out to be fully owned by a backlog item forward to `promoted`. Optional file moves to `Archive/` require explicit user approval.
+Curate runs two phases against the lesson set. **Phase 1** diffs the master index against the companion (`--companion --check --json`), reads uncategorised `LL-*` files in full, tags each lesson's frontmatter — the `domain:` bucket discriminator per `references/lessons-curate-workflow.md` §3.4, and its `origin:`, `promotion-target:` and `enforced-by:` keys, set by asking the Resolution Matrix and the check question defined in `references/lessons-schema.md` — and regenerates the companion; a lesson whose fix spans more than one target type is flagged as a split candidate. **Phase 2** finds `status: promoted`, lands each lesson whose content is verified present in its destination artifact (per lesson, by content, never per item by status) — reconciling `applied-as` and flipping status to `rule`/`applied` with a Rule Promotion Log row — and also heals any `documented` lesson that turns out to be fully owned by a backlog item forward to `promoted`. Optional file moves to `Archive/` require explicit user approval.
 
 See `references/lessons-curate-workflow.md` for the binding step-by-step protocol (bucket selection algorithm, reporting format, anomaly detection, and constraint set).
 
@@ -253,16 +253,16 @@ List all lesson IDs found and ask the user to confirm the correct one.
 
 ### Stage 2: Read
 
-Read the lesson content and determine the appropriate artifact type based on the lesson's content pattern:
+Read the lesson content and its `origin:`, `promotion-target:` and `enforced-by:` keys. When a key is missing, ask the Resolution Matrix and the check question in `references/lessons-schema.md`, and set the key. Then pick the artifact type from the table:
 
-| Lesson Content Pattern | Artifact Type | Generated Location |
-|------------------------|---------------|-------------------|
-| Prescriptive rule (MUST, NEVER, ALWAYS) | Rule | `.claude/rules/{name}.md` |
+| Resolution | Artifact Type | Generated Location |
+|------------|---------------|-------------------|
+| A check a hook can run (`enforced-by: hook: …`) | Hook | `.claude/hooks/{name}.sh` |
+| A convention with no possible check (`enforced-by: none: …`) | Rule | `.claude/rules/{name}.md` |
 | Reusable workflow with steps | Skill | `.claude/skills/{name}/SKILL.md` |
-| Enforcement check (pre/post action) | Hook | `.claude/hooks/{name}.sh` |
 | Delegatable role with constraints | Agent | `.claude/agents/{name}.md` |
 
-Most lessons describe patterns or anti-patterns that map to **Rule** type. Lessons about workflows may map to **Skill**. Hook and agent types are rare.
+Prefer the Hook row whenever the matrix names a matchable command shape. Any other lesson whose check is a test, a lint rule or a script, or whose target is `code`, `claude-md` or `settings`, has no generated artifact in this mode: route it through `/planwise lessons promote-batch`, which drafts a backlog item with a check deliverable.
 
 ### Stage 3: Confirm (REQUIRED — never skip) <!-- AUTO-MODE: critical -->
 
@@ -272,6 +272,8 @@ Present to the user:
 - Proposed artifact name (kebab-case)
 - Proposed file path
 - Brief rationale for the classification
+- The matched Resolution Matrix row, with the `origin:` value
+- The `enforced-by:` answer, with the reason of a `none:` answer
 - **On approval, the lesson file will also be moved to `{lessons_dir}/Archive/`** (Stage 6). Approving this prompt covers the artifact generation, the frontmatter flip, the archive move, and the Rule Promotion Log row.
 
 Wait for user approval before proceeding.
@@ -290,6 +292,8 @@ Create the artifact file at the approved location:
 | Agent | `.claude/agents/{name}.md` |
 
 Check if the file already exists before writing. If it exists, ask the user to rename or merge. <!-- AUTO-MODE: critical -->
+
+**Hook registration (BINDING for a Hook):** Register the hook in the project's `.claude/settings.json`, under `hooks`, for the event and the tool matcher the lesson names: one entry with a `matcher` and a `"type": "command"` hook whose `command` runs the generated script. Run the hook once against the lesson's failing example and confirm it fires. Run it once against the corrected example and confirm it stays silent. Show both results to the user. A hook that is written and never registered never runs. The settings write may prompt for permission. If it is denied, record the registration as owed and stop.
 
 **Self-containment verification (BINDING — do not skip):** After writing the artifact, run the grep from [`references/artifact-self-containment.md` §4](../references/artifact-self-containment.md#4-mechanical-verification) against the produced file. The artifact body MUST inline every WRONG/CORRECT example, recipe, and verification command from the source lesson — no `see LL-NNN` / `per BB-NNN` cross-references in the rule body, agent definition, skill body, or hook script.
 
@@ -319,9 +323,11 @@ Edit the lesson file's YAML frontmatter:
 
 | Field | Value |
 |-------|-------|
-| `status` | `rule` (for rules) or `applied` (for skills, hooks, agents) |
+| `status` | `rule` (for a rule, skill or agent) or `applied` (for a hook) |
 | `applied-as` | Path to generated artifact (relative to project root) |
 | `promoted-date` | ISO date: YYYY-MM-DD |
+| `origin` | The value Stage 2 set, when the lesson lacked the key |
+| `enforced-by` | The value Stage 2 set, when the lesson lacked the key, written double-quoted as `templates/lesson.md` shows |
 
 ### Stage 6: Archive
 
@@ -391,8 +397,8 @@ Read domain abbreviations from `config.yaml` (`abbreviations` and `lesson_abbrev
 >
 > This is a different concern from shipped-artifact self-containment (`references/artifact-self-containment.md`, which strips internal identifiers out of a promoted artifact) — here the goal is that the lesson itself carries its own substance so it survives to be promoted.
 
-> [!tip] Prefer single-purpose lessons
-> Building on the inlining principle above — once the substance is pasted in, keep each lesson's promotion scope to **one target type** (`rule`, `code`, `claude-md`, `agent`, `skill`, or `settings`). Infer the type from the lesson's structure: a fenced code block or diff usually promotes to `code`; a `MUST`/`NEVER` callout usually promotes to `rule`. When a single insight genuinely spans multiple target types, capture **2+ small, cross-linked lessons** instead of one coarse lesson — inlined, single-purpose lessons are easier to promote cleanly than one that tries to cover several targets at once.
+> [!tip] Prefer single-purpose lessons, and ask the Resolution Matrix first
+> Building on the inlining principle above — once the substance is pasted in, keep each lesson's promotion scope to **one target type** (`rule`, `code`, `claude-md`, `agent`, `skill`, or `settings`). Pick the type by asking the Resolution Matrix in `references/lessons-schema.md`: whose artifact failed? Record the matched row as `origin:`. Then answer its check question, "What fires when this failure recurs?", as `enforced-by:`. Never pick the type from the lesson's markup: a lesson that shows code examples and a `MUST`/`NEVER` callout can take any target. When a single insight genuinely spans multiple target types, capture **2+ small, cross-linked lessons** instead of one coarse lesson — inlined, single-purpose lessons are easier to promote cleanly than one that tries to cover several targets at once.
 
 Create a candidate lesson with pre-filled YAML frontmatter:
 
@@ -410,6 +416,8 @@ domain: [{inferred domain abbreviation}]
 status: documented
 applied-as: null
 promotion-target: [rule|code|claude-md|agent|skill|settings]   # one or more target types; multi-value = coarse / split-candidate
+origin: {planwise | owned-tool | foreign-tool | model-call | own-rules | own-code | other}   # the matched Resolution Matrix row
+enforced-by: "{kind}: {what fires when this failure recurs}"                                # or "none: {one-line reason}"; quoted, because the value holds a colon; kinds are lesson_check_kinds in config.yaml
 # promoted-to:                                                  # owning backlog item id(s), e.g. BB-{NNN}; set at capture-archive
 ---
 ```
@@ -419,8 +427,9 @@ promotion-target: [rule|code|claude-md|agent|skill|settings]   # one or more tar
 Present the draft to the user:
 - Show pre-filled frontmatter and draft Context/Lesson/Applies To sections
 - **Self-containment check:** confirm the draft inlines every block, example, or command output the lesson depends on — a reference may add context, but the substance required to promote it later is pasted in, not only linked. (Apply the durability test in Step 2.)
+- **Resolution check:** show the matched Resolution Matrix row, the `origin:` value and the `enforced-by:` answer. Show the reason of a `none:` answer, so the user can reject it.
 - Ask: "Capture this lesson? (approve / edit / skip / approve + report upstream)" <!-- AUTO-MODE: critical -->
-  - **approve + report upstream:** writes the local lesson first, same as plain approve (Step 4, unchanged — the consumer keeps their own record regardless), then passes the draft to `references/feedback-submission.md` to submit it upstream. Surface this option prominently when the draft's `technology:`/`domain:` frontmatter carries a planwise-ish token, but it is ALWAYS selectable — a non-match never hides it, and no heuristic decides on the user's behalf.
+  - **approve + report upstream:** writes the local lesson first, same as plain approve (Step 4, unchanged — the consumer keeps their own record regardless), then passes the draft to `references/feedback-submission.md` to submit it upstream. Recommend this option, and list it first, when the draft's `origin:` is `planwise`: the Resolution Matrix sends every planwise lesson upstream. Surface this option prominently when the draft's `technology:`/`domain:` frontmatter carries a planwise-ish token, but it is ALWAYS selectable — a non-match never hides it, and no heuristic decides on the user's behalf.
 
 ### Step 4: Write
 

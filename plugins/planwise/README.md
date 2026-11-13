@@ -318,7 +318,7 @@ Promotion lints what it generates before finalising it: content the new rule/ski
 /planwise lessons curate --phase=promote
 ```
 
-Curate runs two phases against your lesson set. Phase 1 sorts uncategorised lessons into the domain buckets defined in `config.yaml` (Database, Application Code, Process, Tooling — customisable), tags each lesson's promotion target from its own structure (a fenced code block reads as `code`, a MUST/NEVER callout reads as `rule`), and flags a lesson that spans several target types as a split candidate. Phase 2 lands `promoted` lessons whose owning backlog item has shipped — verifying the destination artifact exists and logging each one in the Rule Promotion Log, alongside your generated lessons index. Run `--phase=both` (the default) to do both at once, or scope to just one phase.
+Curate runs two phases against your lesson set. Phase 1 sorts uncategorised lessons into the domain buckets defined in `config.yaml` (Database, Application Code, Process, Tooling — customisable), sets each lesson's origin, promotion target and check answer by asking the resolution matrix: whose artifact failed, and what fires when the failure recurs, and flags a lesson that spans several target types as a split candidate. Phase 2 lands `promoted` lessons whose owning backlog item has shipped — verifying the destination artifact exists and logging each one in the Rule Promotion Log, alongside your generated lessons index. Run `--phase=both` (the default) to do both at once, or scope to just one phase.
 
 **Batch-draft promotion plans for a whole bucket:**
 ```
@@ -559,7 +559,7 @@ When the tool queues a draft, meaning the helper admitted it, the card component
 
 `harvest` chains four stages together so you don't have to run each by hand: it categorises your documented lessons into their domain buckets, promotes them in batch into backlog items, processes each resulting item through the triage handler, then lands the lessons whose owning items shipped. The order is forced — the final stage can't land a lesson until the per-item stage has flipped its owning item to COMPLETE.
 
-1. **Categorise** — sync the categorisation file and refine each lesson's promotion target.
+1. **Categorise** — sync the categorisation file and set each lesson's origin, promotion target and check answer.
 2. **Promote** — resolve the scope, group lessons by bucket, draft the backlog items, and capture each lesson.
 3. **Process** — pre-flight, triage, route, and dispatch a foreground agent for every item this run created.
 4. **Land** — set the final status and artifact pointer on every lesson whose owning item reached COMPLETE.
