@@ -39,6 +39,11 @@ DEFAULT_PLAN_STATUSES = (
     "CLOSED",
 )
 
+# The kinds a lesson's `enforced-by:` answer may name. `load_config` supplies
+# it as `lesson_check_kinds` when the config has no such list. The template's
+# `lesson_check_kinds:` block carries the same four values.
+DEFAULT_LESSON_CHECK_KINDS = ("hook", "test", "lint", "script")
+
 # The folder `load_config` uses for each `project.<key>` directory when the
 # key is absent, null or empty. This table is the one place those fallbacks
 # live: the loader reads it, and the upgrade backfill writes the same values
@@ -788,6 +793,26 @@ def load_config(script_path: Path | None = None, *, config_path: Path | None = N
                     )
                     break
         config["plan_statuses"] = list(DEFAULT_PLAN_STATUSES)
+
+    # Same rule for the lesson check kinds: only a non-empty list of strings is kept.
+    lesson_check_kinds = config.get("lesson_check_kinds")
+    if (
+        isinstance(lesson_check_kinds, list)
+        and lesson_check_kinds
+        and all(isinstance(k, str) for k in lesson_check_kinds)
+    ):
+        config["lesson_check_kinds"] = list(lesson_check_kinds)
+    else:
+        if isinstance(lesson_check_kinds, list):
+            for entry in lesson_check_kinds:
+                if not isinstance(entry, str):
+                    print(
+                        f"Warning: lesson_check_kinds entry {entry!r} is not a string, "
+                        "so the default lesson check kinds apply. Quote the value in config.yaml.",
+                        file=sys.stderr,
+                    )
+                    break
+        config["lesson_check_kinds"] = list(DEFAULT_LESSON_CHECK_KINDS)
 
     # Resolve lessons paths (optional)
     lessons_dir = _nonempty_str(project.get("lessons_dir"))

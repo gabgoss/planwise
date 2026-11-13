@@ -18,6 +18,8 @@ domain: [{project domains}]
 status: documented
 applied-as: null
 promotion-target: [rule|code|claude-md|agent|skill|settings]   # one or more target types; multi-value = coarse / split-candidate
+origin: {planwise | owned-tool | foreign-tool | model-call | own-rules | own-code | other}   # the matched Resolution Matrix row
+enforced-by: {kind}: {what fires when this failure recurs}                                  # or none: {one-line reason}; kinds are lesson_check_kinds in config.yaml
 # promoted-to:                                                  # owning backlog item id(s), e.g. BB-{NNN}; set at capture-archive
 # rule-as:                                                      # DEPRECATED alias for applied-as — read for back-compat, never written
 ---
@@ -37,4 +39,4 @@ promotion-target: [rule|code|claude-md|agent|skill|settings]   # one or more tar
 {When this lesson is relevant — technologies, file patterns, scenarios.}
 ```
 
-The frontmatter pointer fields' semantics are defined once, in `references/lessons-schema.md § Pointer Fields — Authoritative Definition`. Do not restate them here.
+The frontmatter pointer fields' semantics are defined once, in `references/lessons-schema.md § Pointer Fields — Authoritative Definition`. The `promotion-target:`, `origin:` and `enforced-by:` values are defined once, in the same file, under `Promotion Target — Authoritative Definition`, `Resolution Matrix` and `Enforcement Answer`. Do not restate them here.

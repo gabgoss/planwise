@@ -107,6 +107,7 @@ MIGRATABLE_TOP_LEVEL_KEYS = [
     "feedback",         # upstream issue-create block; the template turns posting on
     "lesson_statuses",  # declarative lesson lifecycle vocabulary, paired with `statuses:`
     "plan_statuses",    # Master Plan status vocabulary the plans index generator reads
+    "lesson_check_kinds",  # kinds a lesson's enforced-by answer may name; read at run time
     "style",            # global always-on style rules install toggles (plain_language, plain_presentation)
 ]
 

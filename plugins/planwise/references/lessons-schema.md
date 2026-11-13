@@ -1,6 +1,6 @@
 ---
-description: The Lessons Learned index's generated contract — column layout, hub/overflow/Archive-shard membership and budgets, the changelog and promotion-log file contracts, status meanings, naming, the Pointer Fields definition, the title cap, and the one-writer rule. Every consumer of the generated index defers here.
-consult-when: Reading or changing the generated lessons index — column layout, hub/overflow/Archive shards, counter, status meanings, Pointer Fields, one-writer rule
+description: The Lessons Learned index's generated contract — column layout, hub/overflow/Archive-shard membership and budgets, the changelog and promotion-log file contracts, status meanings, naming, the Pointer Fields definition, the promotion-target definition, the Resolution Matrix, the `enforced-by:` answer, the title cap, and the one-writer rule. Every consumer of the generated index defers here.
+consult-when: Reading or changing the generated lessons index — column layout, hub/overflow/Archive shards, counter, status meanings, Pointer Fields, one-writer rule — or deciding a lesson's promotion-target, origin (Resolution Matrix) or enforced-by answer
 ---
 
 # Lessons Schema
@@ -153,6 +153,82 @@ Two frontmatter fields answer two different questions. This table is the single 
 > applied-as: references/{artifact}.md §{N}                      # the artifact
 > promoted-to: BB-{NNN}                                          # the owner
 > ```
+
+## Promotion Target — Authoritative Definition
+
+`promotion-target:` names the kind of artifact the lesson's fix becomes. This table is the single source of truth for the values. The `Lands as` column gives the terminal status the lesson takes when its fix lands, and Status Definitions defines both statuses.
+
+| Value | The fix becomes | Lands as |
+|-------|-----------------|----------|
+| `rule` | A convention a model reads: a rule file, or a reference document the project treats as its rule surface | `rule` |
+| `code` | A change to a file the project executes: source, script, test, lint rule or hook. Never a comment alone | `applied` |
+| `claude-md` | Durable project-wide guidance in `CLAUDE.md` | `rule` |
+| `agent` | A delegatable role definition | `rule` |
+| `skill` | A reusable multi-step procedure | `rule` |
+| `settings` | A permission or config entry in a settings file | `applied` |
+
+No other value is valid. A reference document is a `rule` target, not a value of its own.
+
+A `code` lesson names its provenance, which is the file that needs the fix, and its regression test.
+
+More than one value marks a split candidate. A `rule` target with a named check is one target plus an `enforced-by:` answer, not two targets.
+
+The target follows from the Resolution Matrix, never from the lesson's markup. A callout or a code block in the lesson body does not decide it.
+
+## Resolution Matrix
+
+Ask the rows in order, and the first row that matches decides. `origin:` records the matched row.
+
+| Origin | Ask | Resolution | Usual target |
+|--------|-----|------------|--------------|
+| `planwise` | Did a planwise handler, script, reference or template fail? | Report it with `/planwise feedback`, and keep the local lesson | n/a: the fix belongs to the plugin |
+| `owned-tool` | Did a tool the project owns and maintains fail, such as a script, hook or CLI it ships? | Fix that tool, as code with a regression test | `code` |
+| `foreign-tool` | Did a third-party tool, CLI or service the project does not own fail? | Report it upstream where a channel exists. Add a hook or guard when the trigger is matchable, otherwise a hazard callout | `code` for a hook or guard, otherwise `rule` |
+| `model-call` | Did the model choose a wrong tool call, command or step while every tool worked as documented? | A hook when the command shape is matchable, otherwise a rule or `CLAUDE.md` guidance | `code` for a hook, otherwise `rule` or `claude-md` |
+| `own-rules` | Did the project's own rule, reference, `CLAUDE.md`, agent or skill give wrong or conflicting guidance? | Edit the rule that is wrong. Never add a rule to settle a conflict | the target of the wrong artifact: `rule`, `claude-md`, `agent` or `skill` |
+| `own-code` | Did the project's own application code fail? | Fix the code, as code with a test | `code` |
+| `other` | Did none of the earlier rows match? | Write a rule, with an `enforced-by: none:` answer and its reason | `rule` |
+
+A trigger or command shape is matchable when a hook can recognise the failing call from its tool name and arguments.
+
+A lesson whose origin is `planwise` is reported with `/planwise feedback`, with no ownership test, and the local lesson is kept. The feedback flow applies its own consent gates before it posts anything.
+
+A `model-call` failure with no matchable command shape promotes to `rule` or `claude-md`, never to memory.
+
+An `own-rules` lesson edits the rule that is wrong, and never adds a rule to settle a conflict.
+
+## Enforcement Answer
+
+What fires when this failure recurs? `enforced-by:` records the answer. Every lesson answers, whatever its target.
+
+```yaml
+enforced-by: <kind>: <what>
+enforced-by: none: <one-line reason>
+```
+
+| Kind | The answer names |
+|------|------------------|
+| `hook` | The hook file, and the tool call it blocks or warns on |
+| `test` | The test file and test name that fail on the wrong form |
+| `lint` | The lint rule, and the configuration that enables it |
+| `script` | The script, and the invocation that exits non-zero on the wrong form |
+
+The kind list is `lesson_check_kinds:` in `config.yaml`. This table defines the four shipped kinds. A project may add a kind to that list when it enforces lessons with a check the four do not name. When the key is absent, the config loader supplies the four shipped kinds.
+
+A `code` lesson's answer names its regression test.
+
+A `none:` reason states what a check would have to observe, and why nothing can observe it.
+
+WRONG — the reason says only that no check exists:
+```yaml
+enforced-by: none: no check
+```
+CORRECT — the reason names what a check would observe, and why nothing can:
+```yaml
+enforced-by: none: a check would have to judge whether a summary fits its change, and no script can make that judgement
+```
+
+The question applies the principle in the section "A Rule Is Not a Control" of [rule-authoring.md](rule-authoring.md): a rule that only a model reads is not a control on the failure it describes.
 
 ## Title Cap
 
