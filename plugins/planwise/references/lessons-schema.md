@@ -202,9 +202,11 @@ An `own-rules` lesson edits the rule that is wrong, and never adds a rule to set
 What fires when this failure recurs? `enforced-by:` records the answer. Every lesson answers, whatever its target.
 
 ```yaml
-enforced-by: <kind>: <what>
-enforced-by: none: <one-line reason>
+enforced-by: "<kind>: <what>"
+enforced-by: "none: <one-line reason>"
 ```
+
+Write the value in double quotes. The value holds a colon followed by a space, and a strict YAML loader rejects that colon in an unquoted value. A reader that rejects the line drops the whole frontmatter block. A reader of the answer strips one pair of surrounding quotes, so the quoted and unquoted forms carry the same answer. Any writer that copies the answer into another file writes it quoted too.
 
 | Kind | The answer names |
 |------|------------------|
@@ -221,11 +223,11 @@ A `none:` reason states what a check would have to observe, and why nothing can 
 
 WRONG — the reason says only that no check exists:
 ```yaml
-enforced-by: none: no check
+enforced-by: "none: no check"
 ```
 CORRECT — the reason names what a check would observe, and why nothing can:
 ```yaml
-enforced-by: none: a check would have to judge whether a summary fits its change, and no script can make that judgement
+enforced-by: "none: a check would have to judge whether a summary fits its change, and no script can make that judgement"
 ```
 
 The question applies the principle in the section "A Rule Is Not a Control" of [rule-authoring.md](rule-authoring.md): a rule that only a model reads is not a control on the failure it describes.

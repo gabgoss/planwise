@@ -19,7 +19,7 @@ status: documented
 applied-as: null
 promotion-target: [rule|code|claude-md|agent|skill|settings]   # one or more target types; multi-value = coarse / split-candidate
 origin: {planwise | owned-tool | foreign-tool | model-call | own-rules | own-code | other}   # the matched Resolution Matrix row
-enforced-by: {kind}: {what fires when this failure recurs}                                  # or none: {one-line reason}; kinds are lesson_check_kinds in config.yaml
+enforced-by: "{kind}: {what fires when this failure recurs}"                                # or "none: {one-line reason}"; quoted, because the value holds a colon; kinds are lesson_check_kinds in config.yaml
 # promoted-to:                                                  # owning backlog item id(s), e.g. BB-{NNN}; set at capture-archive
 # rule-as:                                                      # DEPRECATED alias for applied-as — read for back-compat, never written
 ---

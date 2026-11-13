@@ -1,10 +1,12 @@
 """Tests for the resolution vocabulary constants and the two value parsers in
 `lessons_index_schema`."""
 
+import re
 import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
@@ -79,3 +81,42 @@ def test_template_value_is_one_token_and_not_a_target():
         tokens = schema.split_targets(value)
         assert len(tokens) == 1
         assert tokens[0] not in schema.PROMOTION_TARGETS
+
+
+# The `enforced-by:` value holds a colon, so it must be quoted to stay strict
+# YAML. A strict reader that rejects one line drops the whole frontmatter.
+PLUGIN_DIR = Path(__file__).resolve().parent.parent / "plugins" / "planwise"
+ENFORCED_LINE = re.compile(r"^enforced-by: [^\r\n]*", re.MULTILINE)
+
+
+def _enforced_lines(path):
+    return ENFORCED_LINE.findall(path.read_text(encoding="utf-8"))
+
+
+def test_unquoted_enforced_by_is_not_strict_yaml():
+    # Control: proves the strict loader can reject the shape the quotes prevent.
+    with pytest.raises(yaml.YAMLError):
+        yaml.safe_load("enforced-by: test: tests/x.py::t")
+
+
+def test_template_enforced_by_line_is_strict_yaml_when_filled():
+    lines = _enforced_lines(PLUGIN_DIR / "templates" / "lesson.md")
+    assert len(lines) == 1
+    filled = (
+        lines[0]
+        .replace("{kind}", "test")
+        .replace("{what fires when this failure recurs}", "tests/x.py::t")
+        .replace("{one-line reason}", "a reason")
+    )
+    assert yaml.safe_load(filled) == {"enforced-by": "test: tests/x.py::t"}
+
+
+def test_schema_enforced_by_examples_are_strict_yaml():
+    lines = _enforced_lines(PLUGIN_DIR / "references" / "lessons-schema.md")
+    assert len(lines) == 4
+    for line in lines:
+        value = yaml.safe_load(line)["enforced-by"]
+        parsed = schema.parse_enforced_by(value)
+        assert parsed is not None, line
+        # The quoted raw text, as a text-level reader returns it, gives the same answer.
+        assert schema.parse_enforced_by(line.partition(": ")[2]) == parsed
