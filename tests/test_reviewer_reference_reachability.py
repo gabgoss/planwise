@@ -137,5 +137,49 @@ class TestReferencesFileReachability(unittest.TestCase):
         )
 
 
+_DELEGATED_BLOCK_ANCHOR = "The DELEGATED dispatch discipline ships in"
+
+
+def delegated_block(review_text: str) -> str:
+    """Return the DELEGATED reviewer block: the anchor line through the next code fence."""
+    text = review_text.replace("\r\n", "\n")
+    start = text.find(_DELEGATED_BLOCK_ANCHOR)
+    if start == -1:
+        return ""
+    end = text.find("\n```", start)
+    return text[start : end if end != -1 else len(text)]
+
+
+def missing_delegated_files(review_text: str, expected: list[str]) -> list[str]:
+    """Return each expected file name the DELEGATED reviewer block does not name."""
+    block = delegated_block(review_text)
+    return [name for name in expected if name not in block]
+
+
+class TestDelegatedReviewerBlockNamesEveryPart(unittest.TestCase):
+    """The Task Reviewer spawn block in handlers/review.md names every
+    agent-orchestration-delegated*.md file, so no part ships unread.
+    Names only: the block's section ranges are reviewable subsets, not the
+    part table's ranges."""
+
+    def _expected(self) -> list[str]:
+        names = sorted(p.name for p in (PLUGIN_ROOT / "references").glob("agent-orchestration-delegated*.md"))
+        self.assertGreaterEqual(len(names), 3, "glob saw fewer than three delegated files")
+        return names
+
+    def test_review_block_names_every_delegated_file(self):
+        review_text = (PLUGIN_ROOT / "handlers" / "review.md").read_text(encoding="utf-8")
+        self.assertTrue(delegated_block(review_text), "DELEGATED reviewer block not found")
+        self.assertEqual(missing_delegated_files(review_text, self._expected()), [])
+
+    def test_a_dropped_delegated_file_fails(self):
+        review_text = (PLUGIN_ROOT / "handlers" / "review.md").read_text(encoding="utf-8")
+        expected = self._expected()
+        dropped = expected[-1]
+        self.assertIn(dropped, delegated_block(review_text))
+        mutated = review_text.replace(dropped, "agent-orchestration-delegated-removed.md")
+        self.assertEqual(missing_delegated_files(mutated, expected), [dropped])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -101,7 +101,7 @@ disallowedTools: Edit   # Result: Read, Grep, Glob
 
 ### Shipped Effort Levels
 
-The plugin pins `effort:` on the agents it measured and on agents assigned by role class (the Basis column says which), and leaves the rest inheriting the session level.
+The plugin pins `effort:` on the agents it measured, on agents assigned by role class, and on agents given an assigned level (the Basis column says which), and leaves the rest inheriting the session level.
 
 | Agent | `effort:` | Basis |
 |-------|-----------|-------|
@@ -114,6 +114,7 @@ The plugin pins `effort:` on the agents it measured and on agents assigned by ro
 | `ei-extractor` | `high` (pinned) | assigned by role class (execution → medium, judgment → high), not separately measured; re-measure per the clause below |
 | `sprint-scaffolder` | `high` (pinned) | assigned by role class (execution → medium, judgment → high), not separately measured; re-measure per the clause below |
 | `scaffold-harmonizer` | `medium` (pinned) | assigned by role class (execution → medium, judgment → high), not separately measured; re-measure per the clause below |
+| `plan-preflight` | `high` (pinned) | assigned; not measured (see the re-measure clause) |
 | `fix-agent`, `review-discovery`, `rule-comparator`, `plan-author` | inherited (not set) | Not yet measured |
 
 **How the values were measured.** Seven execution tasks with scripted graders (a newline round-trip, a diff-gate baseline, shell quoting, test-collection scope, an aggregate filter, and two under-specified briefs — one parse, one merge), 4 repetitions per cell, on Sonnet 5 and Opus 5, at each of `low`, `medium`, `high`, `xhigh`. The execution arm dispatched `claude --agent task-runner -p` against a frozen copy of the shipped agent file with only its `effort:` line changed. The review arm dispatched a reviewer against a document carrying eight seeded defects, 4 repetitions per cell at the same four levels, and counted defects found. Verdicts use one rule: a cheaper level HOLDS when its pass rate is at least the dearer level's, else it REGRESSES. The figures in the table above are the pooled baseline-run pass rates and the review medians from that grid.

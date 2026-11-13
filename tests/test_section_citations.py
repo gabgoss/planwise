@@ -50,7 +50,7 @@ INSTRUMENT_MIN = 100
 # not a pointer; CONSUMER = a section of a document the consumer generates.
 LEDGERED_PLUGIN = (
     ("references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md", 557, "§12"),  # HISTORY: extraction note
-    ("references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md", 647, "§12"),  # HISTORY: extraction note
+    ("references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md", 649, "§12"),  # HISTORY: extraction note
     ("references/agent-orchestration-delegated.md", 2, "§12"),  # HISTORY: frontmatter provenance
     ("references/agent-orchestration-delegated.md", 8, "§12"),  # HISTORY: provenance of the extraction
     ("references/agent-orchestration-delegated.md", 526, "§12"),  # HISTORY: extraction note

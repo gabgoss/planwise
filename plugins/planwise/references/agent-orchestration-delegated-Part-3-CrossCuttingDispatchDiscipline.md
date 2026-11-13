@@ -330,6 +330,8 @@ This section bounds the block's **payload**. It does not specify how the block r
    | `ISSUES` | 3 | mirrors `agents/task-runner.md`'s own Error Handling cap — "do NOT exceed 3 attempts per operation" |
    | **Total** | **18** | sum of per-field worst case — a ceiling, not a typical-case average |
 
+   This table is the one status-block schema for Agent-tool runners: where the orchestration template, the task-runner agent, the delegated §1.13 parallel-dispatch block or `handlers/run.md` restates a field list, this table wins, and each restatement is to be replaced by a pointer to this section by heading text. A Workflow script's `agent()` call returns the JSON its `schema` option names, and this section does not govern it.
+
 4. **Bulk output routed to files.** Anything a field cannot carry within its allocation goes to the session `Outputs/` folder; the return names the path, and the orchestrator reads the file only if reconciliation needs it.
 
 **Over-tight is a named failure mode.** The field enumeration above is the floor — the ceiling never cuts a field reconciliation needs. A runner that drops or blanks a required field (e.g., omits `ISSUES` instead of writing "none", or truncates `KEY_FINDINGS` mid-bullet) to fit under 18 lines converts a token saving into a correctness problem: reconciliation cannot act on information that was never returned. When a genuine return needs more than a field's allocation — six findings instead of five, a long coordination flag — the remedy is clause 4 (route the overflow to `Outputs/`), never silent truncation.

@@ -693,7 +693,7 @@ artifacts:
       duplicate install path.
 
   - id: hooks_module
-    on_disk: "plugin in-place (hooks/hooks.json, hooks/register.ts, hooks/draft-feedback.ts, hooks/feedback/)"
+    on_disk: "plugin in-place (hooks/hooks.json, hooks/register.ts, hooks/agent-guard.ts, hooks/draft-feedback.ts, hooks/feedback/)"
     config_keys:
       - "feedback.drafts"
     producer: "(not produced — read in-place from the plugin)"

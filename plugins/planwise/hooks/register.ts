@@ -3,6 +3,7 @@
 // compacts the session and re-enters the handler with --loop-resume.
 import type { CommandInfo, EngineInterface, On, PluginOptions, Timer } from 'claude-code'
 
+import { register as registerAgentGuard } from './agent-guard.ts'
 import { hostOf as buildPlanHostOf, onSessionStart as buildPlanStart, register as registerBuildPlan } from './build-plan.ts'
 import { hostOf as draftFeedbackHostOf, onSessionStart as draftFeedbackStart, register as registerDraftFeedback } from './draft-feedback.ts'
 import { register as registerFeedbackCard } from './feedback-card.tsx'
@@ -53,6 +54,7 @@ export function register(on: On, options: PluginOptions) {
   registerDraftFeedback(on, options)
   registerBuildPlan(on, options)
   registerFeedbackCard(on, options)
+  registerAgentGuard(on, options)
   // `interactive` starts true: a module reload re-runs register() without a new session.start.
   const session: Session = {
     skillName: null,

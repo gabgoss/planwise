@@ -147,7 +147,7 @@ const preflight = await agent(
     'Check 4, the notes file. Return whether it exists, whether the body of its "## Open Questions" section is exactly none, and whether it has a "## Authoring Progress" section.',
     'Put anything else the caller must know in problems, one sentence each.',
   ].join('\n'),
-  { label: 'preflight', phase: 'Preflight', agentType: 'planwise:plan-preflight', effort: 'low', schema: preflightSchema },
+  { label: 'preflight', phase: 'Preflight', agentType: 'planwise:plan-preflight', schema: preflightSchema },
 )
 
 if (!preflight) {
