@@ -233,8 +233,8 @@ hooks:
 > ---
 > ```
 
-> [!constraint] `tools` and `disallowedTools` Interaction
-> WRONG — listing `Bash(python *)` in both `tools` and `disallowedTools` cancels it out:
+> [!pitfall] `tools` and `disallowedTools` Interaction
+> **Problem:** listing `Bash(python *)` in both `tools` and `disallowedTools` cancels it out:
 > ```yaml
 > ---
 > name: csv-validator
@@ -243,7 +243,7 @@ hooks:
 > disallowedTools: Edit, Task, Bash(python *)
 > ---
 > ```
-> CORRECT — `disallowedTools` removes from the `tools` grant; list only what you want removed:
+> **Solution:** `disallowedTools` removes from the `tools` grant; list only what you want removed:
 > ```yaml
 > ---
 > name: csv-validator
@@ -253,8 +253,8 @@ hooks:
 > ---
 > ```
 
-> [!constraint] `permissionMode: bypassPermissions` on a Restricted Agent
-> WRONG — bypassing all permission checks on a read-only exploration agent defeats the restriction:
+> [!pitfall] `permissionMode: bypassPermissions` on a Restricted Agent
+> **Problem:** bypassing all permission checks on a read-only exploration agent defeats the restriction:
 > ```yaml
 > ---
 > name: visual-fix-agent
@@ -263,7 +263,7 @@ hooks:
 > permissionMode: bypassPermissions
 > ---
 > ```
-> CORRECT — use `acceptEdits` (auto-approves file edits only) or `dontAsk` (auto-denies prompts) for scoped automation:
+> **Solution:** use `acceptEdits` (auto-approves file edits only) or `dontAsk` (auto-denies prompts) for scoped automation:
 > ```yaml
 > ---
 > name: visual-fix-agent

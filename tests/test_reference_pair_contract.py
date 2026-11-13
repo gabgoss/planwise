@@ -50,7 +50,6 @@ _LABEL_RES = (
 # with two labels is the author's regression, never an entry added without a
 # recorded reason.
 PAIR_EXEMPTIONS = {
-    ("agent-authoring.md", "## 2b. Common Configuration Mistakes"): 3,  # @ becccfe (2026-10-20)
     ("artifact-self-containment.md", "### 3.1 Rule body must inline, not cite the source lesson"): 3,  # @ becccfe (2026-10-20)
     ("execution-time-binding-rules.md", "## 19. Narrow Fix Reveals a Systemic Gap — Bounded Temp Fix That Seeds the Deferred Discovery (BINDING)"): 2,  # @ becccfe (2026-10-20)
     ("exit-criteria-fidelity.md", "#### 16.3 Extension — BLI-Cited Audit-Anchor Re-Verification"): 2,  # @ becccfe (2026-10-20)
