@@ -168,7 +168,7 @@ Any phase that writes lesson frontmatter runs the generator afterward — see [L
 
 ## Batch-Promote Mode (`/planwise lessons promote-batch <scope> [--dry-run]`)
 
-**Purpose:** Draft promotion **backlog items (BBs)** that bundle related `documented` lessons into self-contained promotion artifacts. Each BB plans the work of authoring one or more rules, code applications, or settings entries; rule creation happens later at BB execution time via `/planwise backlog`. This mode is the batched, deferred complement to the single-lesson `promote` mode below — the two are not duplicates. Run the [Index shape gate](#index-shape-gate) first.
+**Purpose:** Draft promotion **backlog items (BBs)** that bundle related `documented` lessons into self-contained promotion artifacts. Each BB plans the work of authoring one or more rules, checks, code fixes, or settings entries; rule creation happens later at BB execution time via `/planwise backlog`. This mode is the batched, deferred complement to the single-lesson `promote` mode below — the two are not duplicates. Run the [Index shape gate](#index-shape-gate) first.
 
 ### Pre-condition Gates
 

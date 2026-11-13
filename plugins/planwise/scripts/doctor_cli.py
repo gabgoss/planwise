@@ -970,7 +970,9 @@ def _run_doctor(cfg: "InitConfig", verbose: bool = False) -> int:
     that also load, and token cost — also always-on and read-only. Then runs
     Stage 24, the consumer read-gate scan (run_read_gate_stage()), and Stage
     25, the consumer section-citation check (run_section_citation_stage()) —
-    both always-on and read-only. Always exits
+    both always-on and read-only. Then runs Stage 26, the lesson resolution
+    keys advisory (run_lesson_keys_stage()) — always-on, read-only, and never
+    a change to the exit status. Always exits
     0 (diagnostic, not a gate).
 
     Runs the plugin version-state gate FIRST (always-on, independent of Token
@@ -1267,6 +1269,18 @@ def _run_doctor(cfg: "InitConfig", verbose: bool = False) -> int:
         run_section_citation_stage(cfg)
     except Exception as exc:  # noqa: BLE001 -- the citation stage must never change doctor's exit status
         print(f"Consumer section-citation check: the check failed: {exc}")
+
+    # Stage 26: lesson resolution keys — read-only, advisory. Reports the open lessons that
+    # lack a valid origin: or enforced-by: key, and says when config.yaml declares no check kinds.
+    print()
+    print("planwise doctor — lesson resolution keys")
+    print()
+    try:
+        from doctor_lesson_keys_stage import run_lesson_keys_stage
+
+        run_lesson_keys_stage(cfg)
+    except Exception as exc:  # noqa: BLE001 -- the lesson-keys stage must never change doctor's exit status
+        print(f"Lesson resolution keys: the check failed: {exc}")
     return 0
 
 

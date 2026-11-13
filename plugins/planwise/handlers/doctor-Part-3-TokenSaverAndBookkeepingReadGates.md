@@ -143,6 +143,20 @@ The script prints this stage (banner: planwise doctor — consumer read-gate sca
 
 The script prints this stage (banner: planwise doctor — consumer section-citation check). Pass it through verbatim. It resolves each `§` citation in the project's own `.claude/rules/` against the installed plugin's `references/`. It reports only citations whose target is a plugin file, and counts the citations of project files in its summary line. It prints each dangling citation, each citation whose target file does not resolve, and each citation whose section moved to another file of the same family, as an upgrade leftover. A moved section prints with the file that now holds it. The stage skips the machine-managed copies under `.claude/rules/planwise/`. The report ends with one remedy line: edit the citing rule to the section that now holds the text, or run `/planwise upgrade` if the citing file is a stale installed copy. The stage runs whether or not `context.token_saver` is on.
 
+### Stage 26: Lesson Resolution Keys
+
+The script prints this stage (banner: planwise doctor — lesson resolution keys). Pass it through verbatim. It is advisory and never changes the exit status. It scans the open lessons, which are the lessons whose `status:` is `documented` or `orphaned`, in the lessons folder and its `Archive/` folder. It prints how many it scanned, then one line per gap class with the count and up to ten lesson ids. The classes are:
+
+- No `origin:` key, or an `origin:` outside the known origins.
+- No `promotion-target:` key, or a token outside the known targets. An unfilled template value counts as an unknown target.
+- No `enforced-by:` answer, or one that does not read as `kind: text`.
+- An `enforced-by:` kind that is neither `none` nor one of the configured kinds.
+- A `none:` answer with no reason.
+- A code origin (`owned-tool` or `own-code`) whose targets name no `code` target.
+- One `none:` reason shared by three or more lessons.
+
+The kinds come from `lesson_check_kinds` in `config.yaml`. When the file declares no such key, the stage prints one line saying the default kinds apply and naming `/planwise upgrade` as the remedy. When any class has a lesson, the report ends with one line naming `/planwise lessons curate` and `/planwise lessons promote-batch`. The stage counts a file it cannot read or parse in one line and never prints one line per lesson. When no lessons folder is configured, it prints one line and scans nothing. The stage runs whether or not `context.token_saver` is on.
+
 ---
 
 *Cross-reference: [run.md](run.md) (Step 4.3 Update Plan Status), [`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md §1.19`](../references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) (Model-Floor Bridge), [`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md §1.20`](../references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) (1M-Exception Dispatch), [upgrade.md](upgrade.md) (post-upgrade over-scope advisory, Token Saver recalibration), [lint + token_saver engine in scripts/](../scripts/init_project.py), [reconcile_plans.py](../scripts/reconcile_plans.py) (plans index drift detect, shared with [list.md](list.md); its `--write` delegates to [generate_plans_index.py](../scripts/generate_plans_index.py)), [reconcile_backlog.py](../scripts/reconcile_backlog.py) (backlog index archival-drift detect/reconcile, shared with [backlog.md](backlog.md)), [generate_lessons_index.py](../scripts/generate_lessons_index.py) (lessons index generation and `--check` drift detect, sharing file-level anomaly detect/reconcile with [reconcile_lessons.py](../scripts/reconcile_lessons.py)).*

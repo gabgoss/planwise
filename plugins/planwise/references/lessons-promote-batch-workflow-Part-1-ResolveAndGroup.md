@@ -7,7 +7,7 @@ consult-when: Running `/planwise lessons promote-batch` Phases 1-2 — resolving
 
 ## Purpose
 
-Draft promotion **backlog items (BBs)** that bundle related `documented` lessons into self-contained promotion artifacts. Each BB plans the work of authoring one or more rules, code applications, or settings entries — but it does NOT create those artifacts directly. Rule creation happens later, when the BB is executed via `/planwise backlog` or by hand.
+Draft promotion **backlog items (BBs)** that bundle related `documented` lessons into self-contained promotion artifacts. Each BB plans the work of authoring one or more rules, checks, code fixes, or settings entries — but it does NOT create those artifacts directly. Rule creation happens later, when the BB is executed via `/planwise backlog` or by hand.
 
 This part covers **Phases 1-2** (resolve scope and group lessons). Phases 3-4 (draft and write BB files), the BB structure specification, self-containment verification, decomposition mechanics, constraints, and examples live in [lessons-promote-batch-workflow-Part-2-DraftAndWrite.md](lessons-promote-batch-workflow-Part-2-DraftAndWrite.md).
 
@@ -44,7 +44,7 @@ All paths resolve from `config.yaml` (`project.planwise_root`, `project.lessons_
 |------|------|------|-------|
 | `{lessons_dir}/00-Categorization-By-Domain.md` | Source of truth for which lesson belongs to which bucket | Yes | No (this workflow does not modify categorisation) |
 | `{lessons_dir}/{lessons_index}` | Generated index; lesson statuses; cross-check against categorisation | Yes — via `parse_lessons.py` output | Phase 4 — no direct write; each captured lesson flips `status: promoted` in its own frontmatter and `generate_lessons_index.py --write` regenerates the index once for the whole batch ([Part-2 §6.5](lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#65-capture-the-in-scope-lessons-archive-on-capture) steps 3-4). NOT the Rule Promotion Log — those rows record a *landing* and are written later by [lessons-curate-workflow.md](lessons-curate-workflow.md) Phase 2, into whichever log file the lesson's id resolves to |
-| `{lessons_dir}/LL-{NNN}-*.md` | Lesson body — promoted content is INLINED into BB rule designs from these files. **Read in full during Phase 1** for every non-archived in-scope lesson before any grouping decision (§3.4). | Yes (in full, Phase 1) | Phase 4 — archive-on-capture ([Part-2 §6.5](lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#65-capture-the-in-scope-lessons-archive-on-capture)): set `status: promoted`, populate `promoted-to:` with every owning backlog item id, then `git mv` the file to `Archive/`. Skipped entirely under `--dry-run` |
+| `{lessons_dir}/LL-{NNN}-*.md` | Lesson body — promoted content is INLINED into BB rule designs from these files. **Read in full during Phase 1** for every non-archived in-scope lesson before any grouping decision (§3.4). | Yes (in full, Phase 1) | Phase 4 — archive-on-capture ([Part-2 §6.5](lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#65-capture-the-in-scope-lessons-archive-on-capture)): set `origin:` and `enforced-by:` when the lesson lacks either, set `status: promoted`, populate `promoted-to:` with every owning backlog item id, then `git mv` the file to `Archive/`. Skipped entirely under `--dry-run` |
 | `{lessons_dir}/Archive/LL-{NNN}-*.md` | Archived (already-promoted) lesson bodies. Skip as candidates — these are not promotion candidates. Also the **destination** of the Phase-4 capture move. | No | Phase 4 — receives each captured lesson via `git mv` ([Part-2 §6.5](lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#65-capture-the-in-scope-lessons-archive-on-capture) step 2) |
 | `{backlog_dir}/{backlog_index}` | Backlog master table; **also the BB ownership index** for cross-checking whether a lesson is already named in any active BB's title or row (§3.2 step 5). | Yes | Phase 4 — regenerated once, after the last BB is filed, via `generate_backlog_index.py --write` (§6.3) |
 | `{backlog_dir}/BB-*-*.md` | Active BB files. **Grep all of them for `LL-{NNN}` mentions** to detect lessons already owned by an active BB (regardless of status: `NOT_STARTED`, `IN_PROGRESS`, `BLOCKED`). Also searched once per run for claimed `.claude/rules/` paths (§4.5). | Yes (Grep, Phase 1) | No |
@@ -63,7 +63,7 @@ All paths resolve from `config.yaml` (`project.planwise_root`, `project.lessons_
 > [!protocol] Four-Phase BB Drafting
 > 1. **Phase 1 — Resolve scope AND read every in-scope lesson body in full.** Parse `$ARGUMENTS`. Read the categorisation file and the master index. Validate each lesson against the five-step gate in §3.2 (file exists, NOT archived, status is `documented`, categorised, NOT cited by any BB in `{backlog_dir}/` or `{backlog_dir}/Archive/`). Then **read every surviving in-scope lesson body in full** — Context, Lesson, Applies To. Grouping cannot be decided from index summaries alone; multi-part lessons (Part-2 §9) require body content to detect decomposition opportunities.
 > 2. **Phase 2 — Group lesson fragments into BBs.** Group by destination artifact using the decision tree in §4. A single lesson MAY be decomposed across multiple BBs when its body covers content for multiple distinct rules (Part-2 §9). Each group becomes one BB. Default grouping = one BB per root-cause cluster inside the scoped bucket or sub-bucket (§4.1), which collapses to one BB for the whole bucket only when that bucket yields a single cluster. **No-limbo principle (§4.2):** every in-scope `documented` lesson MUST land in at least one BB deliverable — `documented` is not a valid resting state for a lesson the workflow has accepted into scope.
-> 3. **Phase 3 — Draft each BB.** Use the lesson bodies already in context from Phase 1 (no re-read). Decide each lesson fragment's promotion strategy (rule / applied-to-code / applied-to-settings / CLAUDE.md addition / decomposed across N BBs), and draft deliverables — including the rule's outline with content INLINED (no `see LL-XXX` references) and a CLAUDE.md binding callout when relevant.
+> 3. **Phase 3 — Draft each BB.** Use the lesson bodies already in context from Phase 1 (no re-read). Decide each lesson fragment's promotion strategy (rule / check / code fix / applied-to-settings / CLAUDE.md addition / decomposed across N BBs), and draft deliverables — including the rule's outline with content INLINED (no `see LL-XXX` references) and a CLAUDE.md binding callout when relevant.
 > 4. **Phase 4 — Write files, then capture the lessons.** Write each BB to `{backlog_dir}/BB-{ID}-{SB}-DOC-PromoteLessons{BucketSlug}.md`, then regenerate the backlog index once with `generate_backlog_index.py --write`. Then **capture every in-scope lesson** (Part-2 §6.5): flip it to `status: promoted`, populate `promoted-to:`, `git mv` it to `{lessons_dir}/Archive/`, then regenerate the lessons index once with `generate_lessons_index.py --write`. Report summary to chat. Full write scope: §1.
 
 If the user only wants Phase 1+2 (a grouping plan without draft BBs), accept `--dry-run` and skip Phase 3+4. **Phase 1 lesson-body reads still happen under `--dry-run`** — without them, the grouping plan is just an index re-shuffle and misses decomposition opportunities.
@@ -184,13 +184,18 @@ The grouping unit is the **root-cause cluster**, not the bucket. Partition each 
 
 ### 4.2 Sub-grouping inside a BB — by destination artefact
 
+**Ask the Resolution Matrix first.** For every in-scope lesson, after its full read in §3.4, ask the Resolution Matrix and the check question. Both are defined in [lessons-schema.md](lessons-schema.md), in the sections "Resolution Matrix" and "Enforcement Answer". The answers override a stored `origin:`, `promotion-target:` or `enforced-by:` value that disagrees with the lesson body. Report each overridden value in the Phase 2 chat report. The keys are written at Phase 4 capture, and never under `--dry-run`. Write the `enforced-by:` value double-quoted (`enforced-by: "test: tests/x.py::t"`), in the lesson and in any backlog item frontmatter. A strict YAML reader drops the whole frontmatter block on an unquoted `kind: value`. This workflow never creates a feedback draft. A planwise lesson's upstream report belongs to capture.
+
 Within one BB, lessons can target multiple deliverables. Decide each lesson's destination using:
 
 | Lesson character | Destination artefact | BB deliverable |
 |------------------|----------------------|----------------|
 | Prescriptive convention with WRONG/CORRECT examples (MUST/NEVER language) | A *rule* in `.claude/rules/**` (new file or extend existing) | "Rule: {name}.md (LLs X+Y content fully inlined)" |
 | Advisory pattern (SHOULD/PREFER) without enforcement teeth | A `> [!practice]` callout inside an existing rule, OR a `> [!practice]` section in a new rule | "Add `> [!practice]` to `.claude/rules/{path}.md §N` covering LL-X" |
-| Behaviour that belongs in code with an explanatory comment | An *applied-to-code* edit | "Apply LL-X to {file}.py via inline docstring/comment" |
+| A defect in a file the project executes (`origin: owned-tool` or `own-code`) | A *code fix* with its regression test | "Fix {file}; regression test {test} fails before the fix and passes after" |
+| A failure a hook, test, lint rule or script can detect (`enforced-by:` names a kind) | A *check* deliverable (Check deliverables, the next subsection) | "Check: {kind} at {path}; fails on LL-X's failing example" |
+| Two rules that contradict, or a rule that misled (`origin: own-rules`) | An *edit* to the rule that is wrong, and never a new rule | "Edit `.claude/rules/{path}.md`: {what changes}" |
+| A failure of planwise or of a tool the project does not own (`origin: planwise` or `foreign-tool`) | A hook or guard when the trigger is matchable, otherwise the `> [!hazard]` callout of the last row | "Workaround for LL-X: {hook, guard or hazard callout}" |
 | Behaviour that belongs in `.claude/settings.json` or `settings.local.json` | An *applied-to-settings* edit | "LL-X applied via {settings file} (already in place — bookkeeping flip)" |
 | Project-wide invariant or Critical Rule | A `> [!binding]` callout in `CLAUDE.md` + a Critical Rule entry | "Add Critical Rule #N to CLAUDE.md citing the new rule (no LL reference)" |
 | Claude Code platform constraint with no fix surface | A `> [!hazard]` callout in an existing rule (e.g., `agent-orchestration.md` Constraints section), OR a CLAUDE.md operational-guidance entry | "Document LL-X as `> [!hazard]` in `agent-orchestration.md`" |
@@ -208,7 +213,36 @@ Within one BB, lessons can target multiple deliverables. Decide each lesson's de
 >
 > The only valid reason for an in-scope lesson to remain `documented` AFTER this workflow run is: another active BB in `{backlog_dir}/` already owns it (caught by §3.2 step 5; the lesson was already excluded). Anything else is the limbo failure.
 
-**Resting state after a run.** The resting state for every lesson this workflow captures is `promoted` (archived) — not `documented`. A captured lesson is fully owned by a drafted backlog item; it is NOT yet `applied`/`rule` (that flip happens later, at landing — see [lessons-curate-workflow.md](lessons-curate-workflow.md)). Route each captured lesson by its `promotion-target:` field: a single value routes 1:1 to the matching destination row in the table above (rule / applied-to-code / applied-to-settings / CLAUDE.md / hazard callout); multiple values mark the lesson a split candidate (§4.4 decomposition).
+**Resting state after a run.** The resting state for every lesson this workflow captures is `promoted` (archived) — not `documented`. A captured lesson is fully owned by a drafted backlog item; it is NOT yet `applied`/`rule` (that flip happens later, at landing — see [lessons-curate-workflow.md](lessons-curate-workflow.md)). Route each captured lesson by its `origin:`, `promotion-target:` and `enforced-by:` keys: the origin and a single target value route 1:1 to the matching destination row in the table above (rule / rule edit / check / code fix / applied-to-settings / CLAUDE.md / hazard callout), and an `enforced-by:` answer that names a kind adds a check deliverable; multiple target values mark the lesson a split candidate (§4.4 decomposition).
+
+### 4.2a Check deliverables
+
+A lesson whose `enforced-by:` answer names a kind gets a check deliverable in its backlog item. A `code` lesson gets a code-fix deliverable that names its provenance and its regression test. The provenance is the file that needs the fix.
+
+A check deliverable names four things:
+
+- the kind, from `lesson_check_kinds:` in `config.yaml`
+- the path of the hook, test, lint configuration or script
+- the lesson's failing example
+- the must-fail control
+
+**The must-fail control is binding.** Run the check against the lesson's failing example, and it must fail. Run it against the corrected example, and it must pass. Record both results in the item's acceptance criteria. A check that has never failed on the failing example proves nothing about the failure.
+
+A rule with a named check is one lesson with two deliverables in one item. It is not a split candidate.
+
+Before a `none:` answer is accepted, the session that groups the lessons tries to state a check in one line. The line names the input, the predicate and the lesson's failing example. A stated check replaces the `none:` answer. List each `none:` reason that three or more in-scope lessons share in the Phase 2 chat report.
+
+> [!constraint] A Check Deliverable Names the Command and Both Results
+> WRONG — the deliverable is a prose recipe that nobody has run against the failing example:
+> ```markdown
+> 2. **Check deliverable** — add a test that catches the unquoted value.
+> ```
+> CORRECT — the deliverable names the kind, the path, the command, and the result on each example:
+> ```markdown
+> 2. **Check deliverable** — test: `tests/test_item_frontmatter.py::test_quoted_enforced_by`.
+>    Command: `python -m pytest -q tests/test_item_frontmatter.py::test_quoted_enforced_by`
+>    On the lesson's failing example (an unquoted value): fails. On the corrected example: passes.
+> ```
 
 ### 4.3 Bundling rule
 
