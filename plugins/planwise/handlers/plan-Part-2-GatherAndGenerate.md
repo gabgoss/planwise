@@ -321,7 +321,8 @@ The contract the tool implements, for reference when reading its output:
        path,
        model = <task's Agent, lowercased>,
        projected_added_bytes = <bytes this task adds to this file, else 0>,
-       thresholds = thresholds)
+       thresholds = thresholds,
+       cli_version = <read_verified_cli_version(config path)>)   # context.verified_cli_version, "" if unrecorded
    # → {level, reason, bytes, tokens, lines}; level = max(cost_level, read_level)
    ```
 
@@ -331,7 +332,7 @@ The contract the tool implements, for reference when reading its output:
    - **Notice** — advisory only. Docs/specs → note a Multi-Part split is advisable; code → note for awareness. No backlog item.
    - **Warn** (`reason=cost` ≥ `warn`, or `reason=read` ≥ 240 KiB / ≥ 22K model-tok) — recommend the remedy by file type (below) **and file a backlog item** via the consumer project's backlog mechanism (`handlers/backlog.md` Phase 7 create flow — generic, no project identifiers).
    - **Critical / `reason=cost`** (≥ `critical`) — warn + file a backlog item + flag the task **`1M-exception`** (dispatch on Opus / 1M) so the plan still completes; the file won't fit a lean task even alone.
-   - **Critical / `reason=read`** (≥ 25K model-tok page cap OR ≥ 256 KiB byte cap OR ≥ 2,000 lines) — warn + file a backlog item + recommend a **paged read** (`offset`/`limit`/Grep) for read-only context, or **refactor/split + backlog item** for a core or to-be-edited dependency. Do **NOT** flag `1M-exception`: the 1M window does not raise the per-Read page cap, and the Claude 5 tokenizer trips it on *fewer bytes* than Haiku 4.5's.
+   - **Critical / `reason=read`** (≥ 25K model-tok page cap OR ≥ 256 KiB byte cap OR ≥ 2,000 lines) — an advisory plus a backlog item, never a gate. A file over one default Read page has three read routes: read it whole with `allow_large: true` (Claude Code v2.1.296 or later), read it in `offset`/`limit` pages, or Grep for the section you need. Name `allow_large` only when the project's `context.verified_cli_version` is v2.1.296 or later. Below that version, or with no recorded version, the routes are pages and Grep only. The 2,000-line window is a defensive limit, not a measured harness stop, and `allow_large` is not shown to lift it. For a core or to-be-edited file, consider a split or refactor. That is advice: an over-cap file stays readable and blocks no work. Do **NOT** flag `1M-exception`: the 1M window does not raise the per-Read page cap, and the Claude 5 tokenizer trips it on *fewer bytes* than Haiku 4.5's.
    - The scan is **never a hard stop** — a source-file Critical advises and files an item; it does not abort planning.
 
 4. **Differentiate the remedy by file type** in the recommendation:
@@ -339,12 +340,12 @@ The contract the tool implements, for reference when reading its output:
    - **Doc / spec / Execution Input** → Multi-Part split (existing [Multi-Part Output Convention](../references/session-context-budget.md#file-size-limits)).
    - **Dense (notebook / minified / compressed JSON)** → measure precisely (`measure_files.py` auto-detects the notebook and json classes from the extension; minified files take the conservative text ratio) and extract only the needed sections.
 
-5. **Generated artifacts the plan itself authors** that a runner MUST read — task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, task Output files — carry a **HARD** read-gate ceiling (MUST Multi-Part split to stay readable), NOT advisory, per `references/session-context-budget.md` [§ File Size Limits — Generated Artifacts](../references/session-context-budget.md#file-size-limits--generated-artifacts-binding). External source files the runner reads but does not generate stay advisory (warn + backlog + read tactics).
+5. **Generated artifacts the plan itself authors** that a runner MUST read — task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, task Output files — carry a read-gate ceiling: a Multi-Part split is advised to keep them under one default Read page, and an over-ceiling one is a WARNING, never a gate, per `references/session-context-budget.md` [§ File Size Limits — Generated Artifacts](../references/session-context-budget.md#file-size-limits--generated-artifacts-binding). External source files the runner reads but does not generate stay advisory (warn + backlog + read tactics).
 
 > [!constraint] Read-Reason Critical Is NOT `1M-Exception`-Resolvable
 > WRONG — a Required Context file scans Critical with `reason=read`; the planner flags the task `1M-exception` and dispatches it to Opus, expecting the 1M window to absorb the file:
 > ```
-> # 280 KiB external doc → classify_file → {level: Critical, reason: read}
+> # 280 KiB external doc → classify_file(..., cli_version=<v2.1.296 or later>) → {level: Warn, reason: read} (advisory; Critical only below v2.1.296 or with no recorded version)
 > Task flagged: 1M-exception   ← WRONG: the per-Read page cap is unchanged by the window,
 >                                and the Claude 5 tokenizer trips the token gate on FEWER bytes than Haiku 4.5's
 > ```

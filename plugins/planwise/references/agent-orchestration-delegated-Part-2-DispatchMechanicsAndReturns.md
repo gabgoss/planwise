@@ -482,16 +482,16 @@ Applies to every DELEGATED task-runner launch, sequential or parallel; uses the 
 > ```
 > read-reason Critical context file  → raise dispatch to 1M  → "the bigger window reads it"  ← FALSE
 > ```
-> CORRECT — the Read tool's **25K-token page cap** and **256 KiB byte refusal** apply on EVERY model; the Claude 5 tokenizer (Opus, Sonnet and Fable alike) is ~1.31–1.38× heavier than Haiku 4.5's, so it trips the page cap on *fewer bytes* (~65 KB of dense markdown vs ~87 KB for Haiku). The 1M-exception covers **only** a `cost`-reason Critical (a context-window/carrying-cost overflow). It does NOT cover a `read`-reason Critical — that file must be **paged** by the runner (`offset`/`limit`/Grep) even on Opus, or refactored:
+> CORRECT — the Read tool's **25K-token page cap** and **256 KiB byte refusal** apply on EVERY model; the Claude 5 tokenizer (Opus, Sonnet and Fable alike) is ~1.31–1.38× heavier than Haiku 4.5's, so it trips the page cap on *fewer bytes* (~65 KB of dense markdown vs ~87 KB for Haiku). The 1M-exception covers **only** a `cost`-reason Critical (a context-window/carrying-cost overflow). It does NOT cover a `read`-reason Critical — the runner takes a read route on its declared model. On a project whose `context.verified_cli_version` is v2.1.296 or later, `allow_large: true` reads a token- or byte-gated file whole; it is not shown to lift the defensive 2,000-line window. Otherwise the runner reads `offset`/`limit` pages or Greps. A split or refactor is advice:
 > ```
-> read-reason Critical context file  → log `paged-read required` (NOT 1M-exception)  → runner pages it (offset/limit/Grep) on its declared model
+> read-reason Critical context file  → log `paged-read required` (NOT 1M-exception)  → runner reads it (allow_large on verified v2.1.296+, else offset/limit/Grep) on its declared model
 > ```
 > The warning engine (Token Saver) does NOT set `1M-exception` for a `read`-reason Critical, and `run.md` MUST NOT infer it. Log such a task with a `paged-read required` note and dispatch it on its declared model — keep the two reasons distinct in the dispatch log: `1M-exception` for `cost`-Critical, `paged-read required` for `read`-Critical.
 
 The routing item goes in the consumer task's Pre-Known flags. A bare "page it" warning invites a partial read, so the item carries four parts:
 
 ```
-paged-read required: {file}, {N}K tokens measured {YYYY-MM-DD}, above the 25K per-Read cap.
+paged-read required: {file}, {N}K tokens measured {YYYY-MM-DD}, over one default 25K Read page.
 Heading line map: `## {A}` 1-120, `## {B}` 121-640 (read in slices of at most 400 lines: 121-520, 521-640).
 Grep `^## ` first, because line numbers drift. Rebuild the map from that result.
 Reference data: do not trim or split. Read every line.

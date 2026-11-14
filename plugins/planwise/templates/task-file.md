@@ -56,8 +56,8 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 
 
 <!-- OPTIONAL read-handling annotation (Token Saver only): append to a row's Purpose for any file the doctor read-gate scan flagged.
-     `⚠ PAGED ≥25K {model}-tok` — file is above the per-assigned-model 25K-token page cap; the runner MUST page it (offset/limit/Grep), it does NOT all arrive in one Read.
-     `⚠ REFACTOR ≥256 KiB` — file is at/over the 256 KiB byte gate; Read refuses it without offset/limit — page it, and refactor + backlog if it is a core/edited dependency.
+     `⚠ PAGED ≥25K {model}-tok` — over one default Read page (~25K tokens): read with `allow_large` (CLI v2.1.296 or later), pages, or Grep. It does not mean "must be paged". The 2,000-line window is a defensive limit, not a measured harness stop, and `allow_large` is not shown to lift it.
+     `⚠ REFACTOR ≥256 KiB` — file is at/over the 256 KiB byte gate; read with `allow_large` (CLI v2.1.296 or later), pages, or Grep, and consider a split or refactor + backlog if it is a core/edited dependency. That is advice, not a gate.
      Both are read-reason flags — NOT resolved by the 1M-exception (the Claude 5 tokenizer trips the page cap on fewer bytes than Haiku 4.5's). -->
 
 **Context subtotal:** ~{R}K (reads — the sum of the ~Tokens column) + ~{O}K (output) + ~{W}K (working) = **~{T}K total**

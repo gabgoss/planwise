@@ -92,9 +92,9 @@ Nothing edits a row by hand. The check compares each cell with a fresh render, s
 
 | Exit | Meaning |
 |------|---------|
-| 0 | Clean. `--check`: the file equals the render, and the tree has no anomaly. `--write`: the file was written or already current, and the tree has no anomaly. `--dry-run`: the render has no anomaly and is within budget. Only `--check` compares with the file on disk |
-| 1 | `--check` found drift, an over-budget render or a tree anomaly. `--dry-run` found a tree anomaly or an over-budget render. `--write` **wrote the file** and the tree has an anomaly |
-| 2 | Refused. `--check` found a hand-authored (legacy-shaped) index and did not compare it; or `--write` met a legacy-shaped index without `--replace-legacy`, or a render over budget |
+| 0 | Clean. `--check`: the file equals the render, and the tree has no anomaly. `--write`: the file was written or already current, and the tree has no anomaly; an over-budget render is still written, with a warning. `--dry-run`: the render has no anomaly. `--check` and `--dry-run` list an over-budget render under `warnings`, not findings. Only `--check` compares with the file on disk |
+| 1 | `--check` found drift or a tree anomaly. `--dry-run` found a tree anomaly. `--write` **wrote the file** and the tree has an anomaly |
+| 2 | Shape refusal only. `--check` found a hand-authored (legacy-shaped) index and did not compare it; or `--write` met a legacy-shaped index without `--replace-legacy` |
 
 An exit 1 from `--write` is not a failed write. The file on disk is current, and the exit code reports the tree anomaly the write rendered around. `reconcile_plans.py --write` passes the same exit code through: it can print `Reconciled {N} row(s).` and still exit 1.
 
@@ -126,8 +126,8 @@ The Last Updated reader takes the last line that starts `*Last Updated:`. An app
 
 The index is one file and is never split into shards. The budget is 12,500 tokens. The generator measures the file that ships (title, `Generated:` line, table and legend) as UTF-8 bytes plus one byte per line, on the CRLF worst case, at 2.6 bytes per token.
 
-- `--write` refuses a render over budget. It exits 2, writes nothing, and names the bytes, the tokens and the budget.
-- `--check` reports an `over-budget` finding and exits 1.
+- `--write` writes an over-budget render and prints a warning that names the bytes, the tokens and the budget. Over budget alone, it exits 0.
+- `--check` and the dry run list `over-budget` under `warnings`. Over budget alone, they exit 0.
 - `--json` reports the byte and token counts, the budget, and `page_cap_ratio`.
 
-A refusal is the signal to shard or shorten the index. The generator does not shard.
+The warning is advice to shorten the index, not a gate: the file stays readable by a read route. The generator does not shard.

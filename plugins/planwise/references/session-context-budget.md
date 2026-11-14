@@ -434,7 +434,7 @@ python "{plugin_root}/scripts/measure_files.py" {file} [{file} ...] [--model {re
 
 Three criteria, in priority order — **whichever comes first binds**:
 
-1. **Tokens (primary):** stay under **22,000** (`READ_TOKEN_WARN`) at the reading model's bytes-per-token ratio; the hard page-cap is 25,000 (`READ_PAGE_CAP_TOKENS`). On text this gate binds first — roughly 3.6× before the byte gate.
+1. **Tokens (primary):** stay under **22,000** (`READ_TOKEN_WARN`) at the reading model's bytes-per-token ratio; the page cap is 25,000 (`READ_PAGE_CAP_TOKENS`), one default Read page. On text this gate binds first — roughly 3.6× before the byte gate. A file past it stays readable by the routes in [Read-Tool Hard Limits](#read-tool-hard-limits).
 2. **Bytes:** stay under **245,760** (240 KiB, `READ_BYTE_WARN`); the hard refusal cap is 262,144 (256 KiB, `READ_FILE_BYTE_CAP`).
 3. **Lines (distant third, defensive):** stay under **2,000** (`READ_LINE_CAP`) — the first-page line window. It binds alone only on many-short-line files that pass gates 1–2.
 
@@ -506,7 +506,7 @@ This procedure covers the writer's side. For reading a file that is already over
 
 ### File Size Limits — Generated Artifacts (BINDING)
 
-**Generated planwise artifacts that a runner MUST read** — task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, and task Output files — carry a **HARD** ceiling regardless of `context.token_saver`: each MUST land **OK on all three Read-tool gates** (see [Read-Tool Hard Limits](#read-tool-hard-limits) below) for the model that will read it. A generated artifact that trips any gate cannot be read cleanly in a single Read and MUST be split into multi-parts. (The gates are harness facts, not a carrying-cost policy — Token Saver's config-gated budget system is separate.)
+**Generated planwise artifacts that a runner MUST read** — task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, and task Output files — carry a split target regardless of `context.token_saver`: each SHOULD land **OK on all three Read-tool gates** (see [Read-Tool Hard Limits](#read-tool-hard-limits) below) for the model that will read it. A generated artifact that trips any gate is over one default Read page and should be split into multi-parts. A missed split is a WARNING, not a refusal: the file stays readable by a read route. (The gates are harness facts, not a carrying-cost policy — Token Saver's config-gated budget system is separate.)
 
 > [!constraint] Generated-Artifact Split — Measured, Not Line-Counted
 > WRONG — a planwise-generated Consolidated Context part is judged by its line count alone; at 9,200 bytes-per-100-lines of dense tables the file is ~44K tokens, and a runner's single Read returns only the first ~21K tokens of it:
@@ -516,7 +516,7 @@ This procedure covers the writer's side. For reading a file that is already over
 > CORRECT — measure all three gates at once; split on whichever trips first:
 > ```
 > python "{plugin_root}/scripts/measure_files.py" PI-Consolidated-Context-Part-1.md --model sonnet
-> #   tokens (primary): must stay < 22,000 (warn) / 25,000 (hard cap)
+> #   tokens (primary): must stay < 22,000 (warn) / 25,000 (one default page)
 > #   bytes:            must stay < 245,760 (warn) / 262,144 (hard cap)
 > #   lines:            must stay < 2,000 (defensive first-page window)
 > # → split into Part-1a / Part-1b if ANY gate reports WARN or OVER
@@ -536,6 +536,8 @@ The Read tool has three mechanical limits, SEPARATE from the carrying-cost budge
 
 Gate priority: **tokens first, then bytes, then lines — whichever comes first.** The caps and warn thresholds are identical on every model; only the tokenizer weight (bytes-per-token) differs.
 
+**Read routes past a cap.** A file over one default Read page has three read routes: read it whole with `allow_large: true` (Claude Code v2.1.296 or later), read it in `offset`/`limit` pages, or Grep for the section you need. Name `allow_large` only when the project's `context.verified_cli_version` is v2.1.296 or later. Below that version, or with no recorded version, the routes are pages and Grep only. `allow_large` lifts the 256 KiB byte gate and the ~25K-token page cap. The 2,000-line window is a defensive limit, not a measured harness stop, and `allow_large` is not shown to lift it. For a core or to-be-edited file, consider a split or refactor. That is advice, not a gate: an over-cap file stays readable and blocks no work. `scripts/read_limits.py` `read_routes_advice()` prints the same routes.
+
 | Model family | Token cap (hard) | Token warn | Byte cap (hard) | Byte warn | Line gate | Bytes-per-token (text measured 2026-09-07; notebook and json 2026-09-23) |
 |---|---|---|---|---|---|---|
 | Opus 5 | 25,000 | 22,000 | 262,144 (256 KiB) | 245,760 (240 KiB) | 2,000 (defensive) | dense markdown 2.6 · prose 2.9 · code 2.7 · notebook 2.3 · json 2.0 |
@@ -543,7 +545,7 @@ Gate priority: **tokens first, then bytes, then lines — whichever comes first.
 | Fable 5 | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | same tokenizer as Opus: 2.6 · 2.9 · 2.7 · 2.3 · 2.0 |
 | Haiku 4.5 | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | dense markdown 3.5 · prose 4.0 · code 3.6 · notebook 3.3 · json 2.7 |
 
-The two structured classes are selected by file extension, never by guessing: `measure_files.py` and `classify_file()` price a `.ipynb` at the **notebook** ratio and a `.json` / `.jsonl` / `.ndjson` at the **json** ratio unless an explicit content class overrides them. Every other extension takes the dense-markdown fallback. The notebook ratio is on-disk bytes per token of the Read tool's *rendered cell view* of an outputs-cleared notebook — the tool renders a notebook rather than returning its raw JSON, and counts tokens on the rendering (the same bytes measured 31,395 tokens as `.ipynb` and 37,176 as `.json`). For a notebook that still carries outputs the renderer elides large ones, so the estimate is an upper bound; measure the cleared file.
+The two structured classes are selected by file extension, never by guessing: `measure_files.py` and `classify_file()` (which also takes the project's `cli_version`; see the level model below the gate list) price a `.ipynb` at the **notebook** ratio and a `.json` / `.jsonl` / `.ndjson` at the **json** ratio unless an explicit content class overrides them. Every other extension takes the dense-markdown fallback. The notebook ratio is on-disk bytes per token of the Read tool's *rendered cell view* of an outputs-cleared notebook — the tool renders a notebook rather than returning its raw JSON, and counts tokens on the rendering (the same bytes measured 31,395 tokens as `.ipynb` and 37,176 as `.json`). For a notebook that still carries outputs the renderer elides large ones, so the estimate is an upper bound; measure the cleared file.
 
 > [!constraint] The tokenizer splits by model GENERATION, not by model size
 > Opus 5, Sonnet 5 and Fable 5 return the **same** token count for the same file — measured to within 1–2 tokens over ~54K. Haiku 4.5 alone is lighter, by ~1.31–1.38×. Do not group models by size or by cost tier when estimating.
@@ -552,30 +554,31 @@ The two structured classes are selected by file extension, never by guessing: `m
 >
 > Note also that **code tokenizes denser than prose** (2.7 vs 2.9 on the Claude 5 family), not lighter. Each cell is rounded DOWN from its measurement, because a smaller ratio estimates more tokens and so fires the gate sooner.
 
-- **Token page-cap gate (PRIMARY; model-dependent ratio):** a file above **~25,000 tokens** (`READ_PAGE_CAP_TOKENS`) does not return whole. Without an explicit `limit`, the Read soft-truncates to a first page of **~21,200 tokens (~85% of the cap)** plus a `PARTIAL view` banner reporting the file's exact total; with an explicit `limit` spanning more than the cap it **hard-errors with zero content** (the error still reports the exact token count — a zero-cost measurement oracle). Warn at **~22,000 tokens** (`READ_TOKEN_WARN`) — the warn threshold produces **no runtime marker**, so it MUST be checked proactively (`measure_files.py`), never waited for.
-- **Byte gate (model-independent):** a file **larger than 262,144 bytes (256 KiB)** (`READ_FILE_BYTE_CAP`) is refused outright unless `offset`/`limit` is passed — no partial page, no pointer, and the error reads `exceeds maximum allowed size (256KB)`. The boundary is strictly greater-than, measured at one-byte resolution: 262,145 bytes refuses, 262,144 does not. `classify_file` compares with `>=` and so flags the one exact-cap size a byte early; that conservatism is unreachable in practice, because 256 KiB of text is already Critical on the token gate (a measured 100,610 tokens). Warn at **245,760 bytes (240 KiB)** (`READ_BYTE_WARN`).
-- **Line gate (DISTANT THIRD, defensive):** **2,000 lines** (`READ_LINE_CAP`) — the first-page line window; a per-model total-read ceiling of roughly 10–20 pages is reported but UNCONFIRMED (measured sessions returned 3,000+-line single pages). Treat < 2,000 lines as the defensive target for generated artifacts; it binds alone only on many-short-line files that pass the token and byte gates.
+- **Token page-cap gate (PRIMARY; model-dependent ratio):** a file above **~25,000 tokens** (`READ_PAGE_CAP_TOKENS`) does not return whole from a default Read; with `allow_large: true` on v2.1.296 or later it does. Without an explicit `limit`, the Read soft-truncates to a first page of **~21,200 tokens (~85% of the cap)** plus a `PARTIAL view` banner reporting the file's exact total; with an explicit `limit` spanning more than the cap it **hard-errors with zero content** (the error still reports the exact token count — a zero-cost measurement oracle). Warn at **~22,000 tokens** (`READ_TOKEN_WARN`) — the warn threshold produces **no runtime marker**, so it MUST be checked proactively (`measure_files.py`), never waited for.
+- **Byte gate (model-independent):** a file **larger than 262,144 bytes (256 KiB)** (`READ_FILE_BYTE_CAP`) is refused outright unless `offset`/`limit` or (v2.1.296 or later) `allow_large: true` is passed — no partial page, no pointer, and the error reads `exceeds maximum allowed size (256KB)`. The boundary is strictly greater-than, measured at one-byte resolution: 262,145 bytes refuses, 262,144 does not. `classify_file` compares with `>=` and so flags the one exact-cap size a byte early; that conservatism is unreachable in practice, because 256 KiB of text is already Critical on the token gate (a measured 100,610 tokens). Warn at **245,760 bytes (240 KiB)** (`READ_BYTE_WARN`).
+- **Line gate (DISTANT THIRD, defensive):** **2,000 lines** (`READ_LINE_CAP`) — the first-page line window; a per-model total-read ceiling of roughly 10–20 pages is reported but UNCONFIRMED (measured sessions returned 3,000+-line single pages). Treat < 2,000 lines as the defensive target for generated artifacts; it binds alone only on many-short-line files that pass the token and byte gates. The window is a defensive limit, not a measured harness stop, and `allow_large` is not shown to lift it.
 
 **Estimating tokens:** `tokens ≈ bytes ÷ bytes-per-token` for the READING model, gate-conservative — unknown reader or content class → **2.6 B/tok** (the densest measured content on the heaviest tokenizer). Line-based token rates are unreliable and MUST NOT be used: measured per-line rates ranged 7–365 tokens/line depending on content; bytes predict the gate, lines do not.
 
-These FOLD into the per-file warning ladder. `token_saver.classify_file()` computes `level = max(cost_level, read_level)` and tags `reason = cost | read` naming whichever gate drove the level:
+These FOLD into the per-file warning ladder. `token_saver.classify_file()` computes `level = max(cost_level, read_level)` and tags `reason = cost | read` naming whichever gate drove the level. Its `cli_version` argument is the project's `context.verified_cli_version`. At v2.1.296 or later a token page-cap or byte-cap crossing is Warn, because `allow_large: true` reads the file whole. Below that version, or with no version, those crossings stay Critical. The line window stays Critical at every version. The `read_gates` field names the caps crossed, and `advice` carries the `read_routes_advice()` text:
 
 > [!constraint] A `read`-reason Critical Is NOT 1M-Exception-Resolvable
 > WRONG — a runner hits a `read`-reason Critical and escalates the dispatch to Opus (1M window) expecting the larger window to absorb it:
 > ```
 > classify_file(...) → {level: Critical, reason: read}   → "route to Opus, the 1M window fixes it"  ← FALSE
 > ```
-> CORRECT — routing to Opus does NOT raise the per-Read page cap, and the Claude 5 tokenizer (Opus, Sonnet and Fable alike) trips the token gate on FEWER bytes than Haiku 4.5 — ~65 KB of dense markdown against ~87 KB. The remedy is **paged reads** (`offset`/`limit`/Grep), and for a core or to-be-edited dependency, **refactor + backlog**:
+> CORRECT — routing to Opus does NOT raise the per-Read page cap, and the Claude 5 tokenizer (Opus, Sonnet and Fable alike) trips the token gate on FEWER bytes than Haiku 4.5 — ~65 KB of dense markdown against ~87 KB. The remedy is a **read route**. On a verified v2.1.296 or later, `allow_large: true` reads a token- or byte-gated file whole; size that read against the context window still free, not against the model's total window. Otherwise read `offset`/`limit` pages or Grep. For a core or to-be-edited dependency, a refactor + backlog item is advice:
 > ```
-> classify_file(...) → {level: Critical, reason: read}
->   → page it: Read(offset/limit) or Grep the needed section
->   → if it is a core/edited dependency: split/refactor the file + file a backlog item
+> classify_file(...) → {level: Warn|Critical, reason: read, read_gates, advice}
+>   → verified v2.1.296+ and only token/byte fired, file fits the free window: Read(allow_large: true)
+>   → else: Read(offset/limit) pages, or Grep the needed section
+>   → if it is a core/edited dependency: consider a split/refactor + backlog item
 > ```
-> A `cost`-reason Critical is a budget overflow (split the task / trim Required Context). A `read`-reason Critical is a mechanical Read failure (page it / refactor). The 1M exception addresses neither.
+> A `cost`-reason Critical is a budget overflow (split the task / trim Required Context). A `read`-reason level is a mechanical Read limit (a read route, then refactor as advice). The 1M exception addresses neither.
 
 ### Reading Discipline With Read Gates (BINDING)
 
-The [Read Files Fully](#reading-discipline-binding) rule still holds — read all relevant content, never skim or infer. This section adds one refinement: when a single Read **cannot** deliver a whole file (above the token page-cap, ≥ 256 KiB, or past the line window), reading "fully" means **paging** it, not trusting one Read returned everything.
+The [Read Files Fully](#reading-discipline-binding) rule still holds — read all relevant content, never skim or infer. This section adds one refinement: when a single Read **cannot** deliver a whole file (above the token page-cap, ≥ 256 KiB, or past the line window), reading "fully" means an `allow_large: true` read (verified v2.1.296 or later, token or byte gate only) or **paging** it, not trusting one default Read returned everything.
 
 > [!constraint] Page Large Files — Do Not Trust One Read
 > WRONG — runner issues one Read on a ~70 KB dense file, gets the first page back, and proceeds as if it read the whole file:
@@ -593,7 +596,7 @@ The [Read Files Fully](#reading-discipline-binding) rule still holds — read al
 ### Large-File Read Tactics
 
 > [!practice] Ladder for Files Exceeding a Read-Tool Gate
-> The Read tool has three mechanical gates — tokens, bytes, lines; see [Read-Tool Hard Limits](#read-tool-hard-limits) above (NOT a single line-count budget). When a file crosses any gate, apply this ladder in order — stop at the first step that succeeds. A `read`-reason Critical is NOT resolvable by routing to a 1M-window model (see the constraint above).
+> The Read tool has three mechanical gates — tokens, bytes, lines; see [Read-Tool Hard Limits](#read-tool-hard-limits) above (NOT a single line-count budget). When a file crosses only the token or byte gate and the project's `context.verified_cli_version` is v2.1.296 or later, read it whole with `allow_large: true` when it fits the free context window. Otherwise, apply this ladder in order — stop at the first step that succeeds. A split or refactor stays advice. A `read`-reason Critical is NOT resolvable by routing to a 1M-window model (see the constraint above).
 
 **Step 1 — Paged Read (`offset`/`limit`):** Read the file in pages that each stay under the gate, then stitch them — see [Page Large Files — Do Not Trust One Read](#reading-discipline-with-read-gates-binding) above for the WRONG/CORRECT pattern and the `PARTIAL view` truncation-header check.
 

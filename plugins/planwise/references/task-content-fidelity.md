@@ -135,7 +135,7 @@ Fix: Measure with measure_files.py and write the numeric value per references/ta
 > | Raw JSON (`.json`, `.jsonl`, `.ndjson`) | ~2.0 | Auto-detected by extension; the densest measured class |
 > | Minified JS / CSV | dense-md default | No measured class of their own; the conservative text default applies |
 >
-> The `KiB`/`~Tokens` values MUST come from `measure_files.py` (or `wc -c` ÷ ratio) on the actual file — NOT from eyeballing a `Read` tool output. A single `Read` page is capped (~25K tokens hard, ~21K delivered, 2,000-line window); a partial read produces a lower number that underestimates the cost and silently misroutes the file in the §9.A.8 Large-File Ladder.
+> The `KiB`/`~Tokens` values MUST come from `measure_files.py` (or `wc -c` ÷ ratio) on the actual file — NOT from eyeballing a `Read` tool output. A default `Read` returns one page (~25K-token cap, ~21K delivered, 2,000-line window); a partial read produces a lower number that underestimates the cost and silently misroutes the file in the §9.A.8 Large-File Ladder.
 
 #### Reviewer Check 017 — Task Byte-Ratio Band Conformance
 
@@ -320,7 +320,7 @@ Fix: Declare split per references/task-content-fidelity.md §9.A.7 | Confidence:
 This subsection is the **per-task-file enforcement anchor** the `handlers/plan-Part-2-GatherAndGenerate.md` Step 8c scan (and its Scaffolding Step 5 mirror) implement and that `/planwise review` checks against. It documents the graduated warning ladder, the threshold-derivation formulas, the three FIXED Read-tool gates the ladder folds in, and the `reason=cost|read` distinction. Active only when `context.token_saver: true`; when false, the §9.A token-estimation rules above stand alone.
 
 > [!constraint] Every Required Context file MUST be classified against the folded cost + read ladder when Token Saver is on
-> When `context.token_saver: true`, each task's Required Context file MUST be classified by `token_saver.classify_file(path, model, projected_added_bytes, thresholds)`, which returns `{level, reason}` where `level = max(cost_level, read_level)`. A file the same task will modify MUST be classified on `current + projected delta` (pass `projected_added_bytes` — estimate it as projected added lines × that file's observed average bytes/line) so a file that *will* cross a gate post-edit is flagged pre-emptively — not after the runner overflows mid-task.
+> When `context.token_saver: true`, each task's Required Context file MUST be classified by `token_saver.classify_file(path, model, projected_added_bytes, thresholds, cli_version=)`, which returns `{level, reason, read_gates, advice}` where `level = max(cost_level, read_level)`; `cli_version` is the project's `context.verified_cli_version`. A file the same task will modify MUST be classified on `current + projected delta` (pass `projected_added_bytes` — estimate it as projected added lines × that file's observed average bytes/line) so a file that *will* cross a gate post-edit is flagged pre-emptively — not after the runner overflows mid-task.
 >
 > WRONG — a ~54 KiB module is classified at its current size only; the task adds ~10 KiB, pushing it past the token page-cap, but the scan passes it Green and the runner gets a truncated Read mid-edit:
 > ```
@@ -345,7 +345,7 @@ This subsection is the **per-task-file enforcement anchor** the `handlers/plan-P
 > | 1 | {dense-reference}.md | — | ~{N}K | {purpose} |
 >
 > ## Notes for Agent
-> - One Read covers ~{L} lines at {r} tok/line ≈ ~{N}K — under the 25K page cap.
+> - One Read covers ~{L} lines at {r} tok/line ≈ ~{N}K — under one 25K page.
 > ```
 > The file measures 2–3× that figure, the Read refuses it, and the task has named no `offset`/`limit` fallback for its primary edit target.
 >
@@ -354,8 +354,8 @@ This subsection is the **per-task-file enforcement anchor** the `handlers/plan-P
 > | 1 | {dense-reference}.md | {K} | ~{N}K | {purpose} — ⚠ PAGED ≥25K {model}-tok |
 >
 > ## Notes for Agent
-> - Measured {B} bytes ÷ 2.6 ≈ ~{N}K — OVER the 25K page cap. Page it:
->   Read(offset=1, limit={L}) → check the `PARTIAL view` header → continue to the next page.
+> - Measured {B} bytes ÷ 2.6 ≈ ~{N}K — over one 25K page. Verified v2.1.296+: Read(allow_large: true). Else page it:
+>   Read(offset=1, limit={L}) → check the `PARTIAL view` header → next page.
 > ```
 
 `level = max(cost_level, read_level)`; `reason` records the driver:
@@ -363,16 +363,16 @@ This subsection is the **per-task-file enforcement anchor** the `handlers/plan-P
 | Level | Cost threshold | Read threshold (per assigned model) | Action |
 |-------|---------------|-------------------------------------|--------|
 | Green | < `warn` | < 22K tok AND < 240 KiB AND < 2,000 lines | none |
-| Warn | ≥ `warn` | ≥ 22K tok OR ≥ 240 KiB | warn + refactor recommendation + file a backlog item |
+| Warn | ≥ `warn` | ≥ 22K tok OR ≥ 240 KiB; ≥ 25K tok OR ≥ 256 KiB on verified v2.1.296+ | warn + read route + refactor advice + backlog item |
 | Critical / `cost` | ≥ `critical` | — | warn + backlog + flag task **`1M-exception`** (Opus/1M); plan still completes |
-| Critical / `read` | — | ≥ 25K model-tok OR ≥ 256 KiB OR ≥ 2,000 lines | warn + backlog + **paged read / refactor**; **NOT** `1M-exception` |
+| Critical / `read` | — | ≥ 25K model-tok OR ≥ 256 KiB below v2.1.296 or unverified; ≥ 2,000 lines always | warn + backlog + **pages/Grep**, refactor as advice; **NOT** `1M-exception` |
 
 > [!constraint] A `read`-reason Critical Is NOT `1M-Exception`-Resolvable
-> A **cost-reason** Critical earns the `1M-exception` flag — the file is simply too big for a lean per-task budget, and the 1M window absorbs it. A **read-reason** Critical does NOT: the per-Read page cap is unchanged by the window, and the Claude 5 tokenizer trips the token gate on *fewer bytes* than Haiku 4.5's. The remedy is a **paged read** (`offset`/`limit`/Grep) for read-only context, or **refactor/split + backlog item** for a core or to-be-edited dependency. A source-file Critical is never a hard stop — it advises and files an item.
+> A **cost-reason** Critical earns the `1M-exception` flag — the file is simply too big for a lean per-task budget, and the 1M window absorbs it. A **read-reason** Critical does NOT: the per-Read page cap is unchanged by the window, and the Claude 5 tokenizer trips the token gate on *fewer bytes* than Haiku 4.5's. The remedy is a read route: `allow_large` (verified v2.1.296+, token/byte gate only), `offset`/`limit` pages, or Grep. For a core or to-be-edited dependency a refactor/split + backlog item is advice. A source-file Critical is never a hard stop.
 
-**Single oversized file vs. per-task sum.** On a default/light install the cost bands sit *above* the FIXED 25K read cap (`warn` is 40K, derived `critical` higher still), so any single file large enough to be cost-Warn/Critical has already crossed the read gate — it classifies `reason=read` (paged-read/refactor), **never** cost-`1M-exception`. Cost-`1M-exception` therefore surfaces for a single file only on a **heavy** install where derived `critical` drops below 25K; otherwise it fires on a **per-task sum** of several mid-size files whose combined estimate trips `critical` while no single file trips the read cap. Do **not** expect a lone giant file to be `1M-exception`'d on a default install — that is the intended `max(cost, read)` + ties-go-to-`read` behavior, not a miss.
+**Single oversized file vs. per-task sum.** On a default/light install the cost bands sit *above* the 25K read cap (`warn` 40K), so a single file large enough to be cost-Warn/Critical has already crossed the read gate and classifies `reason=read`, **never** cost-`1M-exception`. Cost-`1M-exception` fires for one file only on a **heavy** install where derived `critical` drops below 25K; otherwise it fires on a **per-task sum** of mid-size files. That is the intended `max(cost, read)` + ties-go-to-`read` behavior, not a miss.
 
-**Generated-artifact hard-split (§9.A.7 trigger extension).** §9.A.7 declares multi-part splits when projected output exceeds the one-read token budget. The split trigger for **generated artifacts a runner MUST read** (task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, task Output files) is **token OR byte OR line gate — in that priority order**, whichever fires first forces a Multi-Part split, and the read-gate ceiling is **HARD** regardless of `context.token_saver`. External source files the runner reads but does not generate stay advisory (warn + backlog + read tactics). See `references/session-context-budget.md` [§ File Size Limits — Generated Artifacts](session-context-budget.md#file-size-limits--generated-artifacts-binding).
+**Generated-artifact split (§9.A.7 trigger extension).** The split trigger for **generated artifacts a runner MUST read** (task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, task Output files) is **token OR byte OR line gate — in that priority order**, regardless of `context.token_saver`. A missed split is a WARNING (sub-check 6): the file stays readable by a read route. External source files stay advisory (warn + backlog + read tactics). See `references/session-context-budget.md` [§ File Size Limits — Generated Artifacts](session-context-budget.md#file-size-limits--generated-artifacts-binding).
 
 #### Reviewer Check 065 — Task Token Saver Large-File Ladder Applied
 
@@ -382,9 +382,9 @@ This subsection is the **per-task-file enforcement anchor** the `handlers/plan-P
   1. **Over-ceiling without exception** (ERROR) — `task_estimate + context.token_saver_runner_overhead > context.token_saver_session_target` AND the task is not flagged `1M-exception`.
   2. **Warn+ file with no backlog item** (WARNING) — a Required Context file classifies Warn or Critical (cost or read) but the task records no large-file recommendation / backlog item.
   3. **`1M-exception` on a 200K-window agent** (ERROR) — a `1M-exception` task is declared `Agent: Haiku 4.5` (the only 200K-window agent) without the run-time override note (the flag dispatches on Opus/1M).
-  4. **Uncovered read-gate crossing** (WARNING) — a Required Context file crosses a FIXED read gate (measured bytes ≥ 256 KiB, OR `bytes ÷ {assigned-model B/tok}` ≥ 25K tokens, OR ≥ 2,000 lines) and the task records neither a paged-read note (`offset`/`limit`/Grep) nor a refactor+backlog item.
-  5. **Read-reason Critical mis-flagged `1M-exception`** (ERROR) — a file classifying Critical with `reason=read` is flagged `1M-exception`. The 1M window does not raise the per-Read page cap / byte refusal, and the Claude 5 tokenizer trips the token gate on *fewer bytes* than Haiku 4.5's — read-Critical is paged or refactored, never `1M-exception`'d. Only `reason=cost` Critical earns the flag.
-  6. **Oversized generated artifact not split** (ERROR) — a plan-generated artifact a runner MUST read (task file, Orchestration, Recovery, Consolidated Context part, Execution Input, task Output file) exceeds the HARD read ceiling (≥ 25K tokens at the reading model's ratio, OR ≥ 256 KiB, OR ≥ 2,000 lines) without a Multi-Part split. External source files the runner reads but does not generate stay advisory (sub-checks 2 and 4).
+  4. **Uncovered read-gate crossing** (WARNING) — a Required Context file crosses a FIXED read gate (measured bytes ≥ 256 KiB, OR `bytes ÷ {assigned-model B/tok}` ≥ 25K tokens, OR ≥ 2,000 lines) and the task records neither a read-route note (`allow_large` on verified v2.1.296+, `offset`/`limit`, Grep) nor a refactor+backlog item.
+  5. **Read-reason Critical mis-flagged `1M-exception`** (ERROR) — a file classifying Critical with `reason=read` is flagged `1M-exception`. The 1M window does not raise the per-Read page cap / byte refusal — read-Critical takes a read route, never `1M-exception`. Only `reason=cost` Critical earns the flag.
+  6. **Oversized generated artifact not split** (WARNING) — a plan-generated artifact a runner MUST read (task file, Orchestration, Recovery, Consolidated Context part, Execution Input, task Output file) exceeds one default Read page (≥ 25K tokens at the reading model's ratio, OR ≥ 256 KiB, OR ≥ 2,000 lines) without a Multi-Part split. The split is advice; a read route still reads it. External source files stay advisory (sub-checks 2 and 4).
 - **Detection:**
   1. Read `context.token_saver` from `config.yaml`. If false → emit no findings (no-op).
   2. Derive ceilings (never hardcode): `available_per_task = token_saver_session_target − token_saver_runner_overhead − 6000`; `critical = available_per_task − 10000`; `warn = min(40000, round(0.5 × available_per_task))`. Read gates are FIXED: token page-cap ≥ 25,000 model-tok (warn 22,000), `tokens = bytes ÷ {model-family B/tok — Claude 5 family (opus/sonnet/fable) 2.6, haiku 3.5 gate-conservative text fallback; a .ipynb or .json row uses its auto-detected notebook/json cell}`; byte ≥ 262,144 (warn 245,760); line ≥ 2,000 — measure with `measure_files.py --model {assigned} --json`.
@@ -626,7 +626,7 @@ The per-file ladder above has a shipped driver. `handlers/plan-Part-2-GatherAndG
 python "{plugin_root}/scripts/token_saver.py" --scan --plan {plan_path} --config {config}
 ```
 
-It classifies every Required Context row in every task against that task's assigned model and **exits non-zero while any file lands Warn or Critical without a handled row**. A `read`-reason Critical row is handled only when its task records `exception: paged-read (read)` and the row carries `⚠ PAGED`. Reproducing its judgement by hand is a defect even when the judgement is right.
+It classifies every Required Context row in every task against that task's assigned model and **exits non-zero while any file lands Warn or Critical without a handled row**. A `read`-reason Critical row is handled only when its task records `exception: paged-read (read)` and the row carries `⚠ PAGED` (over one default page, not "must page"). Reproducing its judgement by hand is a defect even when the judgement is right.
 
 > [!constraint] A hand-written annotation and a computed one are indistinguishable
 > WRONG — the author reads the ladder, decides a file is oversized, and types the marker into the row:
@@ -643,7 +643,7 @@ It classifies every Required Context row in every task against that task's assig
 
 Two of the scan's outputs are decisions rather than documentation, which is why skipping it is not merely untidy. A cost-reason Critical that is never computed is never flagged `1M-exception`, so the task dispatches under-budgeted. Warn+ backlog items are how oversized context files enter the queue at all, so a skipped scan silently absorbs files that should have generated follow-up work.
 
-**Token figures come from bytes, never from lines.** The scan defines no band of its own; it delegates to `classify_file`, which computes `bytes ÷ the reading model's bytes-per-token ratio`. Measured per-line rates range 7–365 tokens/line depending on content, so a per-line model under-reports worst on exactly the dense index files the scan exists to catch.
+**Token figures come from bytes, never from lines.** The scan defines no band of its own; it delegates to `classify_file`, which computes `bytes ÷ the reading model's bytes-per-token ratio` and levels a token or byte crossing Warn at a verified v2.1.296+. Measured per-line rates range 7–365 tokens/line depending on content, so a per-line model under-reports worst on exactly the dense index files the scan exists to catch.
 
 ### 9.A.16 Give the copier every source a quote comes from
 
