@@ -89,8 +89,11 @@ from markdown_parser import split_row_cells
 from read_limits import (
     READ_FILE_BYTE_CAP,
     READ_PAGE_CAP_TOKENS,
+    allow_large_lifts,
     classify_file,
     content_class_for_path,
+    read_routes_advice,
+    read_verified_cli_version,
 )
 
 # A Required Context row whose File cell is a command corpus, not a path: the
@@ -426,7 +429,7 @@ def scan_plan(
         "summary": {
             "tasks": 0, "files": 0,
             "green": 0, "notice": 0, "warn": 0, "critical": 0,
-            "critical_handled": 0,
+            "critical_handled": 0, "warn_handled": 0,
         },
     }
     if not ts_config["token_saver"]:
@@ -437,6 +440,7 @@ def scan_plan(
         runner_overhead=int(ts_config["token_saver_runner_overhead"]),
     )
     result["thresholds"] = thresholds
+    cli_version = config_cli_version(config)
 
     for task_path in find_task_files(plan_root):
         text = task_path.read_text(encoding="utf-8", errors="replace")
@@ -474,6 +478,7 @@ def scan_plan(
                 projected_added_bytes=added,
                 thresholds=thresholds,
                 content=content,
+                cli_version=cli_version,
             )
             entry = {
                 "path": str(resolved),
@@ -485,9 +490,17 @@ def scan_plan(
                 **verdict,
             }
             entry["annotations"] = annotations_for(verdict, model)
-            entry["recommendation"] = recommend(verdict, file_type)
+            entry["recommendation"] = recommend(verdict, file_type, cli_version)
+            # A token-cap crossing is Critical below the floor and Warn at or
+            # above it. A paged, annotated row is handled either way.
             entry["handled"] = bool(
-                verdict["level"] == "Critical"
+                (
+                    verdict["level"] == "Critical"
+                    or (
+                        verdict["level"] == "Warn"
+                        and is_token_cap_crossing(verdict, cli_version)
+                    )
+                )
                 and verdict["reason"] == "read"
                 and task_paged_exception
                 and row_is_paged(row.get("row", ""))
@@ -496,12 +509,41 @@ def scan_plan(
             result["summary"]["files"] += 1
             result["summary"][verdict["level"].lower()] += 1
             if entry["handled"]:
-                result["summary"]["critical_handled"] += 1
+                if verdict["level"] == "Critical":
+                    result["summary"]["critical_handled"] += 1
+                else:
+                    result["summary"]["warn_handled"] += 1
             if verdict["level"] != "Green":
                 result["findings"].append(entry)
 
         result["tasks"].append(task_entry)
     return result
+
+
+def config_cli_version(config: dict) -> str:
+    """The verified CLI version of the config the scan loaded, or "".
+
+    `load_config` records the directory that holds `config.yaml` as
+    `_planwise_root`. A config with no such key (an in-process dict) or with no
+    `verified_cli_version` key yields "", the no-version sentinel.
+    """
+    root = config.get("_planwise_root")
+    if not root:
+        return ""
+    return read_verified_cli_version(Path(root) / "config.yaml")
+
+
+def is_token_cap_crossing(verdict: dict, cli_version: str) -> bool:
+    """True when the floor is met and `allow_large` lifts every fired cap.
+
+    At or above the `allow_large` floor a page-cap or byte-cap crossing
+    classifies Warn. This names that case so `recommend` and the handled
+    check treat it like the Critical it was below the floor. It reads the
+    verdict's `read_gates` field, which `classify_file` derives from the same
+    bytes (projected bytes included) as the level, rather than re-testing
+    the caps here.
+    """
+    return allow_large_lifts(cli_version, verdict.get("read_gates", ()))
 
 
 def _is_relative(path: Path, root: Path) -> bool:
@@ -526,14 +568,26 @@ def annotations_for(verdict: dict, model: str | None) -> list[str]:
     return out
 
 
-def recommend(verdict: dict, file_type: str) -> str:
+def recommend(verdict: dict, file_type: str, cli_version: str = "") -> str:
     """The Step 8c recommendation for one verdict.
 
     A `read`-reason Critical is NEVER `1M-exception`: the 1M window does not
     raise the per-Read page cap, so the remedy is paged reads or a refactor.
-    Only a `cost`-reason Critical earns the flag.
+    Only a `cost`-reason Critical earns the flag. At or above the
+    `allow_large` floor, a Warn that crosses a whole-read cap returns the
+    routes text from `read_routes_advice`, which names `allow_large`, pages
+    and Grep. Below the floor the text is unchanged.
     """
     level, reason = verdict["level"], verdict["reason"]
+    if (
+        level == "Warn"
+        and reason == "read"
+        and is_token_cap_crossing(verdict, cli_version)
+    ):
+        return (
+            f"{read_routes_advice(cli_version, verdict.get('read_gates', ()))} "
+            "File a backlog item."
+        )
     if level == "Critical" and reason == "cost":
         return (
             "flag the task 1M-exception (dispatch Opus/1M) + file a backlog item"
@@ -683,10 +737,12 @@ def format_report(result: dict) -> str:
                 )
         out.append("")
 
+    wh = s.get("warn_handled", 0)
+    warn_note = f" ({wh} handled)" if wh else ""
     out.append(
         f"Levels (per Required Context row, so a shared file counts once per "
         f"citing task): {s['green']} Green, {s['notice']} Notice, "
-        f"{s['warn']} Warn, {s['critical']} Critical "
+        f"{s['warn']} Warn{warn_note}, {s['critical']} Critical "
         f"({s['critical_handled']} handled, "
         f"{s['critical'] - s['critical_handled']} unhandled)"
     )
@@ -814,7 +870,8 @@ def main(argv: list[str] | None = None) -> int:
 
     summary = result["summary"]
     open_rows = (
-        summary["warn"] + summary["critical"] - summary["critical_handled"]
+        summary["warn"] + summary["critical"]
+        - summary["critical_handled"] - summary["warn_handled"]
     )
     return 1 if open_rows else 0
 

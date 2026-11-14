@@ -42,7 +42,7 @@ from backlog_index_schema import (
     is_generated_index_file,
 )
 from doctor_audits import _load_project_config
-from read_limits import classify_file
+from read_limits import allow_large_available, classify_file, read_verified_cli_version
 
 _FEEDBACK_BANNER = "planwise doctor — feedback capability probe"
 _FEEDBACK_DIR_BANNER = "planwise doctor — feedback directory presence check"
@@ -445,31 +445,35 @@ def _display(path: Path, root: Path) -> str:
     return path.relative_to(root).as_posix() if path.is_relative_to(root) else path.as_posix()
 
 
-def _classify(path: Path, root: Path) -> dict:
+def _classify(path: Path, root: Path, cli_version: str = "") -> dict:
     """`classify_file` with no model and no thresholds, plus the path to print."""
-    return dict(classify_file(str(path), model=None), path=path, rel=_display(path, root))
+    result = classify_file(str(path), model=None, cli_version=cli_version)
+    return dict(result, path=path, rel=_display(path, root))
 
 
-def _index_row(label: str, path: Path, root: Path) -> "tuple[str, dict | None]":
+def _index_row(label: str, path: Path, root: Path, cli_version: str = "") -> "tuple[str, dict | None]":
     if not path.is_file():
         return f"  {label}{_display(path, root)} — not found", None
-    info = _classify(path, root)
+    info = _classify(path, root, cli_version)
     return f"  {label}{info['rel']} — {info['level']} ({info['bytes']} B / ~{info['tokens']} tok, reason={info['reason']})", info
 
 
 def _step_8(config: dict) -> None:
     root = Path(config["_planwise_root"])
+    # The loaded config sits at `<planwise root>/config.yaml`, the file doctor's config gate resolves.
+    cli_version = read_verified_cli_version(root / "config.yaml")
+    at_floor = allow_large_available(cli_version)
     naming = _index_naming(Path(config["_index_path"]))
     backlog = _generated_files([Path(config["_backlog_dir"]), Path(config["_archive_dir"])], naming)
     has_lessons = config.get("_lessons_dir") is not None
     lessons = [p for p in _lessons_files(config) if p.is_file()] if has_lessons else []
-    rows = [_index_row("plans:    ", Path(config["_plans_index"]), root)]
+    rows = [_index_row("plans:    ", Path(config["_plans_index"]), root, cli_version)]
     if has_lessons:
         from lessons_index_companion import COMPANION_FILENAME
 
-        rows.append(_index_row("companion: ", Path(config["_lessons_dir"]) / COMPANION_FILENAME, root))
+        rows.append(_index_row("companion: ", Path(config["_lessons_dir"]) / COMPANION_FILENAME, root, cli_version))
     infos = [info for _, info in rows if info is not None]
-    infos += [_classify(path, root) for path in backlog + lessons]
+    infos += [_classify(path, root, cli_version) for path in backlog + lessons]
     print(f"  backlog:  {len(backlog)} file(s) scanned (hub + overflow + shards)")
     if has_lessons:
         print(f"  lessons:  {len(lessons)} file(s) scanned (hub + overflow + shards + changelog + promotion log)")
@@ -482,8 +486,14 @@ def _step_8(config: dict) -> None:
         print()
         print(f"  [{info['level']} / reason={info['reason']}] {info['rel']}")
         print(f"      size: {info['bytes']} B / ~{info['tokens']} tok / {info['lines']} lines")
-        print("      remedy: paged read (offset/limit/Grep); refactor + backlog item if this")
-        print("              index is a core/edited dependency of the current work")
+        # At or above the allow_large floor the advice line is the one remedy:
+        # the fixed paged-read line would contradict it. Below the floor the
+        # fixed remedy stays, and the advice (pages and Grep only) follows it.
+        if not (at_floor and info.get("advice")):
+            print("      remedy: paged read (offset/limit/Grep); refactor + backlog item if this")
+            print("              index is a core/edited dependency of the current work")
+        if info.get("advice"):
+            print(f"      advice: {info['advice']}")
         print(f"      {_known_condition(info['path'])}")
     if not flagged:
         print()

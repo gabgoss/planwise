@@ -182,6 +182,59 @@ class TestMeasureFiles(unittest.TestCase):
         self.assertIn("| File | KiB | Lines | ~Tokens | Level |", out)
         self.assertIn("| OK |", out)
 
+    # -- --config: version-gated advisory text -------------------------------
+    def _config(self, version: str) -> str:
+        path = self.tmp / f"config-{version}.yaml"
+        path.write_text(
+            f'context:\n  verified_cli_version: "{version}"\n', encoding="utf-8"
+        )
+        return str(path)
+
+    def _run(self, argv: list[str]) -> str:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(mf.main(argv), 0)
+        return buf.getvalue()
+
+    def test_config_at_floor_prints_routes_not_token_cap(self):
+        path = self._write_lines("over_tokens.md", 1148)  # ~26.9K tokens
+        out = self._run([path, "--config", self._config("2.1.296")])
+        self.assertNotIn("token cap", out)
+        for route in ("allow_large", "offset/limit", "Grep"):
+            self.assertIn(route, out)
+        self.assertIn("level:  WARN", out)
+        result = mf.measure_file(path, cli_version="2.1.296")
+        self.assertEqual(result["level"], "WARN")
+
+    def test_config_below_floor_and_no_config_keep_old_text(self):
+        path = self._write_lines("over_tokens.md", 1148)
+        for argv in ([path], [path, "--config", self._config("2.1.295")]):
+            out = self._run(argv)
+            self.assertIn("token cap (>= 25,000)", out, argv)
+            self.assertIn("level:  OVER", out, argv)
+            self.assertNotIn("allow_large", out, argv)
+
+    def test_config_at_floor_keeps_line_gate_over(self):
+        path = self._write_lines("many_short.md", 2500, line="x" * 16)
+        result = mf.measure_file(path, cli_version="2.1.296")
+        self.assertEqual(result["level"], "OVER")
+        self.assertEqual(result["gates"], ["line cap (>= 2,000)"])
+
+    def test_missing_config_path_exits_two_and_names_the_path(self):
+        path = self._write_lines("over_tokens.md", 1148)
+        missing = str(self.tmp / "confg.yaml")
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = mf.main([path, "--config", missing])
+        self.assertEqual(code, 2)
+        self.assertIn(missing, err.getvalue())
+        self.assertIn("not found", err.getvalue())
+        # No report on stdout: the old hard-gate levels must not print silently.
+        self.assertNotIn("level:", out.getvalue())
+
+    def test_usage_docstring_json_line_keeps_its_alignment(self):
+        self.assertIn("\n  --json     additionally write", mf.__doc__)
+
 
 if __name__ == "__main__":
     unittest.main()

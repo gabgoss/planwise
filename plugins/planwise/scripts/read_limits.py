@@ -20,6 +20,7 @@ drift report.
 
 import math
 import os
+import re
 
 # ---------------------------------------------------------------------------
 # FIXED Read-tool limit constants (empirically re-measured 2026-09-07 across
@@ -54,6 +55,9 @@ READ_TOKEN_WARN = 22000
 # deliberate conservatism, and unreachable in practice: 256 KiB of text is
 # far past the token gate (measured 100,610 tokens) and already Critical
 # there. 256 KiB hard cap; warn at 240 KiB.
+# Probed 2026-11-14 on CLI v2.1.296 or later: a whole-file Read with
+# `allow_large: true` returned a 270,020-byte file whole, so `allow_large`
+# lifts this gate (verdict: lifted). Without the parameter the refusal held.
 READ_FILE_BYTE_CAP = 262144   # 256 * 1024
 READ_BYTE_WARN = 245760       # 240 * 1024
 
@@ -61,6 +65,10 @@ READ_BYTE_WARN = 245760       # 240 * 1024
 # sessions saw 3,000+-line single pages, so this is a defensive gate, not a
 # hard-measured harness fact; it can bind alone only on many-short-line files
 # that pass the token and byte gates (e.g. 3,000 lines x ~17 B/line).
+# Probed 2026-11-14 on CLI v2.1.296 or later: a 2,500-line file under the
+# token cap read whole both with and without `allow_large: true`, so no
+# window bound and the probe cannot show `allow_large` lifting it (verdict:
+# unclear).
 READ_LINE_CAP = 2000
 
 # Empirical bytes-per-token ratios by model family and content class
@@ -135,6 +143,16 @@ JSON_SUFFIXES = frozenset({".json", ".jsonl", ".ndjson"})
 # /planwise init and refreshed by /planwise upgrade; /planwise doctor reports
 # drift between it and the live `claude --version` without ever writing here.
 READ_LIMITS_MEASURED_ON = "2026-09-07"
+
+# Feature floor for the Read tool's `allow_large: true` parameter. The Claude
+# Code tools reference documents it as available "on Claude Code v2.1.296 or
+# later". At or above this build a whole-file read of an over-cap file is one
+# call away, so the token page-cap and the byte cap become advisories (Warn)
+# rather than hard stops (Critical). The line window keeps Critical: a probe
+# could not show it binding at all, so it cannot show `allow_large` lifting it.
+# The version is never discovered here: callers pass the consuming project's
+# `context.verified_cli_version` (see `read_verified_cli_version`).
+ALLOW_LARGE_MIN_CLI = "2.1.296"
 
 _LEVELS = ("Green", "Notice", "Warn", "Critical")
 _LEVEL_RANK = {name: i for i, name in enumerate(_LEVELS)}
@@ -221,14 +239,178 @@ def estimate_tokens(
     return math.ceil(num_bytes / bytes_per_token(model, content))
 
 
-def _read_level(num_bytes: int, tokens: int, line_count: int = 0) -> str:
-    """Classify against the three FIXED Read-tool gates (tokens, bytes, lines)."""
-    if (
-        tokens >= READ_PAGE_CAP_TOKENS
-        or num_bytes >= READ_FILE_BYTE_CAP
-        or line_count >= READ_LINE_CAP
-    ):
-        return "Critical"
+def _version_parts(version: str) -> tuple[int, ...] | None:
+    """Parse a dotted version into integer parts, or None when unparsable."""
+    text = (version or "").strip()
+    if not text:
+        return None
+    parts = text.split(".")
+    if not all(p.isdigit() for p in parts):
+        return None
+    return tuple(int(p) for p in parts)
+
+
+def allow_large_available(version: str) -> bool:
+    """True when `version` is at or above ALLOW_LARGE_MIN_CLI.
+
+    Compares dotted integer parts (so "2.1.1000" > "2.1.296"). An empty or
+    unparsable value returns False: an unknown build keeps the hard gates.
+    """
+    have = _version_parts(version)
+    if have is None:
+        return False
+    floor = _version_parts(ALLOW_LARGE_MIN_CLI)
+    if floor is None:
+        return False
+    width = max(len(have), len(floor))
+    padded_have = have + (0,) * (width - len(have))
+    padded_floor = floor + (0,) * (width - len(floor))
+    return padded_have >= padded_floor
+
+
+_CONTEXT_BLOCK_RE = re.compile(r"context\s*:\s*(#.*)?$")
+_CLI_VERSION_KEY_RE = re.compile(r"verified_cli_version\s*:(.*)$")
+
+
+def _yaml_scalar(raw: str) -> str:
+    """The value of a one-line YAML scalar: quotes and a trailing comment removed.
+
+    A value in one pair of matching single or double quotes returns the text
+    between them, and anything after the closing quote is ignored. A bare
+    value drops a ` # comment` tail. An unterminated quote is read as bare.
+    """
+    value = raw.strip()
+    if value[:1] in ("'", '"'):
+        close = value.find(value[0], 1)
+        if close != -1:
+            return value[1:close].strip()
+    return re.split(r"\s#", value, maxsplit=1)[0].strip()
+
+
+def read_verified_cli_version(config_path) -> str:
+    """Read `context.verified_cli_version` from a config.yaml WITHOUT PyYAML.
+
+    Only a direct child of a top-level `context:` block counts. A key of the
+    same name under any other block is ignored. The value may be bare or in
+    single or double quotes, with or without a trailing ` # comment`. When
+    the file holds the key more than once, the last one wins, as in YAML.
+
+    Returns "" (the uncalibrated sentinel) when the key is absent, empty, or
+    the file can't be read -- the field predates any config written before
+    this key shipped, so absence is expected, not an error. A caller that
+    must reject a missing file checks for it before calling. Accepts a str
+    or a Path.
+    """
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return ""
+    found = ""
+    in_context = False
+    child_indent = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip(" \t"))
+        if indent == 0:
+            in_context = _CONTEXT_BLOCK_RE.match(line) is not None
+            child_indent = None
+            continue
+        if not in_context:
+            continue
+        if child_indent is None:
+            child_indent = indent
+        if indent != child_indent:
+            continue
+        match = _CLI_VERSION_KEY_RE.match(stripped)
+        if match:
+            found = _yaml_scalar(match.group(1))
+    return found
+
+
+# Read-gate names, as `classify_file` reports them in `read_gates`.
+READ_GATE_TOKEN = "token"
+READ_GATE_BYTE = "byte"
+READ_GATE_LINE = "line"
+
+# The gates a Read with `allow_large: true` lifts. The line window is not
+# here: a probe could not show `allow_large` lifting it.
+ALLOW_LARGE_LIFTS = frozenset({READ_GATE_TOKEN, READ_GATE_BYTE})
+
+
+def fired_read_gates(num_bytes: int, tokens: int, line_count: int = 0) -> tuple:
+    """The hard Read-tool caps a file crosses, in gate-priority order.
+
+    Draws from "token" (the page cap), "byte" (the whole-read cap) and
+    "line" (the line window). A file in a warn band only, or under every
+    cap, returns an empty tuple.
+    """
+    gates = []
+    if tokens >= READ_PAGE_CAP_TOKENS:
+        gates.append(READ_GATE_TOKEN)
+    if num_bytes >= READ_FILE_BYTE_CAP:
+        gates.append(READ_GATE_BYTE)
+    if line_count >= READ_LINE_CAP:
+        gates.append(READ_GATE_LINE)
+    return tuple(gates)
+
+
+def allow_large_lifts(cli_version: str, read_gates) -> bool:
+    """True when `allow_large` reads the file whole.
+
+    The version must be at or above ALLOW_LARGE_MIN_CLI, at least one cap
+    must have fired, and every fired cap must be one `allow_large` lifts.
+    """
+    gates = set(read_gates or ())
+    return bool(
+        allow_large_available(cli_version) and gates and gates <= ALLOW_LARGE_LIFTS
+    )
+
+
+def read_routes_advice(cli_version: str = "", read_gates=None) -> str:
+    """One-line advice naming the read routes open to an over-limit file.
+
+    With `read_gates` None the advice follows the version alone: at or above
+    ALLOW_LARGE_MIN_CLI it names `allow_large`, `offset`/`limit` pages and
+    Grep. With `read_gates` given (the `classify_file` field), it names
+    `allow_large` only when `allow_large_lifts` holds, so a file over the
+    line window gets pages and Grep only. Below the floor, or with no
+    version, it names pages and Grep only. Both forms recommend a split or
+    refactor as advice. The text holds no line break, so a writer can print
+    it as one warning line.
+    """
+    if read_gates is None:
+        named = allow_large_available(cli_version)
+    else:
+        named = allow_large_lifts(cli_version, read_gates)
+    if named:
+        return (
+            "Read it whole with `allow_large: true` (Claude Code v"
+            f"{ALLOW_LARGE_MIN_CLI} or later), in `offset`/`limit` pages, or "
+            "Grep for the section you need. For a core or to-be-edited file, "
+            "consider a split or refactor."
+        )
+    return (
+        "Read it in `offset`/`limit` pages, or Grep for the section you need. "
+        "For a core or to-be-edited file, consider a split or refactor."
+    )
+
+
+def _read_level(
+    num_bytes: int, tokens: int, line_count: int = 0, *, cli_version: str = ""
+) -> str:
+    """Classify against the three FIXED Read-tool gates (tokens, bytes, lines).
+
+    With `cli_version` at or above ALLOW_LARGE_MIN_CLI, a token page-cap or
+    byte-cap crossing classifies Warn, not Critical: `allow_large` reads
+    such a file whole. The line window keeps Critical at every version. The
+    default (no version) reproduces the hard-gate levels exactly.
+    """
+    gates = fired_read_gates(num_bytes, tokens, line_count)
+    if gates:
+        return "Warn" if allow_large_lifts(cli_version, gates) else "Critical"
     if tokens >= READ_TOKEN_WARN or num_bytes >= READ_BYTE_WARN:
         return "Warn"
     return "Green"
@@ -240,6 +422,8 @@ def classify_file(
     projected_added_bytes: int = 0,
     thresholds: dict | None = None,
     content: str | None = None,
+    *,
+    cli_version: str = "",
 ) -> dict:
     """Classify a file's read/cost risk for a given runner model.
 
@@ -253,19 +437,31 @@ def classify_file(
     file that an edit will push past a gate is flagged pre-emptively
     (estimate the delta as added lines x that file's observed bytes/line).
 
-    A `read`-reason Critical is NOT resolvable by the 1M context exception:
-    every model shares the same mechanical caps, and the Claude 5 family
-    tokenizer trips the token gate on FEWER bytes; the remedy is paged reads
-    (offset/limit/Grep), and for a core/to-be-edited dependency, a refactor.
+    `cli_version` is the consuming project's verified Claude Code build
+    (`read_verified_cli_version`); the classifier never discovers it. At or
+    above ALLOW_LARGE_MIN_CLI a token page-cap or byte-cap crossing is Warn,
+    because a Read with `allow_large: true` returns the file whole. Below
+    the floor, or with no version, those crossings stay Critical. The line
+    window stays Critical at every version. A `read`-reason level is NOT
+    resolvable by the 1M context exception: every model shares the same
+    mechanical caps, and the Claude 5 family tokenizer trips the token gate
+    on FEWER bytes. The `read_gates` field names the hard caps the file
+    crosses (`fired_read_gates`, projected bytes included). The `advice`
+    field names the routes that remain: `read_routes_advice(cli_version,
+    read_gates)` when the read gate is Warn or Critical, else "". It names
+    `allow_large` only when every fired cap is one `allow_large` lifts.
 
     When `content` is None the class is auto-detected from the extension
     (`content_class_for_path`): a `.ipynb` prices at the notebook ratio and a
     `.json` at the json ratio, both denser than the text fallback. An explicit
     `content` always wins.
 
-    Returns {"level", "reason", "bytes", "tokens", "lines", "content"} where
-    level is in Green|Notice|Warn|Critical, reason is "cost"|"read" naming
-    the driver, and content is the class the estimate used (None = fallback).
+    Returns {"level", "reason", "bytes", "tokens", "lines", "content",
+    "advice", "read_gates"} where level is in Green|Notice|Warn|Critical,
+    reason is "cost"|"read" naming the driver, content is the class the
+    estimate used (None = fallback), advice is the read-routes text or "",
+    and read_gates is a tuple drawn from "token", "byte" and "line" (empty
+    when no hard cap is crossed).
     """
     if content is None:
         content = content_class_for_path(path)
@@ -274,10 +470,12 @@ def classify_file(
     except OSError:
         num_bytes = 0
     line_count = _count_lines(path)
-    tokens = estimate_tokens(num_bytes + max(0, projected_added_bytes), model, content)
+    gated_bytes = num_bytes + max(0, projected_added_bytes)
+    tokens = estimate_tokens(gated_bytes, model, content)
 
     cost = _cost_level(tokens, thresholds)
-    read = _read_level(num_bytes + max(0, projected_added_bytes), tokens, line_count)
+    read = _read_level(gated_bytes, tokens, line_count, cli_version=cli_version)
+    gates = fired_read_gates(gated_bytes, tokens, line_count)
 
     level = _max_level(cost, read)
     # reason names whichever gate drove the final level; ties go to read because
@@ -297,4 +495,8 @@ def classify_file(
         "tokens": tokens,
         "lines": line_count,
         "content": content,
+        "advice": (
+            read_routes_advice(cli_version, gates) if read in ("Warn", "Critical") else ""
+        ),
+        "read_gates": gates,
     }

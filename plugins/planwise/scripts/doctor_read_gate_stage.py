@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import parse_plans
 import read_limits
 from constants import CLOSED_STATUSES
-from doctor_audits import _load_project_config
+from doctor_audits import _load_project_config, _resolve_config_path
 from doctor_probes import _display
 
 _CLAUDE_TREES = (("rules", "*.md"), ("agents", "*.md"), ("skills", "*"))
@@ -145,9 +145,11 @@ def run_read_gate_stage(cfg) -> None:
     else:
         print(f"Active plan: none ({plan_reason}); scanned the three .claude trees only")
 
+    config_path = _resolve_config_path(cfg)
+    cli_version = read_limits.read_verified_cli_version(config_path) if config_path else ""
     flagged = []
     for path in seen:
-        result = read_limits.classify_file(str(path), None)
+        result = read_limits.classify_file(str(path), None, cli_version=cli_version)
         if result["level"] in _PRINTED_LEVELS:
             flagged.append((_display(path, project_root), path, result))
     flagged.sort(key=lambda item: item[0])
@@ -161,6 +163,8 @@ def run_read_gate_stage(cfg) -> None:
     print(f"{len(flagged)} file(s) at Warn or Critical ({len(seen)} file(s) scanned):")
     for shown, path, result in flagged:
         print(f"  {result['level']}  reason={result['reason']}  {shown}  (~{result['tokens']} tokens)")
+        if result.get("advice"):
+            print(f"      advice: {result['advice']}")
         if items is None:
             print(f"      backlog: not checked ({reason or 'no backlog directory'})")
             continue

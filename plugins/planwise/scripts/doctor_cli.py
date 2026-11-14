@@ -32,6 +32,14 @@ except ImportError:
     )
 
 try:
+    from read_limits import read_verified_cli_version
+except ImportError:
+    raise ImportError(
+        "read_limits is required for doctor_cli's verified-CLI-version reader; "
+        "the scripts/ directory appears to be partially installed"
+    )
+
+try:
     from rule_divergence import normalize_rule_for_diff
 except ImportError:
     raise ImportError(
@@ -515,22 +523,6 @@ def _read_pinned_plugin_version(config_path: "Path") -> str:
     m = re.search(r'^\s*plugin_version:\s*("([^"]*)"|(\S+))\s*$', text, re.MULTILINE)
     if not m:
         return "0.0.0"
-    return (m.group(2) if m.group(2) is not None else m.group(3)).strip()
-
-
-def _read_verified_cli_version(config_path: "Path") -> str:
-    """Read `context.verified_cli_version` from config.yaml WITHOUT requiring
-    PyYAML, mirroring _read_pinned_plugin_version(). Returns "" (the
-    uncalibrated sentinel) when the key is absent, empty, or the file can't
-    be read -- the field predates any config written before this key shipped,
-    so absence is expected, not an error."""
-    try:
-        text = config_path.read_text(encoding="utf-8")
-    except OSError:
-        return ""
-    m = re.search(r'^\s*verified_cli_version:\s*("([^"]*)"|(\S+))\s*$', text, re.MULTILINE)
-    if not m:
-        return ""
     return (m.group(2) if m.group(2) is not None else m.group(3)).strip()
 
 
@@ -1204,7 +1196,7 @@ def _run_doctor(cfg: "InitConfig", verbose: bool = False) -> int:
     print("planwise doctor — verified CLI version drift")
     print()
     config_path = _resolve_doctor_config_path(cfg)
-    recorded = _read_verified_cli_version(config_path) if config_path else ""
+    recorded = read_verified_cli_version(config_path) if config_path else ""
     live = probe_cli_version()
     if not live:
         print("Could not probe the running CLI version (`claude --version` "

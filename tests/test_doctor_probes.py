@@ -15,6 +15,7 @@ Run with:  python -m pytest tests/test_doctor_probes.py -q
 import contextlib
 import io
 import json
+import math
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -31,6 +32,7 @@ import doctor_probes as dp
 import feedback_drafts as fd
 import gitignore_entry as ge
 import init_project as ip
+import read_limits
 
 WARN_BYTES = 60_000  # past the 22,000-token warn line, under the 25,000-token page cap
 
@@ -735,6 +737,53 @@ def test_step_8_prints_the_known_condition_line(tmp_path):
     out = _run(dp._step_8, config)
     assert "Known condition: the index split is tracked" in out
     assert "No known-condition note recorded" not in out
+
+
+@pytest.mark.parametrize(
+    "version, level, has_allow_large",
+    [("2.1.296", "Warn", True), ("2.1.295", "Critical", False)],
+)
+def test_step_8_thirty_k_token_index_level_and_advice_follow_the_config_version(
+    tmp_path, version, level, has_allow_large
+):
+    config = _project(tmp_path)
+    config_file = Path(config["_planwise_root"]) / "config.yaml"
+    with open(config_file, "a", encoding="utf-8") as f:
+        f.write(f'context:\n  verified_cli_version: "{version}"\n')
+    plans = Path(config["_plans_index"])
+    target = math.ceil(30_000 * read_limits.bytes_per_token(None))
+    plans.write_bytes((b"x" * 119 + b"\n") * (target // 120))
+    out = _run(dp._step_8, config)
+    assert f"[{level} / reason=" in out
+    advice = [line.strip() for line in out.splitlines() if line.strip().startswith("advice: ")]
+    assert len(advice) == 1
+    assert ("allow_large" in advice[0]) is has_allow_large
+    assert "offset" in advice[0]
+
+
+@pytest.mark.parametrize(
+    "version, remedies, advice_lines",
+    [("2.1.296", 0, 1), ("2.1.295", 1, 1)],
+)
+def test_step_8_prints_one_remedy_at_the_floor_and_the_old_remedy_below_it(
+    tmp_path, version, remedies, advice_lines
+):
+    config = _project(tmp_path)
+    config_file = Path(config["_planwise_root"]) / "config.yaml"
+    with open(config_file, "a", encoding="utf-8") as f:
+        f.write(f'context:\n  verified_cli_version: "{version}"\n')
+    plans = Path(config["_plans_index"])
+    target = math.ceil(30_000 * read_limits.bytes_per_token(None))
+    plans.write_bytes((b"x" * 119 + b"\n") * (target // 120))
+    out = _run(dp._step_8, config)
+    lines = [line.strip() for line in out.splitlines()]
+    assert sum(line.startswith("remedy: paged read") for line in lines) == remedies
+    advice = [line for line in lines if line.startswith("advice: ")]
+    assert len(advice) == advice_lines
+    if version == "2.1.296":
+        # The one remedy printed is the advice, and nothing contradicts it.
+        assert "allow_large" in advice[0]
+        assert not any(line.startswith("remedy:") for line in lines)
 
 
 def test_step_8_resolves_the_lessons_changelog_and_promotion_log_families(tmp_path):

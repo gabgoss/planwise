@@ -300,5 +300,155 @@ class TestReadLimits(unittest.TestCase):
         self.assertEqual(json_file["reason"], "read")
 
 
+# ---------------------------------------------------------------------------
+# Version-gated read levels: the allow_large feature floor
+# ---------------------------------------------------------------------------
+class TestVersionGatedReadLevels(unittest.TestCase):
+    """The token page-cap moves to Warn at or above ALLOW_LARGE_MIN_CLI."""
+
+    BELOW, FLOOR, EMPTY = "2.1.295", "2.1.296", ""
+
+    def setUp(self):
+        import read_limits
+        self.rl = read_limits
+        self.tmp = Path(tempfile.mkdtemp(prefix="rso_read_levels_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        # 1,300 lines x 61 B = 79,300 B -> ~30.5K tokens at 2.6 B/tok: over
+        # the 25K page cap, under the byte warn and the 2,000-line window.
+        self.path = self.tmp / "thirty_k.txt"
+        with open(self.path, "w", encoding="utf-8", newline="\n") as f:
+            f.write("\n".join("x" * 60 for _ in range(1300)) + "\n")
+
+    def test_floor_constant(self):
+        self.assertEqual(self.rl.ALLOW_LARGE_MIN_CLI, "2.1.296")
+
+    def test_allow_large_available_at_three_versions(self):
+        self.assertFalse(self.rl.allow_large_available(self.BELOW))
+        self.assertTrue(self.rl.allow_large_available(self.FLOOR))
+        self.assertFalse(self.rl.allow_large_available(self.EMPTY))
+        # Integer comparison, not string comparison.
+        self.assertTrue(self.rl.allow_large_available("2.1.1000"))
+        self.assertTrue(self.rl.allow_large_available("3.0"))
+        self.assertFalse(self.rl.allow_large_available("2.1.x"))
+
+    def test_read_routes_advice_at_three_versions(self):
+        for version, has_allow_large in (
+            (self.BELOW, False), (self.FLOOR, True), (self.EMPTY, False),
+        ):
+            advice = self.rl.read_routes_advice(version)
+            self.assertEqual("allow_large" in advice, has_allow_large, version)
+            self.assertIn("offset", advice, version)
+            self.assertIn("limit", advice, version)
+            self.assertIn("Grep", advice, version)
+            self.assertNotIn("\n", advice, version)
+        # The byte gate is lifted by allow_large, so no 256 KiB caveat.
+        self.assertNotIn("256", self.rl.read_routes_advice(self.FLOOR))
+        self.assertEqual(self.rl.read_routes_advice(), self.rl.read_routes_advice(self.EMPTY))
+
+    def test_thirty_k_token_file_at_three_versions(self):
+        for version, level in (
+            (self.BELOW, "Critical"), (self.FLOOR, "Warn"), (self.EMPTY, "Critical"),
+        ):
+            result = self.rl.classify_file(str(self.path), "opus", cli_version=version)
+            self.assertGreaterEqual(result["tokens"], self.rl.READ_PAGE_CAP_TOKENS)
+            self.assertEqual(result["level"], level, version)
+            self.assertEqual(result["reason"], "read", version)
+            self.assertEqual(result["advice"], self.rl.read_routes_advice(version))
+        warn = self.rl.classify_file(str(self.path), "opus", cli_version=self.FLOOR)
+        self.assertIn("allow_large", warn["advice"])
+        # No version argument at all reproduces the hard gate.
+        self.assertEqual(self.rl.classify_file(str(self.path), "opus")["level"], "Critical")
+
+    def test_read_level_gates_by_version(self):
+        rl = self.rl
+        # Positional callers keep their result.
+        self.assertEqual(rl._read_level(1000, 30_000, 10), "Critical")
+        self.assertEqual(rl._read_level(1000, 30_000, 10, cli_version=self.FLOOR), "Warn")
+        # The byte gate follows the token rule (allow_large lifts it).
+        self.assertEqual(rl._read_level(300 * 1024, 100, 10), "Critical")
+        self.assertEqual(rl._read_level(300 * 1024, 100, 10, cli_version=self.FLOOR), "Warn")
+        # The line window keeps Critical at every version.
+        for version in (self.BELOW, self.FLOOR, self.EMPTY):
+            self.assertEqual(rl._read_level(1000, 100, 2500, cli_version=version), "Critical")
+
+    def test_green_file_has_empty_advice(self):
+        small = self.tmp / "small.txt"
+        small.write_text("x\n", encoding="utf-8")
+        result = self.rl.classify_file(str(small), "opus", cli_version=self.FLOOR)
+        self.assertEqual(result["level"], "Green")
+        self.assertEqual(result["advice"], "")
+
+    def test_shared_cli_version_reader(self):
+        cfg = self.tmp / "config.yaml"
+        cfg.write_text('context:\n  verified_cli_version: "2.1.296"\n', encoding="utf-8")
+        self.assertEqual(self.rl.read_verified_cli_version(cfg), "2.1.296")
+        self.assertEqual(self.rl.read_verified_cli_version(str(cfg)), "2.1.296")
+        bare = self.tmp / "bare.yaml"
+        bare.write_text("context:\n  verified_cli_version: 2.1.300\n", encoding="utf-8")
+        self.assertEqual(self.rl.read_verified_cli_version(bare), "2.1.300")
+        self.assertEqual(self.rl.read_verified_cli_version(self.tmp / "missing.yaml"), "")
+        nokey = self.tmp / "nokey.yaml"
+        nokey.write_text("context:\n  plan_tier: max\n", encoding="utf-8")
+        self.assertEqual(self.rl.read_verified_cli_version(nokey), "")
+
+    def test_line_window_file_advice_omits_allow_large(self):
+        # 2,500 short lines: under the token and byte caps, over the window.
+        path = self.tmp / "many_lines.txt"
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write("x\n" * 2500)
+        for version in (self.BELOW, self.FLOOR, self.EMPTY):
+            result = self.rl.classify_file(str(path), None, cli_version=version)
+            self.assertEqual(result["level"], "Critical", version)
+            self.assertEqual(result["read_gates"], ("line",), version)
+            self.assertNotIn("allow_large", result["advice"], version)
+            self.assertIn("offset", result["advice"], version)
+            self.assertIn("Grep", result["advice"], version)
+
+    def test_read_gates_field_names_the_caps_that_fired(self):
+        token = self.rl.classify_file(str(self.path), "opus", cli_version=self.FLOOR)
+        self.assertEqual(token["read_gates"], ("token",))
+        small = self.tmp / "small.txt"
+        small.write_text("x\n", encoding="utf-8")
+        self.assertEqual(self.rl.classify_file(str(small), "opus")["read_gates"], ())
+        # Projected bytes count toward the gates, as they do toward the level.
+        grown = self.rl.classify_file(
+            str(small), "opus", projected_added_bytes=300 * 1024, cli_version=self.FLOOR
+        )
+        self.assertEqual(grown["read_gates"], ("token", "byte"))
+        self.assertEqual(grown["level"], "Warn")
+        self.assertIn("allow_large", grown["advice"])
+        # A token cap plus the line window stays Critical with no allow_large.
+        both = self.tmp / "both.txt"
+        with open(both, "w", encoding="utf-8", newline="\n") as f:
+            f.write(("x" * 40 + "\n") * 2500)
+        mixed = self.rl.classify_file(str(both), "opus", cli_version=self.FLOOR)
+        self.assertEqual(mixed["read_gates"], ("token", "line"))
+        self.assertEqual(mixed["level"], "Critical")
+        self.assertNotIn("allow_large", mixed["advice"])
+
+    def test_cli_version_reader_value_shapes(self):
+        cases = (
+            ('context:\n  verified_cli_version: "2.1.300"  # bumped\n', "2.1.300"),
+            ("context:\n  verified_cli_version: '2.1.300'\n", "2.1.300"),
+            ("context:\n  verified_cli_version: 2.1.300  # bumped\n", "2.1.300"),
+            ('context:\n  verified_cli_version: "2.1.300"\n', "2.1.300"),
+            ("context:\n  verified_cli_version: 2.1.300\n", "2.1.300"),
+            (
+                (
+                    'other:\n  verified_cli_version: "9.9.9"\ncontext:\n'
+                    '  verified_cli_version: "2.1.300"\n'
+                ),
+                "2.1.300",
+            ),
+            ('other:\n  verified_cli_version: "9.9.9"\ncontext:\n  plan_tier: max\n', ""),
+            ('context:\n  nested:\n    verified_cli_version: "9.9.9"\n', ""),
+            ('verified_cli_version: "9.9.9"\n', ""),
+        )
+        for i, (text, expected) in enumerate(cases):
+            cfg = self.tmp / f"shape_{i}.yaml"
+            cfg.write_text(text, encoding="utf-8")
+            self.assertEqual(self.rl.read_verified_cli_version(cfg), expected, text)
+
+
 if __name__ == "__main__":
     unittest.main()

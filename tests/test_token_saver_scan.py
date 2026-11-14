@@ -425,6 +425,115 @@ class TestHandledPagedRead(unittest.TestCase):
         self.assertIn("2 Critical (1 handled, 1 unhandled)", out)
 
 
+class TestVersionGatedRoutes(unittest.TestCase):
+    """The scan reads the verified CLI version from the config it loaded."""
+
+    PAGED = "⚠ PAGED ≥25K opus-tok"
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="tss_routes_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.plan = self.tmp / "Plans" / "Probe"
+        (self.plan / "Session-01").mkdir(parents=True)
+        self.root = self.tmp / "planwise"
+        self.root.mkdir()
+        (self.tmp / "docs").mkdir()
+        # 100 KB of markdown is ~38.5K tokens: past the page cap, read-reason.
+        (self.tmp / "docs" / "big.md").write_bytes(b"x" * 100_000)
+
+    def _task(self, annotated: bool, exception: str = "paged-read (read)"):
+        note = f" {self.PAGED}" if annotated else ""
+        text = _task(
+            TEMPLATE_COLUMNS,
+            f"| 1 | `docs/big.md` | 98 | ~38K | read by script only{note} |",
+        ).replace(
+            "**Estimated Tokens:**",
+            f"**Token Budget:** ~12K (exception: {exception})\n**Estimated Tokens:**",
+        )
+        (self.plan / "Session-01" / "T-01.md").write_text(text, encoding="utf-8")
+
+    def _scan(self, version: str | None):
+        body = "context:\n  token_saver: true\n"
+        if version is not None:
+            body += f'  verified_cli_version: "{version}"\n'
+        (self.root / "config.yaml").write_text(body, encoding="utf-8")
+        config = {"_planwise_root": self.root,
+                  "context": {"token_saver": True,
+                              "token_saver_session_target": 150_000,
+                              "token_saver_runner_overhead": 1_000}}
+        return tss.scan_plan(self.plan, config, self.tmp)
+
+    def test_floor_version_warns_and_names_all_three_routes(self):
+        self._task(annotated=False)
+        entry = self._scan("2.1.296")["findings"][0]
+        self.assertEqual(entry["level"], "Warn")
+        for route in ("allow_large", "offset", "Grep"):
+            self.assertIn(route, entry["recommendation"])
+
+    def test_below_floor_keeps_the_old_critical_advice(self):
+        self._task(annotated=False)
+        entry = self._scan("2.1.295")["findings"][0]
+        self.assertEqual(entry["level"], "Critical")
+        self.assertIn("paged read (offset/limit/Grep)", entry["recommendation"])
+        self.assertNotIn("allow_large", entry["recommendation"])
+
+    def test_no_version_keeps_the_old_critical_advice(self):
+        self._task(annotated=False)
+        entry = self._scan(None)["findings"][0]
+        self.assertEqual(entry["level"], "Critical")
+        self.assertNotIn("allow_large", entry["recommendation"])
+
+    def test_config_without_planwise_root_means_no_version(self):
+        self.assertEqual(tss.config_cli_version({}), "")
+
+    def test_annotation_spelling_is_unchanged_at_the_floor(self):
+        self._task(annotated=False)
+        entry = self._scan("2.1.296")["findings"][0]
+        self.assertEqual(entry["annotations"], ["⚠ PAGED ≥25K sonnet-tok"])
+
+    def test_paged_token_cap_warn_stays_handled_at_the_floor(self):
+        self._task(annotated=True)
+        result = self._scan("2.1.296")
+        self.assertTrue(result["findings"][0]["handled"])
+        self.assertEqual(result["summary"]["warn_handled"], 1)
+        self.assertEqual(result["summary"]["critical_handled"], 0)
+
+    def test_unannotated_token_cap_warn_is_not_handled_at_the_floor(self):
+        self._task(annotated=False)
+        self.assertFalse(self._scan("2.1.296")["findings"][0]["handled"])
+
+    def test_cap_crossing_reads_the_verdict_gate_field(self):
+        floor = "2.1.296"
+        # The field decides, not a second test of the tokens and bytes keys.
+        self.assertFalse(tss.is_token_cap_crossing(
+            {"tokens": 30_000, "bytes": 300_000, "read_gates": ()}, floor))
+        self.assertTrue(tss.is_token_cap_crossing(
+            {"tokens": 0, "bytes": 0, "read_gates": ("byte",)}, floor))
+        self.assertFalse(tss.is_token_cap_crossing(
+            {"read_gates": ("token", "line")}, floor))
+        self.assertFalse(tss.is_token_cap_crossing(
+            {"read_gates": ("token",)}, "2.1.295"))
+
+    def test_line_window_row_at_the_floor_stays_critical_without_allow_large(self):
+        (self.tmp / "docs" / "big.md").write_bytes(b"x\n" * 2500)
+        self._task(annotated=True)
+        result = self._scan("2.1.296")
+        entry = result["findings"][0]
+        self.assertEqual(entry["level"], "Critical")
+        self.assertEqual(entry["read_gates"], ("line",))
+        self.assertNotIn("allow_large", entry["advice"])
+        self.assertNotIn("allow_large", entry["recommendation"])
+        self.assertTrue(entry["handled"])
+        self.assertEqual(result["summary"]["critical_handled"], 1)
+        self.assertEqual(result["summary"]["warn_handled"], 0)
+
+    def test_paged_token_cap_row_is_handled_below_the_floor_too(self):
+        self._task(annotated=True)
+        result = self._scan("2.1.295")
+        self.assertTrue(result["findings"][0]["handled"])
+        self.assertEqual(result["summary"]["critical_handled"], 1)
+
+
 class TestCli(unittest.TestCase):
     """Exit codes and the facade entry point Step 8c cites."""
 
