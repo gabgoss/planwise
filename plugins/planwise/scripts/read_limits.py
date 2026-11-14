@@ -357,6 +357,21 @@ def fired_read_gates(num_bytes: int, tokens: int, line_count: int = 0) -> tuple:
     return tuple(gates)
 
 
+def content_read_gates(text: str, num_bytes: int | None = None, model: str | None = None,
+                       content: str | None = None) -> tuple:
+    """The hard Read-tool caps `text` crosses once written, as `fired_read_gates` reports them.
+
+    For a writer that holds the content but no file yet. `num_bytes` is the
+    written byte count (pass it when the file takes CRLF endings); it defaults
+    to the UTF-8 length of `text`. Tokens use `estimate_tokens` with `model`
+    and `content`, and lines count as `classify_file` counts them on disk.
+    """
+    if num_bytes is None:
+        num_bytes = len(text.encode("utf-8"))
+    line_count = text.count("\n") + (1 if text and not text.endswith("\n") else 0)
+    return fired_read_gates(num_bytes, estimate_tokens(num_bytes, model, content), line_count)
+
+
 def allow_large_lifts(cli_version: str, read_gates) -> bool:
     """True when `allow_large` reads the file whole.
 
@@ -396,6 +411,23 @@ def read_routes_advice(cli_version: str = "", read_gates=None) -> str:
         "Read it in `offset`/`limit` pages, or Grep for the section you need. "
         "For a core or to-be-edited file, consider a split or refactor."
     )
+
+
+PLAIN_READ_ADVICE = "A plain Read still returns it whole."
+
+
+def written_read_advice(text: str, cli_version: str = "", num_bytes: int | None = None) -> str:
+    """The read-routes line for content a writer wrote over its own budget.
+
+    Measures the content with `content_read_gates`. When no hard Read cap
+    fires, a plain Read returns the file whole, and the line says so. When a
+    cap fires, it is `read_routes_advice(cli_version, gates)`, which names
+    `allow_large` only when that flag lifts every fired cap.
+    """
+    gates = content_read_gates(text, num_bytes)
+    if not gates:
+        return PLAIN_READ_ADVICE
+    return read_routes_advice(cli_version, gates)
 
 
 def _read_level(

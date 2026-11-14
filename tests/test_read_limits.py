@@ -25,6 +25,54 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 from conftest import _engine
 
 
+class TestWrittenContentReadAdvice(unittest.TestCase):
+    """`content_read_gates` and `written_read_advice` measure content a writer holds."""
+
+    def setUp(self):
+        import read_limits
+        self.rl = read_limits
+
+    def _patch(self, name, value):
+        original = getattr(self.rl, name)
+        setattr(self.rl, name, value)
+        self.addCleanup(setattr, self.rl, name, original)
+
+    def test_under_every_cap_fires_no_gate_and_names_a_plain_read(self):
+        text = "a short file\n"
+        self.assertEqual(self.rl.content_read_gates(text), ())
+        advice = self.rl.written_read_advice(text, "2.1.296")
+        self.assertEqual(advice, self.rl.PLAIN_READ_ADVICE)
+        self.assertNotIn("allow_large", advice)
+
+    def test_token_cap_only_names_allow_large_at_the_floor(self):
+        self._patch("READ_PAGE_CAP_TOKENS", 10)
+        text = "x" * 200 + "\n"
+        self.assertEqual(self.rl.content_read_gates(text), (self.rl.READ_GATE_TOKEN,))
+        self.assertIn("allow_large", self.rl.written_read_advice(text, "2.1.296"))
+
+    def test_token_cap_only_below_the_floor_or_unversioned_omits_allow_large(self):
+        self._patch("READ_PAGE_CAP_TOKENS", 10)
+        text = "x" * 200 + "\n"
+        for version in ("2.1.295", ""):
+            advice = self.rl.written_read_advice(text, version)
+            self.assertNotIn("allow_large", advice)
+            self.assertIn("Grep", advice)
+
+    def test_line_window_only_omits_allow_large_at_every_version(self):
+        self._patch("READ_LINE_CAP", 3)
+        text = "a\nb\nc\nd\n"
+        self.assertEqual(self.rl.content_read_gates(text), (self.rl.READ_GATE_LINE,))
+        for version in ("2.1.296", "2.1.295", ""):
+            advice = self.rl.written_read_advice(text, version)
+            self.assertNotIn("allow_large", advice)
+            self.assertIn("offset", advice)
+
+    def test_num_bytes_overrides_the_utf8_length(self):
+        self._patch("READ_FILE_BYTE_CAP", 100)
+        self.assertEqual(self.rl.content_read_gates("tiny\n"), ())
+        self.assertIn(self.rl.READ_GATE_BYTE, self.rl.content_read_gates("tiny\n", num_bytes=100))
+
+
 # ---------------------------------------------------------------------------
 # Step 9 — Read-limit constants + classify_file
 # ---------------------------------------------------------------------------

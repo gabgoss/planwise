@@ -290,7 +290,7 @@ def test_l4_replace_key_line_replaces_an_unindented_block_list():
     assert repairs.replace_key_line(text, "blocks", "[002, 003]") == "---\nid: 001\nblocks: [002, 003]\n---\n\nbody\n"
 
 
-# --- S3: a large relocated entry verifies, and one at the page cap is refused -
+# --- S3: a large relocated entry verifies, and one at the page cap is kept whole -
 
 PREAMBLE_LINE = "Preamble note number {:05d} about something the team once wrote down here."
 
@@ -322,15 +322,18 @@ def test_s3_a_relocated_entry_split_at_its_paragraph_verifies(tmp_path, monkeypa
     assert all(f"(preamble): {PREAMBLE_LINE.format(i)}\n" in "".join(texts) for i in range(600))
 
 
-def test_s3_a_relocated_entry_at_the_page_cap_is_refused_before_any_write(tmp_path, monkeypatch, capsys):
+def test_s3_a_relocated_entry_at_the_page_cap_is_kept_whole_and_recorded(tmp_path, monkeypatch, capsys):
     assert relocated_tokens(700) >= sup.READ_PAGE_CAP_TOKENS, "setup must reach the page cap"
-    config_path, _index = project(tmp_path, preamble_index(700), {"001": item("001")})
-    before = snapshot(tmp_path)
+    config_path, index_path = project(tmp_path, preamble_index(700), {"001": item("001")})
     code, out, err = run(monkeypatch, capsys, config_path, NO_GIT, "--write")
-    assert code == 2 and "REFUSED" in err, err + out
-    fix = err.strip().rsplit(" -- ", 1)[1]
-    assert "index lines 3-702" in fix and "entry" not in fix.lower(), fix
-    assert snapshot(tmp_path) == before
+    assert code == 0 and "REFUSED" not in err, err + out
+    texts = changelog_texts(index_path)
+    assert all(f"(preamble): {PREAMBLE_LINE.format(i)}\n" in "".join(texts) for i in range(700))
+    log = json.loads(mig.artifact_paths(index_path)[1].read_bytes().decode("utf-8"))
+    assert log["changelog"]["unaccounted"] == 0 and log["verification"] == {"verified": True, "misses": []}
+    held = [t for t in texts if "(preamble): " + PREAMBLE_LINE.format(0) in t]
+    assert len(held) == 1 and sup.changelog_tokens(held[0]) >= sup.READ_PAGE_CAP_TOKENS
+    assert [rec["tokens"] for rec in log["oversized_single_entries"]] == [sup.changelog_tokens(held[0])]
 
 
 # --- S4: a '## Dependencies' row note keeps the targets it was written beside --

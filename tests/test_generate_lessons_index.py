@@ -2035,6 +2035,86 @@ class TestCompanionDuplicateIdRefusal(_CompanionReviewFixtureBase):
         self.assertIn("[duplicate-id] LL-001", out)
 
 
+class TestCompanionOverBudgetWriteWarns(_CompanionReviewFixtureBase):
+    """A companion projecting over the read budget is written with a stderr
+    warning. It is not a refusal: the warning names the tokens, the largest
+    table and the read routes for the config's verified CLI version."""
+
+    def setUp(self):
+        super().setUp()
+        config_path = self.planwise_dir / "config.yaml"
+        config_path.write_bytes(config_path.read_bytes() + b'context:\n  verified_cli_version: "2.1.296"\n')
+        self.write_domain_lesson(1, domain=["PROC"])
+        self.write_domain_lesson(2, domain=["SUBTWO"])
+        self.write_domain_lesson(3, domain=["SUBTWO"])
+
+    def test_write_over_budget_exits_0_writes_and_warns(self):
+        with patch.object(gli, "READ_TOKEN_WARN", 10):
+            code, out, err = self.run_companion("--write")
+
+        self.assertEqual(code, 0, err)
+        self.assertTrue(self.companion_path.exists())
+        self.assertIn(f"Wrote {self.companion_path}", out)
+        warning = [line for line in err.splitlines() if line.startswith("Warning:")]
+        self.assertEqual(len(warning), 1, err)
+        self.assertIn("tokens (budget 10)", warning[0])
+        self.assertRegex(warning[0], r"largest table \w+ has 2 rows")
+        self.assertIn("A plain Read still returns it whole.", warning[0])
+        self.assertNotIn("allow_large", warning[0])
+        self.assertNotIn("Refusing to write", err)
+
+    def test_write_over_a_read_cap_names_the_routes(self):
+        import read_limits
+        with patch.object(gli, "READ_TOKEN_WARN", 10), patch.object(read_limits, "READ_PAGE_CAP_TOKENS", 10):
+            code, _out, err = self.run_companion("--write")
+
+        self.assertEqual(code, 0, err)
+        self.assertIn("allow_large", err)
+        self.assertIn("Grep", err)
+
+    def test_foreign_companion_refusal_prints_no_write_claim(self):
+        self.companion_path.write_bytes(b"# Hand-written companion\n\nNotes kept by hand.\n")
+        with patch.object(gli, "READ_TOKEN_WARN", 10):
+            code, _out, err = self.run_companion("--write")
+
+        self.assertEqual(code, 2, err)
+        self.assertNotIn("It was written", err)
+        self.assertNotIn("Warning:", err)
+
+    def test_rolled_back_write_prints_no_write_claim(self):
+        def boom(*_a, **_k):
+            raise OSError("disk full")
+        with patch.object(gli, "READ_TOKEN_WARN", 10), patch.object(gli, "_atomic_write_files", boom):
+            code, _out, err = self.run_companion("--write")
+
+        self.assertEqual(code, 2, err)
+        self.assertNotIn("It was written", err)
+
+    def test_json_stdout_stays_one_object_and_the_warning_stays_on_stderr(self):
+        with patch.object(gli, "READ_TOKEN_WARN", 10):
+            code, out, err = self.run_companion("--write", "--json")
+
+        self.assertEqual(code, 0, err)
+        payload = json.loads(out)
+        self.assertEqual(payload["written"], [str(self.companion_path)])
+        self.assertIn("Warning:", err)
+
+    def test_under_budget_write_prints_no_warning(self):
+        code, _out, err = self.run_companion("--write")
+
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("Warning:", err)
+
+    def test_an_anomaly_still_refuses_over_budget(self):
+        self.write_domain_lesson(1, domain=["PROC"], directory=self.archive_dir)
+        with patch.object(gli, "READ_TOKEN_WARN", 10):
+            code, _out, err = self.run_companion("--write")
+
+        self.assertEqual(code, 2)
+        self.assertIn("Refusing to write", err)
+        self.assertFalse(self.companion_path.exists())
+
+
 class TestCompanionCategorizationErrorIsNotATraceback(_CompanionReviewFixtureBase):
     def test_unresolved_default_bucket_exits_two(self):
         self.mutate_config(b"default_bucket: D", b"default_bucket: E")

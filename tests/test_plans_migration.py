@@ -304,9 +304,13 @@ def test_an_unrecognized_index_is_reported_and_untouched(tmp_path):
 def test_a_plan_time_refusal_is_reported_untouched(tmp_path, monkeypatch):
     fixture_a(tmp_path)
     before = plans_tree(tmp_path)
-    monkeypatch.setattr(gen, "HUB_TOKEN_BUDGET", 10)
+
+    def refuse_append(_dest, _items, _index_path, _date, refusals):
+        refusals.append("cannot read a Master Plan as UTF-8; restore or re-encode it, then re-run")
+
+    monkeypatch.setattr(mig, "_plan_append", refuse_append)
     report = migrate(tmp_path)
-    assert report.state == "refused" and "budget" in report.detail and "then re-run" in report.detail
+    assert report.state == "refused" and "UTF-8" in report.detail and "then re-run" in report.detail
     assert report.fix == "close each refusal listed above as its text says"
     assert plans_tree(tmp_path) == before and not pair_dir(tmp_path).exists()
 

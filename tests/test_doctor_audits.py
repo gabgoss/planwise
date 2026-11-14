@@ -435,6 +435,18 @@ def test_stage_20_over_budget_prints_warn_and_over_rows_and_no_all_clear(tmp_pat
     assert "nothing to do" not in section
 
 
+def test_stage_20_kept_whole_entry_prints_oversized_and_no_resplit_advice(tmp_path, capsys, monkeypatch):
+    cfg, _planwise = make_project(tmp_path)
+    files = [{"path": "x/Changelog.md", "tokens": 30000, "level": "OVER", "oversized_entry": True,
+              "needs_resplit": False}]
+    oversized = [{"file": "x/Changelog.md", "tokens": 30000, "budget": 22000}]
+    patch_backlog(monkeypatch, backlog_report(changelog_files=files, changelog_oversized=oversized))
+    section = stage_text(run(cfg, capsys), BACKLOG_SHAPE_BANNER)
+    assert "oversized entry: Changelog.md: 30000 tokens, budget 22000" in section
+    assert "re-splits" not in section and "changelog file Changelog.md" not in section
+    assert "generated shape, nothing to do" in section
+
+
 def test_stage_20_legacy_prints_counts_and_upgrade_line(tmp_path, capsys, monkeypatch):
     cfg, _planwise = make_project(tmp_path)
     legacy = backlog_report(shape="legacy", ready_with_all_repairs=False, row_mismatches=2)

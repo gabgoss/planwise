@@ -556,9 +556,10 @@ def _run_generator_steps(lessons_dir: Path, archive_dir: Path, index_path: Path,
     index_write_exit, _out = _captured(
         gen._cmd_write_lessons, lessons_dir, archive_dir, index_path, naming, config,
         replace_legacy=True, json_out=False)
+    companion_warnings: list = []
     companion_write_exit, _out = _captured(
         gen._run_companion_cli, SimpleNamespace(write=True, json=False, replace_legacy=True),
-        lessons_dir, archive_dir, index_path, naming, config)
+        lessons_dir, archive_dir, index_path, naming, config, warnings=companion_warnings)
     (index_check_exit, findings), _out = _captured(
         _check_index_findings, lessons_dir, archive_dir, index_path, naming, config)
     companion_check_exit, _out = _captured(
@@ -566,6 +567,7 @@ def _run_generator_steps(lessons_dir: Path, archive_dir: Path, index_path: Path,
         lessons_dir, archive_dir, index_path, naming, config)
     return {"index_write_exit": index_write_exit, "companion_write_exit": companion_write_exit,
             "index_check_exit": index_check_exit, "companion_check_exit": companion_check_exit,
+            "companion_warnings": companion_warnings,
             "index_check_findings": sorted({f["class"] for f in findings}),
             "index_check_anomalies": [{"id": f.get("id"), "detail": f.get("detail")}
                                       for f in findings if f.get("class") == "location-anomaly"]}
@@ -608,6 +610,8 @@ def execute(plan: dict, ledger_file: Path, index_path: Path, config: dict, json_
 
     if json_mode:
         print(json.dumps(ledger, indent=2))
+    for warning in (exits.get("companion_warnings") or []):
+        print(warning, file=sys.stderr)  # an over-budget companion is written, and the report says so
     failed_generator = generator_error is not None or not generator_succeeded(exits)
     if misses or failed_generator:
         reasons = list(misses)
@@ -658,6 +662,8 @@ def _resume_or_clean(config: dict, index_path: Path, ledger_file: Path, args, js
             sup.replace_all(sup.stage_all([(ledger_file, json.dumps(ledger, indent=2) + "\n")]))
         except (OSError, ReplaceError):
             pass
+    for warning in new_exits.get("companion_warnings") or []:
+        print(warning, file=sys.stderr)
     if not generator_succeeded(new_exits):
         return say(1, f"FAIL: generator step still failing: {new_exits}", js, err=True)
     return say(0, f"WROTE: resumed at the generator step; index and companion are "

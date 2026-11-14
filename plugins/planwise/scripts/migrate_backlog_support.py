@@ -718,12 +718,6 @@ def _entry_section(label: str, body: str, nl: str) -> str:
     return f"## Entry {label}{nl}{nl}{body}{nl}{nl}"
 
 
-def entry_fits_alone(tokens: int) -> bool:
-    """True when a single changelog entry of `tokens` can keep a file to itself: it measures
-    under the Read tool's page cap, so a reader still gets it whole in one call."""
-    return tokens < READ_PAGE_CAP_TOKENS
-
-
 def oversized_single_entries(parts: list) -> list:
     """One `{path, tokens}` record for each part that holds a single entry and measures at or
     over the per-file warn budget, for the ledger. `parts` is `[(path, text), ...]`."""
@@ -740,9 +734,11 @@ def _entry_chunks(segments: list, nl: str, budget: int, target: int | None = Non
     entry whose own section reaches `target` (default `budget`) is split at
     blank-line boundaries into 'N' and 'N (continued)' pieces. A single
     paragraph whose own section alone still exceeds `budget` stays whole
-    as its own chunk while `entry_fits_alone`; at or above the page cap it
-    raises `Refusal`, naming the entry and its token count -- a data error
-    this tool cannot decide. Each body takes `nl` line endings."""
+    as its own chunk, at any size: the migration never splits an entry
+    mid-line, so the packer gives that chunk a part to itself and the
+    ledger's `oversized_single_entries` records it. A reader opens a part
+    over the Read tool's page cap in pages, or whole with `allow_large`.
+    Each body takes `nl` line endings."""
     target = budget if target is None else target
     chunks = []
     for i, seg in enumerate(segments, start=1):
@@ -762,23 +758,8 @@ def _entry_chunks(segments: list, nl: str, budget: int, target: int | None = Non
         if buf:
             pieces.append((nl + nl).join(buf))
         for j, piece in enumerate(pieces):
-            label = str(i) if j == 0 else f"{i}{CONTINUED}"
-            tokens = changelog_tokens(_entry_section(label, piece, nl))
-            if tokens >= budget and entry_fits_alone(tokens):
-                chunks.append((label, piece))  # one entry under the page cap keeps its file whole
-                continue
-            if tokens >= budget and len(paras) == 1:
-                raise Refusal(
-                    f"changelog entry {i}, which begins {body.strip()[:60]!r}, is one paragraph of ~{tokens} tokens, over "
-                    f"the {budget}-token per-file budget on its own. It has no paragraph boundary to split at, and "
-                    f"the migration never splits an entry mid-line -- shorten entry {i} by hand, or split it into "
-                    "smaller entries, then re-run")
-            if tokens >= budget:
-                raise Refusal(
-                    f"changelog entry {i} has a paragraph of ~{tokens} tokens, over the "
-                    f"{budget}-token per-file budget",
-                    "add a blank line inside it by hand, then re-run")
-            chunks.append((label, piece))
+            # A piece over `budget` is one paragraph with no boundary to split at: it stays whole.
+            chunks.append((str(i) if j == 0 else f"{i}{CONTINUED}", piece))
     return chunks
 
 
@@ -804,9 +785,11 @@ def split_changelog(segments: list, naming, index_name: str, nl: str, budget: in
     every later part backlinks to part 1. When N = 1 the result is
     byte-identical to `changelog_text`. Every chunk is sized against
     `budget` less the larger header, so a part's first chunk fits beside
-    its header. A part that still measures over (its header plus one
-    paragraph that cannot be split) is refused by `check_parts_budget`,
-    which each caller runs. Returns [(filename, text), ...]."""
+    its header. A chunk that still measures over (one paragraph that
+    cannot be split) takes a part to itself, which the ledger's
+    `oversized_single_entries` records. `check_parts_budget`, which each
+    caller runs, refuses only a part over budget that holds more than one
+    entry. Returns [(filename, text), ...]."""
     part1_name = _changelog_filename(naming)
     part1_bare_header = f"[← {index_name}]({index_name}){nl}{nl}"
     other_header = f"[← {part1_name}]({part1_name}){nl}{nl}"
@@ -833,16 +816,18 @@ def split_changelog(segments: list, naming, index_name: str, nl: str, budget: in
 
 def check_parts_budget(split: list, budget: int = READ_TOKEN_WARN) -> list:
     """Return `split` unchanged, or raise `Refusal` naming the first part
-    that measures at or over `budget`. A part holding one entry stays whole
-    while that entry `entry_fits_alone`."""
+    that holds more than one entry and measures at or over `budget` -- a
+    packer anomaly, since the packer gives an over-budget chunk a part to
+    itself. A part holding one entry stays whole at any size, and the
+    ledger's `oversized_single_entries` records it."""
     for name, text in split:
         tokens = changelog_tokens(text)
         single = len(ENTRY_HEADING_RE.findall(text.replace("\r\n", "\n"))) <= 1
-        if tokens >= budget and not (single and entry_fits_alone(tokens)):
+        if tokens >= budget and not single:
             raise Refusal(f"changelog part {name} would measure ~{tokens} tokens, over the {budget}-token "
-                          "per-file budget: an entry in it has a paragraph too large to sit beside the part's "
-                          "header",
-                          "add a blank line inside it by hand, then re-run")
+                          "per-file budget, and holds more than one entry: the packer should have given the "
+                          "over-budget entry a part to itself",
+                          "report this as a migration defect; the changelog was not written")
     return split
 
 
@@ -943,8 +928,35 @@ def parse_changelog(texts: list) -> list:
     return [body.encode("utf-8") for body in result]
 
 
+def kept_whole_entry(text: str) -> bool:
+    """True when a changelog part holds exactly one entry section whose body
+    has no blank-line paragraph boundary. The packer cannot split such a part,
+    so it reproduces it unchanged at any size."""
+    lines = text.removeprefix("﻿").replace("\r\n", "\n").split("\n")
+    heads = [i for i, line in enumerate(lines) if ENTRY_HEADING_RE.match(line.strip())]
+    if len(heads) != 1:
+        return False
+    body = lines[heads[0] + 1:]
+    while body and body[0] == "":
+        body.pop(0)
+    while body and body[-1] == "":
+        body.pop()
+    return "" not in body
+
+
+def part_needs_resplit(text: str, budget: int = READ_TOKEN_WARN) -> bool:
+    """True when the packer would lay this part out differently: it measures at
+    or over `budget` tokens (the packer's own measure) and is not one entry
+    kept whole. A byte count alone never triggers a re-split, because the
+    packer splits on tokens only."""
+    return changelog_tokens(text) >= budget and not kept_whole_entry(text)
+
+
 def changelog_budget_status(config: dict, index_path: Path) -> list:
-    """{path, tokens, level} for part 1 plus every existing `Part-NN` file.
+    """{path, tokens, level, oversized_entry, needs_resplit} for part 1 plus
+    every existing `Part-NN` file. `level` is the Read-gate level;
+    `oversized_entry` marks a part at or over the token budget that holds one
+    entry kept whole; `needs_resplit` marks a part a re-split would change.
     Empty when no changelog exists yet."""
     naming = _index_naming(index_path)
     part1_path = index_path.with_name(_changelog_filename(naming))
@@ -956,14 +968,19 @@ def changelog_budget_status(config: dict, index_path: Path) -> list:
     for path in files:
         text = read_text(path)
         num_bytes, tokens = _measure(text.replace("\r\n", "\n"))
-        out.append({"path": str(path), "tokens": tokens, "level": _changelog_level(num_bytes, tokens)})
+        over = tokens >= READ_TOKEN_WARN
+        whole = over and kept_whole_entry(text)
+        out.append({"path": str(path), "tokens": tokens, "level": _changelog_level(num_bytes, tokens),
+                    "oversized_entry": whole, "needs_resplit": over and not whole})
     return out
 
 
 def plan_changelog_resplit(config: dict, index_path: Path):
     """Re-split an already-migrated changelog that has grown over budget.
-    Returns None when every existing changelog file already measures within
-    budget; otherwise {"outputs": [(path, text)], "targets": [...], "parts":
+    Returns None, without parsing or packing, when no part needs a re-split
+    (`part_needs_resplit`: every part is under the token budget or holds one
+    entry kept whole), or when the files on disk already equal the packer's
+    layout; otherwise {"outputs": [(path, text)], "targets": [...], "parts":
     [...], "remove": [...]}. `remove` lists each existing `Part-NN` file
     the new layout no longer uses; its entries now sit in `outputs`. The
     parts keep part 1's line endings. No other plan step runs."""
@@ -978,14 +995,15 @@ def plan_changelog_resplit(config: dict, index_path: Path):
     numbered.sort(key=lambda kp: kp[0])
     targets = [p for _k, p in numbered]
     texts_on_disk = [read_text(p) for p in targets]
-    ok = all(_changelog_level(*_measure(t.replace("\r\n", "\n"))) == "OK" for t in texts_on_disk)
-    if ok:
+    if not any(part_needs_resplit(t) for t in texts_on_disk):
         return None
     segments = parse_changelog(texts_on_disk)
     nl = newline_of(texts_on_disk[0])
     split = check_parts_budget(split_changelog(segments, naming, index_path.name, nl))
     bom = "\ufeff" if texts_on_disk[0].startswith("\ufeff") else ""  # part 1 keeps its byte-order mark
     outputs = [(index_path.with_name(name), (bom if k == 0 else "") + text) for k, (name, text) in enumerate(split)]
+    if outputs == list(zip(targets, texts_on_disk)):
+        return None  # already the packer's layout: a part over budget holds one entry kept whole
     parts_meta = [{"path": str(path), "tokens": changelog_tokens(text),
                    "entries": len(ENTRY_HEADING_RE.findall(text.replace("\r\n", "\n")))}
                   for path, text in outputs]

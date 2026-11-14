@@ -670,24 +670,28 @@ class TestZeroComparisonAndShape(_ReconcileFixtureBase):
         self.addCleanup(budget.stop)
         return (self.plans_dir / "00-Index-Plans.md").read_bytes()
 
-    def test_write_over_budget_prints_no_reconciled_line(self):
+    def test_write_over_budget_reconciles_and_warns(self):
         before = self._drifted_index_under_a_tiny_budget()
 
         code, out, err = self.run_cli("--write")
 
-        self.assertEqual(code, 2)
-        self.assertNotIn("Reconciled", out)
+        self.assertEqual(code, 0)
+        self.assertIn("Reconciled 1 row(s).", out)
         self.assertIn("10-token budget", err)
-        self.assertEqual((self.plans_dir / "00-Index-Plans.md").read_bytes(), before)
+        self.assertIn("shard or shorten the index", err)
+        self.assertNotEqual((self.plans_dir / "00-Index-Plans.md").read_bytes(), before)
 
     def test_reconcile_raises_when_the_generator_refuses(self):
-        before = self._drifted_index_under_a_tiny_budget()
+        self.write_master_plan("Alpha/", "ALP", "COMPLETE", "2026-01-01")
+        index_path = self.plans_dir / "00-Index-Plans.md"
+        before = b"notes only\r\n"
+        index_path.write_bytes(before)
 
         with self.assertRaises(WriteRefusedError) as raised:
             reconcile(self.config)
 
-        self.assertIn("10-token budget", str(raised.exception))
-        self.assertEqual((self.plans_dir / "00-Index-Plans.md").read_bytes(), before)
+        self.assertIn("Nothing was written", str(raised.exception))
+        self.assertEqual(index_path.read_bytes(), before)
 
     def test_partial_parse_exits_3_and_names_the_line(self):
         # One five-cell row among good rows: the audit compared fewer rows than

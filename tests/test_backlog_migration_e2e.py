@@ -10,7 +10,7 @@ item file is edited, so the tree is dirty.
 
 Assertions 1-11 are labelled where they are made. Assertion 10 has two halves:
 entries that total over budget split into parts, and one entry over budget
-alone is refused by name. Assertion 9, the budget
+alone is kept whole in a part of its own. Assertion 9, the budget
 sweep, runs after every call that writes a backlog index file: the hub and
 its overflow leaves stay within `HUB_TOKEN_BUDGET`, and every Archive shard
 and changelog part stays within `READ_TOKEN_WARN`. Fixtures are written as
@@ -300,22 +300,38 @@ def test_oversize_changelog_is_split_into_budgeted_parts(tmp_path):
     assert _snapshot(cfg.project_root) == after
 
 
-def test_one_footer_entry_over_budget_alone_is_refused_by_name(tmp_path):
+def test_one_footer_entry_over_budget_alone_is_kept_whole_in_its_own_part(tmp_path):
     # Assertion 10, second half: a footer entry is one line, so an entry over the budget on its
-    # own has no paragraph boundary. The migration refuses it by name and never splits it mid-line.
+    # own has no paragraph boundary. The migration never splits it mid-line: it keeps the entry
+    # whole in a part of its own, and the ledger's `oversized_single_entries` records that part.
     entries = [_long_entry(k, 420) for k in range(1, 5)]
     entries[1] = _long_entry(2, 1400)
     assert budget._measure(entries[1])[1] > READ_TOKEN_WARN
-    cfg, _backlog = _project(tmp_path, legacy_index(entries=entries))
-    before = _snapshot(cfg.project_root)
+    cfg, backlog = _project(tmp_path, legacy_index(entries=entries))
+    original_index = (backlog / INDEX).read_bytes()
 
     report = bm.migrate_backlog_if_legacy(cfg, FROM, TO)
-    assert report.state == "refused", report.detail
-    assert f"changelog entry 2, which begins {entries[1][:60]!r}, is one paragraph of ~" in report.detail
-    assert "no paragraph boundary" in report.detail and "never splits an entry mid-line" in report.detail
-    assert report.fix.startswith("shorten entry 2 by hand, or split it into smaller entries, then re-run"), report.fix
-    assert _snapshot(cfg.project_root) == before
-    assert not _backups(cfg).exists()
+    assert report.state == "migrated", report.detail
+    files = _changelog_files(backlog)
+    texts = {p.name: mig.read_text(p) for p in files}
+    holding = [name for name, text in texts.items() if entries[1] in text]
+    assert len(holding) == 1, list(texts)
+    assert texts[holding[0]].count("## Entry ") == 1
+    ledger = json.loads(mig.read_text(report.ledger_path))
+    assert ledger["changelog"]["unaccounted"] == 0
+    [kept] = ledger["oversized_single_entries"]
+    assert Path(kept["path"]).name == holding[0], kept
+    assert kept["tokens"] == sup.changelog_tokens(texts[holding[0]]) > READ_TOKEN_WARN
+    log = sup.joined_entries(list(texts.values()))
+    assert all(s.decode("utf-8") in log for s in sup.extract_changelog(original_index)["segments"])
+    for name, text in texts.items():
+        if name != holding[0]:
+            assert sup.changelog_tokens(text) < READ_TOKEN_WARN, name
+
+    after = _snapshot(cfg.project_root)
+    again = bm.migrate_backlog_if_legacy(cfg, FROM, TO)
+    assert again.state == "generated", again.detail
+    assert _snapshot(cfg.project_root) == after
 
 
 @pytest.mark.parametrize("second_pair", [("1.0.5.2", "1.0.5.3"), (FROM, TO)], ids=["next-pair", "same-pair"])

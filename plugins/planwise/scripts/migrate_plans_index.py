@@ -14,7 +14,8 @@ What a run does, in order:
 2. Plan every move in memory: walk the legacy table, collect every note,
    resolve each row to its Master Plan, attribute each note, compare each
    row's status token with its Master Plan's, render the new index and check
-   it against the page budget. Any refusal is raised before a write.
+   it against the page budget. Any refusal is raised before a write. An
+   over-budget render is a warning, listed under `warnings`: the run goes on.
 3. Back up every target byte-exact, then append the notes to each Master Plan
    under `## Index Notes (harvested DATE)`. No existing Master Plan byte
    changes: the file before the run is a prefix of the file after it.
@@ -83,6 +84,7 @@ from migrate_plans_scan import (
     narrative,
     scan_comments,
 )
+from read_limits import read_verified_cli_version, written_read_advice
 from reconcile_common import read_text_preserving_newlines as read_text
 
 LEDGER_FILENAME = "00-Plans-Migration-Ledger.md"
@@ -232,7 +234,8 @@ def _plan_append(dest: Path, items: list, index_path: Path, date: str, refusals:
 
 
 def _analyze(config: dict, index_path: Path, text: str, migration_date: str | None = None) -> dict:
-    """Every step of the plan, in memory. Plan-time refusals are collected in `plan["refusals"]`."""
+    """Every step of the plan, in memory. Plan-time refusals are collected in `plan["refusals"]`
+    and warnings that do not stop the run in `plan["warnings"]`."""
     plans_dir, index_path = Path(config["_plans_dir"]), Path(index_path)
     shape, detail = classify_shape(text)
     date = migration_date or _today()
@@ -240,6 +243,7 @@ def _analyze(config: dict, index_path: Path, text: str, migration_date: str | No
     prefix = _plans_prefix(config)
     entries = parse_plans.enumerate_master_plans(plans_dir)
     refusals: list = []
+    warnings: list = []
 
     resolved, prefixed, via_child, unresolved = {}, 0, 0, []
     raw_lines = {line.line_number: line.text for line in table.table_lines}
@@ -324,9 +328,13 @@ def _analyze(config: dict, index_path: Path, text: str, migration_date: str | No
             diffs["name"] += row.name != rendered.name
     mapped = {_plan_key(f) for f in resolved.values()}
     if render.tokens > gen.HUB_TOKEN_BUDGET:
-        refusals.append(f"the regenerated plans index would measure {render.num_bytes} bytes ({render.tokens} "
-                        f"tokens), over the {gen.HUB_TOKEN_BUDGET}-token budget; the index is one file, so "
-                        "shorten the Master Plan set or shard the index, then re-run")
+        planwise_root = config.get("_planwise_root")
+        version = read_verified_cli_version(Path(planwise_root) / "config.yaml") if planwise_root else ""
+        warnings.append(f"the regenerated plans index would measure {render.num_bytes} bytes ({render.tokens} "
+                        f"tokens), over the {gen.HUB_TOKEN_BUDGET}-token budget. A migration that goes ahead "
+                        "writes it anyway; a refused one writes nothing. "
+                        "The index is one file, so shard or shorten the index. "
+                        f"{written_read_advice(render.text, version, render.num_bytes)}")
     lines = classify_lines(text, table, items)
     index_bytes = text.encode("utf-8")
     plan = {
@@ -337,7 +345,7 @@ def _analyze(config: dict, index_path: Path, text: str, migration_date: str | No
         "prefixed_rows": prefixed, "root_path_rows": via_child, "rows_mapped": len(resolved),
         "rows_post": len(render.rows),
         "rows_added": sum(1 for r in render.rows if _plan_key(plans_dir / r.file) not in mapped),
-        "render": render, "refusals": refusals, "index_bytes": len(index_bytes), "lines": lines,
+        "render": render, "refusals": refusals, "warnings": warnings, "index_bytes": len(index_bytes), "lines": lines,
         "uncarried": lines["listed"], "index_sha256": hashlib.sha256(index_bytes).hexdigest(), "backup_dir": None,
     }
     gap = accounting(plan)["unaccounted"]
@@ -524,6 +532,7 @@ def _summary(plan: dict) -> dict:
         "status_changes": len(plan["status_changes"]),
         "append_targets": [Path(a["path"]).relative_to(plans_dir).as_posix() for a in plan["appends"]],
         "ready": not plan["refusals"], "would_refuse": list(plan["refusals"]),
+        "warnings": list(plan["warnings"]),
     }
 
 
@@ -535,7 +544,7 @@ def build_report(config: dict, index_path: Path) -> dict:
         return {"shape": shape, "detail": detail, "index": str(index_path), "rows": 0, "comments": 0,
                 "narrative_cells": 0, "attributable": 0, "unattributed": 0, "uncarried_lines": 0, "root_path_rows": 0,
                 "prefixed_rows": 0, "status_changes": 0, "append_targets": [], "ready": False, "would_refuse": [],
-                "questions": []}
+                "warnings": [], "questions": []}
     report = _summary(_analyze(config, index_path, text, migration_date(ledger_path_for(config["_plans_dir"]))))
     report["questions"] = []  # a plans refusal is a plain string, so it asks nothing
     return report
@@ -564,6 +573,7 @@ def format_report(plan: dict) -> str:
     lines += [f"  appended to: {target}" for target in s["append_targets"]]
     lines += [f"  unresolved row at line {r['line']}: {r['text']}" for r in plan["unresolved_rows"]]
     lines += [f"  would refuse: {reason}" for reason in s["would_refuse"]]
+    lines += [f"  warning: {warning}" for warning in s["warnings"]]
     return "\n".join(lines)
 
 
@@ -652,6 +662,8 @@ def run(config: dict, args) -> int:
         return say(1, "DRY-RUN: migration needed; no files written.", js)
     if refusal:
         return say(2, f"REFUSED: {refusal}", js, err=True)
+    for warning in plan["warnings"]:
+        print(f"Warning: {warning}", file=sys.stderr)
     return _write(config, plan, ledger_file, args)
 
 

@@ -239,7 +239,12 @@ from lessons_index_schema import (
 )
 from markdown_parser import split_row_cells
 from parse_lessons import format_id
-from read_limits import READ_TOKEN_WARN, estimate_tokens
+from read_limits import (
+    READ_TOKEN_WARN,
+    estimate_tokens,
+    read_verified_cli_version,
+    written_read_advice,
+)
 from reconcile_common import read_text_preserving_newlines
 
 __all__ = [
@@ -385,7 +390,7 @@ def companion_exit_code_for(findings: list) -> int:
 
 def _companion_largest_table(items: list, cat: dict):
     """(table_id, row_count) for the biggest bucket/sub-bucket table in
-    the fresh classification, named in an over-budget write refusal."""
+    the fresh classification, named in the over-budget write warning."""
     table = partition_companion(items, cat)
     sizes = []
     for bucket_id, entry in table.items():
@@ -395,6 +400,20 @@ def _companion_largest_table(items: list, cat: dict):
     return max(sizes, key=lambda pair: pair[1]) if sizes else (None, 0)
 
 
+def _companion_budget_warning(config: dict, tokens: int, largest_table, content: str, num_bytes: int) -> str:
+    """The over-budget `--write` warning: the size, the largest table, then the read routes
+    for the config's verified CLI version and the Read caps the written `content` crosses.
+    The caller prints it only after the write succeeds."""
+    table_id, row_count = largest_table
+    planwise_root = config.get("_planwise_root")
+    version = read_verified_cli_version(Path(planwise_root) / "config.yaml") if planwise_root else ""
+    return (
+        f"Warning: companion projects {tokens} tokens (budget {READ_TOKEN_WARN}); "
+        f"largest table {table_id} has {row_count} rows. It was written. "
+        f"{written_read_advice(content, version, num_bytes)}"
+    )
+
+
 def _companion_error(args, message: str) -> int:
     print(f"Error: {message}", file=sys.stderr)
     if args.json:
@@ -402,13 +421,18 @@ def _companion_error(args, message: str) -> int:
     return LessonsDisposition.REFUSED
 
 
-def _run_companion_cli(args, lessons_dir: Path, archive_dir: Path, index_path, naming, config: dict) -> int:
+def _run_companion_cli(args, lessons_dir: Path, archive_dir: Path, index_path, naming, config: dict,
+                       warnings: list | None = None) -> int:
     """The `--companion` entry point `main()` dispatches to. Applies the
     same `--dry-run`/`--check`/`--write`/`--json`/`--replace-legacy`
     contract the index uses, targeted at the companion file instead.
 
     Every refusal exits 2 with an `Error: ...` line on stderr; under
-    `--json` it also prints an object carrying an `error` key.
+    `--json` it also prints an object carrying an `error` key. An
+    over-budget companion is not a refusal: `--write` writes, then prints a
+    `Warning:` line on stderr, and `--json` stdout stays one object. A
+    refused or rolled-back write prints no warning. When `warnings` is a
+    list, the warning line is also appended to it, for an in-process caller.
     """
     companion_path = _companion_path(lessons_dir)
     if not has_categorization_block(config):
@@ -462,13 +486,6 @@ def _run_companion_cli(args, lessons_dir: Path, archive_dir: Path, index_path, n
                 args, f"{len(integrity_findings)} lesson-id anomaly(ies); fix the lesson "
                 "files, then re-run --write.",
             )
-        if over_budget:
-            table_id, row_count = largest_table
-            return _companion_error(
-                args, f"companion projects {tokens} tokens (budget "
-                f"{READ_TOKEN_WARN}); largest table {table_id} has "
-                f"{row_count} rows. Refusing to write.",
-            )
         legacy_present = any(f["class"] == "legacy-shape" for f in drift_findings)
         foreign = bool(disk_content and disk_content.strip()) and (
             legacy_present or not is_generated_companion(disk_content)
@@ -504,6 +521,11 @@ def _run_companion_cli(args, lessons_dir: Path, archive_dir: Path, index_path, n
             path = getattr(exc, "filename", None) or "unknown path"
             print(f"Error: write failed and was rolled back ({path}): {exc}", file=sys.stderr)
             return LessonsDisposition.REFUSED
+        if over_budget:
+            warning = _companion_budget_warning(config, tokens, largest_table, fresh_content, num_bytes)
+            print(warning, file=sys.stderr)
+            if warnings is not None:
+                warnings.append(warning)
         if args.json:
             print(json.dumps({"written": [str(companion_path)], "budget": budget_fields}, indent=2))
         else:
