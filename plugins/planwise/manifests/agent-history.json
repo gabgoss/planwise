@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_on": "2026-11-09",
+  "generated_on": "2026-11-13",
   "normalization": "read as utf-8-sig (BOM stripped), CRLF -> LF, sha256 hex (doctor_sweeps.history_digest)",
   "purpose": "Every body each formerly-mirrored agent has ever shipped with. doctor's orphaned-agent-mirror sweep marks an installed mirror matching any listed digest REMOVABLE (historical-exact). Regenerate with tools/gen_agent_history.py after editing a listed agent; tests/test_agent_history.py enforces it.",
   "agents": {
@@ -53,6 +53,7 @@
       "b0064fde7f7d8ea6243779e3a33b36ada4683b00711e9456b698449755ebd937",
       "b0a36756df5046078d139af8cc6d3087a41c2f5aeb87698e53c2794ec1405555",
       "bcdc5a81dac10b4baddc377386ae7a3bace3b68e2bb3f67a416f9102ab3c812a",
+      "bd71dc4edab3fe9317759ee3bc858caf4a59092772895de9770dbebeb98e4d5e",
       "c0cdcc8a8e444f9d39f37a1cedf35e2fdee41b7103af81ee93efd8365beed74e",
       "c835ad3fd971165113909f9df3fe2ba965e16cbd35e4fa2704133119daf41b23",
       "cd868c4264a9d814bce86e353c664e26276337ebcd5643d1f1011acd52af21b1",
