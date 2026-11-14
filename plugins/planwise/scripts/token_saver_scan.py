@@ -91,9 +91,9 @@ from read_limits import (
     READ_PAGE_CAP_TOKENS,
     allow_large_lifts,
     classify_file,
+    config_cli_version,
     content_class_for_path,
     read_routes_advice,
-    read_verified_cli_version,
 )
 
 # A Required Context row whose File cell is a command corpus, not a path: the
@@ -489,7 +489,7 @@ def scan_plan(
                 "projected_added_bytes": added,
                 **verdict,
             }
-            entry["annotations"] = annotations_for(verdict, model)
+            entry["annotations"] = annotations_for(verdict, model, cli_version)
             entry["recommendation"] = recommend(verdict, file_type, cli_version)
             # A token-cap crossing is Critical below the floor and Warn at or
             # above it. A paged, annotated row is handled either way.
@@ -520,19 +520,6 @@ def scan_plan(
     return result
 
 
-def config_cli_version(config: dict) -> str:
-    """The verified CLI version of the config the scan loaded, or "".
-
-    `load_config` records the directory that holds `config.yaml` as
-    `_planwise_root`. A config with no such key (an in-process dict) or with no
-    `verified_cli_version` key yields "", the no-version sentinel.
-    """
-    root = config.get("_planwise_root")
-    if not root:
-        return ""
-    return read_verified_cli_version(Path(root) / "config.yaml")
-
-
 def is_token_cap_crossing(verdict: dict, cli_version: str) -> bool:
     """True when the floor is met and `allow_large` lifts every fired cap.
 
@@ -554,16 +541,19 @@ def _is_relative(path: Path, root: Path) -> bool:
         return False
 
 
-def annotations_for(verdict: dict, model: str | None) -> list[str]:
+def annotations_for(verdict: dict, model: str | None, cli_version: str = "") -> list[str]:
     """The mechanical `PAGED` / `REFACTOR` strings for a task-file row.
 
     Emitting these from the classifier is the point: a hand-written annotation
-    and a computed one are otherwise indistinguishable.
+    and a computed one are otherwise indistinguishable. At the `allow_large`
+    floor, REFACTOR is omitted when `allow_large` lifts every fired cap.
     """
     out = []
     if verdict["tokens"] >= READ_PAGE_CAP_TOKENS:
         out.append(f"⚠ PAGED ≥25K {model or 'default'}-tok")
-    if verdict["bytes"] >= READ_FILE_BYTE_CAP:
+    if verdict["bytes"] >= READ_FILE_BYTE_CAP and not is_token_cap_crossing(
+        verdict, cli_version
+    ):
         out.append("⚠ REFACTOR ≥256 KiB")
     return out
 

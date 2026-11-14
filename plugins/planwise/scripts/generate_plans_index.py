@@ -72,7 +72,7 @@ from parse_plans import (
     parse_index_table,
     read_master_plan_fields,
 )
-from read_limits import read_verified_cli_version, written_read_advice
+from read_limits import config_cli_version, written_read_advice
 from reconcile_common import read_text_preserving_newlines
 
 __all__ = [
@@ -634,8 +634,7 @@ def write_plans_index(config: dict, *, replace_legacy: bool = False) -> WriteRes
 def _budget_warning(config: dict, render: PlansRender) -> str:
     """The over-budget warning: the size, the advice to shard, then the read routes
     for the config's CLI version and the Read caps the written file crosses."""
-    planwise_root = config.get("_planwise_root")
-    version = read_verified_cli_version(Path(planwise_root) / "config.yaml") if planwise_root else ""
+    version = config_cli_version(config)
     return (
         f"Warning: the rendered plans index measures {render.num_bytes} bytes ({render.tokens} tokens), "
         f"over the {HUB_TOKEN_BUDGET}-token budget. It was written. "

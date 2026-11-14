@@ -330,6 +330,22 @@ def read_verified_cli_version(config_path) -> str:
     return found
 
 
+def config_cli_version(config) -> str:
+    """Read `context.verified_cli_version` from an already loaded config dict.
+
+    The dict-reading twin of `read_verified_cli_version`. A caller that holds
+    the config `load_config` returned uses this one, so the version comes from
+    the config it loaded and never from a second read of the file. Returns ""
+    (the uncalibrated sentinel) for a config that is not a dict, a missing or
+    non-mapping `context:` block, a missing key, or a null value.
+    """
+    context = config.get("context") if isinstance(config, dict) else None
+    if not isinstance(context, dict):
+        return ""
+    value = context.get("verified_cli_version")
+    return "" if value is None else str(value).strip()
+
+
 # Read-gate names, as `classify_file` reports them in `read_gates`.
 READ_GATE_TOKEN = "token"
 READ_GATE_BYTE = "byte"

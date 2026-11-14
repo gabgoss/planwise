@@ -42,7 +42,7 @@ from backlog_index_schema import (
     is_generated_index_file,
 )
 from doctor_audits import _load_project_config
-from read_limits import allow_large_available, classify_file, read_verified_cli_version
+from read_limits import allow_large_available, classify_file, config_cli_version
 
 _FEEDBACK_BANNER = "planwise doctor — feedback capability probe"
 _FEEDBACK_DIR_BANNER = "planwise doctor — feedback directory presence check"
@@ -460,8 +460,7 @@ def _index_row(label: str, path: Path, root: Path, cli_version: str = "") -> "tu
 
 def _step_8(config: dict) -> None:
     root = Path(config["_planwise_root"])
-    # The loaded config sits at `<planwise root>/config.yaml`, the file doctor's config gate resolves.
-    cli_version = read_verified_cli_version(root / "config.yaml")
+    cli_version = config_cli_version(config)
     at_floor = allow_large_available(cli_version)
     naming = _index_naming(Path(config["_index_path"]))
     backlog = _generated_files([Path(config["_backlog_dir"]), Path(config["_archive_dir"])], naming)

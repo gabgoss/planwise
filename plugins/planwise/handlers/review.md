@@ -155,7 +155,7 @@ Agent(
 )
 ```
 
-3. Confirm the sheet exists at `{FactSheetPath}`. If the pass returned without writing it, re-spawn once; if it fails again, continue the review with `{FactSheetPath}` recorded as **unavailable** and say so in the report — reviewers then measure their own counts and state that they did.
+3. Spawn no reviewer until the agent has returned with a hand-back ending "Discovery complete". `{FactSheetPath}` and every part path its index lists must exist. A notice that the agent stopped with background work still running is not a return: wait, then re-check. If the pass returned without them, re-spawn once; if it fails again, continue the review with `{FactSheetPath}` recorded as **unavailable** and say so in the report — reviewers then measure their own counts and state that they did. Surface a `LEFTOVER_PROCESS:` line other than `none` to the user in the report.
 
 4. Pass `{FactSheetPath}` into every reviewer spawn prompt (see [Reviewer Prompt Template](#reviewer-prompt-template) element 8).
 
@@ -367,7 +367,7 @@ Agent(
 
     Execute BOTH the EI Reviewer and Task Reviewer checklists from your protocol.
     If the plan is a Meta-Plan, ALSO execute the Scaffolding Hygiene Reviewer
-    checklist (Checks 046-050) in addition to the EI Reviewer + Task Reviewer checks.
+    checklist in addition to the EI Reviewer + Task Reviewer checks.
 
     Report findings using the finding format in your protocol.
     Prefix uncertain findings (MEDIUM/LOW confidence) with [UNCERTAIN].
@@ -585,7 +585,7 @@ Agent(
     First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
 
     Your assigned role: Scaffolding Hygiene Reviewer
-    Execute Checks 046-050 from your protocol.
+    Execute every Check listed under ## Sub-role: Scaffolding Hygiene Reviewer in your protocol.
     ...
 )
 ```
@@ -600,7 +600,7 @@ Agent(
 
     Your assigned role: Design-Extension Reviewer
     {DelegatedReviewBlock}
-    Execute Checks 051-054 and 062 from your protocol.
+    Execute every Check listed under ## Sub-role: Design-Extension Reviewer in your protocol.
     ...
 )
 ```
@@ -614,7 +614,7 @@ Agent(
     First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
 
     Your assigned role: Destructive-Path Reviewer
-    Execute Checks 072-073 from your protocol.
+    Execute every Check listed under ## Sub-role: Destructive-Path Reviewer in your protocol.
     ...
 )
 ```
@@ -628,7 +628,7 @@ Agent(
     First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
 
     Your assigned role: Verification-Gate Reviewer
-    Execute Checks 074-075, 077, 082 and 114 from your protocol.
+    Execute every Check listed under ## Sub-role: Verification-Gate Reviewer in your protocol.
     Gate lint findings: {GateLintPath absolute path} -- mechanical verification-gate
     findings from scripts/lint_verification_gates.py, already measured against the live
     pre-edit tree. Read them and classify each one into your finding format rather than
@@ -651,7 +651,7 @@ Agent(
     First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
 
     Your assigned role: Change-Surface Reviewer
-    Execute Check 076 from your protocol.
+    Execute every Check listed under ## Sub-role: Change-Surface Reviewer in your protocol.
     ...
 )
 ```

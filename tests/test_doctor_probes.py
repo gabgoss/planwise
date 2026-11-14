@@ -747,9 +747,7 @@ def test_step_8_thirty_k_token_index_level_and_advice_follow_the_config_version(
     tmp_path, version, level, has_allow_large
 ):
     config = _project(tmp_path)
-    config_file = Path(config["_planwise_root"]) / "config.yaml"
-    with open(config_file, "a", encoding="utf-8") as f:
-        f.write(f'context:\n  verified_cli_version: "{version}"\n')
+    config.setdefault("context", {})["verified_cli_version"] = version
     plans = Path(config["_plans_index"])
     target = math.ceil(30_000 * read_limits.bytes_per_token(None))
     plans.write_bytes((b"x" * 119 + b"\n") * (target // 120))
@@ -769,9 +767,7 @@ def test_step_8_prints_one_remedy_at_the_floor_and_the_old_remedy_below_it(
     tmp_path, version, remedies, advice_lines
 ):
     config = _project(tmp_path)
-    config_file = Path(config["_planwise_root"]) / "config.yaml"
-    with open(config_file, "a", encoding="utf-8") as f:
-        f.write(f'context:\n  verified_cli_version: "{version}"\n')
+    config.setdefault("context", {})["verified_cli_version"] = version
     plans = Path(config["_plans_index"])
     target = math.ceil(30_000 * read_limits.bytes_per_token(None))
     plans.write_bytes((b"x" * 119 + b"\n") * (target // 120))

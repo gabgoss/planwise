@@ -233,7 +233,7 @@ _LESSONS_FIELDS = (
 _PLANS_FIELDS = (
     "shape", "detail", "index", "rows", "comments", "narrative_cells", "attributable", "unattributed",
     "uncarried_lines", "root_path_rows", "prefixed_rows", "status_changes", "append_targets", "ready",
-    "would_refuse",
+    "would_refuse", "warnings",
 )
 
 

@@ -497,6 +497,58 @@ class TestVersionGatedReadLevels(unittest.TestCase):
             cfg.write_text(text, encoding="utf-8")
             self.assertEqual(self.rl.read_verified_cli_version(cfg), expected, text)
 
+    def test_config_cli_version_empty_and_malformed_configs(self):
+        for config in (
+            None,
+            "context",
+            [],
+            {},
+            {"context": None},
+            {"context": "2.1.300"},
+            {"context": {}},
+            {"context": {"verified_cli_version": None}},
+            {"verified_cli_version": "9.9.9"},
+        ):
+            self.assertEqual(self.rl.config_cli_version(config), "", config)
+        padded = {"context": {"verified_cli_version": " 2.1.300 "}}
+        self.assertEqual(self.rl.config_cli_version(padded), "2.1.300")
+
+    def test_config_cli_version_equals_the_path_reader_through_load_config(self):
+        # Parity: the dict helper reads what the path reader reads, for a config
+        # loaded with PyYAML and for one loaded by the no-PyYAML fallback parser.
+        from unittest import mock
+
+        import config_loader
+
+        shared = (
+            'context:\n  verified_cli_version: "2.1.300"\n',
+            "context:\n  verified_cli_version: '2.1.300'\n",
+            "context:\n  verified_cli_version: 2.1.300\n",
+            'context:\n  verified_cli_version: ""\n',
+            "context:\n  plan_tier: max\n",
+            'other:\n  verified_cli_version: "9.9.9"\ncontext:\n  plan_tier: max\n',
+        )
+        # The no-PyYAML fallback parser keeps a trailing `# comment` on every key (its
+        # documented lossy reading), so a commented value is compared under PyYAML only.
+        commented = (
+            'context:\n  verified_cli_version: "2.1.300"  # bumped\n',
+            "context:\n  verified_cli_version: 2.1.300  # bumped\n",
+        )
+        for has_yaml in (True, False):
+            if has_yaml and not config_loader.HAS_YAML:
+                continue  # PyYAML is absent here, so only the fallback path runs
+            cases = shared + commented if has_yaml else shared
+            for i, text in enumerate(cases):
+                cfg = self.tmp / f"parity_{has_yaml}_{i}.yaml"
+                cfg.write_text(text, encoding="utf-8")
+                with mock.patch.object(config_loader, "HAS_YAML", has_yaml):
+                    loaded = config_loader.load_config(config_path=cfg)
+                self.assertEqual(
+                    self.rl.config_cli_version(loaded),
+                    self.rl.read_verified_cli_version(cfg),
+                    (has_yaml, text),
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import parse_plans
 import read_limits
 from constants import CLOSED_STATUSES
-from doctor_audits import _load_project_config, _resolve_config_path
+from doctor_audits import _load_project_config
 from doctor_probes import _display
 
 _CLAUDE_TREES = (("rules", "*.md"), ("agents", "*.md"), ("skills", "*"))
@@ -145,8 +145,7 @@ def run_read_gate_stage(cfg) -> None:
     else:
         print(f"Active plan: none ({plan_reason}); scanned the three .claude trees only")
 
-    config_path = _resolve_config_path(cfg)
-    cli_version = read_limits.read_verified_cli_version(config_path) if config_path else ""
+    cli_version = read_limits.config_cli_version(config)
     flagged = []
     for path in seen:
         result = read_limits.classify_file(str(path), None, cli_version=cli_version)

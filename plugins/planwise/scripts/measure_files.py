@@ -20,9 +20,12 @@ Each file is classified against the three Read-tool gates, in priority order
 
 With `--config`, the project's `context.verified_cli_version` is read. When
 it is at or above `read_limits.ALLOW_LARGE_MIN_CLI`, a token page-cap or
-byte-cap crossing is WARN, not OVER, and its gate text names the three read
-routes (`allow_large`, `offset`/`limit` pages, Grep). The line window stays
-OVER. Without `--config` the text and levels are the hard-gate ones above.
+byte-cap crossing is WARN, not OVER, and an `advice:` line names the three
+read routes (`allow_large`, `offset`/`limit` pages, Grep). The line window
+stays OVER. Without `--config` the gate text and levels are the hard-gate
+ones above, and the advice line names pages and Grep only. The levels and
+the advice come from `read_limits`, so this report and the doctor probes
+share one copy of the logic.
 
 The binding split targets for generated artifacts are the WARN thresholds:
 a generated runner-read artifact must land OK on every gate.
@@ -74,14 +77,18 @@ from read_limits import (
     READ_PAGE_CAP_TOKENS,
     READ_TOKEN_WARN,
     _count_lines,
-    allow_large_available,
+    _read_level,
+    allow_large_lifts,
     bytes_per_token,
     content_class_for_path,
     estimate_tokens,
+    fired_read_gates,
+    read_routes_advice,
     read_verified_cli_version,
 )
 
-_ROUTES = "read with allow_large, offset/limit pages, or Grep"
+# `_read_level` names its levels Green|Warn|Critical; this report says OK|WARN|OVER.
+_LEVEL_NAMES = {"Green": "OK", "Warn": "WARN", "Critical": "OVER"}
 
 _MODELS = ("haiku", "sonnet", "opus", "fable")
 _CONTENT_CLASSES = ("dense-md", "prose", "code", "notebook", "json")
@@ -96,13 +103,15 @@ def measure_file(
 ) -> dict:
     """Measure one existing file: bytes, KiB, lines, estimated tokens, level.
 
-    Returns {path, bytes, kib, lines, tokens, ratio, content, level, gates}
-    where level is OK|WARN|OVER and gates lists every fired gate in priority
-    order (tokens, then bytes, then lines). `content` is the class the
-    estimate used: the explicit argument, else the class the extension
+    Returns {path, bytes, kib, lines, tokens, ratio, content, level, gates,
+    advice} where level is OK|WARN|OVER and gates lists every fired gate in
+    priority order (tokens, then bytes, then lines). `content` is the class
+    the estimate used: the explicit argument, else the class the extension
     identifies (`content_class_for_path`), else None for the text fallback.
     `cli_version` at or above `ALLOW_LARGE_MIN_CLI` turns a token page-cap
-    or byte-cap crossing into WARN with route text; the default keeps OVER.
+    or byte-cap crossing into WARN when `allow_large` lifts every fired cap;
+    the default keeps OVER. `advice` is `read_routes_advice` for the fired
+    hard caps, or "" when none fires.
     """
     num_bytes = os.path.getsize(path)
     lines = _count_lines(path)
@@ -110,19 +119,20 @@ def measure_file(
         content = content_class_for_path(path)
     ratio = bytes_per_token(model, content)
     tokens = estimate_tokens(num_bytes, model, content)
-    allow_large = allow_large_available(cli_version)
+    fired = fired_read_gates(num_bytes, tokens, lines)
+    lifted = allow_large_lifts(cli_version, fired)
 
     gates = []
     if tokens >= READ_PAGE_CAP_TOKENS:
-        if allow_large:
-            gates.append(f"over one {READ_PAGE_CAP_TOKENS:,}-token page: {_ROUTES}")
+        if lifted:
+            gates.append(f"over one {READ_PAGE_CAP_TOKENS:,}-token page")
         else:
             gates.append(f"token cap (>= {READ_PAGE_CAP_TOKENS:,})")
     elif tokens >= READ_TOKEN_WARN:
         gates.append(f"token warn (>= {READ_TOKEN_WARN:,})")
     if num_bytes >= READ_FILE_BYTE_CAP:
-        if allow_large:
-            gates.append(f"over the {READ_FILE_BYTE_CAP:,}-byte whole read: {_ROUTES}")
+        if lifted:
+            gates.append(f"over the {READ_FILE_BYTE_CAP:,}-byte whole read")
         else:
             gates.append(f"byte cap (>= {READ_FILE_BYTE_CAP:,})")
     elif num_bytes >= READ_BYTE_WARN:
@@ -130,13 +140,8 @@ def measure_file(
     if lines >= READ_LINE_CAP:
         gates.append(f"line cap (>= {READ_LINE_CAP:,})")
 
-    hard_over = tokens >= READ_PAGE_CAP_TOKENS or num_bytes >= READ_FILE_BYTE_CAP
-    if lines >= READ_LINE_CAP or (hard_over and not allow_large):
-        level = "OVER"
-    elif hard_over or tokens >= READ_TOKEN_WARN or num_bytes >= READ_BYTE_WARN:
-        level = "WARN"
-    else:
-        level = "OK"
+    level = _LEVEL_NAMES[_read_level(num_bytes, tokens, lines, cli_version=cli_version)]
+    advice = read_routes_advice(cli_version, fired) if fired else ""
 
     return {
         "path": path,
@@ -148,6 +153,7 @@ def measure_file(
         "content": content,
         "level": level,
         "gates": gates,
+        "advice": advice,
     }
 
 
@@ -203,7 +209,9 @@ def format_report(result: dict) -> str:
             lines.append(f"  tokens: ~{f['tokens']:,}")
         detail = f" — {'; '.join(f['gates'])}" if f["gates"] else ""
         lines.append(f"  level:  {f['level']}{detail}")
-    s = result["summary"]
+        if f["advice"]:
+            lines.append(f"  advice: {f['advice']}")
+    s =result["summary"]
     lines.append("")
     lines.append(
         f"{s['total']} file(s): {s['ok']} OK, {s['warn']} WARN, {s['over']} OVER"

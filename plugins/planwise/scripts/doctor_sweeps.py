@@ -254,8 +254,8 @@ def lint_rule_overscope(cfg: "InitConfig") -> list[dict]:
 
 
 # Fallback ceiling for compute_injection_families() when config.yaml has no
-# context.token_saver_injection_ceiling key yet (Task 06 has not landed the
-# config-plumbing surface as of this sweep). Derived, not sacred: set below
+# context.token_saver_injection_ceiling key, as in a config written before the
+# key existed. Derived, not sacred: set below
 # the measured ~56,000-tokens-per-affected-session average so a broad-rule-
 # surface install still warns. This is the ONLY literal 40000 in this module
 # -- every fallback path below reads this constant rather than repeating it.
@@ -266,11 +266,10 @@ def _read_injection_ceiling(cfg: "InitConfig") -> int:
     """Read context.token_saver_injection_ceiling from config.yaml. Read-only.
 
     Self-contained regex read -- no config_loader dependency, no PyYAML
-    requirement -- mirroring doctor_cli's _read_pinned_plugin_version(). Task
-    06 (the config-plumbing surface: config.yaml.template, config_loader,
-    config_gen) has not landed when this sweep runs, so this is the single
-    default-fallback site; Task 06 reconciles its own writer against this same
-    read site rather than introducing a second code path.
+    requirement -- mirroring _read_pinned_plugin_version(). config_gen and
+    config.yaml.template write the key, and config_loader reads it with the
+    same default. The two default sites are intentional and must agree on
+    the value.
 
     Falls back to _INJECTION_CEILING_DEFAULT when config.yaml cannot be
     resolved, cannot be read, or the key is absent/unparseable.

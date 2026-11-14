@@ -84,7 +84,7 @@ from migrate_plans_scan import (
     narrative,
     scan_comments,
 )
-from read_limits import read_verified_cli_version, written_read_advice
+from read_limits import config_cli_version, written_read_advice
 from reconcile_common import read_text_preserving_newlines as read_text
 
 LEDGER_FILENAME = "00-Plans-Migration-Ledger.md"
@@ -328,8 +328,7 @@ def _analyze(config: dict, index_path: Path, text: str, migration_date: str | No
             diffs["name"] += row.name != rendered.name
     mapped = {_plan_key(f) for f in resolved.values()}
     if render.tokens > gen.HUB_TOKEN_BUDGET:
-        planwise_root = config.get("_planwise_root")
-        version = read_verified_cli_version(Path(planwise_root) / "config.yaml") if planwise_root else ""
+        version = config_cli_version(config)
         warnings.append(f"the regenerated plans index would measure {render.num_bytes} bytes ({render.tokens} "
                         f"tokens), over the {gen.HUB_TOKEN_BUDGET}-token budget. A migration that goes ahead "
                         "writes it anyway; a refused one writes nothing. "

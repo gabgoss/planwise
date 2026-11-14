@@ -241,8 +241,8 @@ from markdown_parser import split_row_cells
 from parse_lessons import format_id
 from read_limits import (
     READ_TOKEN_WARN,
+    config_cli_version,
     estimate_tokens,
-    read_verified_cli_version,
     written_read_advice,
 )
 from reconcile_common import read_text_preserving_newlines
@@ -405,8 +405,7 @@ def _companion_budget_warning(config: dict, tokens: int, largest_table, content:
     for the config's verified CLI version and the Read caps the written `content` crosses.
     The caller prints it only after the write succeeds."""
     table_id, row_count = largest_table
-    planwise_root = config.get("_planwise_root")
-    version = read_verified_cli_version(Path(planwise_root) / "config.yaml") if planwise_root else ""
+    version = config_cli_version(config)
     return (
         f"Warning: companion projects {tokens} tokens (budget {READ_TOKEN_WARN}); "
         f"largest table {table_id} has {row_count} rows. It was written. "

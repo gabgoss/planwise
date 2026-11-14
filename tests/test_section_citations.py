@@ -71,8 +71,8 @@ LEDGERED_PLUGIN = (
     ("references/ei-source-promise-integrity.md", 2, "§11"),  # HISTORY: frontmatter provenance
     ("handlers/plan-Part-3-VerifyConfirmAndReview.md", 59, "§ Decisions"),  # CONSUMER: a section of the generated master plan
     ("agents/plan-reviewer.md", 185, "§15"),  # LABEL: check title copied from its canonical heading
-    ("agents/review-discovery.md", 81, "§4"),  # CONSUMER: a section of the generated fact sheet
-    ("agents/review-discovery.md", 200, "§4"),  # CONSUMER: a section of the generated fact sheet
+    ("agents/review-discovery.md", 83, "§4"),  # CONSUMER: a section of the generated fact sheet
+    ("agents/review-discovery.md", 218, "§4"),  # CONSUMER: a section of the generated fact sheet
     ("references/exit-criteria-fidelity.md", 397, "§15"),  # LABEL: the canonical check-title heading
     ("references/lessons-promote-batch-workflow-Part-2-DraftAndWrite.md", 357, "§1"),  # EXAMPLE: sample value with stand-in file names
     ("references/lessons-promote-batch-workflow-Part-2-DraftAndWrite.md", 357, "§2"),  # EXAMPLE: sample value with stand-in file names

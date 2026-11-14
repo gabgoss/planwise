@@ -181,5 +181,97 @@ class TestDelegatedReviewerBlockNamesEveryPart(unittest.TestCase):
         self.assertEqual(missing_delegated_files(mutated, expected), [dropped])
 
 
+_SPAWN_PROMPT_CHECK_NUMBER_RE = re.compile(r"Execute Checks? \d|checklist \(Checks \d")
+_DESTRUCTIVE_SUB_ROLE = "Destructive-Path Reviewer"
+_AGENT_CHECK_LINE_RE = re.compile(r"^- Check (\d+)\b", re.MULTILINE)
+_REFERENCE_CHECK_HEADING_RE = re.compile(r"^#{2,5} Reviewer Check (\d+)\b", re.MULTILINE)
+
+
+def spawn_prompt_check_number_lines(review_text: str) -> list[str]:
+    """Return each line of handlers/review.md that names a check number in a spawn prompt."""
+    text = review_text.replace("\r\n", "\n")
+    return [line for line in text.split("\n") if _SPAWN_PROMPT_CHECK_NUMBER_RE.search(line)]
+
+
+def sub_roles_missing_from_review(review_text: str, sub_roles: list[str]) -> list[str]:
+    """Return each sub-role name that handlers/review.md never defers to by heading."""
+    text = review_text.replace("\r\n", "\n")
+    return [name for name in sub_roles if f"## Sub-role: {name}" not in text]
+
+
+def sub_role_section(plan_reviewer_text: str, name: str) -> str:
+    """Return the body of one `## Sub-role: {name}` section, up to the next `## ` heading."""
+    text = plan_reviewer_text.replace("\r\n", "\n")
+    match = re.search(rf"^## Sub-role:\s*{re.escape(name)}\b[^\n]*\n", text, re.MULTILINE)
+    if match is None:
+        return ""
+    rest = text[match.end():]
+    next_heading = re.search(r"^## ", rest, re.MULTILINE)
+    return rest[: next_heading.start()] if next_heading else rest
+
+
+def agent_check_ids(plan_reviewer_text: str, name: str) -> set[str]:
+    """Return the Check IDs listed as `- Check NNN` lines inside one sub-role section."""
+    return set(_AGENT_CHECK_LINE_RE.findall(sub_role_section(plan_reviewer_text, name)))
+
+
+def reference_check_ids(reference_text: str) -> set[str]:
+    """Return the Check IDs of every `Reviewer Check NNN` heading in a reference file."""
+    return set(_REFERENCE_CHECK_HEADING_RE.findall(reference_text.replace("\r\n", "\n")))
+
+
+class TestSpawnPromptsNameNoCheckNumbers(unittest.TestCase):
+    """The `## Sub-role:` sections of agents/plan-reviewer.md are the single
+    check list. No spawn prompt in handlers/review.md names a check number,
+    and each sub-role is named there so its prompt defers to its own section."""
+
+    def _review_text(self) -> str:
+        return (PLUGIN_ROOT / "handlers" / "review.md").read_text(encoding="utf-8")
+
+    def test_no_check_numbers_and_every_sub_role_named(self):
+        review_text = self._review_text()
+        self.assertEqual(spawn_prompt_check_number_lines(review_text), [])
+        sub_roles = _extract_sub_role_names(
+            (PLUGIN_ROOT / "agents" / "plan-reviewer.md").read_text(encoding="utf-8")
+        )
+        self.assertTrue(sub_roles, "no '## Sub-role:' headings found in agents/plan-reviewer.md")
+        self.assertEqual(sub_roles_missing_from_review(review_text, sub_roles), [])
+
+    def test_a_reinserted_check_number_directive_fails(self):
+        mutated = self._review_text() + "\n    Execute Checks 072-073 from your protocol.\n"
+        self.assertEqual(
+            spawn_prompt_check_number_lines(mutated),
+            ["    Execute Checks 072-073 from your protocol."],
+        )
+
+
+class TestDestructivePathReferenceParity(unittest.TestCase):
+    """The Destructive-Path sub-role lists exactly the Reviewer Check headings
+    of references/destructive-change-requirements.md, so a check added to the
+    reference cannot be dropped from the reviewer silently."""
+
+    def _agent_text(self) -> str:
+        return (PLUGIN_ROOT / "agents" / "plan-reviewer.md").read_text(encoding="utf-8")
+
+    def _reference_ids(self) -> set[str]:
+        reference = PLUGIN_ROOT / "references" / "destructive-change-requirements.md"
+        ids = reference_check_ids(reference.read_text(encoding="utf-8"))
+        self.assertGreaterEqual(len(ids), 3, "fewer than three Reviewer Check headings found")
+        return ids
+
+    def test_sub_role_checks_equal_reference_headings(self):
+        agent_ids = agent_check_ids(self._agent_text(), _DESTRUCTIVE_SUB_ROLE)
+        self.assertGreaterEqual(len(agent_ids), 3, "fewer than three '- Check' lines in the sub-role")
+        self.assertEqual(agent_ids ^ self._reference_ids(), set())
+
+    def test_a_dropped_check_line_is_reported(self):
+        agent_text = self._agent_text().replace("\r\n", "\n")
+        dropped_lines = [ln for ln in agent_text.split("\n") if ln.startswith("- Check 122 ")]
+        self.assertEqual(len(dropped_lines), 1)
+        mutated = agent_text.replace(dropped_lines[0] + "\n", "")
+        agent_ids = agent_check_ids(mutated, _DESTRUCTIVE_SUB_ROLE)
+        self.assertEqual(agent_ids ^ self._reference_ids(), {"122"})
+
+
 if __name__ == "__main__":
     unittest.main()

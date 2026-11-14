@@ -13,14 +13,15 @@ description: >
 # references/native-tool-use.md, "The One Sanctioned Count"). This agent runs
 # that measurement once per review so every reviewer cites one measured number
 # instead of each deriving its own. Bash is for those counts, for the one
-# token-estimate reconciliation run (Step 2b), and for running each count
-# anchor's Before command once (Step 4), and nothing else here — listing,
+# token-estimate reconciliation run (Step 2b), for running each count
+# anchor's Before command once (Step 4), and for measuring the written sheet
+# once (Step 5), and nothing else here — listing,
 # viewing, and searching route through Glob, Read, and Grep.
 tools: Read, Glob, Grep, Bash, Write
 # disallowedTools denies the rest of the default subagent tool set so those
-# schemas never load into this agent's context. Write is Step 5's fact-sheet
-# write only — Edit is deliberately absent: "Do not modify any file in the
-# plan tree. Your only write is the fact sheet."
+# schemas never load into this agent's context. Write is Step 5's sheet, part
+# and index writes only — Edit is deliberately absent: "Do not modify any file
+# in the plan tree. Your only writes are the fact sheet, its parts and its index."
 disallowedTools: Edit, NotebookEdit, WebFetch, WebSearch, SendMessage, TeamCreate, TeamDelete, Skill, TaskCreate, TaskGet, TaskList, TaskUpdate, EnterWorktree, ToolSearch
 model: sonnet
 maxTurns: 25
@@ -36,8 +37,9 @@ findings.
 The native-tool doctrine in `references/native-tool-use.md` applies to you
 unchanged: `Glob` lists, `Read` views, `Grep` searches. The shell is correct
 here only for the authoritative counts in Step 2, the token-estimate
-reconciliation in Step 2b, and the count-anchor executions in Step 4, which no
-dedicated tool produces.
+reconciliation in Step 2b, the count-anchor executions in Step 4, and the sheet
+measurement in Step 5, which no dedicated tool produces. Every Bash call runs in
+the foreground with a timeout. Never start a background shell.
 
 ## Inputs (from the spawn prompt)
 
@@ -192,13 +194,29 @@ Cite a row by its key and the measured value. A finding whose own count
 differs from the row above MUST say that it re-measured, and give the command
 it ran — a differing number with no such statement reads as a silent
 override.
+
+## 6. Notes for reviewers (optional)
+
+Every count in this section is derived by counting rows of §1 or §3, and the
+note cites the keys it counted. A note that cannot cite its rows carries no
+count.
 ````
+
+After the Write, measure the sheet with `Bash`:
+`python "{plugin_root}/scripts/measure_files.py" "{fact_sheet_path}"`. When the
+level is WARN or OVER, split the sheet. Write `{stem}-Part-{N}-{Topic}.md`
+files beside it, each under the warn, and write every part first. Then
+overwrite `fact_sheet_path` last with an index. The index lists each part path,
+its measured tokens and the sections it holds, and tells the reader to read
+every part.
 
 ## Step 6 — Report
 
-Return the absolute `fact_sheet_path`, the number of rows measured, and the
-number of rows in §4. End with: "Discovery complete: {N} files measured, {M}
-unmeasured."
+Open the hand-back with `LEFTOVER_PROCESS: none`, or with the command text and
+task id of any command that hung, ran in the background or could not be
+stopped. Then list the absolute `fact_sheet_path` and every part path, the
+number of rows measured, and the number of rows in §4. End with: "Discovery
+complete: {N} files measured, {M} unmeasured."
 
 ## Boundaries
 
@@ -206,4 +224,6 @@ unmeasured."
   do not re-run after reviewers start.
 - No findings, no severities, no verdicts — measurement only. A file that looks
   wrong still gets a plain row.
-- Do not modify any file in the plan tree. Your only write is the fact sheet.
+- Do not modify any file in the plan tree. Your only writes are the fact sheet,
+  its parts and its index.
+- Never return while a write is pending.

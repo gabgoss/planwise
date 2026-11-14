@@ -25,6 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 import measure_files as mf
+from read_limits import _read_level, fired_read_gates, read_routes_advice
 
 
 class TestMeasureFiles(unittest.TestCase):
@@ -200,7 +201,8 @@ class TestMeasureFiles(unittest.TestCase):
         path = self._write_lines("over_tokens.md", 1148)  # ~26.9K tokens
         out = self._run([path, "--config", self._config("2.1.296")])
         self.assertNotIn("token cap", out)
-        for route in ("allow_large", "offset/limit", "Grep"):
+        # The advice line is the library text, which writes the pages route as `offset`/`limit`.
+        for route in ("allow_large", "`offset`/`limit`", "Grep"):
             self.assertIn(route, out)
         self.assertIn("level:  WARN", out)
         result = mf.measure_file(path, cli_version="2.1.296")
@@ -231,6 +233,52 @@ class TestMeasureFiles(unittest.TestCase):
         self.assertIn("not found", err.getvalue())
         # No report on stdout: the old hard-gate levels must not print silently.
         self.assertNotIn("level:", out.getvalue())
+
+    def test_level_equals_the_mapped_read_level_over_a_size_and_version_grid(self):
+        names = {"Green": "OK", "Warn": "WARN", "Critical": "OVER"}
+        # Sizes straddle the token warn, token cap, byte warn, byte cap and line cap.
+        sizes = (
+            ("tiny.md", 10, 60),
+            ("token_warn.md", 1000, 60),
+            ("token_cap.md", 1148, 60),
+            ("byte_warn.md", 3300, 74),
+            ("byte_cap.md", 3600, 72),
+            ("line_cap.md", 2500, 16),
+        )
+        versions = ("", "2.1.295", "2.1.296", "2.2.0")
+        for name, n_lines, width in sizes:
+            path = self._write_lines(name, n_lines, line="x" * width)
+            for version in versions:
+                result = mf.measure_file(path, cli_version=version)
+                expected = names[
+                    _read_level(
+                        result["bytes"], result["tokens"], result["lines"],
+                        cli_version=version,
+                    )
+                ]
+                self.assertEqual(result["level"], expected, (name, version))
+
+    def test_advice_is_empty_below_every_cap_and_never_names_allow_large_below_the_floor(self):
+        small = self._write_lines("small.md", 100)
+        self.assertEqual(mf.measure_file(small, cli_version="2.1.296")["advice"], "")
+        self.assertNotIn("advice:", self._run([small, "--config", self._config("2.1.296")]))
+        over = self._write_lines("over_tokens.md", 1148)
+        self.assertNotIn("allow_large", mf.measure_file(over, cli_version="2.1.295")["advice"])
+        self.assertNotIn("allow_large", mf.measure_file(over)["advice"])
+
+    def test_report_prints_the_advice_once_per_file_and_it_is_the_library_text(self):
+        over = self._write_lines("over_tokens.md", 1148)
+        for version in ("2.1.295", "2.1.296"):
+            result = mf.measure_file(over, cli_version=version)
+            expected = read_routes_advice(version, fired_read_gates(
+                result["bytes"], result["tokens"], result["lines"]))
+            out = self._run([over, "--config", self._config(version)])
+            self.assertEqual(out.count("advice:"), 1, version)
+            self.assertIn(f"  advice: {expected}", out)
+            self.assertEqual(result["advice"], expected)
+        # A line-window crossing at the floor names pages and Grep, never allow_large.
+        many = self._write_lines("many_short.md", 2500, line="x" * 16)
+        self.assertNotIn("allow_large", mf.measure_file(many, cli_version="2.1.296")["advice"])
 
     def test_usage_docstring_json_line_keeps_its_alignment(self):
         self.assertIn("\n  --json     additionally write", mf.__doc__)

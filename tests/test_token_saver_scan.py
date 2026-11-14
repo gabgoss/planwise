@@ -145,6 +145,14 @@ class TestClassificationHelpers(unittest.TestCase):
                       tss.annotations_for(over_bytes, "opus"))
         self.assertEqual(tss.annotations_for({"tokens": 10, "bytes": 10}, "opus"), [])
 
+    def test_refactor_annotation_follows_the_floor(self):
+        refactor = "⚠ REFACTOR ≥256 KiB"
+        verdict = {"tokens": 100, "bytes": 300 * 1024, "read_gates": ("token", "byte")}
+        self.assertIn(refactor, tss.annotations_for(verdict, "opus", cli_version="2.1.295"))
+        self.assertNotIn(refactor, tss.annotations_for(verdict, "opus", cli_version="2.1.296"))
+        capped = {**verdict, "read_gates": ("token", "byte", "line")}
+        self.assertIn(refactor, tss.annotations_for(capped, "opus", cli_version="2.1.296"))
+
     def test_read_critical_never_recommends_1m_exception(self):
         read_critical = {"level": "Critical", "reason": "read"}
         text = tss.recommend(read_critical, "doc")
@@ -453,15 +461,23 @@ class TestVersionGatedRoutes(unittest.TestCase):
         (self.plan / "Session-01" / "T-01.md").write_text(text, encoding="utf-8")
 
     def _scan(self, version: str | None):
-        body = "context:\n  token_saver: true\n"
-        if version is not None:
-            body += f'  verified_cli_version: "{version}"\n'
-        (self.root / "config.yaml").write_text(body, encoding="utf-8")
+        (self.root / "config.yaml").write_text(
+            "context:\n  token_saver: true\n", encoding="utf-8")
         config = {"_planwise_root": self.root,
                   "context": {"token_saver": True,
                               "token_saver_session_target": 150_000,
                               "token_saver_runner_overhead": 1_000}}
+        if version is not None:
+            config["context"]["verified_cli_version"] = version
         return tss.scan_plan(self.plan, config, self.tmp)
+
+    def test_scan_drops_refactor_at_the_floor(self):
+        (self.tmp / "docs" / "big.md").write_bytes(b"x" * 300_000)
+        self._task(annotated=False)
+        self.assertEqual(self._scan("2.1.296")["findings"][0]["annotations"],
+                         ["⚠ PAGED ≥25K sonnet-tok"])
+        self.assertIn("⚠ REFACTOR ≥256 KiB",
+                      self._scan("2.1.295")["findings"][0]["annotations"])
 
     def test_floor_version_warns_and_names_all_three_routes(self):
         self._task(annotated=False)
