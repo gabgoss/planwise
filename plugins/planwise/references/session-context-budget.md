@@ -56,8 +56,8 @@ The same fixed overhead applies on both tiers; only the available-for-work budge
 | **Available for work** | **~100K** | **~900K** | Window − overhead |
 | Practical session limit | ~100K | ~400K | Soft target — above this, recovery + review get harder even if it fits |
 | Meta-Plan threshold | > 100K | > 500K | `min(80% × available, 500K)` |
-| Subagent window (by model) | Sonnet/Haiku → 200K | Opus → 1M | **Set by the DISPATCHED model, NOT the parent tier.** See [§ Subagent Context Window](#subagent-context-window). |
-| DELEGATED check (per subagent) | `task + rules + 54K < 200K` (Sonnet/Haiku) | `task + rules + 54K < 1M` (Opus) | Check the **dispatched model's** window — not the parent `context_window`. |
+| Subagent window (by model) | Haiku 4.5 → 200K | every other current model → 1M | **Set by the DISPATCHED model, NOT the parent tier.** See [§ Subagent Context Window](#subagent-context-window). |
+| DELEGATED check (per subagent) | `task + rules + 54K < 200K` (Haiku 4.5) | `task + rules + 54K < 1M` (every other current model) | Check the **dispatched model's** window — not the parent `context_window`. |
 
 The Max practical session limit (400K) is intentionally below the available budget (900K). Sessions beyond ~400K become harder to review, recover, and reason about even when they technically fit — Meta-Plan is preferred for sustained work above this point.
 
@@ -66,18 +66,18 @@ The Max practical session limit (400K) is intentionally below the available budg
 > [!constraint] A subagent's window is the DISPATCHED MODEL's window — NOT the parent tier
 > A spawned subagent (e.g., a DELEGATED `task-runner`) gets a fresh context window sized by **the model it runs on**, independent of the orchestrator's account tier:
 >
-> | Dispatched model | Window |
-> |------------------|--------|
-> | Haiku | 200K |
-> | Sonnet | 200K |
-> | Opus | 1M |
+> | Dispatched model | Context window (API) |
+> |------------------|----------------------|
+> | Sonnet 5.5 | 1M |
+> | Sonnet 5 | 1M |
+> | Sonnet 4.6 | 1M |
+> | Haiku 5.5 | 1M |
+> | Haiku 4.5 | 200K |
+> | Opus 4.6 and later, and Fable | 1M |
 >
-> A Sonnet runner has a **200K** window even when the orchestrator is on Max (1M) — the parent's tier does NOT raise the child's window. The per-subagent DELEGATED budget check is therefore:
->
-> ```
-> task estimate + injected path-rule tokens + ~54K overhead  <  the DISPATCHED MODEL's window
-> ```
->
+> Haiku 4.5 is the only current model with a **200K** window. A Haiku 4.5 runner stays at 200K even when the orchestrator is on Max (1M) — the parent's tier does NOT raise the child's window.
+> The per-subagent DELEGATED budget check is therefore
+> `task estimate + injected path-rule tokens + ~54K overhead < the DISPATCHED MODEL's window`,
 > NOT the parent `context_window`. `injected path-rule tokens` counts every rule whose `paths:` matches a file the runner reads or writes, including its own task brief under the plans directory. The plan-path share is the total that `python {plugin_root}/scripts/init_project.py --doctor --project-root {project_root}` flags. When that surface is large enough to overflow a 200K-window model on its first plan-brief read, either raise the dispatch to a 1M-window model (see [`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md#119-model-floor-bridge-delegated--temporary) §1.19) or shrink the surface (`/planwise doctor`).
 
 ### Threshold Formulas
@@ -97,7 +97,7 @@ practical_session_limit = min(available_for_work, 400_000)  # cap at 400K on Max
 
 # DELEGATED check — per-subagent budget (see § Subagent Context Window)
 # subagent_model_window = window of the model the DELEGATED task is dispatched to:
-#   Opus 1,000,000; Sonnet 200,000; Haiku 200,000 — NOT the parent context_window
+#   Haiku 4.5 200,000; every other current model 1,000,000 — NOT the parent context_window
 delegated_cap           = subagent_model_window
 ```
 
@@ -110,9 +110,9 @@ delegated_cap           = subagent_model_window
 
 `delegated_cap` is **independent of the parent tier** — it is the window of the model the DELEGATED task is dispatched to (see [§ Subagent Context Window](#subagent-context-window)):
 
-| Variable | Opus | Sonnet | Haiku |
-|----------|------|--------|-------|
-| `delegated_cap` (= `subagent_model_window`) | 1,000,000 | 200,000 | 200,000 |
+| Variable | Haiku 4.5 | Every other current model (Sonnet 4.6+, Haiku 5.5, Opus 4.6+, Fable) |
+|----------|-----------|----------------------------------------------------------------------|
+| `delegated_cap` (= `subagent_model_window`) | 200,000 | 1,000,000 |
 
 > **Note (threshold precedence):** Where the formula above and these per-tier tables disagree, the **tables are canonical**. On Pro the formula's `0.80 × available_for_work` yields 80K, but the Tier-Specific Budget Table and the per-tier table above both set `meta_plan_threshold = 100K` on Pro (500K on Max) — use the table value. The formula is a derivation aid for non-standard tiers; the tables are the binding decision boundary. `handlers/plan.md` branches on 100K/500K, matching the tables.
 
@@ -243,7 +243,7 @@ Task token estimates MUST be computed bottom-up from measured file sizes, not ju
 **Measurement:** run `measure_files.py` over every Required Context file — tokens = bytes ÷ the assigned model's bytes-per-token ratio (see [Read-Tool Hard Limits](#read-tool-hard-limits)). For a file that does not exist yet, estimate its byte size and divide: on the Claude 5 family ≈ bytes ÷ 2.9 for prose, ÷ 2.7 for code, ÷ 2.6 for dense markdown (tables, link-heavy rows), ÷ 2.3 for a cleared notebook, ÷ 2.0 for raw JSON. Never derive a token figure from a line count.
 
 **Formula:** `Task Estimate = (sum of Required Context file tokens) + (estimated output tokens)`
-**DELEGATED check:** `Task Estimate + injected path-rule tokens + 54K overhead < the dispatched model's window` (Sonnet/Haiku 200K, Opus 1M — the window is set by the dispatched MODEL, NOT the parent tier; see [§ Subagent Context Window](#subagent-context-window))
+**DELEGATED check:** `Task Estimate + injected path-rule tokens + 54K overhead < the dispatched model's window` (Haiku 4.5 200K, every other current model 1M — the window is set by the dispatched MODEL, NOT the parent tier; see [§ Subagent Context Window](#subagent-context-window))
 
 ### A Delegated Code Task's Estimate Counts the Edit-Run-Fix Loop
 

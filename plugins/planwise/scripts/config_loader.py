@@ -858,7 +858,7 @@ def get_token_saver_config(config: dict) -> dict:
     a calibrated (non-zero) overhead:
 
       * token_saver                       -> False  (engine off until enabled)
-      * token_saver_session_target        -> 150000 (keeps a Sonnet runner < 200K)
+      * token_saver_session_target        -> 150000 (keeps a Haiku 4.5 runner < its 200K window)
       * token_saver_runner_overhead       -> 0      (0 == not yet calibrated)
       * token_saver_orchestrator_overhead -> 0      (0 == not yet calibrated)
       * token_saver_context_breakdown     -> {}     (no measured breakdown yet)

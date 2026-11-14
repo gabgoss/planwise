@@ -459,7 +459,7 @@ Applies to every DELEGATED task-runner launch, sequential or parallel.
 `scripts/dispatch_model_override.py` decides steps 3 to 5 from the measured terms.
 
 > [!practice] Self-Deactivating Bridge — Not Permanent
-> This floor exists only to keep declared-Sonnet/Haiku runners alive while a project still carries a large author-time rule surface scoped to plan paths. Once the project is de-scoped — plugin author-time rules handler-loaded from `references/` (not installed), and any project-local domain rules re-scoped to code paths per `/planwise doctor` — the flagged surface shrinks toward ~0 and the rule-surface term stops tripping step 3. Retiring the bridge removes only that term. The input-size trigger stays, because large measured inputs can still overflow a 200K window. When `--doctor` reports no over-scoped rules, the rule-surface term is already inert.
+> This floor exists only to keep runners on a 200K-window model (Haiku 4.5; every other current model has 1M) alive while a project still carries a large author-time rule surface scoped to plan paths. Once the project is de-scoped — plugin author-time rules handler-loaded from `references/` (not installed), and any project-local domain rules re-scoped to code paths per `/planwise doctor` — the flagged surface shrinks toward ~0 and the rule-surface term stops tripping step 3. Retiring the bridge removes only that term. The input-size trigger stays, because large measured inputs can still overflow a 200K window. When `--doctor` reports no over-scoped rules, the rule-surface term is already inert.
 
 ## 1.20 1M-Exception Dispatch (DELEGATED) — Token Saver
 
@@ -471,7 +471,7 @@ Applies to every DELEGATED task-runner launch, sequential or parallel; uses the 
 > **Effective Token Saver gate.** The `1M-exception` flags were stamped at plan time under whatever Token Saver value was effective for THIS plan — the plan's Master-Plan `Token Saver:` field (`on`/`off`) over the project `context.token_saver` default, resolved via `config_loader.get_effective_token_saver_config(config, plan_override)`. At dispatch time, read that same effective value (the plan's Master-Plan field, falling back to `config.yaml`); when it resolves `false`, no task carries a Token-Saver `1M-exception` and this guard is inert. The runner does NOT re-resolve — it dispatches the flags the plan already baked in.
 >
 > **When a task is flagged `1M-exception`** (the warning engine sets this in the task header's `Token Budget:` exception field for a single oversized **indivisible** file whose `cost`-reason estimate exceeds a 200K-window runner's budget):
-> 1. **Raise and log.** Raise the dispatch `model` to the **1M tier** (Opus) for THIS dispatch only — a Sonnet/Haiku runner's window is **200K**, so the 1M-exception is the ONLY way an oversized single-file task fits *the window*. Emit a one-line log, never silent:
+> 1. **Raise and log.** Raise the dispatch `model` to a **1M-window model** for THIS dispatch only when the declared model has a **200K** window (Haiku 4.5) — for such a runner the 1M-exception is the ONLY way an oversized single-file task fits *the window*. Every other current model already has 1M, so its task dispatches on the declared model. Emit a one-line log, never silent:
 >    ```
 >    1M EXCEPTION: raised {task-id} {declared}→1M (oversized indivisible file — cost-reason Critical, cannot be split)
 >    ```
