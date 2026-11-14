@@ -10,6 +10,9 @@ tests/test_rule_descope_migration.py.
 Run with:  python -m pytest tests/test_config_loader_feedback.py -q
 """
 
+import contextlib
+import io
+import os
 import re
 import sys
 import tempfile
@@ -306,6 +309,53 @@ class TestFeedbackDirCreationAndBackfill(unittest.TestCase):
             self.assertTrue(feedback_dir.is_dir())
             self.assertIn(str(feedback_dir.relative_to(project_root)), created)
 
+    @unittest.skipUnless(ip.HAS_YAML, "requires PyYAML to read the config")
+    def test_create_directories_follows_the_directories_an_existing_config_names(self):
+        """A re-init with the CLI defaults creates the configured directories,
+        never a stray `Feedback`, `Plans`, `Backlog` or `LessonsLearned`."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            planwise_dir = project_root / "planwise"
+            planwise_dir.mkdir()
+            (planwise_dir / "config.yaml").write_text(
+                'project:\n  name: "TestProject"\n  plans_dir: MyPlans\n  backlog_dir: MyBacklog\n'
+                '  lessons_dir: MyLessons\n  feedback_dir: "feedback-drafts"\n',
+                encoding="utf-8",
+            )
+            ip.create_directories(self._make_cfg(project_root))
+
+            for stray in ("Feedback", "Plans", "Backlog", "LessonsLearned"):
+                self.assertFalse((planwise_dir / stray).exists(), stray)
+            for configured in ("feedback-drafts", "MyPlans", "MyBacklog", "MyLessons"):
+                self.assertTrue((planwise_dir / configured).is_dir(), configured)
+
+    def test_create_directories_uses_the_cli_values_when_no_config_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            ip.create_directories(self._make_cfg(project_root, feedback_dir="drafts", plans_dir="P"))
+            self.assertTrue((project_root / "planwise" / "drafts").is_dir())
+            self.assertTrue((project_root / "planwise" / "P").is_dir())
+
+    def test_create_directories_returns_empty_when_every_directory_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            cfg = self._make_cfg(project_root)
+            self.assertEqual(len(ip.create_directories(cfg)), 5)
+            self.assertEqual(ip.create_directories(cfg), [])
+            for rel in ("planwise/Plans", "planwise/Backlog", "planwise/LessonsLearned",
+                        "planwise/Feedback", ".claude/rules/planwise"):
+                self.assertTrue((project_root / rel).is_dir(), rel)
+
+    def test_create_directories_omits_a_pre_existing_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            (project_root / "planwise" / "Plans").mkdir(parents=True)
+            created = ip.create_directories(self._make_cfg(project_root))
+            self.assertNotIn(str(Path("planwise/Plans")), created)
+            expected = {str(Path(rel)) for rel in ("planwise/Backlog", "planwise/LessonsLearned",
+                                                   "planwise/Feedback", ".claude/rules/planwise")}
+            self.assertEqual(set(created), expected)
+
     @unittest.skipUnless(ip.HAS_YAML, "requires PyYAML to parse/write the config")
     def test_backfill_feedback_dir_defaults_to_Feedback_when_no_legacy_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -440,6 +490,41 @@ class TestFeedbackDirCreationAndBackfill(unittest.TestCase):
 
                     self.assertIsNone(notice, "no write happened, so no notice may be returned")
                     self.assertEqual(config_path.read_bytes(), before)
+
+
+class TestReinitDirectoryReport(unittest.TestCase):
+    """`init_project.py` lists under `Directories created:` only what the run
+    created; a re-init where every directory existed says so instead."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        for patcher in (
+            mock.patch.object(Path, "home", return_value=self.root),
+            mock.patch.dict(os.environ, {"HOME": str(self.root), "USERPROFILE": str(self.root)}),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _run_init(self) -> str:
+        argv = ["init_project.py", "--name", "TestProject", "--project-root", str(self.root)]
+        with mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()) as out:
+            try:
+                ip.main()
+            except SystemExit as exc:
+                self.assertIn(exc.code, (0, None))
+        return out.getvalue()
+
+    def test_reinit_reports_existing_directories_as_skipped(self):
+        first = self._run_init()
+        self.assertIn("Directories created:", first)
+        for rel in ("planwise/Plans", "planwise/Backlog", "planwise/LessonsLearned",
+                    "planwise/Feedback", ".claude/rules/planwise"):
+            self.assertIn(f"  + {Path(rel)}", first)
+        second = self._run_init()
+        self.assertIn("Directories: already exist, skipped", second)
+        self.assertNotIn("Directories created:", second)
 
 
 class TestGeneratedConfigNoUnsubstitutedPlaceholder(unittest.TestCase):

@@ -350,6 +350,7 @@ Directories created:
   ✓ {planwise_root}/{backlog_dir}/
   ✓ {planwise_root}/{lessons_dir}/
   ✓ {planwise_root}/{feedback_dir}/
+  (list only the directories the script printed under "Directories created:"; a re-init where every directory existed prints "Directories: already exist, skipped" — relay that line, never this template's full list)
 
 Seed files installed:
   ✓ {planwise_root}/{plans_dir}/{plans_index}
@@ -375,7 +376,7 @@ Token Saver:
   ✓ {token_saver} (when ON: runner overhead {token_saver_runner_overhead}, derived per-task budget ~{available_per_task} — from Step 8.5 calibration)
 
 Agent Teams:
-  ✓ CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 → {settings_file}
+  ✓ CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 → {settings_file}   (added / updated / unchanged, as the script reports; an unchanged file is not rewritten)
 
 Session env var (user + project settings):
   ✓ CLAUDE_CODE_THRIFTY_SONIC=false → ~/.claude/settings.json and {project_root}/.claude/settings.json   (per file: added / corrected / unchanged / skipped — invalid JSON)
