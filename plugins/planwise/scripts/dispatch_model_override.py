@@ -5,15 +5,23 @@ Enforces two sections of
 ``references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md``:
 
 * §1.19 "Model-Floor Bridge": a task whose ``Agent:`` maps to a 200K-window
-  model (Sonnet or Haiku) is raised to the 1M tier when its projected load
+  model (Haiku 4.5) is raised to the 1M tier when its projected load
   ``I + R + ~54K + O`` exceeds the model's safe budget ``B`` (the window minus
-  about 35K of headroom, so about 165K), or when the flagged plan-path rule
-  surface ``R`` alone reaches about 110K. A raise logs one ``MODEL FLOOR:``
-  line.
+  about 35K of headroom, so about 165K for Haiku 4.5), or when the flagged
+  plan-path rule surface ``R`` alone reaches about 110K. A raise logs one
+  ``MODEL FLOOR:`` line. Every other current model has a 1M window, so the
+  floor stays inert for it.
 * §1.20 "1M-Exception Dispatch": a task whose ``**Token Budget:**`` field
   carries ``1M-exception`` is raised to Opus/1M when the effective Token Saver
-  setting is on. A ``read``-reason Critical never raises: it logs
-  ``paged-read required`` and keeps its declared model.
+  setting is on and the declared model has a 200K window. A declared model
+  that already has 1M keeps its model and logs ``1M EXCEPTION: inert``. A
+  ``read``-reason Critical never raises: it logs ``paged-read required`` and
+  keeps its declared model.
+
+Model windows: Sonnet (4.6 and later), Haiku 5.5, Opus (4.6 and later) and
+Fable have 1M; Haiku 4.5 has 200K. A bare Haiku (``Agent: Haiku``) is taken
+as Haiku 5.5, the current model the alias names. A project pinned to Haiku 4.5
+writes ``Agent: Haiku 4.5`` (``haiku-4.5`` also parses).
 
 Inputs:
 
@@ -51,7 +59,8 @@ sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__py
 OVERHEAD_K = 54.0
 HEADROOM_K = 35.0
 SURFACE_ALONE_K = 110.0
-WINDOW_K = {"haiku": 200.0, "sonnet": 200.0, "opus": 1000.0}
+WINDOW_K = {"haiku 4.5": 200.0, "haiku 5.5": 1000.0, "haiku": 1000.0,
+            "sonnet": 1000.0, "opus": 1000.0, "fable": 1000.0}
 RAISED_MODEL = "Opus"
 
 FIELD_RE = r"(?m)^\*\*{name}:\*\*[ \t]*([^\r\n]*)"
@@ -102,17 +111,21 @@ def fmt(value: float) -> str:
 def decide(task_id: str, declared: str, i_k: float, o_k: float, r_tokens: int,
            token_budget: str | None, token_saver: bool) -> tuple[str, list[str]]:
     """Return (chosen model, log lines) for one task."""
-    key = declared.strip().lower()
+    key = re.sub(r"[\s_-]+", " ", declared.strip().lower())
     if key not in WINDOW_K:
-        raise UsageError(f"unknown Agent model {declared!r}; expected Haiku, Sonnet or Opus")
+        raise UsageError(f"unknown Agent model {declared!r}; expected Haiku, Haiku 4.5, "
+                         "Haiku 5.5, Sonnet, Opus or Fable")
     budget = token_budget or ""
     lines: list[str] = []
-    if token_saver and ONE_M_RE.search(budget):
-        lines.append(f"1M EXCEPTION: raised {task_id} {declared}→1M "
-                     "(oversized indivisible file — cost-reason Critical, cannot be split)")
-        return RAISED_MODEL, lines
-    r_k = r_tokens / 1000.0
     window = WINDOW_K[key]
+    if token_saver and ONE_M_RE.search(budget):
+        if window <= 200.0:
+            lines.append(f"1M EXCEPTION: raised {task_id} {declared}→1M "
+                         "(oversized indivisible file — cost-reason Critical, cannot be split)")
+            return RAISED_MODEL, lines
+        lines.append(f"1M EXCEPTION: inert for {task_id} {declared} "
+                     "(declared model already has a 1M window)")
+    r_k = r_tokens / 1000.0
     b_k = window - HEADROOM_K
     total = i_k + r_k + OVERHEAD_K + o_k
     terms = (f"inputs ~{fmt(i_k)}K + plan-path rules ~{fmt(r_k)}K + overhead ~{fmt(OVERHEAD_K)}K"

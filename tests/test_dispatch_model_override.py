@@ -34,47 +34,88 @@ def test_positive_small_total_and_surface_keep_declared_model(tmp_path):
     assert result.stdout.splitlines()[0] == "model: Sonnet"
     assert "MODEL FLOOR: inert for ABC-T01 Sonnet" in result.stdout
     assert "inputs ~25.1K" in result.stdout and "output ~12K" in result.stdout
-    assert "safe budget ~165K" in result.stdout
+    # Sonnet has a 1M window: 1000K window minus 35K headroom.
+    assert "safe budget ~965K" in result.stdout
+
+
+BIG_SUBTOTAL = "~90.0K (reads: 90.0) + ~12.0K (output) + ~14.9K (working) = **~117K total**"
 
 
 def test_mutation_total_above_165k_raises(tmp_path):
     # §1.19 trip point: the --doctor figure measured 2026-11-12 is ~16202 tokens.
-    # Inputs 90.0K + 16.2K + 54K + 12.0K = 172.2K > 165K, so the floor fires.
-    subtotal = "~90.0K (reads: 90.0) + ~12.0K (output) + ~14.9K (working) = **~117K total**"
-    result = run(str(task_file(tmp_path, subtotal=subtotal)), "--surface-tokens", "16202",
-                 "--token-saver", "off")
+    # Inputs 90.0K + 16.2K + 54K + 12.0K = 172.2K > 165K, so the floor fires on a
+    # 200K-window model (Haiku 4.5).
+    result = run(str(task_file(tmp_path, agent="Haiku 4.5", subtotal=BIG_SUBTOTAL)),
+                 "--surface-tokens", "16202", "--token-saver", "off")
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines()[0] == "model: Opus"
-    assert "MODEL FLOOR: raised ABC-T01 Sonnet→1M" in result.stdout
-    assert "= ~172.2K > Sonnet safe budget ~165K" in result.stdout
+    assert "MODEL FLOOR: raised ABC-T01 Haiku 4.5→1M" in result.stdout
+    assert "= ~172.2K > Haiku 4.5 safe budget ~165K" in result.stdout
+
+
+def test_sonnet_at_172k_keeps_its_1m_window(tmp_path):
+    # The same 172.2K load fits Sonnet's 1M window, so the floor stays inert.
+    result = run(str(task_file(tmp_path, subtotal=BIG_SUBTOTAL)), "--surface-tokens", "16202",
+                 "--token-saver", "off")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[0] == "model: Sonnet"
+    assert "MODEL FLOOR: inert for ABC-T01 Sonnet" in result.stdout
+
+
+def test_bare_haiku_is_haiku_5_5_with_a_1m_window(tmp_path):
+    result = run(str(task_file(tmp_path, agent="Haiku", subtotal=BIG_SUBTOTAL)),
+                 "--surface-tokens", "16202", "--token-saver", "off")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[0] == "model: Haiku"
+    assert "MODEL FLOOR: inert" in result.stdout
+
+
+def test_haiku_4_5_spellings_and_fable_parse(tmp_path):
+    result = run(str(task_file(tmp_path, agent="haiku-4.5", subtotal=BIG_SUBTOTAL)),
+                 "--surface-tokens", "16202", "--token-saver", "off")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[0] == "model: Opus"
+    result = run(str(task_file(tmp_path, agent="Fable", subtotal=BIG_SUBTOTAL)),
+                 "--surface-tokens", "16202", "--token-saver", "off")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[0] == "model: Fable"
 
 
 def test_mutation_surface_at_110k_alone_raises(tmp_path):
     # Breaks §1.19 step 3: a flagged surface of ~110K trips the floor by itself.
     subtotal = "~1.0K (reads: 1.0) + ~0.5K (output) + ~1.0K (working) = **~2K total**"
-    result = run(str(task_file(tmp_path, subtotal=subtotal)), "--surface-tokens", "110000",
-                 "--token-saver", "off")
+    result = run(str(task_file(tmp_path, agent="Haiku 4.5", subtotal=subtotal)),
+                 "--surface-tokens", "110000", "--token-saver", "off")
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines()[0] == "model: Opus"
     assert "MODEL FLOOR: raised" in result.stdout
 
 
 def test_mutation_1m_exception_raises_to_opus(tmp_path):
-    # Breaks §1.20: a 1M-exception flagged task under Token Saver on goes to Opus/1M.
-    path = task_file(tmp_path, budget="~210K (1M-exception: cost)")
+    # Breaks §1.20: a 1M-exception flagged task on a 200K-window model under Token
+    # Saver on goes to Opus/1M.
+    path = task_file(tmp_path, agent="Haiku 4.5", budget="~210K (1M-exception: cost)")
     result = run(str(path), "--surface-tokens", "16202", "--token-saver", "on")
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines()[0] == "model: Opus"
-    assert "1M EXCEPTION: raised ABC-T01 Sonnet→1M" in result.stdout
+    assert "1M EXCEPTION: raised ABC-T01 Haiku 4.5→1M" in result.stdout
+
+
+def test_1m_exception_inert_for_a_1m_window_model(tmp_path):
+    path = task_file(tmp_path, budget="~240K (exception: 1M (cost))")
+    result = run(str(path), "--surface-tokens", "16202", "--token-saver", "on")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[0] == "model: Sonnet"
+    assert "1M EXCEPTION: inert for ABC-T01 Sonnet" in result.stdout
 
 
 def test_template_cost_marker_raises_and_logs_the_1m_line(tmp_path):
     # templates/task-file.md writes the marker as `1M (cost)` inside `(exception: ...)`.
-    path = task_file(tmp_path, budget="~240K (exception: 1M (cost))")
+    path = task_file(tmp_path, agent="Haiku 4.5", budget="~240K (exception: 1M (cost))")
     result = run(str(path), "--surface-tokens", "16202", "--token-saver", "on")
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines()[0] == "model: Opus"
-    assert "1M EXCEPTION: raised ABC-T01 Sonnet→1M" in result.stdout
+    assert "1M EXCEPTION: raised ABC-T01 Haiku 4.5→1M" in result.stdout
 
 
 def test_mutation_template_cost_marker_inert_when_token_saver_off(tmp_path):
@@ -134,8 +175,7 @@ def test_read_reason_critical_logs_paged_read_and_keeps_model(tmp_path):
 
 
 def test_declared_opus_is_never_raised(tmp_path):
-    subtotal = "~90.0K (reads: 90.0) + ~12.0K (output) + ~14.9K (working) = **~117K total**"
-    result = run(str(task_file(tmp_path, agent="Opus", subtotal=subtotal)),
+    result = run(str(task_file(tmp_path, agent="Opus", subtotal=BIG_SUBTOTAL)),
                  "--surface-tokens", "16202", "--token-saver", "off")
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines()[0] == "model: Opus"
