@@ -112,7 +112,7 @@ The `Propagated To` column MUST name the destination file (task / orchestration 
 
 ## Next Session
 
-**Ready for:** Session-{YY+1}-{NextSessionName}
+**Next run:** `/planwise:planwise run @{path}` / none (plan sessions all complete) / {Sprint} {Session} not scaffolded
 **Dependencies satisfied:** Yes / No (explain if No)
 **Blocking issues:** None / {list if any}
 

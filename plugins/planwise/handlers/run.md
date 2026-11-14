@@ -339,7 +339,7 @@ Before dispatching, read the DELEGATED dispatch discipline for the sections each
 - `references/measure-from-the-record.md` — when a recovered reply is synthesised or a permission result is graded: the synthesis is provisional, and a denial is scored on `permission_denials`, never on `is_error` alone.
 - `references/measure-artifact-identity.md` — when a runner and the orchestrator disagree about what a file says, or a read-only layer runs while another session may write the tree: triangulate line numbers, pin content hashes, and at close commit only what this session wrote.
 
-The spawn prompt states the single-task scope in three positions — the opener, a hard-constraint line, and the return instruction — so the scope is stated even against a session-scoped identity that would otherwise outrank a single mention. When the project declares an isolated environment (Config Gate), it also adds an environment-discipline block naming interpreter/linter/runner paths in the platform-matched form (POSIX `./.venv/bin/{tool}` or Windows `.\.venv\Scripts\{tool}.exe` — emit the one matching the project's platform, never both), and on the session's FIRST dispatch only, a one-line interpreter diagnostic:
+The spawn prompt is the Orchestration's `## Spawn-Prompt Skeleton`, filled once per task. Replace each `{placeholder}` with the task's value and keep every other line, including the numbered HARD CONSTRAINTS and the SCOPE BOUNDARY. The skeleton states the single-task scope in three positions, so the scope holds against a session-scoped identity that would outrank a single mention. When the Orchestration has no skeleton (a plan scaffolded before the rule), fill the skeleton in `{plugin_root}/templates/orchestration.md` instead. Pass the filled text as `prompt`:
 
 ```
 Agent(
@@ -347,51 +347,36 @@ Agent(
   run_in_background: false,
   description: "Execute task {task-num}: {task-name}",
   model: "{model-override-from-task-file-Agent-field}",
-  prompt: |
-    You are dispatched to execute ONE task: {task-id}. The session has other
-    tasks; you DO NOT execute them.
-
-    Execute the following task YOURSELF, directly, with your own tool calls.
-    Do NOT spawn, dispatch, or delegate to any other agent (no Agent
-    tool calls) — you ARE the task-runner.
-
-    Task file: {task-file-absolute-path}
-    Session ID: {session-id}
-    Abbreviation: {abbrev}
-    Plugin root: {config.yaml plugin_root, read at dispatch}
-    Project root: {absolute path of the folder that holds the planwise folder, resolved at dispatch}
-    Recovery file: {recovery-file-absolute-path}
-    Output directory: {output-dir-absolute-path}
-
-    HARD CONSTRAINTS: Execute ONLY {task-id}. Do not start any other task in
-    the session even if the Recovery file lists it as PENDING. Files you may
-    write: {explicit list from the task file's Output}.
-
-    (If the project declares an isolated environment, add:)
-    ## ENVIRONMENT DISCIPLINE
-    Do not change directory — pass absolute paths for file arguments, or
-    `git -C {repo-path}` for git, so a bare tool name resolves against the
-    paths given, not a changed working directory. Use these tool paths
-    exactly as written — a bare tool name resolves to the platform
-    default, not this project's environment:
-      interpreter:  {env-interpreter-path}
-      linter:       {env-linter-path}
-      test/notebook runner: {env-runner-path}
-      (each project-relative, in a form an allow entry grants)
-    Confirm connectivity/setup with `{env-interpreter-path} {project-precheck}`
-    BEFORE doing dependent work.
-
-    (On this session's first dispatch only, add:)
-    First-spawn diagnostic — run one probe per tool class this task invokes.
-    HALT if a probe is denied, or if the interpreter output does not resolve
-    inside the project environment:
-      {env-interpreter-path} -c "import sys; print(sys.executable)"
-      {env-linter-path} --version
-      {env-runner-path} --version
-
-    Return after writing the single expected output file. Do NOT proceed to
-    task {n+1}.
+  prompt: "{the filled Spawn-Prompt Skeleton, plus the addenda below}"
 )
+```
+
+Three addenda go on top of the filled skeleton:
+
+1. **Recovery file.** On sequential dispatch only, add `Recovery file: {recovery-file-absolute-path}` under `Output directory:`.
+2. **Environment discipline.** When the project declares an isolated environment (Config Gate), add the block below. Emit the interpreter, linter and runner paths in the platform-matched form (POSIX `./.venv/bin/{tool}` or Windows `.\.venv\Scripts\{tool}.exe`), never both.
+3. **First-spawn diagnostic.** On the session's FIRST dispatch only, add the probe lines below.
+
+```
+## ENVIRONMENT DISCIPLINE
+Do not change directory — pass absolute paths for file arguments, or
+`git -C {repo-path}` for git, so a bare tool name resolves against the
+paths given, not a changed working directory. Use these tool paths
+exactly as written — a bare tool name resolves to the platform
+default, not this project's environment:
+  interpreter:  {env-interpreter-path}
+  linter:       {env-linter-path}
+  test/notebook runner: {env-runner-path}
+  (each project-relative, in a form an allow entry grants)
+Confirm connectivity/setup with `{env-interpreter-path} {project-precheck}`
+BEFORE doing dependent work.
+
+First-spawn diagnostic — run one probe per tool class this task invokes.
+HALT if a probe is denied, or if the interpreter output does not resolve
+inside the project environment:
+  {env-interpreter-path} -c "import sys; print(sys.executable)"
+  {env-linter-path} --version
+  {env-runner-path} --version
 ```
 
 **Plugin root:** Read `plugin_root` from `config.yaml` at dispatch and write it as the `Plugin root:` line of every spawn prompt. The value never comes from a path inside a task file.
@@ -601,9 +586,17 @@ Read recovery file and orchestration file. Generate the summary document using [
 | 5 | Success Criteria Status | Orchestration success criteria |
 | 6 | Context Notes | Key Findings in Recovery |
 | 7 | Consumption Record | Orchestrator window accounting for this session, plus the per-task consumption rows in Recovery. Field semantics are defined once in the template's own Consumption Record section — do not restate them here |
-| 8 | Next Session | Sprint plan dependencies |
+| 8 | Next Session | The resolver output below, as the `**Next run:**` line |
 | 9 | Lessons Learned | Lesson files created this session (populated after Step 4.2) |
 | 10 | Plan-Specific Sections | The H3 sections this session needed that no template heading covers (omit when there are none) |
+
+Resolve the next session once, here, before Step 4.3 marks this one COMPLETE. The script reads the Master Plan tracking table, crosses sprint boundaries, and never writes:
+
+```bash
+python {plugin_root}/scripts/resolve_next_session.py --config {planwise_root}/config.yaml --orchestration {orchestration path}
+```
+
+It prints `NEXT: /planwise:planwise run @{path}`, `NEXT_UNSCAFFOLDED: {Sprint} {Session}`, or `NEXT: none`. Copy the value after the colon into the Summary's `**Next run:**` line.
 
 Write to: `Outputs/{Abbrev}-S{XX}-{YY}-Summary.md` in the sprint folder.
 
@@ -732,9 +725,16 @@ Tasks: {completed}/{total} completed
 Summary: Outputs/{Abbrev}-S{XX}-{YY}-Summary.md
 Lessons: {N} captured (or "None")
 Backlog closed: {item ids closed in Step 4.3, or "none"; items held PLANNING behind a user-action gate are named here}
-
-Next: {next session from summary, or "Sprint complete"}
+Plan status: {the Master Plan Status: line that Step 4.3 wrote}
 ```
+
+Then branch on the Summary's `**Next run:**` line:
+
+- **A `/planwise:planwise run @{path}` command.** Print `Next session:` and then the command alone in its own fenced block. That block is the last thing printed:
+  ```
+  /planwise:planwise run @{path}
+  ```
+- **`none`, or an unscaffolded `{Sprint} {Session}`.** Print no command. The `Plan status:` line states where the plan stands. For an unscaffolded session, add one line naming it and saying it needs scaffolding before it can run.
 
 **(Track B)** Leave the session's task entries `completed`. Do not delete them. The list is per Claude session and ends with it.
 
