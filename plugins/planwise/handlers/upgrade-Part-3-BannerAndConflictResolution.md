@@ -84,7 +84,8 @@ Lessons index migration:                                   (silent — nothing p
     ledger:                  {path}
     backups:                 {planwise_root}/upgrade-backups/{from}-to-{to}/lessons/ ({N} file(s), listed in DISPOSITIONS.md)
     git tree was dirty:      {yes|no|unknown} (informational — the backup above is the restore point)
-    generator --check:       clean
+    generator --check:       {clean|clean apart from location anomalies|not clean}
+    move by hand:            {lesson file} (status={status}) -> {into Archive/|to the top level}   (one line per location anomaly; the generator never moves a file)
   — or, on an already-generated index whose changelog grew past the per-file budget (state `changelog_split`):
 Lessons changelog: re-split into {N} part(s) (main file under {READ_TOKEN_WARN} tokens, each archive part under {READ_PAGE_CAP_TOKENS}; a file holding one larger entry keeps it whole); backups: {planwise_root}/upgrade-backups/{from}-to-{to}/lessons
   — or, when the changelog's entry numbers also do not strictly descend from the newest entry to the oldest (state `changelog_split`):

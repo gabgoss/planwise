@@ -550,8 +550,9 @@ def _check_index(lessons_dir: Path, archive_dir: Path, index_path: Path, naming,
 
 def _run_generator_steps(lessons_dir: Path, archive_dir: Path, index_path: Path, naming, config: dict) -> dict:
     """Both generator writes (index, companion) then both checks, each
-    captured; returns the four exit codes plus the index check's finding
-    classes, which `generator_verdict` reads."""
+    captured; returns the four exit codes, the index check's finding
+    classes (which `generator_verdict` reads), and each location anomaly's
+    path and detail, which the banner names as a manual move."""
     index_write_exit, _out = _captured(
         gen._cmd_write_lessons, lessons_dir, archive_dir, index_path, naming, config,
         replace_legacy=True, json_out=False)
@@ -565,7 +566,9 @@ def _run_generator_steps(lessons_dir: Path, archive_dir: Path, index_path: Path,
         lessons_dir, archive_dir, index_path, naming, config)
     return {"index_write_exit": index_write_exit, "companion_write_exit": companion_write_exit,
             "index_check_exit": index_check_exit, "companion_check_exit": companion_check_exit,
-            "index_check_findings": sorted({f["class"] for f in findings})}
+            "index_check_findings": sorted({f["class"] for f in findings}),
+            "index_check_anomalies": [{"id": f.get("id"), "detail": f.get("detail")}
+                                      for f in findings if f.get("class") == "location-anomaly"]}
 
 
 # --- Execute ---
@@ -614,7 +617,19 @@ def execute(plan: dict, ledger_file: Path, index_path: Path, config: dict, json_
             reasons.append(f"generator step failed: {exits}")
         return say(1, "FAIL: " + "; ".join(reasons), json_mode, err=True)
     return say(0, f"WROTE: migration complete; ledger at {ledger_file}. Index and companion are "
-                  "generated and clean.", json_mode)
+                  f"{_generated_state(exits)}", json_mode)
+
+
+def _generated_state(exits: dict) -> str:
+    """The success line's tail. It says "clean" only on verdict `clean`; an
+    `accepted` verdict names the location anomalies, which are moved by hand."""
+    if generator_verdict(exits) != "accepted":
+        return "generated and clean."
+    anomalies = exits.get("index_check_anomalies") or []
+    if anomalies:
+        return (f"generated; --check reports {len(anomalies)} location anomaly(ies), and each of "
+                "those lesson files is moved by hand.")
+    return "generated; --check reports only accepted findings."
 
 
 def _resume_or_clean(config: dict, index_path: Path, ledger_file: Path, args, js: bool) -> int:
@@ -645,8 +660,8 @@ def _resume_or_clean(config: dict, index_path: Path, ledger_file: Path, args, js
             pass
     if not generator_succeeded(new_exits):
         return say(1, f"FAIL: generator step still failing: {new_exits}", js, err=True)
-    return say(0, "WROTE: resumed at the generator step; index and companion are generated "
-                  "and clean.", js)
+    return say(0, f"WROTE: resumed at the generator step; index and companion are "
+                  f"{_generated_state(new_exits)}", js)
 
 
 # --- Read-only report ---

@@ -344,7 +344,22 @@ def test_absent_drafts_key_breaks_noop_proof(tmp_path, capsys, monkeypatch):
     assert (ok, reason, argvs) == (False, "config has no feedback.drafts key", [])
 
 
-WARNING = "! running copy is not the project's marketplace install"
+def test_legacy_lessons_index_breaks_noop_proof(tmp_path, capsys, monkeypatch):
+    """An up-to-date project whose lessons index is still hand-authored gets a run
+    command, not "Nothing to do", so a re-run retries a failed lessons migration."""
+    root = ucp.make_up_to_date(tmp_path)
+    monkeypatch.setattr(doctor_probes, "_gh_environment", lambda: dict(GH_OK))
+    assert "Nothing to do" in run_card(capsys, root)  # control: the untouched project passes
+    index = root / "planwise" / "LessonsLearned" / "00-Index-LessonsLearned.md"
+    index.write_bytes(b"# Lessons Learned Index\n\n## Master Table\n\n| ID | Title |\n|---|---|\n")
+    card = run_card(capsys, root)
+    assert "Nothing to do" not in card and "upgrade_run.py" in card
+    config_path, config = upgrade_preflight.resolve_config(root.resolve())
+    ok, reason, _ = upgrade_preflight.noop_proof("up-to-date", [], config, config_path, {}, "project")
+    assert (ok, reason) == (False, "lessons index shape is legacy, not generated")
+
+
+WARNING ="! running copy is not the project's marketplace install"
 
 
 def live_root(card: str) -> str:

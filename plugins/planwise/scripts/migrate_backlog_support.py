@@ -647,10 +647,12 @@ def default_mode() -> int:
 def stage_all(outputs: list) -> list:
     """Write each (path, text) to a temp file beside the path, carrying the target's
     permission mode (a new file gets the umask default, never mkstemp's 0600).
-    On any failure, remove every temp and re-raise. No target changes."""
+    A missing parent folder is created first. On any failure, remove every temp
+    and re-raise. No target file changes, but a folder created here stays."""
     staged = []
     try:
         for path, text in outputs:
+            path.parent.mkdir(parents=True, exist_ok=True)
             fd, tmp = _mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".staged")
             staged.append((Path(tmp), path))
             with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:

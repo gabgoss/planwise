@@ -612,7 +612,7 @@ def _ledger(lessons_dir):
     return json.loads((lessons_dir / mig.LEDGER_FILENAME).read_text(encoding="utf-8"))
 
 
-def test_index_wins_location_anomaly_is_an_accepted_check_result(tmp_path):
+def test_index_wins_location_anomaly_is_an_accepted_check_result(tmp_path, capsys):
     # The row says `applied`, the top-level file says `documented`: index-wins moves the file's
     # status to a non-hub one, which the generator reports as a location-anomaly it never heals.
     config, _index_path, lessons_dir = _build(tmp_path, status_row="applied")
@@ -620,6 +620,10 @@ def test_index_wins_location_anomaly_is_an_accepted_check_result(tmp_path):
     generator = _ledger(lessons_dir)["generator"]
     assert generator["index_check_exit"] == 1 and generator["index_check_findings"] == ["location-anomaly"]
     assert _ledger(lessons_dir)["generator_verdict"] == "accepted"
+    anomalies = generator["index_check_anomalies"]
+    assert len(anomalies) == 1 and "status=applied" in anomalies[0]["detail"]
+    out = capsys.readouterr().out
+    assert "generated and clean" not in out and "1 location anomaly(ies)" in out
     assert _run(config, "--write", "--allow-untracked-tree") == 0  # the resume path does not loop
 
 
@@ -1310,3 +1314,12 @@ def test_each_relocated_unit_is_counted_in_one_bucket(tmp_path):
     assert _run(config, *_WRITE_ARGS) == 0
     ledger = _ledger(lessons_dir)
     assert ledger["prose"]["relocate"] == ["Quick Reference"] and ledger["relocated"]["rows"] == 1
+
+
+def test_write_creates_a_missing_archive_folder(tmp_path):
+    """A project with no `Archive/` folder migrates instead of failing to stage the
+    archived promotion-log shard into a folder that does not exist."""
+    config, _index_path, lessons_dir = _build(tmp_path)
+    (lessons_dir / "Archive").rmdir()
+    assert _run(config, *_WRITE_ARGS) == 0
+    assert (lessons_dir / "Archive" / "PromotionLog-LessonsLearned-001-050.md").is_file()
