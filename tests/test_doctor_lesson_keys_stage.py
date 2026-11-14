@@ -68,6 +68,9 @@ class TestReportShape:
         out = _run(root, capsys)
         assert out == (
             "Lesson resolution keys: 2 open lessons scanned, each carries a valid origin and check answer.\n"
+            "  open by origin: planwise 2\n"
+            "  open by check kind: test 2\n"
+            "  landed lessons scanned: 0, missing origin: 0, missing enforced-by: 0\n"
         )
 
     def test_report_opens_with_the_scanned_count_then_gaps_then_action(self, tmp_path, capsys):
@@ -76,10 +79,12 @@ class TestReportShape:
         lines = _run(root, capsys).splitlines()
         assert lines[0] == "Lesson resolution keys (advisory):"
         assert lines[1] == "  open lessons scanned: 1"
-        assert lines[2] == "  ~ no origin: key: 1 — LL-001"
-        assert lines[-1] == (
-            "  action: set the keys with /planwise lessons curate or /planwise lessons promote-batch"
-        )
+        assert lines[2] == "  open by origin: missing 1"
+        assert lines[3] == "  open by check kind: test 1"
+        assert "  ~ no origin: key: 1 — LL-001" in lines
+        action = "  action: set the keys with /planwise lessons curate or /planwise lessons promote-batch"
+        assert lines.count(action) == 1
+        assert lines.index(action) > lines.index("  ~ no origin: key: 1 — LL-001")
 
     def test_landed_lesson_with_no_keys_is_not_counted_or_reported(self, tmp_path, capsys):
         root = _project(tmp_path)
@@ -113,6 +118,92 @@ class TestReportShape:
         _lesson(root, 1, archive=True, origin="nowhere")
         out = _run(root, capsys)
         assert "  ~ origin: outside the known origins: 1 — LL-001" in out
+
+
+class TestCensusTotals:
+    def _mixed(self, root):
+        _lesson(root, 1)
+        _lesson(root, 2, origin="own-code", **{"enforced-by": '"none: no check is possible"'})
+        _lesson(root, 3, origin="nowhere", **{"enforced-by": '"ci: pipeline job"'})
+        _lesson(root, 4, origin=None, **{"enforced-by": '"no colon here"'})
+        _lesson(root, 5, status="orphaned", **{"enforced-by": None})
+        _lesson(root, 6, origin="planwise", **{"enforced-by": '"hook: h"'})
+
+    def test_open_origin_and_kind_totals_each_sum_to_scanned(self, tmp_path):
+        root = _project(tmp_path)
+        self._mixed(root)
+        result = scan_lesson_keys(root / "planwise" / "LessonsLearned", ["hook", "test", "lint", "script"])
+        assert result.scanned == 6
+        assert sum(result.origins.values()) == 6
+        assert sum(result.kinds.values()) == 6
+        assert result.origins == {"planwise": 3, "own-code": 1, "unknown": 1, "missing": 1}
+        assert result.kinds == {"test": 1, "none": 1, "ci": 1, "invalid": 1, "missing": 1, "hook": 1}
+
+    def test_zero_counts_are_skipped_and_the_order_is_pinned(self, tmp_path, capsys):
+        root = _project(tmp_path)
+        self._mixed(root)
+        out = _run(root, capsys)
+        assert "  open by origin: planwise 3, own-code 1, unknown 1, missing 1\n" in out
+        assert "  open by check kind: none 1, hook 1, test 1, ci 1, invalid 1, missing 1\n" in out
+        assert "foreign-tool" not in out
+        assert "lint" not in out.split("open by check kind:")[1].splitlines()[0]
+
+    def test_a_configured_kind_named_like_a_synthetic_bucket_prints_once_and_sums(self, tmp_path, capsys):
+        kinds = "lesson_check_kinds:\n  - hook\n  - missing\n  - invalid\n"
+        root = _project(tmp_path, config_extra=kinds)
+        _lesson(root, 1, **{"enforced-by": '"missing: x"'})
+        _lesson(root, 2, **{"enforced-by": None})
+        _lesson(root, 3, **{"enforced-by": '"invalid: y"'})
+        _lesson(root, 4, **{"enforced-by": '"no colon here"'})
+        _lesson(root, 5, **{"enforced-by": '"hook: h"'})
+        _lesson(root, 6, status="rule", **{"enforced-by": '"missing: x"'})
+        _lesson(root, 7, status="rule", **{"enforced-by": None})
+        out = _run(root, capsys)
+        for label in ("open by check kind:", "landed by check kind:"):
+            pairs = out.split(label)[1].splitlines()[0].strip().split(", ")
+            names = [pair.rsplit(" ", 1)[0] for pair in pairs]
+            assert len(names) == len(set(names))
+            assert sum(int(pair.rsplit(" ", 1)[1]) for pair in pairs) == (5 if label.startswith("open") else 2)
+
+    def test_a_landed_lesson_with_no_keys_raises_the_landed_missing_counts(self, tmp_path, capsys):
+        root = _project(tmp_path)
+        _lesson(root, 1)
+        _lesson(root, 2, status="rule", origin=None, **{"promotion-target": None, "enforced-by": None})
+        _lesson(root, 3, archive=True, status="applied")
+        out = _run(root, capsys)
+        assert "  landed lessons scanned: 2, missing origin: 1, missing enforced-by: 1\n" in out
+        assert "  landed by origin: planwise 1, missing 1\n" in out
+        assert "  landed by check kind: test 1, missing 1\n" in out
+        assert "LL-002" not in out
+        assert "LL-003" not in out
+        assert "action:" not in out
+        assert "  open lessons scanned" not in out
+
+    def test_a_promoted_lesson_changes_no_count(self, tmp_path, capsys):
+        root = _project(tmp_path)
+        _lesson(root, 1)
+        before = _run(root, capsys)
+        _lesson(root, 2, status="promoted", origin=None, **{"enforced-by": None})
+        assert _run(root, capsys) == before
+
+    def test_the_landed_block_reads_zero_when_no_lesson_is_landed(self, tmp_path, capsys):
+        root = _project(tmp_path)
+        _lesson(root, 1)
+        out = _run(root, capsys)
+        assert "  landed lessons scanned: 0, missing origin: 0, missing enforced-by: 0\n" in out
+        assert "landed by" not in out
+
+    def test_no_totals_line_prints_for_zero_open_lessons(self, tmp_path, capsys):
+        root = _project(tmp_path)
+        _lesson(root, 1, status="rule")
+        out = _run(root, capsys)
+        assert "open by" not in out
+
+    def test_a_three_argument_scan_result_still_builds(self):
+        from doctor_lesson_keys_stage import ScanResult
+
+        result = ScanResult(0, {}, 0)
+        assert result.origins == {} and result.landed.scanned == 0
 
 
 class TestGapClasses:

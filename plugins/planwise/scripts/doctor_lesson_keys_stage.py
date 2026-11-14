@@ -14,14 +14,25 @@ the project does not declare, a `none:` answer with no reason, a code origin
 whose targets name no `code` target, and one `none:` reason shared by three or
 more lessons. A lesson is read with the shared frontmatter parser, not strict
 YAML, so a quoted and an unquoted `enforced-by:` value both read. A file that
-cannot be read or parsed is skipped and counted in one line. Nothing here asks
+cannot be read or parsed is skipped and counted in one line.
+
+Beside the gap grading, the scan tallies every open lesson once by origin and once by
+check kind. The buckets are the known origins, `unknown` and `missing` for origins, and
+`none`, the kinds, `invalid` and `missing` for check kinds. A landed lesson (status `rule`
+or `applied`) is counted into a separate tally of how many were scanned, how many lack an
+origin, how many lack an `enforced-by:` answer, and the same two bucket sets. The report
+prints the landed tally as counts only, with no ids and no action line. A `promoted`
+lesson is counted nowhere. Nothing here asks
 a question or writes a file. The caller wraps the stage, so an exception never
 changes doctor's exit status.
 """
 
 import re
 import sys
+from collections import Counter
+from collections.abc import Mapping
 from pathlib import Path
+from types import MappingProxyType
 from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -59,12 +70,45 @@ _ACTION = "  action: set the keys with /planwise lessons curate or /planwise les
 _DECLARES_KINDS_RE = re.compile(r"^lesson_check_kinds[ \t]*:", re.MULTILINE)
 
 
+LANDED_STATUSES = frozenset({"rule", "applied"})
+_UNKNOWN = "unknown"
+_MISSING = "missing"
+_INVALID = "invalid"
+_EMPTY = MappingProxyType({})
+
+
+class LandedTally(NamedTuple):
+    """Counts for the landed lessons: how many, how many lack each key, and the buckets."""
+
+    scanned: int = 0
+    missing_origin: int = 0
+    missing_enforced: int = 0
+    origins: Mapping = _EMPTY
+    kinds: Mapping = _EMPTY
+
+
 class ScanResult(NamedTuple):
-    """Lessons graded, the ids per gap class, and the count of unreadable files."""
+    """Lessons graded, the ids per gap class, the unreadable count, the open totals and the landed tally."""
 
     scanned: int
     classes: dict
     unreadable: int
+    origins: Mapping = _EMPTY
+    kinds: Mapping = _EMPTY
+    landed: LandedTally = LandedTally()
+
+
+def _origin_bucket(origin: str) -> str:
+    if not origin:
+        return _MISSING
+    return origin if origin in LESSON_ORIGINS else _UNKNOWN
+
+
+def _kind_bucket(raw) -> str:
+    if raw is None or not raw.strip():
+        return _MISSING
+    parsed = parse_enforced_by(raw)
+    return _INVALID if parsed is None else parsed[0]
 
 
 def _unquote(text: str) -> str:
@@ -108,17 +152,27 @@ def scan_lesson_keys(lessons_dir, kinds) -> ScanResult:
     reasons: dict = {}
     scanned = 0
     unreadable = 0
+    origins: Counter = Counter()
+    kind_counts: Counter = Counter()
+    landed_origins: Counter = Counter()
+    landed_kinds: Counter = Counter()
     for path in _lesson_files(Path(lessons_dir)):
         fm = _read_map(path)
         if fm is None:
             unreadable += 1
             continue
-        if _unquote(fm.get("status") or "").lower() not in HUB_STATUSES:
+        status = _unquote(fm.get("status") or "").lower()
+        if status in LANDED_STATUSES:
+            landed_origins[_origin_bucket(_unquote(fm.get("origin") or "").lower())] += 1
+            landed_kinds[_kind_bucket(fm.get("enforced-by"))] += 1
+            continue
+        if status not in HUB_STATUSES:
             continue
         scanned += 1
         ident = _lesson_id(path, fm)
 
         origin = _unquote(fm.get("origin") or "").lower()
+        origins[_origin_bucket(origin)] += 1
         if not origin:
             classes["origin-missing"].append(ident)
         elif origin not in LESSON_ORIGINS:
@@ -135,13 +189,16 @@ def scan_lesson_keys(lessons_dir, kinds) -> ScanResult:
 
         raw = fm.get("enforced-by")
         if raw is None or not raw.strip():
+            kind_counts[_MISSING] += 1
             classes["check-missing"].append(ident)
             continue
         parsed = parse_enforced_by(raw)
         if parsed is None:
+            kind_counts[_INVALID] += 1
             classes["check-invalid"].append(ident)
             continue
         kind, text = parsed
+        kind_counts[kind] += 1
         if kind == NO_CHECK:
             if not text:
                 classes["none-no-reason"].append(ident)
@@ -153,7 +210,30 @@ def scan_lesson_keys(lessons_dir, kinds) -> ScanResult:
     for ids in reasons.values():
         if len(ids) >= _SHARED_REASON_MIN:
             classes["none-reason-shared"].extend(ids)
-    return ScanResult(scanned, {k: sorted(v) for k, v in classes.items()}, unreadable)
+    tally = LandedTally(
+        sum(landed_origins.values()), landed_origins[_MISSING], landed_kinds[_MISSING], landed_origins, landed_kinds
+    )
+    return ScanResult(scanned, {k: sorted(v) for k, v in classes.items()}, unreadable, origins, kind_counts, tally)
+
+
+def _totals_line(counts: Mapping, kinds=None) -> str:
+    """Render `<name> <count>` pairs joined by `, `, skipping a zero count.
+
+    With `kinds` None the counts are origins, in `LESSON_ORIGINS` order, then `unknown`, then
+    `missing`. With a kinds list they are check kinds: `none`, the configured kinds in config
+    order, other kinds alphabetically, then `invalid`, then `missing`.
+    """
+    if kinds is None:
+        order = [*LESSON_ORIGINS, _UNKNOWN, _MISSING]
+    else:
+        fixed = {NO_CHECK, _INVALID, _MISSING}
+        configured = []
+        for kind in (str(k).strip().lower() for k in kinds):
+            if kind not in fixed and kind not in configured:
+                configured.append(kind)
+        others = sorted(name for name in counts if name not in fixed and name not in configured)
+        order = [NO_CHECK, *configured, *others, _INVALID, _MISSING]
+    return ", ".join(f"{name} {counts[name]}" for name in order if counts.get(name))
 
 
 def _id_list(ids: list) -> str:
@@ -171,6 +251,12 @@ def _declares_kinds(cfg) -> bool:
     except OSError:
         return False
     return _DECLARES_KINDS_RE.search(text) is not None
+
+
+def _print_open_totals(result: ScanResult, kinds) -> None:
+    if result.scanned:
+        print(f"  open by origin: {_totals_line(result.origins)}")
+        print(f"  open by check kind: {_totals_line(result.kinds, kinds)}")
 
 
 def run_lesson_keys_stage(cfg) -> None:
@@ -195,15 +281,25 @@ def run_lesson_keys_stage(cfg) -> None:
             f"Lesson resolution keys: {result.scanned} open lessons scanned, "
             "each carries a valid origin and check answer."
         )
+        _print_open_totals(result, kinds)
     else:
         print("Lesson resolution keys (advisory):")
         print(f"  open lessons scanned: {result.scanned}")
+        _print_open_totals(result, kinds)
         for label, ids in gaps:
             print(f"  ~ {label}: {len(ids)} — {_id_list(ids)}")
         if result.unreadable:
             print(f"  ~ unreadable lesson files: {result.unreadable}")
         if gaps:
             print(_ACTION)
+    tally = result.landed
+    print(
+        f"  landed lessons scanned: {tally.scanned}, missing origin: {tally.missing_origin}, "
+        f"missing enforced-by: {tally.missing_enforced}"
+    )
+    if tally.scanned:
+        print(f"  landed by origin: {_totals_line(tally.origins)}")
+        print(f"  landed by check kind: {_totals_line(tally.kinds, kinds)}")
     if not _declares_kinds(cfg):
         print(
             "  ~ config.yaml declares no lesson_check_kinds, so the default kinds apply "

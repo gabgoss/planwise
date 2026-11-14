@@ -1271,7 +1271,7 @@ def _run_doctor(cfg: "InitConfig", verbose: bool = False) -> int:
         print(f"Consumer section-citation check: the check failed: {exc}")
 
     # Stage 26: lesson resolution keys — read-only, advisory. Reports the open lessons that
-    # lack a valid origin: or enforced-by: key, and says when config.yaml declares no check kinds.
+    # lack a valid origin: or enforced-by: key, prints origin and check-kind totals, a counts-only landed block, and says when config.yaml declares no check kinds.
     print()
     print("planwise doctor — lesson resolution keys")
     print()

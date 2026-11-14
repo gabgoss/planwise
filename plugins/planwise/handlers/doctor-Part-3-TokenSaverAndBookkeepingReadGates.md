@@ -155,6 +155,8 @@ The script prints this stage (banner: planwise doctor — lesson resolution keys
 - A code origin (`owned-tool` or `own-code`) whose targets name no `code` target.
 - One `none:` reason shared by three or more lessons.
 
+Beside the classes, the stage prints two totals lines for the open lessons, `open by origin:` and `open by check kind:`. Each sums to the scanned count. Origins fall into the known origins, `unknown` and `missing`. Check kinds fall into `none`, the configured kinds, any other kind by name, `invalid` and `missing`. A configured kind named `invalid` or `missing` counts in that one bucket, never in a second one. A zero count is not printed. A landed block follows, one line giving `landed lessons scanned:` with the count of lessons whose `status:` is `rule` or `applied`, how many lack an `origin:` key and how many lack an `enforced-by:` key. When any landed lesson was scanned, `landed by origin:` and `landed by check kind:` lines follow it. The landed block prints no ids and no action line, and a `promoted` lesson counts nowhere.
+
 The kinds come from `lesson_check_kinds` in `config.yaml`. When the file declares no such key, the stage prints one line saying the default kinds apply and naming `/planwise upgrade` as the remedy. When any class has a lesson, the report ends with one line naming `/planwise lessons curate` and `/planwise lessons promote-batch`. The stage counts a file it cannot read or parse in one line and never prints one line per lesson. When no lessons folder is configured, it prints one line and scans nothing. The stage runs whether or not `context.token_saver` is on.
 
 ---
