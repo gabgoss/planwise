@@ -18,23 +18,38 @@ Each file is classified against the three Read-tool gates, in priority order
   OVER  at/over the token page-cap (25,000), the byte refusal cap
         (262,144 = 256 KiB), or the defensive 2,000-line first-page window.
 
+With `--config`, the project's `context.verified_cli_version` is read. When
+it is at or above `read_limits.ALLOW_LARGE_MIN_CLI`, a token page-cap or
+byte-cap crossing is WARN, not OVER, and an `advice:` line names the three
+read routes (`allow_large`, `offset`/`limit` pages, Grep). The line window
+stays OVER. Without `--config` the gate text and levels are the hard-gate
+ones above, and the advice line names pages and Grep only. The levels and
+the advice come from `read_limits`, so this report and the doctor probes
+share one copy of the logic.
+
 The binding split targets for generated artifacts are the WARN thresholds:
 a generated runner-read artifact must land OK on every gate.
 
 Usage:
   python measure_files.py FILE [FILE ...] [--model MODEL] [--content CLASS]
-                          [--json] [--md]
+                          [--config PATH] [--json] [--md]
 
   --model    haiku | sonnet | opus | fable — use that family's
              gate-conservative bytes-per-token ratio (omit for the overall
              most-restrictive default).
-  --content  dense-md | prose | code | notebook | json — refine the ratio
-             within the model family (without --model, the class's most
+  --content  dense-md | prose | code | notebook | json | table-md — refine the
+             ratio within the model family (without --model, the class's most
              restrictive family cell, i.e. the Claude 5 tokenizer, is used).
              Omitted: each file's class is auto-detected from its extension
              (`.ipynb` → notebook, `.json`/`.jsonl`/`.ndjson` → json, both
-             denser than the text fallback); anything else uses the family's
-             dense-md fallback. An explicit --content overrides detection.
+             denser than the text fallback). Any other file is line-sniffed:
+             markdown table rows that are mostly digits price at the table-md
+             ratio and every other byte at the family's dense-md fallback, so
+             a file of dense numeric tables no longer reads as OK past the
+             Read cap. An explicit --content overrides detection and sniffing.
+  --config   a planwise config.yaml whose context.verified_cli_version
+             gates the advisory levels (omit for the hard-gate levels).
+             A path that names no file prints an error and exits 2.
   --json     additionally write the result to a JSON temp file and print
              `JSON: {path}` as the last line.
   --md       emit a ready-to-paste markdown table instead of the plain report.
@@ -65,53 +80,75 @@ from read_limits import (
     READ_PAGE_CAP_TOKENS,
     READ_TOKEN_WARN,
     _count_lines,
+    _read_level,
+    allow_large_lifts,
     bytes_per_token,
     content_class_for_path,
-    estimate_tokens,
+    estimate_file_tokens,
+    fired_read_gates,
+    read_routes_advice,
+    read_verified_cli_version,
 )
 
+# `_read_level` names its levels Green|Warn|Critical; this report says OK|WARN|OVER.
+_LEVEL_NAMES = {"Green": "OK", "Warn": "WARN", "Critical": "OVER"}
+
 _MODELS = ("haiku", "sonnet", "opus", "fable")
-_CONTENT_CLASSES = ("dense-md", "prose", "code", "notebook", "json")
+_CONTENT_CLASSES = ("dense-md", "prose", "code", "notebook", "json", "table-md")
 
 
-def measure_file(path: str, model: str | None = None, content: str | None = None) -> dict:
+def measure_file(
+    path: str,
+    model: str | None = None,
+    content: str | None = None,
+    *,
+    cli_version: str = "",
+) -> dict:
     """Measure one existing file: bytes, KiB, lines, estimated tokens, level.
 
-    Returns {path, bytes, kib, lines, tokens, ratio, content, level, gates}
-    where level is OK|WARN|OVER and gates lists every fired gate in priority
-    order (tokens, then bytes, then lines). `content` is the class the
-    estimate used: the explicit argument, else the class the extension
+    Returns {path, bytes, kib, lines, tokens, ratio, content, level, gates,
+    advice} where level is OK|WARN|OVER and gates lists every fired gate in
+    priority order (tokens, then bytes, then lines). `content` is the class
+    the estimate used: the explicit argument, else the class the extension
     identifies (`content_class_for_path`), else None for the text fallback.
+    `cli_version` at or above `ALLOW_LARGE_MIN_CLI` turns a token page-cap
+    or byte-cap crossing into WARN when `allow_large` lifts every fired cap;
+    the default keeps OVER. `advice` is `read_routes_advice` for the fired
+    hard caps, or "" when none fires.
     """
     num_bytes = os.path.getsize(path)
     lines = _count_lines(path)
-    if content is None:
-        content = content_class_for_path(path)
-    ratio = bytes_per_token(model, content)
-    tokens = estimate_tokens(num_bytes, model, content)
+    sniffed = content is None and content_class_for_path(path) is None
+    tokens, content = estimate_file_tokens(path, model, content)
+    if sniffed and content == "table-md":
+        # The sniff priced the table rows apart from the rest, so no single
+        # class ratio describes the file. Report the effective bytes per token.
+        ratio = round(num_bytes / tokens, 2)
+    else:
+        ratio = bytes_per_token(model, content)
+    fired = fired_read_gates(num_bytes, tokens, lines)
+    lifted = allow_large_lifts(cli_version, fired)
 
     gates = []
     if tokens >= READ_PAGE_CAP_TOKENS:
-        gates.append(f"token cap (>= {READ_PAGE_CAP_TOKENS:,})")
+        if lifted:
+            gates.append(f"over one {READ_PAGE_CAP_TOKENS:,}-token page")
+        else:
+            gates.append(f"token cap (>= {READ_PAGE_CAP_TOKENS:,})")
     elif tokens >= READ_TOKEN_WARN:
         gates.append(f"token warn (>= {READ_TOKEN_WARN:,})")
     if num_bytes >= READ_FILE_BYTE_CAP:
-        gates.append(f"byte cap (>= {READ_FILE_BYTE_CAP:,})")
+        if lifted:
+            gates.append(f"over the {READ_FILE_BYTE_CAP:,}-byte whole read")
+        else:
+            gates.append(f"byte cap (>= {READ_FILE_BYTE_CAP:,})")
     elif num_bytes >= READ_BYTE_WARN:
         gates.append(f"byte warn (>= {READ_BYTE_WARN:,})")
     if lines >= READ_LINE_CAP:
         gates.append(f"line cap (>= {READ_LINE_CAP:,})")
 
-    if (
-        tokens >= READ_PAGE_CAP_TOKENS
-        or num_bytes >= READ_FILE_BYTE_CAP
-        or lines >= READ_LINE_CAP
-    ):
-        level = "OVER"
-    elif tokens >= READ_TOKEN_WARN or num_bytes >= READ_BYTE_WARN:
-        level = "WARN"
-    else:
-        level = "OK"
+    level = _LEVEL_NAMES[_read_level(num_bytes, tokens, lines, cli_version=cli_version)]
+    advice = read_routes_advice(cli_version, fired) if fired else ""
 
     return {
         "path": path,
@@ -123,17 +160,22 @@ def measure_file(path: str, model: str | None = None, content: str | None = None
         "content": content,
         "level": level,
         "gates": gates,
+        "advice": advice,
     }
 
 
 def measure_files(
-    paths: list[str], model: str | None = None, content: str | None = None
+    paths: list[str],
+    model: str | None = None,
+    content: str | None = None,
+    *,
+    cli_version: str = "",
 ) -> dict:
     """Measure a list of files; missing/unreadable paths go to `errors`."""
     files, errors = [], []
     for p in paths:
         try:
-            files.append(measure_file(p, model, content))
+            files.append(measure_file(p, model, content, cli_version=cli_version))
         except OSError as exc:
             errors.append({"path": p, "error": str(exc)})
     return {
@@ -174,7 +216,9 @@ def format_report(result: dict) -> str:
             lines.append(f"  tokens: ~{f['tokens']:,}")
         detail = f" — {'; '.join(f['gates'])}" if f["gates"] else ""
         lines.append(f"  level:  {f['level']}{detail}")
-    s = result["summary"]
+        if f["advice"]:
+            lines.append(f"  advice: {f['advice']}")
+    s =result["summary"]
     lines.append("")
     lines.append(
         f"{s['total']} file(s): {s['ok']} OK, {s['warn']} WARN, {s['over']} OVER"
@@ -207,13 +251,22 @@ def main(argv: list[str] | None = None) -> int:
                         help="model family whose bytes-per-token ratio to use")
     parser.add_argument("--content", choices=_CONTENT_CLASSES, default=None,
                         help="content class refining the ratio (with --model)")
+    parser.add_argument("--config", default=None, metavar="PATH",
+                        help="config.yaml whose context.verified_cli_version "
+                             "gates the allow_large advisory levels")
     parser.add_argument("--json", action="store_true",
                         help="also write a JSON temp file and print its path")
     parser.add_argument("--md", action="store_true",
                         help="emit a markdown table instead of the plain report")
     args = parser.parse_args(argv)
 
-    result = measure_files(args.paths, args.model, args.content)
+    # An explicit --config that names no file is a typo, not an old config:
+    # reading it as "no version" would print the hard-gate levels silently.
+    if args.config and not os.path.isfile(args.config):
+        print(f"ERROR: --config file not found: {args.config}", file=sys.stderr)
+        return 2
+    cli_version = read_verified_cli_version(args.config) if args.config else ""
+    result = measure_files(args.paths, args.model, args.content, cli_version=cli_version)
 
     print(format_md(result) if args.md else format_report(result))
 

@@ -39,7 +39,7 @@ An agent definition is a Markdown file in `.claude/agents/` with YAML frontmatte
 | `mcpServers` | object | No | None | Reference existing servers or define inline. Not available in background. |
 | `hooks` | object | No | None | PreToolUse, PostToolUse, Stop lifecycle hooks. Scoped to this agent. |
 | `memory` | string | No | None | Persistent memory scope: `user`, `project`, or `local` |
-| `background` | boolean | No | `false` | `true` = always run as background task. No MCP, no AskUserQuestion. |
+| `background` | boolean | No | `false` | `true` = always run as background task. No AskUserQuestion. MCP access follows the `tools:` list, not this field. |
 | `isolation` | string | No | None | `worktree` = run in temporary git worktree |
 
 ### Required Fields
@@ -101,7 +101,7 @@ disallowedTools: Edit   # Result: Read, Grep, Glob
 
 ### Shipped Effort Levels
 
-The plugin pins `effort:` on the agents it measured and on agents assigned by role class (the Basis column says which), and leaves the rest inheriting the session level.
+The plugin pins `effort:` on the agents it measured, on agents assigned by role class, and on agents given an assigned level (the Basis column says which), and leaves the rest inheriting the session level.
 
 | Agent | `effort:` | Basis |
 |-------|-----------|-------|
@@ -114,6 +114,7 @@ The plugin pins `effort:` on the agents it measured and on agents assigned by ro
 | `ei-extractor` | `high` (pinned) | assigned by role class (execution → medium, judgment → high), not separately measured; re-measure per the clause below |
 | `sprint-scaffolder` | `high` (pinned) | assigned by role class (execution → medium, judgment → high), not separately measured; re-measure per the clause below |
 | `scaffold-harmonizer` | `medium` (pinned) | assigned by role class (execution → medium, judgment → high), not separately measured; re-measure per the clause below |
+| `plan-preflight` | `high` (pinned) | assigned; not measured (see the re-measure clause) |
 | `fix-agent`, `review-discovery`, `rule-comparator`, `plan-author` | inherited (not set) | Not yet measured |
 
 **How the values were measured.** Seven execution tasks with scripted graders (a newline round-trip, a diff-gate baseline, shell quoting, test-collection scope, an aggregate filter, and two under-specified briefs — one parse, one merge), 4 repetitions per cell, on Sonnet 5 and Opus 5, at each of `low`, `medium`, `high`, `xhigh`. The execution arm dispatched `claude --agent task-runner -p` against a frozen copy of the shipped agent file with only its `effort:` line changed. The review arm dispatched a reviewer against a document carrying eight seeded defects, 4 repetitions per cell at the same four levels, and counted defects found. Verdicts use one rule: a cheaper level HOLDS when its pass rate is at least the dearer level's, else it REGRESSES. The figures in the table above are the pooled baseline-run pass rates and the review medians from that grid.
@@ -232,8 +233,8 @@ hooks:
 > ---
 > ```
 
-> [!constraint] `tools` and `disallowedTools` Interaction
-> WRONG — listing `Bash(python *)` in both `tools` and `disallowedTools` cancels it out:
+> [!pitfall] `tools` and `disallowedTools` Interaction
+> **Problem:** listing `Bash(python *)` in both `tools` and `disallowedTools` cancels it out:
 > ```yaml
 > ---
 > name: csv-validator
@@ -242,7 +243,7 @@ hooks:
 > disallowedTools: Edit, Task, Bash(python *)
 > ---
 > ```
-> CORRECT — `disallowedTools` removes from the `tools` grant; list only what you want removed:
+> **Solution:** `disallowedTools` removes from the `tools` grant; list only what you want removed:
 > ```yaml
 > ---
 > name: csv-validator
@@ -252,8 +253,8 @@ hooks:
 > ---
 > ```
 
-> [!constraint] `permissionMode: bypassPermissions` on a Restricted Agent
-> WRONG — bypassing all permission checks on a read-only exploration agent defeats the restriction:
+> [!pitfall] `permissionMode: bypassPermissions` on a Restricted Agent
+> **Problem:** bypassing all permission checks on a read-only exploration agent defeats the restriction:
 > ```yaml
 > ---
 > name: visual-fix-agent
@@ -262,7 +263,7 @@ hooks:
 > permissionMode: bypassPermissions
 > ---
 > ```
-> CORRECT — use `acceptEdits` (auto-approves file edits only) or `dontAsk` (auto-denies prompts) for scoped automation:
+> **Solution:** use `acceptEdits` (auto-approves file edits only) or `dontAsk` (auto-denies prompts) for scoped automation:
 > ```yaml
 > ---
 > name: visual-fix-agent
@@ -283,9 +284,9 @@ hooks:
 > disallowedTools: Skill(execute), Skill(planwise)
 > ```
 
-> [!pitfall] `background: true` with MCP-Dependent Logic
-> **Problem:** An agent uses `mcpServers` to connect to an external API but also sets `background: true`. MCP is not available in background mode — the agent silently cannot reach the API.
-> **Solution:** Remove `background: true` for agents that need MCP. If background execution is required, design the agent to work without MCP by using direct Bash calls instead.
+> [!pitfall] A `tools:` List That Leaves Out the MCP Tools the Agent Needs
+> **Problem:** An agent uses `mcpServers` to connect to an external API, but its `tools:` allowlist names none of that server's tools. The agent cannot see or load them, even through `ToolSearch`, so it silently cannot reach the API. Background mode is not the cause: a background `general-purpose` subagent listed and called an MCP tool, while a background agent whose `tools:` list held no MCP tool saw none.
+> **Solution:** Omit `tools:`, or add the server's tools to it. Do not remove `background: true` to restore MCP access; it does not withhold MCP.
 
 ---
 

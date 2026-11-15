@@ -64,7 +64,7 @@ class TestAdditionalDirsDedup(unittest.TestCase):
 
     def _run(self, settings: dict) -> tuple[str | None, str | None]:
         self.settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
-        return ip.configure_settings(self.cfg)
+        return ip.configure_settings(self.cfg)[:2]
 
     def _read_settings(self) -> dict:
         return json.loads(self.settings_path.read_text(encoding="utf-8"))
@@ -211,6 +211,69 @@ class TestAdditionalDirsDedup(unittest.TestCase):
         self.assertIn(self.family_root, dirs)
         self.assertIn(unrelated, dirs)
         self.assertNotIn(stale, dirs)
+
+
+class TestSettingsWriteKeepsBytes(unittest.TestCase):
+    """configure_settings() leaves a file that already holds every setting
+    byte-identical, and a write keeps the file's own line endings."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="planwise_ads_bytes_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        plugin_root = self.tmp / "cache" / "planwise-marketplace" / "planwise" / "1.0.3"
+        plugin_root.mkdir(parents=True)
+        self.family_root = str(plugin_root.parent)
+        project_root = self.tmp / "project"
+        (project_root / ".claude").mkdir(parents=True)
+        self.settings_path = project_root / ".claude" / "settings.json"
+        self.cfg = _make_cfg(project_root, plugin_root)
+
+    def _complete(self) -> dict:
+        return {"env": {"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1", "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"},
+                "permissions": {"additionalDirectories": [self.family_root]}}
+
+    def _write(self, settings: dict, newline: str) -> bytes:
+        raw = (json.dumps(settings, indent=2) + "\n").replace("\n", newline).encode("utf-8")
+        self.settings_path.write_bytes(raw)
+        return raw
+
+    def test_complete_lf_file_is_byte_identical_and_unchanged(self):
+        before = self._write(self._complete(), "\n")
+        _path, _dir, status = ip.configure_settings(self.cfg)
+        self.assertEqual(status, "unchanged")
+        self.assertEqual(self.settings_path.read_bytes(), before)
+
+    def test_complete_crlf_file_is_byte_identical_and_unchanged(self):
+        before = self._write(self._complete(), "\r\n")
+        _path, _dir, status = ip.configure_settings(self.cfg)
+        self.assertEqual(status, "unchanged")
+        self.assertEqual(self.settings_path.read_bytes(), before)
+
+    def test_lf_file_missing_agent_teams_is_written_with_lf(self):
+        settings = self._complete()
+        del settings["env"]["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"]
+        self._write(settings, "\n")
+        _path, _dir, status = ip.configure_settings(self.cfg)
+        self.assertEqual(status, "updated")
+        raw = self.settings_path.read_bytes()
+        self.assertNotIn(b"\r\n", raw)
+        self.assertEqual(json.loads(raw)["env"]["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"], "1")
+
+    def test_crlf_file_missing_agent_teams_is_written_with_crlf(self):
+        settings = self._complete()
+        del settings["env"]["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"]
+        self._write(settings, "\r\n")
+        _path, _dir, status = ip.configure_settings(self.cfg)
+        self.assertEqual(status, "updated")
+        raw = self.settings_path.read_bytes()
+        lines = raw.split(b"\n")[:-1]
+        self.assertTrue(lines and all(line.endswith(b"\r") for line in lines))
+        self.assertTrue(raw.endswith(b"\r\n"))
+
+    def test_absent_file_is_added(self):
+        _path, _dir, status = ip.configure_settings(self.cfg)
+        self.assertEqual(status, "added")
+        self.assertTrue(self.settings_path.read_bytes().endswith(b"}\n"))
 
 
 if __name__ == "__main__":

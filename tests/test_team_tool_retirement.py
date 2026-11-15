@@ -59,7 +59,7 @@ TEAM_LEAD_ALLOWLIST = [
         ),
     ),
     (
-        "references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md",
+        "references/agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md",
         'to="team-lead"',
         (
             "historical incident record: the blocks arrived only after an explicit "

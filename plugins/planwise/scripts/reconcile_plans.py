@@ -268,14 +268,17 @@ def detect_drift(config: dict) -> dict:
     return {"drifts": drifts, "anomalies": anomalies, "compared": compared, "total": total, "status": status}
 
 
-def _write_through_generator(config: dict) -> tuple[int, int]:
-    """Write the index through the generator. Returns (rows changed, write exit code).
+def _write_through_generator(config: dict) -> tuple[int, int, str | None]:
+    """Write the index through the generator. Returns (rows changed, write exit code, budget warning).
 
     Re-reads the index fresh, so a row healed since an earlier `detect_drift`
     is not counted. When the file already equals the render (the `Generated:`
     line masked) nothing is written. The count is the number of Paths whose
     row the render adds, drops or changes. When the generator refuses the
-    write, this raises `WriteRefusedError` with the generator's message.
+    write, this raises `WriteRefusedError` with the generator's message. A
+    render written over the budget returns as any other write, with the
+    generator's budget warning as the third item (`None` otherwise). This
+    function prints nothing.
     """
     index_path = plans_index_path(config)
     exists = index_path.is_file()
@@ -286,14 +289,14 @@ def _write_through_generator(config: dict) -> tuple[int, int]:
     render = render_plans_index(config)
     anomaly_code = 1 if render.anomalies else 0
     if exists and index_matches_render(disk, render):
-        return 0, anomaly_code
+        return 0, anomaly_code, None
 
     findings = diff_index_rows(parse_index_table(disk).rows, render.rows)
     changed = len({finding["path"] for finding in findings if finding["class"] in _ROW_CLASSES})
     result = write_plans_index(config)
     if result.refusal is not None:
         raise WriteRefusedError(result.refusal)
-    return changed, result.exit_code
+    return changed, result.exit_code, result.budget_warning
 
 
 def reconcile(config: dict) -> int:
@@ -303,8 +306,8 @@ def reconcile(config: dict) -> int:
     render, so a row a concurrent writer healed since a prior `detect_drift`
     is not counted and not rewritten. A hand-authored (legacy-shaped) index
     raises `LegacyIndexError` and nothing is written. A write the generator
-    refuses, such as an over-budget render, raises `WriteRefusedError`. Every
-    written byte comes from the generator's render.
+    refuses, such as a non-empty index it does not recognize, raises
+    `WriteRefusedError`. Every written byte comes from the generator's render.
 
     Returns the number of rows the write added, dropped or changed.
     """
@@ -375,10 +378,12 @@ def _report_write(config: dict, index_path: Path, want_json: bool) -> int:
         print(f"Error: Plans index not found at {index_path}", file=sys.stderr)
         return 1
     try:
-        written, code = _write_through_generator(config)
+        written, code, budget_warning = _write_through_generator(config)
     except (LegacyIndexError, WriteRefusedError) as exc:
         print(exc, file=sys.stderr)
         return 2
+    if budget_warning is not None:
+        print(budget_warning, file=sys.stderr)
     print(f"Reconciled {written} row(s).")
     if want_json:
         _print_json(detect_drift(config))

@@ -20,7 +20,7 @@ TEMPLATES = sp.DEFAULT_TEMPLATES
 
 def _task(number, name, agent, deps, outputs, rc_path="src/orchard/ledger.py"):
     return {
-        "number": number, "name": name, "title": f"{name} work", "agent": agent, "estimate_k": 20 + number,
+        "number": number, "name": name, "title": f"Step {number} of the ledger", "agent": agent, "estimate_k": 20 + number,
         "depends_on": deps, "outputs": outputs,
         "required_context": [{"priority": 1, "path": rc_path, "kib": 4.0, "tokens_k": 1.5, "purpose": "the module"}],
     }
@@ -71,6 +71,55 @@ def test_fill_invariant_clean_render(rendered):
     for rel, text in rendered.items():
         if rel.endswith(".md"):
             assert sp.unmasked_braces(text) == [], rel
+
+
+def test_task_cell_starts_with_the_name_the_write_back_reads(rendered):
+    """Each Orchestration and Sprint Plan task row names the file's name segment before the title."""
+    sprint = next(text for rel, text in rendered.items() if sp.file_kind(rel) == "sprint")
+    checked = 0
+    for rel in rendered:
+        if sp.file_kind(rel) != "task":
+            continue
+        stem = Path(rel).stem
+        number, name = int(stem.split("-")[3]), stem.split("-")[-1]
+        orch = next(text for r, text in rendered.items()
+                    if sp.file_kind(r) == "orchestration" and Path(r).parent == Path(rel).parent)
+        row = f"| {number} | {name}: Step {number} of the ledger |"
+        assert row in orch, (rel, row)
+        assert row in sprint, (rel, row)
+        checked += 1
+    assert checked == 4
+
+
+def test_every_task_file_carries_a_self_row_seeded_at_its_own_size(rendered):
+    """The self row names the file by its bare name, takes the next priority, and states the file's bytes."""
+    checked = 0
+    for rel, text in rendered.items():
+        if sp.file_kind(rel) != "task":
+            continue
+        row = re.search(rf"^\| 2 \| `{re.escape(Path(rel).name)}` \| ([\d,.]+) \| ~([\d.]+)K \| this task file", text, re.MULTILINE)
+        assert row, rel
+        size = len(text.encode("utf-8"))
+        assert row.group(1) == sp._fmt_kib(size), (rel, size)
+        tokens = sp.estimate_tokens(size, "opus" if "-Opus-" in rel else "sonnet", sp.content_class_for(Path("x.md"))[1])
+        assert f"~{row.group(2)}K" == sp._fmt_k(tokens), (rel, size)
+        # The subtotal's reads term counts the self row beside the spec row (1.5K).
+        sub = next(ln for ln in text.split("\n") if ln.startswith("**Context subtotal:**"))
+        assert f"~{1.5 + float(row.group(2)):.1f}K" in sub, (rel, sub)
+        checked += 1
+    assert checked == 4
+
+
+def test_a_template_without_a_self_row_renders_none(tmp_path):
+    shutil.copytree(TEMPLATES, tmp_path / "t")
+    path = tmp_path / "t" / "task-file.md"
+    text = path.read_text(encoding="utf-8")
+    kept = [ln for ln in text.split("\n") if not (ln.startswith("|") and "self row" in ln)]
+    assert len(kept) == len(text.split("\n")) - 1  # the control: one example row went
+    path.write_text("\n".join(kept), encoding="utf-8")
+    files, _ = sp.render_all(make_spec(), tmp_path / "t")
+    task = next(t for rel, t in files.items() if sp.file_kind(rel) == "task")
+    assert "this task file" not in task
 
 
 def test_fill_invariant_fires_on_known_bad_line():

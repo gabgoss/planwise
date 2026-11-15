@@ -1,15 +1,15 @@
 ---
-description: A citation names a copy and an instant, not just a file. Covers why a disputed reading is a question about which artifact was read — an installed copy, the committed tree, or the live working tree — and how line-number offsets settle it when content cannot; why a read whose subject may be concurrently written needs content hashes at both ends and both layers, because git status, diff --stat and mtime all fail to pin identity of content; why a concurrent writer also narrows what the session-close commit may include, and why a shipped script that errors against project data is compared with the development tree's copy before the data is blamed. Consult when two readings of one file disagree, when a read-only sweep runs while another session may be writing the tree, when committing in a tree another session shares, and when a script run from a pinned installed path fails on project data.
+description: A citation names a copy and an instant, not just a file. Covers why a disputed reading is a question about which artifact was read — an installed copy, the committed tree, or the live working tree — and how line-number offsets settle it when content cannot; why a read whose subject may be concurrently written needs content hashes at both ends and both layers, because git status, diff --stat and mtime all fail to pin identity of content; why a concurrent writer also narrows what the session-close commit may include; why a shipped script that errors against project data is compared with the development tree's copy before the data is blamed; and why two readings of a tool's version that disagree must each name the resolver that produced them. Consult when two readings of one file disagree, when a read-only sweep runs while another session may be writing the tree, when committing in a tree another session shares, when a script run from a pinned installed path fails on project data, and when two readings of a tool's version disagree.
 consult-when: Two readings of one file disagree, a read-only sweep runs while another session may be writing the tree, or a session-close commit lands in a shared tree — triangulate line numbers across the installed copy, `HEAD` and the live tree; pin content hashes at both ends and both layers; commit only what this session wrote, and a shipped script run from a pinned installed path errors against project data — compare the development tree's copy before blaming the data, and two readings of a CLI's version that disagree — name the resolver beside each number and pin from the binary the subject runs
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Artifact Identity — Which Copy Did You Read, and Did It Hold Still While You Read It
 
-**Purpose:** Two incidents in which a reading of a file was correct about its content and unmoored from the thing it was a reading *of*. Any file that also exists as an installed or cached copy — a plugin's shipped references and the installed copies generated from them, a vendored upstream, a published build — routinely exists in at least three states at once: the installed copy a consumer has, the committed tree, and the dirty working tree. Mid-session they are all different. A citation that names content but not the copy it came from is therefore ambiguous by construction, and a sweep that reads a tree another session is actively writing produces citations that were true for an interval nobody recorded.
+**Purpose:** A reading of a file can be correct about its content and still be unmoored from the copy and the instant it was a reading *of*. Any file that also exists as an installed or cached copy — a plugin's shipped references and the installed copies generated from them, a vendored upstream, a published build — exists in at least three states at once: the installed copy a consumer has, the committed tree, and the dirty working tree. Mid-session they are all different. A citation that names content but not the copy it came from is therefore ambiguous by construction. A sweep that reads a tree another session is actively writing produces citations that were true for an interval nobody recorded.
 
 **Read this when** two agents disagree about what a file says or where, when a read-only sweep is about to run on a tree another session may be writing, when you are about to cite a line number that a downstream reader cannot re-verify, when committing at session close in a tree you may not own alone, and when a script run from a pinned installed path fails with an error that reads like a data problem.
 
-Both defects are quiet in the same way: the reading itself is verifiable, and the disagreement it produces looks like a dispute about facts. It is not. It is a dispute about **which artifact**, and about **when** — and neither question can be settled by re-asserting the content.
+The reading itself is verifiable, so the disagreement it produces looks like a dispute about facts. It is a dispute about **which artifact** and about **when**, and re-asserting the content settles neither question.
 
 Two neighbouring rules own the tree-naming half. [`verify-backlog-citation-freshness.md`](verify-backlog-citation-freshness.md) §12 requires a verification task to name the tree under test, to pin the tree state — commit, branch, dirty set — at both ends of its read window, and to compare pins before adjudicating a torn parallel read. [`verify-before-cite.md`](verify-before-cite.md) §9.B.20 requires a citation of current file state to record which tree and when. This file adds what those pins do not carry: the third copy and the offsets that identify it (§1), content identity rather than tree identity under a concurrent writer (§2), and the commit-scope consequence (§3).
 
@@ -26,38 +26,29 @@ Two neighbouring rules own the tree-naming half. [`verify-backlog-citation-fresh
 ## 1. Treat a Disputed File Reading as a Question About Which Artifact Was Read
 
 > [!constraint] Content alone cannot identify the source when several copies share the text; the offsets can, because independent edits move them apart
-> "Not applied" is exactly what verifying a working-tree edit against the installed copy always reports.
+> "Not applied" is exactly what verifying a working-tree edit against the installed copy always reports. When two readings of one file disagree, measure every candidate copy instead of re-asserting a reading. Edits earlier in a session shift line numbers in the live tree only. A numbering that exists in one copy alone therefore names the copy that was read.
 >
-> Mid-session an orchestrator told a task-runner that two approved edits were not on disk, quoting the unedited text at `:428` and `:436`. The runner returned a confident rebuttal: the edits *had* been applied, and the orchestrator had misread the installed copy rather than the development tree — supplying real evidence, since the installed copy genuinely carries that text at `:403` / `:408`. The rebuttal was specific, internally coherent, backed by a real measurement of a real file, and wrong about causation. Three measurements settled it:
->
-> | Tree | Text at the disputed lines | Line numbers |
-> |------|---------------------------|--------------|
-> | Installed copy | old | `:403` / `:408` |
-> | Development tree at `HEAD` (pre-session) | old | `:413` / `:418` |
-> | Development tree, live, mid-session | old | **`:428` / `:436`** |
->
-> The live numbering exists in only one of the three, because earlier edits in the same session had shifted that section down about fifteen lines. Neither the installed copy nor `HEAD` can produce those numbers. The runner's own preceding message corroborated it: a diffstat that had moved `25/2 → 27/4`, exactly the +2/+2 of the two rewords it claimed not to have made.
->
-> ```
 > WRONG — re-assert, or accept the more confident party:
->   A: "line 428 says X"    B: "no, you read the cache"    → unresolved, or resolved by tone
->
-> CORRECT — measure all three candidates:
->   Grep  pattern=PATTERN  path=<installed-copy-path>       output_mode=content  -n=true   → :403 / :408
->   git show HEAD:<path> | grep -n PATTERN                                                  → :413 / :418
->   Grep  pattern=PATTERN  path=<live-working-tree-path>    output_mode=content  -n=true   → :428 / :436   ← only the live tree matches
 > ```
->
-> Four practices follow:
->
-> - **Pin the tree in the claim itself.** `":436` in the live development tree" is falsifiable; "line 436" is not.
-> - **Corroborate with an independent signal.** A diffstat, a file length or a `git status` line often settles causation even when line numbers are ambiguous. Here the diffstat's `25/2 → 27/4` was exactly the +2/+2 of the disputed edits.
-> - **Verify session work against the development tree and consumer-facing behaviour against the installed copy.** They answer different questions, and the installed copy only moves at a release re-publish.
-> - **A downstream verifier must state which tree it swept.** A sweep report that does not is ambiguous by construction.
->
-> **The runner's judgement was otherwise correct, and a rule written only as a correction would teach the wrong lesson about it.** It re-read the file before acting and **declined to blindly re-apply** the edits, noting that the approved `old_string`s no longer existed and that a re-apply would either hard-fail or land a second time somewhere unintended. That is correct behaviour on any resume — verify current state before repeating an instruction. Only the causal story was wrong, and the causal story is the part that has to be corrected in the record so nobody inherits it.
+> A: "line 428 says X"    B: "no, you read the cache"    → unresolved, or resolved by tone
+> ```
+> CORRECT — measure all three candidates:
+> ```
+> Grep  pattern=PATTERN  path=<installed-copy-path>       output_mode=content  -n=true   → :403 / :408
+> git show HEAD:<path> | grep -n PATTERN                                                  → :413 / :418
+> Grep  pattern=PATTERN  path=<live-working-tree-path>    output_mode=content  -n=true   → :428 / :436   ← only the live tree matches
+> ```
 
-This rule is for well-reasoned disagreements. A careless reading is caught by re-reading; a specific, coherent, evidence-backed reading of the wrong copy is caught only by asking which copy.
+Four practices follow:
+
+- **Pin the tree in the claim itself.** `":436` in the live development tree" is falsifiable. "Line 436" is not.
+- **Corroborate with an independent signal.** A diffstat, a file length or a `git status` line often settles causation even when line numbers are ambiguous.
+- **Verify session work against the development tree and consumer-facing behaviour against the installed copy.** They answer different questions, and the installed copy only moves at a release re-publish.
+- **A downstream verifier must state which tree it swept.** A sweep report that does not is ambiguous by construction.
+
+**Re-reading before re-applying stays correct even when the causal story is wrong.** On any resume, verify current state before repeating an instruction. An approved `old_string` that no longer exists either hard-fails or lands a second time somewhere unintended. Correct the causal story in the record, so nobody inherits it.
+
+This rule is for well-reasoned disagreements. A careless reading is caught by re-reading. A specific, coherent, evidence-backed reading of the wrong copy is caught only by asking which copy.
 
 ---
 
@@ -66,28 +57,33 @@ This rule is for well-reasoned disagreements. A careless reading is caught by re
 > [!constraint] None of the cheap checks pins identity of content — only a content hash does
 > **Trigger.** This section fires only where a concurrent writer is possible: another session open on the same checkout, a parallel dispatch layer sharing a tree, a machine-managed directory an upgrade may refresh. Where no writer can exist, one read is one read, and four hashes are ceremony. Where one can, a clean result without the pins is indistinguishable from a lucky one.
 >
-> Under a binding "Discovery is read-only" constraint, one of eleven runners reported mid-flight that a file in its zone had grown 223 → 239 lines *during its own execution*, and correctly re-read rather than trusting its baseline. Investigation found a concurrent, unrelated session actively authoring the development tree while eleven runners measured it — not a constraint breach by any runner, since the diff's content had nothing to do with the sweep's subject. The tree was moving fast enough that two consecutive orchestrator commands, seconds apart, disagreed: `git status --porcelain` reported 2 dirty files while `git diff --stat` reported 4; minutes later the same `--stat` had grown from 65 insertions to **285**, one file going +5 → +220. The stakes were unusual: the downstream consumer of that sweep was **forbidden from re-reading the trees** and consumed `file:line` citations only. That inverts the normal economics of staleness — ordinarily a stale citation is self-correcting because the next reader opens the file and notices; here **a wrong line number is permanently unresolvable by anyone downstream, ever.**
->
 > | Check | What it misses |
 > |---|---|
 > | `git status` before the read | Says nothing about what happened *during* it |
 > | `git diff --stat` before and after | Insertion counts can coincidentally match after offsetting edits; and it reports against `HEAD`, so it cannot distinguish "unchanged since I looked" from "changed twice" |
 > | mtime | Cheap, but a write that restores identical bytes still bumps it, and a fast tool can write within a coarse timestamp granularity |
 >
+> WRONG — a cheap check stands in for content identity, and two of them disagree seconds apart:
 > ```
-> orchestrator:  md5sum <files>          # before dispatch
-> runner:        md5sum <files>          # FIRST action
-> runner:        md5sum <files>          # LAST action before writing
-> orchestrator:  md5sum <files>          # on return
+> git status --porcelain     # 2 dirty files
+> git diff --stat            # 4 files; minutes later 65 → 285 insertions
 > ```
->
-> **The runner-side pair is not redundant with the orchestrator-side pair.** The orchestrator's bracket can be wide — dispatch latency, queueing — while the runner's brackets its actual reads. Both together bound the window tightly from outside and inside.
->
-> **All four agreeing is proof the window was clean, and any disagreement names exactly which file moved.** Only that file's rows are marked provisional — instead of the whole output carrying a blanket "may be stale" caveat that a downstream consumer cannot act on. That granularity is the operational reason to run four hashes rather than to caveat the output.
->
-> **The pins convert an accepted risk into a measured outcome.** Without them, a clean result is indistinguishable from a lucky guess, and the honest report must say "possibly stale" — which downstream must then treat as actually stale.
->
-> **When a downstream consumer cannot re-read the source, "document the drift and move on" is the wrong instinct**, because the defect is unrepairable later. That is what justified a bounded delta re-sweep of only the changed files (~30K tokens) over both documenting it (free, and permanently defective) and re-running the affected tasks (~200K, re-deriving far more than had changed).
+> CORRECT — four content-hash pins bracket the read window, and the compare names each file that moved:
+> ```
+> orchestrator:  python <plugin_root>/scripts/snapshot_hashes.py take --label before-dispatch --out <dir>/1.json <files>
+> runner:        python <plugin_root>/scripts/snapshot_hashes.py take --label runner-start --out <dir>/2.json <files>   # FIRST action
+> runner:        python <plugin_root>/scripts/snapshot_hashes.py take --label runner-end --out <dir>/3.json <files>     # LAST action before writing
+> orchestrator:  python <plugin_root>/scripts/snapshot_hashes.py take --label on-return --out <dir>/4.json <files>
+> orchestrator:  python <plugin_root>/scripts/snapshot_hashes.py compare <dir>/1.json <dir>/2.json <dir>/3.json <dir>/4.json
+> ```
+
+**The runner-side pair is not redundant with the orchestrator-side pair.** They are the two layers of the bracket. The orchestrator's bracket can be wide — dispatch latency, queueing — while the runner's brackets its actual reads. Both together bound the window tightly from outside and inside.
+
+**All four agreeing is proof the window was clean, and any disagreement names exactly which file moved.** Only that file's rows are marked provisional — instead of the whole output carrying a blanket "may be stale" caveat that a downstream consumer cannot act on. That granularity is the operational reason to run four hashes rather than to caveat the output.
+
+**The pins convert an accepted risk into a measured outcome.** Without them, a clean result is indistinguishable from a lucky guess, and the honest report must say "possibly stale" — which downstream must then treat as actually stale.
+
+**When a downstream consumer cannot re-read the source, "document the drift and move on" is the wrong instinct.** A wrong line number is then permanently unresolvable by anyone downstream, so the defect is unrepairable later. Re-sweep only the changed files, as a bounded delta. Documenting the drift is free and permanently defective, and re-running the affected tasks re-derives far more than changed.
 
 The tree-state pins in [`verify-backlog-citation-freshness.md`](verify-backlog-citation-freshness.md) §12.2 — commit, branch, dirty set, at both ends — identify *which tree* was read. They do not say whether the bytes of the files read held still between the two stamps. Run both: the tree pins answer "which tree", the content hashes answer "did it move".
 
@@ -99,10 +95,22 @@ The tree-state pins in [`verify-backlog-citation-freshness.md`](verify-backlog-c
 
 > [!practice] A concurrent writer also invalidates the session-close commit convention
 > The convention assumes the session owns the tree it commits. When another session's in-flight work is sitting dirty in the same tree, committing it hijacks uncommitted changes into a commit message describing unrelated work. **Commit only what this session wrote, and say plainly why the other tree was left alone.**
+>
+> WRONG — stage by path, then commit bare, which takes every entry another session staged:
+> ```
+> git add <this session's paths>
+> git commit -m <msg>
+> ```
+> CORRECT — commit by pathspec, then check the commit's scope:
+> ```
+> git commit -m <msg> -- <this session's paths>
+> git show --stat HEAD     # MUST list zero foreign paths
+> python <plugin_root>/scripts/record_checks.py commit-scope --repo <repo> --declared <declared paths>
+> ```
 
-The mechanism is a pathspec commit, `git commit -m <msg> -- <this session's paths>`, because a bare `git commit` takes every entry another session staged. Run `git show --stat HEAD` afterward. It MUST list zero foreign paths.
+`record_checks.py commit-scope` makes the `git show --stat HEAD` check mechanical. It exits 1 and names each path the commit holds outside the declared set.
 
-This is a commit-scope consequence of §2's premise, not a general commit policy. The standing convention — `git add` specific files, never the whole tree — is [`session-execution-protocol.md`](session-execution-protocol.md) §7; this section adds only the reason a shared tree makes that convention load-bearing.
+This is a commit-scope consequence of §2's premise, not a general commit policy. The standing convention — `git add` specific files, never the whole tree — is [`session-execution-protocol.md`](session-execution-protocol.md) §7. This section adds only the reason a shared tree makes that convention load-bearing.
 
 ---
 
@@ -111,9 +119,7 @@ This is a commit-scope consequence of §2's premise, not a general commit policy
 > [!constraint] A config pin that resolves to an installed cache copy is a claim that the copy's behaviour still matches the project's live conventions
 > The claim decays the moment a development-tree change lands that the installed copy predates. Nothing in the pin's syntax signals the drift. §1 asks which copy a reading came from. This section asks which copy a script came from.
 
-The error read as a data problem. A backlog script run from the pinned installed path exited with `Error: Could not find '## Backlog Items' section.` Every file in the backlog directory was checked, and none carried that heading.
-
-The index had already been migrated to a generated hub, overflow-leaf and archive-shard set that has no such heading. The installed scripts had never been taught to read that shape. The development tree already carried a shim that splices the heading onto legacy content and leaves generated content untouched. No release had shipped since the migration. Diagnosing the data would have sent the work the wrong way.
+The error reads as a data problem. The data has moved to a shape the installed copy predates, and the development tree already reads that shape. Diagnosing the data sends the work the wrong way.
 
 > [!constraint] Confirm version skew, then resolve scripts from the development tree
 > WRONG — trust the installed cache's error as a statement about the data:
@@ -142,8 +148,6 @@ Two operative points follow.
 
 > [!constraint] A tool's reported version belongs to the resolver that ran it, not to the machine
 > A shell PATH lookup is one resolver. A driver script's own `find_executable()` that prefers a native binary is another. A package update can move one without moving the other. A precondition written as "the version is X" silently assumes one resolver.
-
-A task pinned `<tool> --version # precondition: 2.1.267`. The shell tool resolved the package manager's shim and read 2.1.268. The driver script resolved a native executable and read 2.1.267. Both readings were correct. The validate gate ran on one build, and the design the session existed to measure had been pinned on the other. Nothing errored, and the gates reported a plausible result.
 
 Three consequences follow.
 

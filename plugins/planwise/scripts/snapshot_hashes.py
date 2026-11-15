@@ -65,6 +65,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
+
 EXIT_OK = 0
 EXIT_FINDING = 1
 EXIT_USAGE = 2

@@ -53,12 +53,12 @@ When Token Saver is on, append the three audits below to the doctor report. All 
 
 ### Step 5: Read-gate scan
 
-Run `token_saver.classify_file(path, model, projected_added_bytes, thresholds)` (from `scripts/token_saver.py`) across BOTH (a) the active plan's Required-Context files AND (b) the plan's own generated artifacts (task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, task Output files). Use each file's **assigned-model** bytes-per-token ratio for the token estimate (`BYTES_PER_TOKEN`, per [`references/session-context-budget.md`](../references/session-context-budget.md) § Read-Tool Hard Limits). Report:
+Run `token_saver.classify_file(path, model, projected_added_bytes, thresholds)` (from `scripts/token_saver.py`) across BOTH (a) the active plan's Required-Context files AND (b) the plan's own generated artifacts (task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, task Output files). Use each file's **assigned-model** bytes-per-token ratio for the token estimate (`BYTES_PER_TOKEN`, per [`references/session-context-budget.md`](../references/session-context-budget.md) § Read-Tool Hard Limits). Pass the project's `context.verified_cli_version` as `cli_version`: name `allow_large` only when it is v2.1.296 or later. Below that version, or with no recorded version, the routes are pages and Grep only. A flagged file prints an `advice:` line with the routes. Report:
 
 | Finding | Gate | Recommendation |
 |---------|------|----------------|
-| File ≥ 256 KiB (`READ_FILE_BYTE_CAP`) | byte gate (model-independent) | **read-Critical** → paged read (`offset`/`limit`/Grep); refactor + backlog if it is a core/edited dependency |
-| File above the per-assigned-model 25K-token page cap (`READ_PAGE_CAP_TOKENS`) | token gate (model-dependent) | **read-Critical** → paged read; refactor if core/edited |
+| File ≥ 256 KiB (`READ_FILE_BYTE_CAP`) | byte gate (model-independent) | **read-Critical** → read whole with `allow_large: true` (Claude Code v2.1.296 or later), in `offset`/`limit` pages, or by Grep; consider a split or refactor if it is a core/edited dependency (advice, not a gate) |
+| File above the per-assigned-model 25K-token page cap (`READ_PAGE_CAP_TOKENS`) | token gate (model-dependent) | **read-Critical** → same three read routes; consider a refactor if core/edited |
 | File that WILL cross a gate once its task's edits land | token/byte gate (projected) | pass `projected_added_bytes` so the will-exceed case is flagged pre-emptively; same remedy as above |
 | Task estimate ≥ `critical` (cost) | cost gate | **cost-Critical** → `1M-exception` (raise dispatch to Opus/1M) OR split the task |
 
@@ -142,6 +142,22 @@ The script prints this stage (banner: planwise doctor — consumer read-gate sca
 ### Stage 25: Consumer Section-Citation Check
 
 The script prints this stage (banner: planwise doctor — consumer section-citation check). Pass it through verbatim. It resolves each `§` citation in the project's own `.claude/rules/` against the installed plugin's `references/`. It reports only citations whose target is a plugin file, and counts the citations of project files in its summary line. It prints each dangling citation, each citation whose target file does not resolve, and each citation whose section moved to another file of the same family, as an upgrade leftover. A moved section prints with the file that now holds it. The stage skips the machine-managed copies under `.claude/rules/planwise/`. The report ends with one remedy line: edit the citing rule to the section that now holds the text, or run `/planwise upgrade` if the citing file is a stale installed copy. The stage runs whether or not `context.token_saver` is on.
+
+### Stage 26: Lesson Resolution Keys
+
+The script prints this stage (banner: planwise doctor — lesson resolution keys). Pass it through verbatim. It is advisory and never changes the exit status. It scans the open lessons, which are the lessons whose `status:` is `documented` or `orphaned`, in the lessons folder and its `Archive/` folder. It prints how many it scanned, then one line per gap class with the count and up to ten lesson ids. The classes are:
+
+- No `origin:` key, or an `origin:` outside the known origins.
+- No `promotion-target:` key, or a token outside the known targets. An unfilled template value counts as an unknown target. An explicit `promotion-target: []` on a lesson with `origin: planwise` is the valid "n/a" spelling and is not reported. An empty value, an absent key, or `[]` on any other origin is reported.
+- No `enforced-by:` answer, or one that does not read as `kind: text`.
+- An `enforced-by:` kind that is neither `none` nor one of the configured kinds.
+- A `none:` answer with no reason.
+- A code origin (`owned-tool` or `own-code`) whose targets name no `code` target.
+- One `none:` reason shared by three or more lessons.
+
+Beside the classes, the stage prints two totals lines for the open lessons, `open by origin:` and `open by check kind:`. Each sums to the scanned count. Origins fall into the known origins, `unknown` and `missing`. Check kinds fall into `none`, the configured kinds, any other kind by name, `invalid` and `missing`. A configured kind named `invalid` or `missing` counts in that one bucket, never in a second one. A zero count is not printed. A landed block follows, one line giving `landed lessons scanned:` with the count of lessons whose `status:` is `rule` or `applied`, how many lack an `origin:` key and how many lack an `enforced-by:` key. When any landed lesson was scanned, `landed by origin:` and `landed by check kind:` lines follow it. The landed block prints no ids and no action line, and a `promoted` lesson counts nowhere.
+
+The kinds come from `lesson_check_kinds` in `config.yaml`. When the file declares no such key, the stage prints one line saying the default kinds apply and naming `/planwise upgrade` as the remedy. When any class has a lesson, the report ends with one line naming `/planwise lessons curate` and `/planwise lessons promote-batch`. The stage counts a file it cannot read or parse in one line and never prints one line per lesson. When no lessons folder is configured, it prints one line and scans nothing. The stage runs whether or not `context.token_saver` is on.
 
 ---
 

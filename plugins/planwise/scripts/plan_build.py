@@ -9,13 +9,16 @@ two template lines, because no template marker says where those two sections end
 
 Commands (run with `python -B`):
 
-    keys --spec SPEC.json [--templates DIR]
+    keys --spec SPEC.json [--session SXX-YY] [--templates DIR]
         Render in memory and print the keys of every document, in tree order:
           doc <ID> markers=<n>
             marker <name> count=<n>      one line per name, first occurrence first
             headings: ## One | ### Two   the H2 and H3 headings outside a fence
-        A last line reads `fill_markers=<n> docs=<n>`.
-        Exit 0 printed, 2 refused (unreadable spec, spec lint error, render failure).
+        A last line reads `fill_markers=<n> docs=<n>`. --session prints only the
+        documents of one session, or only the plan documents when its value is `PLAN`,
+        and the last line then totals only those documents.
+        Exit 0 printed, 2 refused (unreadable spec, spec lint error, render failure,
+        or a --session value that is not in the spec).
 
     lint --spec SPEC.json --bodies-dir DIR [--session SXX-YY] [--templates DIR]
         Check the bodies files in DIR against the rendered skeleton. Prints one
@@ -1010,14 +1013,26 @@ def write_built(files, out, landed):
 
 # ---------------------------------------------------------------- CLI
 
+def unknown_session(session, index):
+    """True when `session` names neither the plan group nor a session of the rendered spec."""
+    return bool(session) and session != PLAN_GROUP and session not in {session_of(d) for d in index}
+
+
 def cmd_keys(args):
     built = render_core(args.spec, args.templates)
     if built is None:
         return 2
     _core, _files, index = built
+    if unknown_session(args.session, index):
+        print(f"REFUSED: session {args.session} is not in the spec. Fix: pass a session such as S01-01.")
+        return 2
     figures = task_figures(sp.load_spec(args.spec)[0])
     total = 0
+    shown = 0
     for doc, info in index.items():
+        if args.session and session_of(doc) != args.session:
+            continue
+        shown += 1
         filled = set(figures.get(doc, (None, {}))[1])  # the spec fills these, so no body is needed
         markers = [m for m in info["markers"] if m[0] not in filled]
         total += len(markers)
@@ -1028,7 +1043,7 @@ def cmd_keys(args):
         for name, count in counts.items():
             print(f"  marker {name} count={count}")
         print(f"  headings: {' | '.join(info['headings'])}")
-    print(f"fill_markers={total} docs={len(index)}")
+    print(f"fill_markers={total} docs={shown}")
     return 0
 
 
@@ -1037,7 +1052,7 @@ def cmd_lint(args):
     if built is None:
         return 2
     core, _files, index = built
-    if args.session and args.session != PLAN_GROUP and args.session not in {session_of(d) for d in index}:
+    if unknown_session(args.session, index):
         print(f"REFUSED: session {args.session} is not in the spec. Fix: pass a session such as S01-01.")
         return 2
     if not Path(args.bodies_dir).is_dir():
@@ -1336,6 +1351,7 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     k = sub.add_parser("keys", help="print every document's markers and headings")
     k.add_argument("--spec", required=True)
+    k.add_argument("--session", help="print only one session's documents, such as S01-01, or PLAN for the plan documents")
     k.add_argument("--templates", default=str(sp.DEFAULT_TEMPLATES))
     s = sub.add_parser("lint", help="check the bodies files against the rendered skeleton")
     s.add_argument("--spec", required=True)

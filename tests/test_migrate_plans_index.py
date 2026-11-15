@@ -561,14 +561,27 @@ def test_force_lets_a_dirty_append_set_migrate(tmp_path, capsys):
     assert mig.run(config, args("--write", "--force")) == 0, capsys.readouterr()
 
 
-def test_an_over_budget_render_is_refused_before_any_write(tmp_path, capsys, monkeypatch):
+def test_an_over_budget_render_warns_and_the_migration_completes(tmp_path, capsys, monkeypatch):
     config, _plans_dir, _index = fixture_a(tmp_path)
     monkeypatch.setattr(gen, "HUB_TOKEN_BUDGET", 10)
-    before = snapshot(tmp_path)
-    assert mig.run(config, write_args()) == 2
+    assert mig.run(config, write_args()) == 0, capsys.readouterr()
     err = capsys.readouterr().err
-    assert "budget" in err and "tokens" in err
-    assert snapshot(tmp_path) == before
+    assert "Warning:" in err and "budget" in err and "tokens" in err and "A plain Read" in err
+    assert "allow_large" not in err and "still writes it" not in err
+    assert gen.check_plans_index(config).exit_code == 0
+
+
+def test_an_over_budget_render_is_a_report_warning_not_a_refusal(tmp_path, capsys, monkeypatch):
+    config, _plans_dir, _index = fixture_a(tmp_path)
+    monkeypatch.setattr(gen, "HUB_TOKEN_BUDGET", 10)
+    assert mig.run(config, args("--report", "--json")) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["ready"] is True and report["would_refuse"] == []
+    [warning] = report["warnings"]
+    assert "budget" in warning and "tokens" in warning and "A plain Read" in warning
+    assert "a refused one writes nothing" in warning and "the migration still writes it" not in warning
+    assert mig.run(config, args("--dry-run", "--allow-untracked-tree")) == 1
+    assert "  warning: the regenerated plans index" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------
@@ -628,7 +641,7 @@ def test_report_json_is_one_object_with_the_documented_fields(tmp_path, capsys):
     report = json.loads(capsys.readouterr().out)
     assert list(report) == ["shape", "detail", "index", "rows", "comments", "narrative_cells", "attributable",
                             "unattributed", "uncarried_lines", "root_path_rows", "prefixed_rows", "status_changes",
-                            "append_targets", "ready", "would_refuse", "questions"]
+                            "append_targets", "ready", "would_refuse", "warnings", "questions"]
     assert report["uncarried_lines"] == 0
     assert (report["shape"], report["rows"], report["comments"], report["narrative_cells"]) == ("legacy", 3, 1, 1)
     assert (report["attributable"], report["unattributed"], report["status_changes"]) == (2, 0, 1)
@@ -766,7 +779,16 @@ def test_unaccounted_bytes_fix_names_feedback(tmp_path, monkeypatch):
 def test_a_refusal_set_with_the_defect_in_it_keeps_the_generic_fix_without_a_rerun(tmp_path, monkeypatch):
     config, _plans_dir, index = fixture_a(tmp_path)
     monkeypatch.setattr(mig, "accounting", lambda _plan: {"unaccounted": 7})
-    monkeypatch.setattr(mig.gen, "HUB_TOKEN_BUDGET", 10)
+    real_append, seen = mig._plan_append, []
+
+    def refuse_once(dest, items, index_path, date, refusals):
+        if not seen:
+            seen.append(dest)
+            refusals.append("cannot read the target as UTF-8; restore or re-encode it, then re-run")
+            return None
+        return real_append(dest, items, index_path, date, refusals)
+
+    monkeypatch.setattr(mig, "_plan_append", refuse_once)
     with pytest.raises(mig.Refusal) as caught:
         plan_of(config, index)
     assert len(caught.value.reason.split("\n")) == 2

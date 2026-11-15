@@ -384,7 +384,7 @@ def plans_report(**over):
         "shape": "generated", "detail": "", "index": "x/00-Index-Plans.md", "rows": 0, "comments": 0,
         "narrative_cells": 0, "attributable": 0, "unattributed": 0, "uncarried_lines": 0, "root_path_rows": 0,
         "prefixed_rows": 0, "status_changes": 0, "append_targets": [], "ready": False, "would_refuse": [],
-        "questions": [],
+        "warnings": [], "questions": [],
     }
     report.update(over)
     return report
@@ -433,6 +433,18 @@ def test_stage_20_over_budget_prints_warn_and_over_rows_and_no_all_clear(tmp_pat
     assert "changelog file(s) over the read budget" in section
     assert "--split-changelog" in section
     assert "nothing to do" not in section
+
+
+def test_stage_20_kept_whole_entry_prints_oversized_and_no_resplit_advice(tmp_path, capsys, monkeypatch):
+    cfg, _planwise = make_project(tmp_path)
+    files = [{"path": "x/Changelog.md", "tokens": 30000, "level": "OVER", "oversized_entry": True,
+              "needs_resplit": False}]
+    oversized = [{"file": "x/Changelog.md", "tokens": 30000, "budget": 22000}]
+    patch_backlog(monkeypatch, backlog_report(changelog_files=files, changelog_oversized=oversized))
+    section = stage_text(run(cfg, capsys), BACKLOG_SHAPE_BANNER)
+    assert "oversized entry: Changelog.md: 30000 tokens, budget 22000" in section
+    assert "re-splits" not in section and "changelog file Changelog.md" not in section
+    assert "generated shape, nothing to do" in section
 
 
 def test_stage_20_legacy_prints_counts_and_upgrade_line(tmp_path, capsys, monkeypatch):
@@ -620,6 +632,25 @@ def test_stage_22_generated_prints_fields_and_nothing_to_do(tmp_path, capsys, mo
                  "ready: False", "would_refuse: none"):
         assert line in section
     assert "generated shape, nothing to do" in section
+
+
+def test_plans_shape_prints_warnings_none_on_a_clean_fixture(tmp_path, capsys):
+    cfg, planwise = make_project(tmp_path)
+    write_generated_plans_index(planwise)
+    section = stage_text(run(cfg, capsys), PLANS_SHAPE_BANNER)
+    assert "warnings: none" in section
+
+
+def test_plans_shape_prints_warnings_over_budget(tmp_path, capsys, monkeypatch):
+    cfg, planwise = make_project(tmp_path)
+    index = write_generated_plans_index(planwise)
+    index.write_text(LEGACY_INDEX, encoding="utf-8")  # only a legacy index plans a migration, so only it warns
+    monkeypatch.setattr(gen, "HUB_TOKEN_BUDGET", 10)
+    section = stage_text(run(cfg, capsys), PLANS_SHAPE_BANNER)
+    assert "shape: legacy" in section
+    assert "warnings: the regenerated plans index would measure" in section
+    assert "-token budget" in section
+    assert "warnings: none" not in section
 
 
 def test_stage_22_legacy_prints_counts_and_upgrade_line(tmp_path, capsys, monkeypatch):

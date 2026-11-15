@@ -428,8 +428,9 @@ The point is not "never scaffold inline". The inline path is only safe when pair
 
 Applies to any `/planwise plan` invocation that produces 2+ Sprint Plan files in one pass, and to any hand-authored multi-sprint scaffolding session where 2+ sprints are authored before any review runs.
 
-**A second fragile surface is token-estimate reconciliation.** It applies to every batch scaffold, with or without Execution Inputs. A batch scaffold copies one figure across files, or leaves one stale when a task total changes. The figures sit at five levels:
+**A second fragile surface is token-estimate reconciliation.** It applies to every batch scaffold, with or without Execution Inputs. A batch scaffold copies one figure across files, or leaves one stale when a task total changes. The figures sit at six levels:
 
+- Required Context `~Tokens` rows against the `**Context subtotal:**` reads term
 - task header against `**Context subtotal:**`
 - Orchestration task-list cells and `**Total Estimated:**`
 - Sprint Plan `## Sessions` row

@@ -1,4 +1,4 @@
 {
-  "description": "Backlog loop: after a one-item /planwise backlog session prints its BACKLOG LOOP marker, compact the session and re-enter the handler with --loop-resume. Feedback drafting: registers the draft_feedback tool and saves model-drafted feedback locally. Plan building: registers the build_plan tool, which writes a build spec and bodies files beside the plan folder and runs scripts/plan_build.py on them.",
+  "description": "Backlog loop: after a one-item /planwise backlog session prints its BACKLOG LOOP marker, compact the session and re-enter the handler with --loop-resume. Feedback drafting: registers the draft_feedback tool and saves model-drafted feedback locally. Plan building: registers the build_plan tool, which writes a build spec and bodies files beside the plan folder and runs scripts/plan_build.py on them. Agent guard: checks planwise:task-runner dispatches (spawn-prompt clauses, background Agent calls, runner stops that look unfinished, bare cd and file-read Bash verbs inside a runner); it reports by default and refuses only when the plugin option agent_guard is deny.",
   "modules": ["./register.ts"]
 }

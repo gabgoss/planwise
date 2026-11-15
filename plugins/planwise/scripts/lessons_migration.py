@@ -658,7 +658,18 @@ def _ledger_counts(ledger: dict) -> dict:
         "relocated": ledger.get("relocated") or {},
         # "accepted" (only classes --write never heals) counts as clean.
         "generator_check_clean": mig.generator_succeeded(gen_exits),
+        # Each lesson the generator left in the wrong folder; the banner names the manual move.
+        "location_anomalies": list((gen_exits or {}).get("index_check_anomalies") or []),
     }
+
+
+def _move_line(anomaly: dict) -> str:
+    """One `move by hand:` banner line. The generator never moves a file, so the
+    banner names the file and the folder it belongs in."""
+    detail = str(anomaly.get("detail") or "")
+    status = next((part.split("=", 1)[1] for part in detail.split() if part.startswith("status=")), "?")
+    target = "to the top level" if "in_archive=True" in detail else "into Archive/"
+    return f"    move by hand:            {anomaly.get('id')} (status={status}) -> {target}"
 
 
 def _count_shards(config: dict, index_path: Path, report) -> None:
@@ -759,9 +770,17 @@ def _migrated_lines(report: LessonsMigrationReport) -> list:
     else:
         lines.append("    backups:                 none (no file was rewritten this run)")
     dirty = {True: "yes", False: "no", None: "unknown"}[report.git_dirty]
+    anomalies = c.get("location_anomalies") or []
+    if not c.get("generator_check_clean"):
+        check = "not clean"
+    elif anomalies:
+        check = "clean apart from location anomalies"
+    else:
+        check = "clean"
     lines += [f"    git tree was dirty:      {dirty} (informational -- the backup above is the restore point)",
-              ("    generator --check:      clean" if c.get("generator_check_clean")
-               else "    generator --check:      not clean")]
+              f"    generator --check:      {check}"]
+    if c.get("generator_check_clean"):
+        lines += [_move_line(a) for a in anomalies]
     return lines
 
 

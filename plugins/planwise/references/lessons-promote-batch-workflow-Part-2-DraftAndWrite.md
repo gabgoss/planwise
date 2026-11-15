@@ -110,7 +110,7 @@ Use comma-separated multi-path format; never YAML arrays with 2+ items (per `rul
 Each BB has between 2 and 5 deliverables, in this order:
 
 1. **Rule deliverable(s)** — one per target rule. Outline the §-sections, name each promoted lesson whose content is being inlined, state explicitly *"the rule does NOT cite LL-X"*.
-2. **Code/settings application deliverable(s)** — one per file that gets a docstring/comment/settings edit.
+2. **Check, code-fix and settings deliverable(s)** — one per named check, one per fixed file with its regression test, or one per settings edit. Part 1's Check deliverables subsection defines the must-fail control.
 3. **CLAUDE.md update deliverable** — list each `> [!binding]` callout to add or replace, with the exact text of the callout (rule-pointer language, no lesson references). Include the new row(s) for the "Skills, Rules, and LSPs" Rules table.
 4. **Lesson status flip deliverable** — the immediate capture-time flip is `documented → promoted` (done in Phase 4, §6.5, not deferred). The deliverable's table maps each in-scope lesson to its **eventual** landing status (`rule` | `applied`) and `applied-as` path — what curate flips it to once the owning item ships. Note the Rule Promotion Log row count for that eventual landing (curate writes the rows then, not at capture).
 5. **Acceptance Criteria** — must include a self-containment grep check (see §8).
@@ -215,7 +215,7 @@ Every in-scope lesson is now fully captured into a drafted backlog item, so it i
 
 For each in-scope lesson that landed in a BB deliverable:
 
-1. **Flip the frontmatter.** Set `status: promoted` and populate `promoted-to:` with the owning backlog item id(s) — e.g. `promoted-to: BB-{NNN}`, listing every owner when the lesson decomposed across several BBs.
+1. **Flip the frontmatter.** Set `status: promoted` and populate `promoted-to:` with the owning backlog item id(s) — e.g. `promoted-to: BB-{NNN}`, listing every owner when the lesson decomposed across several BBs. Set `origin:` and `enforced-by:` from the Phase 2 answers when the lesson lacks either, with the `enforced-by:` value double-quoted.
 2. **Move the file to the archive.** `git mv {lessons_dir}/LL-{NNN}-*.md {lessons_dir}/Archive/`. A fully-captured lesson belongs in `Archive/` (archived ≠ landed).
 3. **Flip the frontmatter.** Flip each lesson's own `status:` to `promoted` with the flip script, never by hand at batch scale: `python {plugin_root}/scripts/flip_lesson_status.py --config {config_path} {map_file} [--dry-run]`, where `{map_file}` lists one `LL-{NNN}: promoted` line per captured lesson. The script resolves each id straight to its own lesson file — it no longer opens the index at all — and refuses downgrades from landed statuses, skips rows already at target, and reports unmatched or ambiguous ids and unparseable rows with a non-zero exit — investigate before trusting the run.
 4. **Regenerate the index once.** `python {plugin_root}/scripts/generate_lessons_index.py --config {config_path} --write` — run once for the whole batch, after every lesson in it has been `git mv`d (step 2) and flipped (step 3), not per lesson. The generator derives the File cell from wherever each file sits, so no manual link repoint is needed and there is no header to bump by hand.
@@ -256,10 +256,10 @@ Under `--dry-run`, skip this entire step: report the planned flips and archive m
 >
 > ## Evidence
 >
-> | Lesson | Status today | Recurrences | Already-applied artefact (if any) | Fragment scope |
-> |--------|--------------|-------------|------------------------------------|----------------|
-> | LL-X | promoted | 3 | - | full lesson |
-> | LL-Y | promoted | 2 | - | covers (a) only — (b) in BB-{P} |
+> | Lesson | Status today | Origin | Enforced by | Recurrences | Already-applied artefact (if any) | Fragment scope |
+> |--------|--------------|--------|-------------|-------------|------------------------------------|----------------|
+> | LL-X | promoted | own-rules | test: `tests/{file}.py::{test}` | 3 | - | full lesson |
+> | LL-Y | promoted | model-call | none: {one-line reason} | 2 | - | covers (a) only — (b) in BB-{P} |
 >
 > ## Proposal
 >
@@ -274,9 +274,9 @@ Under `--dry-run`, skip this entire step: report the planned flips and archive m
 > 1. **§1. ...** — `> [!constraint]` with WRONG (...) vs CORRECT (...). Includes the full WRONG/CORRECT examples currently in LL-X's body.
 > 2. ...
 >
-> ### Deliverable 2 — {applied-to-code | applied-to-settings} (if any)
+> ### Deliverable 2 — {check | code fix | applied-to-settings} (if any)
 >
-> {file path, what to inline as a docstring/comment, content fully self-contained, no LL refs}
+> {the check's kind and path, or the file to fix and its regression test; the must-fail control: the command, its result on the lesson's failing example and its result on the corrected example; content fully self-contained, no LL refs}
 >
 > ### Deliverable 3 — CLAUDE.md updates (rule-pointer only, no LL references)
 >
@@ -298,7 +298,7 @@ Under `--dry-run`, skip this entire step: report the planned flips and archive m
 > - [ ] `{file}` exists with frontmatter `paths: {scope}` and §1-§N from Deliverable 1, all content self-contained
 > - [ ] CLAUDE.md updated per Deliverable 3
 > - [ ] {N} lesson frontmatters updated; {N} rows added to Rule Promotion Log
-> - [ ] {regression checks specific to this BB's domain}
+> - [ ] Each named check fails on its lesson's failing example and passes on the corrected one, and both runs are recorded
 > - [ ] `grep -rnE '(LL-[0-9]{3}|BB-[0-9]{3})' .claude/rules/{path}.md .claude/agents/{paths-touched} .claude/skills/{paths-touched} .claude/commands/{paths-touched} CLAUDE.md` returns zero matches (artifact self-containment check — see `references/artifact-self-containment.md` §4)
 > - [ ] `/planwise lessons curate` reports no anomalies after the run
 >
@@ -370,7 +370,7 @@ The two mechanisms **compose**; they are not alternatives:
 - **`status: promoted`** (the resting lifecycle state) records that the lesson is fully owned and archived, awaiting landing. It does not change as fragments land — only the final landing (last fragment) flips it to `rule`/`applied`.
 - **`applied-as` with `PENDING:` markers** (the bookkeeping field) records the fine-grained landing progress of each fragment *within* the `promoted → rule|applied` transition.
 
-So a decomposed lesson can legitimately read `status: promoted` **and** `applied-as: '.claude/rules/X.md §1, PENDING:BB-{NNN}'` at once: owned and archived (resting `promoted`), with one fragment already landed and one still awaiting its BB. The lifecycle stays coarse and stable; the per-fragment detail lives in `applied-as`. Both the lesson template in `seed/00-Index-LessonsLearned.md` and the curate workflow's Phase-2 check understand this pairing.
+So a decomposed lesson can legitimately read `status: promoted` **and** `applied-as: '.claude/rules/X.md §1, PENDING:BB-{NNN}'` at once: owned and archived (resting `promoted`), with one fragment already landed and one still awaiting its BB. The lifecycle stays coarse and stable; the per-fragment detail lives in `applied-as`. Both the lesson template (`templates/lesson.md`) and the curate workflow's Phase-2 check understand this pairing.
 
 ---
 

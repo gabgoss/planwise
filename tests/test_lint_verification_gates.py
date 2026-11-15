@@ -146,6 +146,15 @@ class TestPerCheckShapes(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0]["severity"], "WARNING")
 
+    def test_check6_fires_without_verdict_marker(self):
+        # Same gate and legend as shape_06, but the report carries no
+        # "**Verdict:**" marker. The defect is the bare token over the report's
+        # own legend and header lines, not the marker.
+        findings = _lint_fixture("shape_06b_substring_no_verdict_marker")
+        self.assertEqual(_checks_present(findings), [6])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "WARNING")
+
     def test_check7_contradicted_before_baseline_is_error(self):
         # Two Before-block baselines disagree with the live tree.
         findings = _lint_fixture("shape_07_contradicted_before_baseline")
@@ -470,6 +479,11 @@ class TestExecutorDisabled(unittest.TestCase):
         self.assertIn(6, _checks_present(findings))
         self.assertEqual(_severities_for_check(findings, 6), ["WARNING"])
 
+    def test_check6_marker_less_fires_with_executor_disabled(self):
+        findings = _lint_fixture("shape_06b_substring_no_verdict_marker", execute=False)
+        self.assertEqual(_checks_present(findings), [6])
+        self.assertEqual(_severities_for_check(findings, 6), ["WARNING"])
+
     def test_checks_9_to_16_fire_with_executor_disabled(self):
         # Every one of the eight shape checks is static. With the executor
         # off, the pipeline and pytest fixtures also lose their refusal
@@ -687,6 +701,70 @@ def _write_task(plan_root, fence_lines):
         "> ```bash\n" + body + "> ```\n",
         encoding="utf-8",
     )
+
+
+class TestCheck6StatedExpectation(unittest.TestCase):
+    """Check 6 reads the gate's stated expectation and the target's own
+    vocabulary. A non-zero expectation means the token is meant to be present,
+    and a token confined to table data rows and prose is not the report's own
+    legend, header or heading vocabulary. Both stay silent even when the target
+    carries a "**Verdict:**" marker, so the marker cannot be what decides."""
+
+    _LEGEND_REPORT = (
+        "# Verification Report\n\n"
+        "**Legend:** `PASS` = criterion met; `FAIL` = criterion not met.\n\n"
+        "| # | Criterion | PASS / FAIL |\n"
+        "|---|-----------|-------------|\n"
+        "| 1 | Legend block present | PASS |\n\n"
+        "**Verdict:** PASS\n"
+    )
+
+    _DATA_ROW_REPORT = (
+        "# Verification Report\n\n"
+        "| # | Criterion | Result |\n"
+        "|---|-----------|--------|\n"
+        "| 1 | Widget BROKEN case | PASS |\n\n"
+        "Residual: the BROKEN widget was repaired.\n\n"
+        "**Verdict:** PASS\n"
+    )
+
+    def _lint_gate(self, report_text, gate_line, annotation=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_root = Path(tmp)
+            (plan_root / "report.md").write_text(report_text, encoding="utf-8")
+            fence = [gate_line]
+            if annotation is not None:
+                fence.append(annotation)
+            _write_task(plan_root, fence)
+            return lint_plan(plan_root, execute=False)
+
+    def test_silent_when_expectation_is_nonzero(self):
+        findings = self._lint_gate(
+            self._LEGEND_REPORT,
+            "grep -c 'FAIL' report.md   # expect >=1",
+            annotation="# pre-edit: 1",
+        )
+        self.assertNotIn(6, _checks_present(findings))
+
+    def test_silent_when_token_only_in_data_rows_and_prose(self):
+        findings = self._lint_gate(
+            self._DATA_ROW_REPORT,
+            "grep -c 'BROKEN' report.md   # expect 0",
+            annotation="# pre-edit: 2 → expect 0",
+        )
+        self.assertNotIn(6, _checks_present(findings))
+
+    def test_ignore_case_flag_matches_the_legend_token(self):
+        gate = "grep -ci 'fail' report.md   # expect 0"
+        findings = self._lint_gate(self._LEGEND_REPORT, gate, annotation="# pre-edit: 2 → expect 0")
+        self.assertEqual(_checks_present(findings), [6])
+        # Without -i the lowercase token is not on any line, so Check 6 is silent.
+        findings = self._lint_gate(
+            self._LEGEND_REPORT,
+            "grep -c 'fail' report.md   # expect 0",
+            annotation="# pre-edit: 0 → expect 0",
+        )
+        self.assertNotIn(6, _checks_present(findings))
 
 
 class TestCheck3FixedStringGrep(unittest.TestCase):
@@ -998,6 +1076,30 @@ class TestExitNotChecked(unittest.TestCase):
                 line = coverage_line(context)
                 self.assertEqual(lint_module.none_ran(context), expected, line)
                 self.assertEqual(line.startswith("Coverage: NOT CHECKED"), expected, line)
+
+    def test_empty_plan_prints_dispatch_subjects_line_marked_nothing_examined(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_root = Path(tmp)
+            (plan_root / "target.md").write_bytes(b"X\n")
+            result = self._run_cli(plan_root, "--no-execute")
+        stdout = result.stdout.decode("utf-8")
+        lines = stdout.splitlines()
+        self.assertTrue(lines[0].startswith("Coverage:"), stdout)
+        self.assertTrue(lines[1].startswith("Dispatch subjects (Checks 42-47):"), stdout)
+        self.assertIn("task_files=0", lines[1])
+        self.assertTrue(lines[1].endswith("-- nothing examined"), stdout)
+
+    def test_populated_plan_prints_dispatch_subjects_line_with_counts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_root = Path(tmp)
+            _write_task(plan_root, ["grep -c 'X' target.md"])
+            result = self._run_cli(plan_root, "--no-execute")
+        stdout = result.stdout.decode("utf-8")
+        lines = stdout.splitlines()
+        self.assertTrue(lines[0].startswith("Coverage:"), stdout)
+        self.assertTrue(lines[1].startswith("Dispatch subjects (Checks 42-47):"), stdout)
+        self.assertIn("task_files=1", lines[1])
+        self.assertNotIn("nothing examined", lines[1])
 
 
 class TestConsoleEncodingSurvival(unittest.TestCase):

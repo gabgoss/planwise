@@ -54,7 +54,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-NUM = r"\d[\d,]*"
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
+
+NUM =r"\d[\d,]*"
 RUN = rf"{NUM}(?:[ \t]*\+[ \t]*{NUM})+"
 FORM_I = re.compile(rf"(?<![\d,.]){RUN}[ \t]*=[ \t]*({NUM})(?![\d]|\.\d)")
 RUN_RE = re.compile(rf"(?<![\d,.])({RUN})(?![\d,]|\.\d)")

@@ -127,7 +127,7 @@ A duplicate-scan hit counts only when that item states the same condition as the
 | `ALREADY_MET` | Every criterion is met | Not produced in this mode | The author writes a close record into `## Resolution`. The orchestrator flips the status |
 | `PREMISE_FAILS` | The re-alignment target is absent | The author writes one open question with the options re-target, retire and keep | Same as the filing path |
 
-A design file's `DESIGN` value maps to the item as the author's mapping table states: `REFINED` writes `refined: true`, `QUESTIONS` writes open questions, `DECOMPOSE` files sub-items that carry the parent in their `blocks:`, and `NEEDS_PLAN` writes `needs_plan: true` for a later planning session. No agent authors a session plan.
+A design file's `DESIGN` value maps to the item as the author's mapping table states: `REFINED` writes `refined: true`, `QUESTIONS` writes open questions, `DECOMPOSE` files sub-items that carry the parent in their `blocks:` and, for each sub-item whose `SUB_ITEMS` line names an `{after}` position, the author adds that sub-item's id to its prerequisite sibling's `blocks:`, and `NEEDS_PLAN` writes `needs_plan: true` for a later planning session. No agent authors a session plan.
 
 ---
 

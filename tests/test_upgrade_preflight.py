@@ -158,6 +158,7 @@ def test_read_only_proof_up_to_date_runs_every_report(tmp_path, capsys, monkeypa
     before = tree_and_home(root)
     card = run_card(capsys, root)
     assert tree_and_home(root) == before
+    assert "feedback_enabled: enabled" in card  # the up-to-date proof needs posting on
     assert "Nothing to do" in card  # every report ran and passed
     flags = {(c[0], c[-1]) for c in calls}
     assert flags == {("migrate_backlog_index.py", "--report"), ("migrate_lessons_index.py", "--report"),
@@ -207,7 +208,7 @@ def test_up_to_date_noop_next(tmp_path, capsys, monkeypatch):
     assert "Nothing to do" not in run_card(capsys, root)  # control: gh absent is a pending offer
     monkeypatch.setattr(doctor_probes, "_gh_environment", lambda: dict(GH_OK))
     card = run_card(capsys, root)
-    assert "branch: up-to-date" in card
+    assert "branch: up-to-date" in card and "feedback_enabled: enabled" in card
     assert f'Nothing to do. Report: "Plugin version: {ucp.TO} — already up to date."' in card
     assert "upgrade_run.py" not in card
 
@@ -264,6 +265,37 @@ def test_card_has_no_version_notice(tmp_path, capsys):
         assert not any(line.startswith("planwise:") for line in lines)
 
 
+def test_posting_notice_on_upgrade_branch_when_enabled(tmp_path, capsys):
+    lines = run_card(capsys, ucp.make_project(tmp_path)).splitlines()
+    assert any("branch: upgrade" in line for line in lines)
+    header = next(i for i, line in enumerate(lines) if "feedback_enabled: enabled" in line)
+    assert lines[header + 1] == upgrade_preflight.FEEDBACK_POSTING_NOTICE
+    assert lines.count(upgrade_preflight.FEEDBACK_POSTING_NOTICE) == 1
+    assert lines[1].startswith("UPGRADE CARD")
+    assert upgrade_preflight.FEEDBACK_POSTING_NOTICE == (
+        "feedback posting: on — Auto Mode, backlog loop and harvest runs post without asking; "
+        "set feedback.enabled: false to stop")
+
+
+def test_no_posting_notice_when_posting_off(tmp_path, capsys):
+    root = ucp.make_project(tmp_path, name="posting-off")
+    ucp.edit_config(root, *POSTING_OFF)
+    card = run_card(capsys, root)
+    assert "branch: upgrade" in card and "feedback_enabled: disabled" in card
+    assert "feedback posting: on" not in card
+    ucp.edit_config(root, r"^  enabled: false\n", "")
+    card = run_card(capsys, root)
+    assert "feedback_enabled: absent" in card and "feedback posting: on" not in card
+
+
+def test_no_posting_notice_on_up_to_date(tmp_path, capsys, monkeypatch):
+    root = ucp.make_up_to_date(tmp_path)
+    monkeypatch.setattr(doctor_probes, "_gh_environment", lambda: dict(GH_OK))
+    card = run_card(capsys, root)
+    assert "branch: up-to-date" in card and "feedback_enabled: enabled" in card
+    assert "feedback posting: on" not in card
+
+
 def test_migration_questions_block(tmp_path, capsys):
     assert "Migration questions (0):" in run_card(capsys, ucp.make_project(tmp_path))
     card = run_card(capsys, ucp.make_project(tmp_path, name="asked", diverged=(), question=True))
@@ -278,22 +310,24 @@ def test_migration_questions_block(tmp_path, capsys):
 
 
 DROP_DRAFTS = (r"^  drafts: notify\n", "")
+POSTING_OFF = (r"^  enabled: true", "  enabled: false")
 
 
 def test_feedback_questions_only_when_drafts_key_absent(tmp_path, capsys):
     kept = run_card(capsys, ucp.make_project(tmp_path))
-    assert "feedback_drafts: set" in kept
+    assert "feedback_drafts: set" in kept and "feedback_enabled: enabled" in kept
     assert "Feedback drafts question:" not in kept and "Feedback posting question:" not in kept
     assert "--feedback-drafts" not in kept and "--feedback-enabled" not in kept
     root = ucp.make_project(tmp_path, name="nodrafts")
     ucp.edit_config(root, *DROP_DRAFTS)
     card = run_card(capsys, root)
-    assert "feedback_drafts: absent" in card
+    assert "feedback_drafts: absent" in card and "feedback_enabled: enabled" in card
     block = next_block(card)
     assert f"Feedback drafts question: {upgrade_preflight.FEEDBACK_DRAFTS_QUESTION}" in block
-    assert f"Feedback posting question: {upgrade_preflight.FEEDBACK_ENABLED_QUESTION}" in block
-    assert "--feedback-drafts {value}" in block and "--feedback-enabled" in block
-    assert "Unattended: add neither" in block
+    assert "Feedback posting question:" not in block  # posting is on: the drafts question stands alone
+    assert "--feedback-drafts {value}" in block and "--feedback-enabled" not in block
+    assert upgrade_preflight.UNATTENDED_POSTING_ON in block
+    assert "Unattended: add neither" not in block
     assert "--feedback-drafts" not in run_line(card)  # the model adds the flags from the answers
 
 
@@ -314,14 +348,20 @@ def test_feedback_posting_question_handlers_carry_the_constant_verbatim(handler)
 def test_feedback_questions_merge_under_the_question_limit(tmp_path, capsys):
     root = ucp.make_project(tmp_path, name="merged", diverged=(), question=True)
     ucp.edit_config(root, *DROP_DRAFTS)
+    ucp.edit_config(root, *POSTING_OFF)
     block = next_block(run_card(capsys, root))
-    assert "Ask one AskUserQuestion with the Token Saver question and the feedback drafts question" in block
-    assert "and every migration question listed above" in block  # 1 + 2 + 1 = 4, the limit
-    assert upgrade_preflight.question_steps(False, [("backlog", {})] * 2, "absent")[0].startswith(
+    assert ("Ask one AskUserQuestion with the Token Saver question and the feedback drafts question and the "
+            "feedback posting question and every migration question listed above") in block  # 1 + 1 + 1 + 1 = 4
+    steps = upgrade_preflight.question_steps
+    assert steps(False, [("backlog", {})] * 2, "absent", "absent")[0].startswith(
         "Ask the Token Saver question and the feedback drafts question and the feedback posting question in one ")
-    on = upgrade_preflight.question_steps(True, [], "no-block")
-    assert on[0] == "Ask one AskUserQuestion with the feedback drafts question and the feedback posting question."
-    assert upgrade_preflight.question_steps(True, [], "set") == []
+    assert steps(False, [("backlog", {})] * 2, "absent")[0].startswith(
+        "Ask one AskUserQuestion with the Token Saver question and the feedback drafts question and every ")
+    assert steps(True, [], "no-block")[0] == "Ask one AskUserQuestion with the feedback drafts question."
+    assert steps(True, [], "set", "disabled")[0] == "Ask one AskUserQuestion with the feedback posting question."
+    assert steps(True, [], "no-block", "absent")[0] == (
+        "Ask one AskUserQuestion with the feedback drafts question and the feedback posting question.")
+    assert steps(True, [], "set") == []
 
 
 def test_feedback_drafts_header_states(tmp_path, capsys):
@@ -335,7 +375,8 @@ def test_feedback_drafts_header_states(tmp_path, capsys):
 def test_absent_drafts_key_breaks_noop_proof(tmp_path, capsys, monkeypatch):
     root = ucp.make_up_to_date(tmp_path)
     monkeypatch.setattr(doctor_probes, "_gh_environment", lambda: dict(GH_OK))
-    assert "Nothing to do" in run_card(capsys, root)  # control: the untouched project passes
+    control = run_card(capsys, root)
+    assert "Nothing to do" in control and "feedback_enabled: enabled" in control  # control: the untouched project
     ucp.edit_config(root, *DROP_DRAFTS)
     card = run_card(capsys, root)
     assert "Nothing to do" not in card and "feedback_drafts: absent" in card
@@ -344,7 +385,92 @@ def test_absent_drafts_key_breaks_noop_proof(tmp_path, capsys, monkeypatch):
     assert (ok, reason, argvs) == (False, "config has no feedback.drafts key", [])
 
 
-WARNING = "! running copy is not the project's marketplace install"
+def posting_off_up_to_date(tmp_path, monkeypatch) -> Path:
+    """An up-to-date project with `feedback.drafts: notify`, `feedback.enabled: false` and gh ok."""
+    root = ucp.make_up_to_date(tmp_path)
+    monkeypatch.setattr(doctor_probes, "_gh_environment", lambda: dict(GH_OK))
+    ucp.edit_config(root, *POSTING_OFF)
+    return root
+
+
+def test_posting_question_while_enabled_is_not_true(tmp_path, capsys, monkeypatch):
+    card = run_card(capsys, posting_off_up_to_date(tmp_path, monkeypatch))
+    assert "branch: up-to-date" in card and "feedback_drafts: set" in card and "feedback_enabled: disabled" in card
+    assert "Nothing to do" not in card
+    assert f"Feedback posting question: {upgrade_preflight.FEEDBACK_ENABLED_QUESTION}" in next_block(card)
+    assert "upgrade_run.py" in run_line(card)  # the run command carries the answer as a flag
+
+
+def test_posting_only_card_has_no_drafts_question(tmp_path, capsys, monkeypatch):
+    block = next_block(run_card(capsys, posting_off_up_to_date(tmp_path, monkeypatch)))
+    assert "Feedback drafts question:" not in block and "--feedback-drafts {value}" not in block
+    assert "and the feedback posting question." in block
+    assert "On Yes to posting, add `--feedback-enabled`. On No, add `--no-feedback-enabled`." in block
+
+
+def test_enabled_true_up_to_date_is_nothing_to_do(tmp_path, capsys, monkeypatch):
+    root = ucp.make_up_to_date(tmp_path)
+    monkeypatch.setattr(doctor_probes, "_gh_environment", lambda: dict(GH_OK))
+    card = run_card(capsys, root)
+    assert "feedback_enabled: enabled" in card and "Feedback posting question:" not in card
+    assert f'Nothing to do. Report: "Plugin version: {ucp.TO} — already up to date."' in card
+
+
+def test_unattended_line_adds_feedback_enabled_when_absent():
+    lines = upgrade_preflight.question_steps(True, [], "set", "absent")
+    assert f"  {upgrade_preflight.UNATTENDED_POSTING_ABSENT}" in lines
+    assert upgrade_preflight.UNATTENDED_POSTING_ABSENT.startswith(
+        "Unattended: add --feedback-enabled (Auto Mode infers posting on) and no --feedback-drafts;")
+    assert not any("feedback.enabled: false stays" in line for line in lines)
+
+
+def test_unattended_line_keeps_explicit_false():
+    """Auto Mode infers posting on for an absent key only; an explicit false stays, and the next interactive
+    upgrade asks again."""
+    for state in ("disabled", "unreadable"):
+        lines = upgrade_preflight.question_steps(True, [], "set", state)
+        unattended = [line for line in lines if line.strip().startswith("Unattended:")]
+        assert unattended == [f"  {upgrade_preflight.UNATTENDED_POSTING_KEPT}"], state
+        assert "add no --feedback-enabled" in unattended[0] and "feedback.enabled: false stays" in unattended[0]
+        assert "Unattended: add --feedback-enabled" not in unattended[0]
+
+
+def test_feedback_enabled_header_states(tmp_path, capsys):
+    root = ucp.make_project(tmp_path, name="posting")
+    assert "feedback_enabled: enabled" in run_card(capsys, root)
+    ucp.edit_config(root, *POSTING_OFF)
+    assert "feedback_enabled: disabled" in run_card(capsys, root)
+    ucp.edit_config(root, r"^  enabled: false\n", "")
+    card = run_card(capsys, root)
+    assert "feedback_enabled: absent" in card
+    assert upgrade_preflight.UNATTENDED_POSTING_ABSENT in next_block(card)
+
+
+def test_noop_proof_reason_when_posting_off(tmp_path, capsys, monkeypatch):
+    root = posting_off_up_to_date(tmp_path, monkeypatch)
+    config_path, config = upgrade_preflight.resolve_config(root.resolve())
+    assert config["feedback"]["drafts"] == "notify" and config["feedback"]["enabled"] is False
+    ok, reason, argvs = upgrade_preflight.noop_proof("up-to-date", [], config, config_path, {}, "project")
+    assert (ok, reason, argvs) == (False, "feedback.enabled is not true", [])
+
+
+def test_legacy_lessons_index_breaks_noop_proof(tmp_path, capsys, monkeypatch):
+    """An up-to-date project whose lessons index is still hand-authored gets a run
+    command, not "Nothing to do", so a re-run retries a failed lessons migration."""
+    root = ucp.make_up_to_date(tmp_path)
+    monkeypatch.setattr(doctor_probes, "_gh_environment", lambda: dict(GH_OK))
+    control = run_card(capsys, root)
+    assert "Nothing to do" in control and "feedback_enabled: enabled" in control  # control: the untouched project
+    index = root / "planwise" / "LessonsLearned" / "00-Index-LessonsLearned.md"
+    index.write_bytes(b"# Lessons Learned Index\n\n## Master Table\n\n| ID | Title |\n|---|---|\n")
+    card = run_card(capsys, root)
+    assert "Nothing to do" not in card and "upgrade_run.py" in card
+    config_path, config = upgrade_preflight.resolve_config(root.resolve())
+    ok, reason, _ = upgrade_preflight.noop_proof("up-to-date", [], config, config_path, {}, "project")
+    assert (ok, reason) == (False, "lessons index shape is legacy, not generated")
+
+
+WARNING ="! running copy is not the project's marketplace install"
 
 
 def live_root(card: str) -> str:

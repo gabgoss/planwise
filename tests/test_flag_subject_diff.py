@@ -64,9 +64,30 @@ def test_case_and_whitespace_are_normalised():
     assert fsd.normalise("The   Lint  module\tIS") == "the lint module is"
 
 
-def test_missing_destination_section_is_an_input_error(tmp_path, capsys):
-    assert fsd.main(_write(tmp_path, PLAN, "# Orchestration\n")) == 2
-    assert "Pre-Known Cross-Task Coordination Flags" in capsys.readouterr().out
+def test_missing_destination_section_is_an_empty_source(tmp_path, capsys):
+    """An absent optional section is a note: carried rows then read as unmatched."""
+    assert fsd.main(_write(tmp_path, PLAN, "# Orchestration\n")) == 1
+    out = capsys.readouterr().out
+    assert "note: no '## Pre-Known Cross-Task Coordination Flags' heading" in out
+    assert "unmatched carried rows: 2" in out
+    args = _write(tmp_path, PLAN, "# Orchestration\n")
+    args[-1] = "XYZ-09"
+    assert fsd.main(args) == 0
+
+
+def test_missing_carried_section_is_an_empty_source(tmp_path, capsys):
+    plan = "# Plan\n\n## Other\n"
+    assert fsd.main(_write(tmp_path, plan, ORCH_REPAIRED)) == 0
+    out = capsys.readouterr().out
+    assert "note: no '## Carried-Forward Coordination Flags' heading" in out
+    assert "carried rows for session ABC-02: 0" in out
+
+
+def test_unreadable_file_still_exits_2(tmp_path, capsys):
+    args = _write(tmp_path, PLAN, ORCH_REPAIRED)
+    args[1] = str(tmp_path / "absent.md")
+    assert fsd.main(args) == 2
+    assert capsys.readouterr().out.startswith("error:")
 
 
 def test_no_carried_rows_prints_zero_count(tmp_path, capsys):
@@ -92,8 +113,8 @@ def test_session_prefix_selects_no_longer_ids(tmp_path, capsys):
 def test_heading_inside_a_fence_is_not_the_section(tmp_path, capsys):
     """A fenced example heading, with a tilde run inside a backtick fence, is skipped."""
     fenced = "```\n~~~\n## Pre-Known Cross-Task Coordination Flags\n~~~\n```\n\n"
-    assert fsd.main(_write(tmp_path, PLAN, "# Orchestration\n\n" + fenced)) == 2
-    capsys.readouterr()
+    assert fsd.main(_write(tmp_path, PLAN, "# Orchestration\n\n" + fenced)) == 1
+    assert "note: no '## Pre-Known" in capsys.readouterr().out
     assert fsd.main(_write(tmp_path, PLAN, "# Orchestration\n\n" + fenced + ORCH_REPAIRED)) == 0
 
 
@@ -101,3 +122,95 @@ def test_table_without_consumer_column_is_counted_as_skipped(tmp_path, capsys):
     plan = PLAN.replace("## Next Section", "| Flag | Note |\n|---|---|\n| X | y |\n\n## Next Section")
     fsd.main(_write(tmp_path, plan, ORCH_REPAIRED))
     assert "carried tables skipped (no consuming-session column): 1" in capsys.readouterr().out
+
+
+# -- second hop: orchestration Pre-Known rows against each task file --------
+
+NO_CARRIED_PLAN = "# Plan\n\n## Other\n"
+
+ORCH_TASK_ROWS = """# Orchestration
+
+## Pre-Known Cross-Task Coordination Flags
+
+### From ABC-S01-01 - recorded 2026-11-14
+
+| Flag # | Source Task | Consuming Task | Observation | Recommended Action | Routed |
+|--------|-------------|----------------|-------------|--------------------|--------|
+| 1 | up-01 | Task 01 | The split part is OVER the page cap | read the parts | pending |
+"""
+
+TASK_NAME_01 = "ABC-S01-02-01-Sonnet-First.md"
+TASK_NAME_03 = "ABC-S01-02-03-Sonnet-Third.md"
+TASK_WITHOUT_FLAGS = "# Task\n\n## Execution Steps\n\nDo it.\n"
+TASK_WITH_FLAG = (
+    TASK_WITHOUT_FLAGS
+    + "\n## Pre-Known Cross-Task Coordination Flags\n\n"
+    "- **Flag 1 from up-01** (routed 2026-11-14): the   split part is OVER the page cap"
+    " -> read the parts\n"
+)
+
+
+def _task_run(tmp_path, orch, tasks):
+    """Write plan, orchestration and the named task files into ``tmp_path``."""
+    (tmp_path / "plan.md").write_text(NO_CARRIED_PLAN, encoding="utf-8")
+    (tmp_path / "ABC-S01-02-Orchestration.md").write_text(orch, encoding="utf-8")
+    for name, text in tasks.items():
+        (tmp_path / name).write_text(text, encoding="utf-8")
+    return [
+        "--sprint-plan", str(tmp_path / "plan.md"),
+        "--orchestration", str(tmp_path / "ABC-S01-02-Orchestration.md"),
+        "--session", "ABC-S01-02",
+    ]
+
+
+def test_task_file_without_the_flag_is_listed_under_its_task_id(tmp_path, capsys):
+    args = _task_run(tmp_path, ORCH_TASK_ROWS, {TASK_NAME_01: TASK_WITHOUT_FLAGS})
+    assert fsd.main(args) == 1
+    out = capsys.readouterr().out
+    assert "note: no '## Carried-Forward Coordination Flags' heading" in out
+    assert "note: no '## Pre-Known Cross-Task Coordination Flags' heading" in out
+    assert "task files: 1" in out
+    assert "unrouted task flags: 1" in out
+    assert "  ABC-S01-02-01: 1: The split part is OVER the page cap" in out
+
+
+def test_task_file_carrying_the_flag_bullet_passes(tmp_path, capsys):
+    args = _task_run(tmp_path, ORCH_TASK_ROWS, {TASK_NAME_01: TASK_WITH_FLAG})
+    assert fsd.main(args) == 0
+    assert "unrouted task flags: 0" in capsys.readouterr().out
+
+
+def test_full_task_id_consumer_selects_that_task_only(tmp_path, capsys):
+    orch = ORCH_TASK_ROWS.replace("| Task 01 |", "| ABC-S01-02-03 |")
+    args = _task_run(tmp_path, orch, {TASK_NAME_01: TASK_WITHOUT_FLAGS, TASK_NAME_03: TASK_WITHOUT_FLAGS})
+    assert fsd.main(args) == 1
+    out = capsys.readouterr().out
+    assert "task files: 2" in out
+    assert "unrouted task flags: 1" in out
+    assert "  ABC-S01-02-03: 1:" in out
+    assert "  ABC-S01-02-01: 1:" not in out
+
+
+def test_session_consumer_row_is_listed_for_hand_routing_and_keeps_exit_0(tmp_path, capsys):
+    orch = ORCH_TASK_ROWS.replace("| Task 01 |", "| session |")
+    args = _task_run(tmp_path, orch, {TASK_NAME_01: TASK_WITHOUT_FLAGS})
+    assert fsd.main(args) == 0
+    out = capsys.readouterr().out
+    assert "rows naming no task (route by hand): 1" in out
+    assert "  1: The split part is OVER the page cap" in out
+    assert "unrouted task flags: 0" in out
+
+
+def test_task_ordinal_does_not_match_a_longer_number():
+    assert fsd.names_task("Task 01", "ABC-S01-02-01", 1)
+    assert fsd.names_task("tasks 1", "ABC-S01-02-01", 1)
+    assert not fsd.names_task("Task 10", "ABC-S01-02-01", 1)
+    assert not fsd.names_task("Task 01", "ABC-S01-02-03", 3)
+
+
+def test_no_task_files_skips_the_second_hop(tmp_path, capsys):
+    args = _task_run(tmp_path, ORCH_TASK_ROWS, {})
+    assert fsd.main(args) == 0
+    out = capsys.readouterr().out
+    assert "task files: 0" in out
+    assert "unrouted task flags" not in out

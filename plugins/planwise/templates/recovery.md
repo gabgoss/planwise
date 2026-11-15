@@ -99,6 +99,27 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Recovery.md`.
 
 ---
 
+## Premise Corrections
+
+*Populated when a measurement a plan file cites no longer holds when re-measured: a line count, a byte or token size, a file count, a symbol's line, a test count. Record the row at re-measure time, before acting on the moved value. See `references/verify-before-cite.md` §9.B.24 and §9.B.25.*
+
+| Step | Cited Claim | Cited In | Measured | Measure Command | Effect |
+|------|-------------|----------|----------|-----------------|--------|
+| - | - | - | - | - | - |
+
+**Field reference:**
+
+| Column | Content |
+|--------|---------|
+| Step | Step number from Step Completion Status table, or `start` for a Session Start Census re-measure |
+| Cited Claim | The figure or fact as the plan file states it (e.g., "`recovery.md` is 169 lines") |
+| Cited In | The file and location that carries the claim |
+| Measured | The value the re-measure returned |
+| Measure Command | The exact command or tool call that produced the measured value |
+| Effect | What changed because of the move (the task's output path, a gate threshold, an edit anchor), or "none" |
+
+---
+
 ## Files Modified
 
 *Populated as steps complete*

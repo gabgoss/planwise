@@ -145,7 +145,10 @@ from types import SimpleNamespace
 sys.dont_write_bytecode = True  # a direct run must not grow scripts/__pycache__
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from token_saver_scan import unresolved_reason
+from markdown_parser import split_row_cells
+from read_limits import estimate_tokens
+from token_saver_scan import content_class_for, unresolved_reason
+from token_saver_writeback import _fmt_k, _fmt_kib
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_TEMPLATES = PLUGIN_ROOT / "templates"
@@ -699,10 +702,10 @@ def s_session_block(lines, i, env):
 
 
 def task_rows(lines, i, env):
-    """The session's task table (sprint plan and orchestration): number, title, agent, estimate, dependencies."""
+    """The session's task table (sprint plan and orchestration): number, name and title, agent, estimate, dependencies."""
     n = table_run(lines, i)
     consume(env, lines, i, n, "metadata")
-    rows = [f"| {t['number']} | {t['title']} | {t['agent']} | ~{t['estimate_k']}K | {dep_text(t)} |"
+    rows = [f"| {t['number']} | {t['name']}: {t['title']} | {t['agent']} | ~{t['estimate_k']}K | {dep_text(t)} |"
             for t in env.session["tasks"]]
     return (rows, n)
 
@@ -878,6 +881,9 @@ def t_context_rows(lines, i, env):
         if kind == "command" and tail:
             cell += tail[0] + sub_line(tail[1], env, {"N": M(r["lines"]), "B": M(r["bytes"])})
         rows.append(f"| {r['priority']} | {cell} | {r['kib']:.1f} | ~{r['tokens_k']:.1f}K | {r['purpose']}{suffix} |")
+    own = self_row(lines[i:i + n], env)
+    if own:
+        rows.append(own)
     if records:
         # Plain lines, not an HTML comment: a FILL marker nested in a comment would close it early.
         rows.append("")
@@ -885,8 +891,33 @@ def t_context_rows(lines, i, env):
     return (rows, n)
 
 
+SELF_LABEL = "self row"
+SELF_ROW_RENDERS = 6  # re-renders of one task file; the figure settles in two or three
+
+
+def self_row(example_rows, env):
+    """The task file's own Required Context row, or "" when the template gives no self row.
+
+    The File cell is the task file's bare name, which the write-back resolves
+    against the task file's own folder. The KiB and ~Tokens figures are a seed
+    from `env.self_bytes`: the size of the previous render of this file. The
+    build write-back replaces them with the measured figures.
+    """
+    example = next((r for r in example_rows if SELF_LABEL in r), None)
+    if example is None:
+        return ""
+    purpose = split_row_cells(example)[-1].strip()
+    prios = [int(r["priority"]) for r in env.task["required_context"]
+             if str(r["priority"]).isdigit()]
+    size = env.self_bytes
+    tokens = estimate_tokens(size, env.task["agent"].lower(), content_class_for(Path("x.md"))[1])
+    env.self_k = float(_fmt_k(tokens)[1:-1])
+    return (f"| {max(prios, default=0) + 1} | `{env.self_name}` | {_fmt_kib(size)} "
+            f"| {_fmt_k(tokens)} | {purpose} |")
+
+
 def t_subtotal(lines, i, env):
-    reads = round(sum(r["tokens_k"] for r in env.task["required_context"]), 1)
+    reads = round(sum(r["tokens_k"] for r in env.task["required_context"]) + env.self_k, 1)
     return ([sub_line(lines[i], env, {"R": D(reads), "T": D(env.task["estimate_k"])})], 1)
 
 
@@ -1002,12 +1033,27 @@ def render_all(spec, templates_dir=DEFAULT_TEMPLATES, date=None):
             renv.vals.update(common)
             put(f"{sd}/{sid}-Recovery.md", render_doc(bodies["recovery"], renv, RECOVERY, opt))
             for t in se["tasks"]:
-                tenv = env_for("task", t, sprint=sp, session=se, task=t, res_forms=res_forms)
-                tenv.vals.update(common)
-                tenv.vals.update({"##": M(f"{t['number']:02d}"), "Agent": M(t["agent"]), "TaskName": M(t["name"]),
-                                  "Haiku|Sonnet|Opus": M(t["agent"]), "X": M(t["estimate_k"])})
-                put(f"{sd}/{task_filename(spec, sp, se, t)}",
-                    render_doc(bodies["task"], tenv, TASK, t.get("optional_sections", ())))
+                name = task_filename(spec, sp, se, t)
+
+                def render_task(size, t=t, name=name, sp=sp, se=se, common=common):
+                    tenv = env_for("task", t, sprint=sp, session=se, task=t, res_forms=res_forms,
+                                   self_name=name, self_bytes=size, self_k=0.0)
+                    tenv.vals.update(common)
+                    tenv.vals.update({"##": M(f"{t['number']:02d}"), "Agent": M(t["agent"]),
+                                      "TaskName": M(t["name"]), "Haiku|Sonnet|Opus": M(t["agent"]),
+                                      "X": M(t["estimate_k"])})
+                    return render_doc(bodies["task"], tenv, TASK, t.get("optional_sections", ()))
+
+                # The self row cites the file's own size, which the row changes. Re-render
+                # from the last size until the figure matches, as the write-back does.
+                text = render_task(0)
+                for _ in range(SELF_ROW_RENDERS):
+                    size = len(text.encode("utf-8"))
+                    again = render_task(size)
+                    if again == text:
+                        break
+                    text = again
+                put(f"{sd}/{name}", text)
             put(f"{sd}/Outputs/.gitkeep", "")
     return files, rec
 

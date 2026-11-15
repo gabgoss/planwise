@@ -5,13 +5,11 @@ paths: {planwise_root}/{plans_dir}/**
 ---
 # Grade From the Record — The Narration Got the Outcome Right and the Record Said Something Else
 
-**Purpose:** Three incidents where a delegated result was graded from what an agent *said* rather than from what the record *shows*, and every outcome-level check passed. This is the sharp form of an already-known rule. "Grade from `tool_use` / `tool_result` records, never from the child's prose" is usually justified by the risk that prose misreports the outcome — narrating a block that did not happen, claiming success over a call that errored. In all three cases below **the outcome was reported correctly**. What was wrong was the detail, the attribution, or the discriminating field — none of which any pass/fail comparison can see.
+**Purpose:** Grade a delegated result from what the record *shows*, never from what an agent *said*. "Grade from `tool_use` / `tool_result` records, never from the child's prose" is usually justified by prose that misreports the outcome. In every case below **the outcome was reported correctly**. What was wrong was the detail, the attribution, the discriminating field, or the field a figure was read from. No pass/fail comparison can see any of them.
 
-**Read this when** you are synthesising a report from a subagent's transcript because its reply did not route, when you are about to record *why* a probe produced its result, or when you are scoring a permission probe as DENY or PASS.
+**Read this when** you synthesise a report from a subagent's transcript because its reply did not route, record *why* a probe produced its result, score a permission probe as DENY or PASS, or read a headline figure from a summary field.
 
-The three failures sit at different points of one pipeline: what the agent wrote at the end of its turn, why it says the result happened, and which field of the harness's output actually separates two outcomes that look identical. Each one is invisible to a grader that has already confirmed "the probe reported a denial" or "the reviewer reported N findings".
-
-Three neighbouring rules own adjacent machinery. [`dispatch-boundary-evidence.md`](dispatch-boundary-evidence.md) §4 owns the recovery of a reply that did not route — the plateau check and the bounded extraction. §1 below is about what the recovered synthesis *is* once you have it. [`gate-fixture-provenance.md`](gate-fixture-provenance.md) §6 owns why a known-good probe aimed at a fake path is unpassable by construction; §3 below is the grading side of the same incident — which field separates that failure from a denial. [`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) §1.17 classifies a return before it is consumed; this file is about what to do with a return that classifies as complete and is still wrong in a way no outcome check sees.
+Three neighbouring rules own adjacent machinery. [`dispatch-boundary-evidence.md`](dispatch-boundary-evidence.md) §4 owns the recovery of a reply that did not route: the plateau check and the bounded extraction. §1 below is about what the recovered synthesis *is* once you have it. [`gate-fixture-provenance.md`](gate-fixture-provenance.md) §6 owns why a known-good probe aimed at a fake path is unpassable by construction. §3 below is the grading side of the same incident: which field separates that failure from a denial. [`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) §1.17 classifies a return before it is consumed. This file covers a return that classifies as complete and is still wrong in a way no outcome check sees.
 
 ## Table of Contents
 
@@ -28,20 +26,16 @@ Three neighbouring rules own adjacent machinery. [`dispatch-boundary-evidence.md
 ## 1. A Transcript-Recovered Synthesis Is Provisional — Re-Diff It When the Real Reports Land
 
 > [!constraint] A reviewer's final transcript block is written to close out its own turn; the delivered report is written to be acted on
-> They are different artifacts with different audiences, and the transcript one is a **compression** of the other. Compression drops per-instance detail — `file:line`, exact quoted text, the comparison that makes a finding decisive — and **per-instance detail is precisely what severity classification runs on**, so the loss is not random. **A transcript-only synthesis under-counts and under-classifies.**
+> They are different artifacts with different audiences, and the transcript one is a **compression** of the other. Compression drops per-instance detail — `file:line`, exact quoted text, the comparison that makes a finding decisive — and **per-instance detail is precisely what severity classification runs on**, so the loss is not random. **A transcript-only synthesis under-counts and under-classifies.** It is biased toward under-classification, not merely lossy, so the re-diff is not optional tidying.
 >
-> In a review fan-out of eight, all eight reported "delivered to team-lead via SendMessage" and none routed. The established recovery worked — poll each subagent's `agent-*.jsonl` until it plateaus, extract the last assistant text block, synthesise — and the report was filed and committed on it. Then the messages routed in bulk, and diffing the delivered copies against the recovered ones was **not** clean: **every difference made a finding stronger, never weaker.** One reviewer's transcript block compressed six sites into three vague phrases ("a systematic-but-consistent drop of a trailing citation column…"), where the delivered message enumerated the same findings with file, location and exact dropped text — including one the summary had no room for: *the Execution Input fabricates a period where the source has an em-dash mid-sentence*. A fabricated sentence boundary inside a block labelled "verbatim" is a different and worse defect than "truncates without ellipsis". In a second case the summary omitted the decisive half of a finding entirely, and the lead **demoted it to INFO** on what remained; the delivered message carried the comparison that showed the plan solves one problem two ways with only one passing its own reviewer check, and the finding was **restored to WARNING**. Net across the re-diff: 20 findings → 22, one new systemic finding, one demotion reversed, two materially expanded, **none moving the other way.**
+> **The recovery recipe is sound and is still the right move when nothing routes.** What goes wrong is treating its output as *final* rather than *provisional*. A clean completion signal proves the turn finished. It says nothing about whether the block is the report or a summary of it.
 >
-> **The recovery recipe is sound and is still the right move when nothing routes.** What was wrong was treating its output as *final* rather than *provisional*.
->
+> WRONG — the plateau check passes, the last block ends with a clean completion signal, so the synthesis is treated as the reviewer's report:
 > ```
-> WRONG — the plateau check passes, the last block ends with a clean completion
->         signal, so the synthesis is treated as the reviewer's report:
 > extract last assistant block → synthesize → file report → commit → done
-> # The completion signal proves the TURN finished. It says nothing about whether
-> # the block is the report or a summary of it.
->
+> ```
 > CORRECT — the synthesis is filed as provisional and reconciled on delivery:
+> ```
 > extract last assistant block → synthesize → file report (marked provisional) →
 >   on delivery: diff delivered vs recovered, per reviewer →
 >   expect the delivered copy to be RICHER (per-instance detail, file:line, exact quotes) →
@@ -49,33 +43,37 @@ Three neighbouring rules own adjacent machinery. [`dispatch-boundary-evidence.md
 >   re-derive your OWN severities against the delivered evidence, both directions
 > ```
 >
-> **Both directions.** In the same review the lead had rated a shared-file finding BLOCKER over two reviewers who both called the practical risk low. Their delivered reasoning — the two edits target disjoint regions, and both tasks edit by content anchor — was better than the lead's first pass, and the finding was demoted to ERROR. **Two independent reviewers rating something lower than you did is evidence, not noise.**
+> **Both directions.** The delivered reasoning can lower a severity as well as raise one. **Two independent reviewers rating something lower than you did is evidence, not noise.**
 >
 > Budget for the revision from the start.
-
-A reader who takes "the transcript block may differ from the report" without the direction treats the re-diff as optional tidying. The finding is that a transcript-only synthesis is *biased*, not merely lossy, and the bias runs toward under-classification.
 
 ---
 
 ## 2. Grade the Mechanism, Not Only the Outcome
 
 > [!constraint] A correct verdict is not evidence the reasoning was correct
-> This is distinct from the prose-is-unreliable rule everyone already holds. Here **the prose got the outcome right**, every outcome-level check passed, and only the causal attribution was false — so no pass/fail comparison can see it.
+> This is distinct from the prose-is-unreliable rule everyone already holds. Here **the prose got the outcome right**, every outcome-level check passed, and only the causal attribution was false — so no pass/fail comparison can see it. A plausible attribution is what makes it durable.
 >
-> Two probes in a `permissions.deny` dry-run were denied exactly as designed, and the child sessions' prose attributed the denial to an installed hook whose purpose was denying shell readers. That hook was not an active control: the script file was on disk, but the project's `.claude/settings.json` carried no `hooks` key at all, so nothing registered it. The actual cause was the `permissions.deny` entry passed via `--settings` for the probe. A grader checking only "did the probe report a denial?" records two clean passes and never notices that the evidence credits a control that was never running. The model had every reason to say it — the repository contained a hook script whose entire purpose was denying shell readers, and the deny message was about exactly that. **It is a plausible attribution, which is what makes it durable.**
+> The damage is in the record, not in today's verdict. A later reader concludes the parked control is live and works. The measured reason it was parked gets overwritten by an anecdote. A regression that removes the real control sends the first search to the wrong file.
 >
-> The damage is entirely in the record rather than in today's verdict:
->
-> - A later reader concludes the parked control is live **and that it works** — and either declines to ship the mechanical control as redundant, or "restores" the parked one expecting behaviour it never produced.
-> - The measured reason it was parked (its predicate exempted any command containing a pipe, which was most of the traffic it was meant to catch) gets quietly overwritten by an anecdote that it denies things correctly.
-> - A regression later removes the real control, and the anecdote makes the wrong file the first place anyone looks.
+> WRONG — two probes in a `permissions.deny` dry-run were denied as designed, and the child's prose credited an installed hook; the grader checks only the outcome:
+> ```
+> did the probe report a denial?  → yes, twice → record two clean passes
+> # the hook script was on disk, but settings.json had no `hooks` key; the deny entry passed via --settings fired
+> ```
+> CORRECT — confirm which control fired, from the record and the registration surface:
+> ```
+> outcome:   denied (read from the record)
+> mechanism: the --settings deny entry; the hook is unregistered (settings.json has no `hooks` key)
+> # record names no control → write "denied, mechanism not identified in record"
+> ```
 >
 > Four rules:
 >
 > - **Grade the outcome AND the mechanism from the record.** Confirm *which* control fired, not merely that something denied.
 > - **Treat any mechanism named only in prose as unverified.** If the record does not identify the control, the report must say *"denied, mechanism not identified in record"* rather than name a candidate.
 > - **When a plausible-but-inactive control exists in the repository, expect it to be blamed.** A parked script, a commented-out rule, a disabled hook are attractors for false attribution. Verifying "unregistered" means checking the registration surface (`settings.json`), never the presence of the file.
-> - **A correct verdict is not evidence the reasoning was correct.** Right-answer-wrong-reason survives every outcome-shaped gate and is caught only by reading the evidence chain.
+> - **A correct verdict is not evidence the attribution was correct.** Right-answer-wrong-reason survives every outcome-shaped gate and is caught only by reading the evidence chain.
 
 The parked script in the measured incident has since been deleted. The *class* — a parked script, a commented-out rule, a disabled hook — is the operative content, because the attractor pattern is what transfers.
 
@@ -84,15 +82,24 @@ The parked script in the measured incident has since been deleted. The *class* �
 ## 3. Know Which Field Discriminates, and Capture It at the Moment It Exists
 
 > [!constraint] `is_error:true` is not a permission denial
-> It conflates "the rule blocked this" with "the rule allowed this and the command then failed". The conflation is silent, and it biases toward *over*-reporting denials — that is, toward declaring an over-broad rule correct.
->
-> A sprint dry-ran two `permissions.deny` patterns against known-bad and known-good probes, grading `DENY` as `tool_result.is_error:true` and `PASS` as `is_error:false` with genuine stdout. Two of six known-good probes landed in neither bucket: they returned `is_error:true` because the command **was allowed through to the shell and then failed on its own** (`wc: /c/x/agents/a.md: No such file or directory`; `error: --name is required`). Both were over-correction controls whose entire point was showing the rule does *not* block them. Graded on `is_error` alone, both read as DENY — crediting the rule with two blocks it never performed, on exactly the probes designed to catch it being too broad. **An over-broad rule and a correctly-scoped rule produce identical `is_error` values on these rows.**
+> It conflates "the rule blocked this" with "the rule allowed this and the command then failed". The conflation is silent, and it biases toward *over*-reporting denials — that is, toward declaring an over-broad rule correct. **An over-broad rule and a correctly-scoped rule produce identical `is_error` values on a known-good probe that fails downstream.**
 >
 > | `permission_denials` | `is_error` | Verdict |
 > |---|---|---|
 > | populated with this command | `true` | **DENY** — the rule fired |
 > | `[]` | `false`, genuine stdout | **PASS** — allowed and ran |
 > | `[]` | `true` | **NOT a permission result** — allowed, then failed downstream. Fix the probe and re-run; score neither way. |
+>
+> WRONG — `DENY` graded on `is_error` alone; two known-good probes were allowed through to the shell and then failed on their own:
+> ```
+> wc: /c/x/agents/a.md: No such file or directory   → is_error:true → scored DENY
+> error: --name is required                         → is_error:true → scored DENY
+> # the rule is credited with two blocks it never performed, on the probes built to show it is not too broad
+> ```
+> CORRECT — read `permission_denials` from the child's stdout `result` event, and score the third row neither way:
+> ```
+> permission_denials == []  and  is_error:true  → NOT a permission result → fix the probe, re-run
+> ```
 >
 > **That field is not in the transcript.** `permission_denials` is emitted in the `result` event of the child's `--output-format stream-json` output — on **stdout, at invocation time**. Searching the persisted `~/.claude/projects/**/*.jsonl` for two probes graded on it found the string absent from both. An agent told to "grade from the transcript's `permission_denials` array" searches the `.jsonl`, finds nothing, and concludes either that the anchor is missing or that no denial occurred. **You cannot recover the field after the fact: capture the child's stdout stream at probe time or you lose it permanently.**
 >
@@ -107,24 +114,22 @@ The fixture-side half of the same incident — why a known-good probe aimed at a
 ### 3.1 A Downstream Proxy Passes on Noise When the Record Holds the Real Answer
 
 > [!constraint] Gate an independent variable on its own recorded value, never on an effect of it
-> A sweep varied a per-agent effort setting across four levels, twelve tasks, and two models — 524 runs — and found 100% pass at every level. Its Phase-0 gate, meant to prove the setting reached the CLI, ran one low-effort run and one high-effort run of a three-turn lookup task and passed if the high-effort run produced more output tokens or took longer than the low-effort one. It passed on 342 vs 323 tokens, with wall time going the other way.
+> Output tokens and wall time are downstream of the setting and of everything else in the run. On a task that exercises no reasoning they are noise, and a single `>` comparison on `n=1` passes by construction about half the time. The session transcript records the level the CLI actually applied, one field per assistant record, and it is exact. Gate on `recorded == requested`, read per run, so a wrong value fails on the first run instead of the last.
 >
-> Every run's session transcript carries the level the CLI actually applied, one field per assistant record. Read after the fact, all 524 runs said the same level: the setting was never reaching the CLI on that invocation path. The sweep had compared that level against itself 524 times, and every verdict was a statement about run-to-run variance, not about the setting under test. Passed through the equivalent CLI flag instead, the same task moved one model's internal reasoning volume five-fold and another's sixteen-to-fifty-fold between the two extremes, and the transcript recorded the requested level each time.
->
-> Output tokens and wall time are downstream of the setting and of everything else in the run. On a task that exercises no reasoning they are noise, and a single `>` comparison on `n=1` passes by construction about half the time. The transcript field is the applied setting, and it is exact: gate on `recorded == requested`, read per run, so a wrong value fails on the first run instead of the five-hundred-and-twenty-fourth.
+> A sweep of 524 runs passed its proxy gate on 342 vs 323 output tokens. Read after the fact, every run's transcript recorded the same level. The setting had never reached the CLI, so every verdict measured run-to-run variance, not the setting under test.
 >
 > Three consequences:
 > 1. **Find the tool's own record of the setting before designing a proxy.** Here it is one field per assistant record in a file the CLI already writes for every session — a few lines of code answer the question for every row in seconds. The proxy gate this sweep used took a design section and a run budget and still could not fail.
 > 2. **If a proxy really is all that exists, size it to detect a real effect.** Choose a task whose effect on the proxy is large (a reasoning-heavy task, not a lookup), run several reps per arm, and gate on a ratio of medians against a stated minimum effect size — then dry-run it once with the setting deliberately absent and confirm the gate fails.
 > 3. **A monotone gradient across levels is not proof the variable moved.** One arm in the incident above showed the proxy rising smoothly across all four nominal levels, and that gradient was cited as evidence the setting had reached the tool. The real span, measured through the record, was fifty-fold — the gradient was an order of magnitude smaller than the mechanism's known effect, and the recorded value had not varied at all. A gradient far below the mechanism's known scale is a warning, not a confirmation.
 >
-> ```
 > WRONG — one run per arm, a proxy, a bare comparison:
+> ```
 > discriminates = (high_tokens > low_tokens) or (high_ms > low_ms)
 > # 342 > 323 → PASS; every run had actually executed at the SAME level
->
-> CORRECT — the applied value, read from the record, asserted per run; the proxy
-> only as a secondary signal on a task that exercises the mechanism:
+> ```
+> CORRECT — the applied value, read from the record, asserted per run; the proxy only as a secondary signal on a task that exercises the mechanism:
+> ```
 > for run in readings:
 >     if run.applied_value != run.requested_value: FAIL(run)
 > if median(proxy[high_arm]) < 1.5 * median(proxy[low_arm]): FAIL("no separation")
@@ -137,6 +142,13 @@ The fixture-side half of the same incident — why a known-good probe aimed at a
 ## 4. The Recovery Recipe
 
 > [!verify] The operational form of §1's "provisional"
+> Run the plateau check in the background, extract with a bounded script, and file the synthesis marked provisional. Never hand-poll, and never read a `.jsonl` whole.
+>
+> WRONG — poll the subagent folder by hand, read each transcript whole, and file the synthesis as final:
+> ```
+> re-check subagents/ by hand → read each agent-*.jsonl whole → synthesize → file as final
+> ```
+> CORRECT — the recipe, with the result filed as provisional:
 > ```bash
 > # 1. Plateau check, in the background — do not hand-poll.
 > D=~/.claude/projects/<project-slug>/<session-id>/subagents
@@ -161,13 +173,7 @@ The fixture-side half of the same incident — why a known-good probe aimed at a
 > [!constraint] Recompute a headline figure from its definition, and test it against a session that cannot have the property
 > A summary field is named for what it stores, not for the question the task asks. When the two names rhyme, a runner takes the field. Every downstream gate passes, because the structure gate, the measure gate and the status block never test the definition.
 
-A task graded a context-reset arm. Its headline deliverable was the re-entry load: the tokens a clear-then-resume re-entry costs before the session is back at its next dispatch. The task defined it as "the tokens from its first call through the context-loaded block". The design predicted 43.7K to 68.2K.
-
-The runner read the per-session ledger summaries and found `first_call_read` = 28,192 on all three post-clear sessions. It reported "re-entry load 28,192, constant, 5.7x lighter than the baseline arm's 159,633". The status block was clean and the file passed every structural gate.
-
-The same archive held the ORIGINAL session's ledger, and its `first_call_read` was 28,192 too. A re-entry load that is identical on the session with no re-entry is not a re-entry load. The field is the static-prefix cache read, which the first call of every session pays.
-
-The orchestrator ran the ledger tool read-only on one post-clear transcript. Creation went 22K, 28K, 49K, 28K across calls 1 to 4, and context was 156,028 by the fourth call. Recomputed as the per-call `context` at the call that issues the first dispatch, the load was 159,113 / 165,780 / 149,749, mean 158,214. That is the same order as the baseline arm. The corrected figure reversed the arm's conclusion: the resume skipped the approval, not the reads.
+A task defined a re-entry load as "the tokens from its first call through the context-loaded block". The runner reported the ledger summary field `first_call_read`, 28,192 on every post-clear session. The ORIGINAL session, which had no re-entry, also read 28,192. The field is the static-prefix cache read that the first call of every session pays. Recomputed from the definition, the load was the same order as the baseline arm, and the arm's conclusion reversed.
 
 > ```
 > WRONG — take the field whose name matches:
@@ -188,6 +194,8 @@ Three rules follow.
 2. **Test a per-arm figure against the arm's own control.** A session in the same archive that cannot have the property is the cheapest control there is. If the figure is unchanged there, the field is wrong, whatever it is called.
 3. **The orchestrator recomputes the one number that decides the arm.** A headline measurement is a verdict expressed as a number, so the rule in [`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) § "1.16 Recompute Delegated Verdicts from Primary Evidence" applies to it. One read-only ledger run took one call and caught a 5.6x error.
 
+**The control-session test.** Before comparing arms on a figure or a column, ask whether it has the same value on a session that cannot have the property. If it does, it measures something else, whatever it is called.
+
 [`measure-aggregate-provenance.md`](measure-aggregate-provenance.md) is the sibling that governs sums and denominators. This section governs which field a figure is read from.
 
 ---
@@ -197,13 +205,7 @@ Three rules follow.
 > [!constraint] A field name found by searching data is a hypothesis, not a citation
 > A superficially matching field name, found by searching data rather than reading the code that produces it, is a hypothesis. Confirm it by reading the producer.
 
-A backlog item asked a grader script to tell a real keystroke from a machine-relayed prompt using an `origin` field. The item said the field carries the values `composer`, `peer` and `task-notification`. A search for `"origin"` across archived transcripts found `"origin":{"kind":"human"}` at once, in a file named `*-transcript.jsonl`.
-
-It was the wrong field. The file was a derivative analysis artifact from an earlier, unrelated proof of concept. It carried its own invented vocabulary (`human`, `coordinator`) that reused the word "origin".
-
-The real field was the engine's own `<EventOrigin>` type, declared in the engine's type definitions with exactly the `composer`/`peer`/`task-notification` vocabulary. It was populated only in the hook log's `prompt.submit` rows, written by the module's own handler (`origin: e.origin.kind`). Confirming this took one read of the module's source, not another search of transcript data.
-
-The handler's logging was conditional: `if (<ctx> !== null || <clearedQuestion> || <arm>.logAll)`. The log was therefore a complete record of every prompt only for the one arm configured with `logAll: true`. A fix that read from the log without checking this would have under-counted silently on every other arm. It would have traded one wrong number for a differently wrong number.
+A grader had to tell a real keystroke from a machine-relayed prompt by an `origin` field with the values `composer`, `peer` and `task-notification`. A search of archived transcripts found `"origin":{"kind":"human"}` first, in an unrelated derivative analysis file with its own vocabulary. The real field was the engine's `<EventOrigin>` type, written only in the hook log's `prompt.submit` rows. The handler logged those rows conditionally, so the log was complete for one arm only (`logAll: true`). A fix that read the log unchecked would have under-counted on every other arm.
 
 > ```
 > WRONG — search transcript data for the field name, accept the first hit:
@@ -233,9 +235,7 @@ The rule that a verdict about a feature rests on a search of the implementation,
 > [!constraint] "The transcript" is a singular that stops being true when a boundary mints a new session id
 > A grader built on the singular fails silently. It still finds a file, computes a ledger, and prints a cost.
 
-A grader archived the run's transcript beside its sidecar and computed `Turns`, the per-call ledger and cost from that one file. Every earlier arm kept one session id from start to exit, so "the transcript" was one file. A later arm ran `/clear` after each step. Each `/clear` minted a new session id, and the run spanned four.
-
-The grader found the last id in the log (`<id-4>`) and archived one file under that name. That file held the first session's bytes: 373,813 bytes, equal byte for byte to the live `<id-1>` transcript, with its own module dump reading `session=<id-1>`. The live `<id-4>` file was 248,495 bytes. The sidecar reported `Turns=4` and `cost 0.66 (0.82) USD`. Those were one session's figures out of four.
+A grader archived one transcript per run and computed `Turns`, the per-call ledger and cost from it. A later arm ran `/clear` after each step, and each `/clear` minted a new session id, so the run spanned four. The grader archived one file under the last id, and that file held the first session's bytes. The sidecar's `Turns=4` and cost were one session's figures out of four.
 
 Three consequences follow.
 

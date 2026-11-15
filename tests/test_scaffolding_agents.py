@@ -204,6 +204,18 @@ class ScaffoldingAgentContractTests(unittest.TestCase):
         self.assertIn("scripts/scaffold_deviations.py", text)
         self.assertIn("deviations: A=", text)
 
+    def test_scaffolder_file_cap_and_handler_no_status_block_route(self):
+        """The agent cannot see its turn counter, so a file cap and a skip rule stand
+        in for the `maxTurns` row, and the handler routes a dispatch that returns no block."""
+        agent = _read(SCAFFOLDER)
+        self.assertIn("Fill at most 8 files per dispatch", agent)
+        self.assertIn("skip a rendered file whose `FILL` count is already 0", agent)
+        self.assertNotIn("exceed `maxTurns`", agent)
+        handler = _read(PLUGIN / "handlers" / "plan-scaffolding.md")
+        gate = handler.split("**Scaffolder gate**", 1)[1].split("**Harmonizer gate**", 1)[0]
+        self.assertIn("no status block", gate)
+        self.assertIn("references/dispatch-boundary-evidence.md", gate)
+
 
 class PlanAuthorContractTests(unittest.TestCase):
     """The plan handler dispatches this agent and parses its status block."""

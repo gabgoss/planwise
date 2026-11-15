@@ -4,12 +4,14 @@
 
 The chain is four ordered stages. The order is forced, not conventional: the final stage cannot land a lesson until the per-item stage has flipped its owning item to COMPLETE.
 
-1. **Categorise** — sync the categorisation file and refine each lesson's promotion target. Halts, without modifying any file, if any lesson's bucket assignment is ambiguous. The halt is deliberately conservative: an unresolved lesson either blocks the promote stage outright or drops silently out of a narrowed scope, and this command does not assume which, so it stops rather than promote a set the user did not see.
+1. **Categorise** — sync the categorisation file and set each lesson's origin, promotion target and check answer. Halts, without modifying any file, if any lesson's bucket assignment is ambiguous. The halt is deliberately conservative: an unresolved lesson either blocks the promote stage outright or drops silently out of a narrowed scope, and this command does not assume which, so it stops rather than promote a set the user did not see.
 2. **Promote** — resolve the scope, group by bucket, draft the item files and regenerate the backlog index, then capture each lesson (archive-on-capture). Never self-heals a lesson whose bucket is unknown.
 3. **Process** — for each item this run created, pre-flight its frontmatter, triage it, route it, dispatch a foreground agent, verify, and write status centrally. A per-item failure is logged and the loop advances.
 4. **Land** — set the final status and artifact pointer on every lesson whose owning item reached COMPLETE, and append the promotion-log row. Heal candidates are reported, never actioned.
 
 This command makes no commits. Every change it lands sits in the working tree for a single aggregate review at the end of the run.
+
+Harvest is an unattended feedback context in any session, as `references/feedback-submission.md` gate 2 defines it. A feedback draft that harvest writes asks no question. With `feedback.enabled: true`, it posts without a question, behind the privacy gate `prepare-post`, through the engine's unattended post path. A block or a failure keeps the draft, and the run continues.
 
 **Invocation examples:**
 ```
@@ -50,7 +52,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - The three-part DELEGATED dispatch discipline, each part read for what it holds:
   - [`references/agent-orchestration-delegated.md`](../references/agent-orchestration-delegated.md) — §1.1–§1.13, spawn-prompt construction.
   - [`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`](../references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) — §1.21, the foreground-only dispatch gate.
-  - [`references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](../references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) — §1.23–§1.32, the per-item dispatch discipline the Process stage runs under.
+  - [`references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](../references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) — §1.23–§1.28, and [`references/agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md`](../references/agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md) — §1.29–§1.32, the per-item dispatch discipline the Process stage runs under.
 - [`references/verify-backlog-citation-freshness.md`](../references/verify-backlog-citation-freshness.md) — the preflight Route A re-verifies an item's affected files against before dispatch, rather than copying them from the item file.
 - [`references/artifact-self-containment.md`](../references/artifact-self-containment.md) — the grep gate Route A's VERIFY step runs unconditionally against any diff touching a content-bearing artifact.
 
@@ -152,9 +154,9 @@ The canonical policy's Inline Tagging Convention applies: critical sites emit a 
 #### Stage 1: Categorise
 
 - **Precondition:** none — always runs first.
-- **Action:** compute the uncategorised set (documented lessons minus already-categorised lessons), append bucket rows to the categorisation file, and refine each lesson's promotion target.
+- **Action:** compute the uncategorised set (documented lessons minus already-categorised lessons), append bucket rows to the categorisation file, and set each lesson's origin, promotion target and check answer.
 - **Failure:** HALT (call-site H2) on any ambiguous bucket assignment — no partial-proceed. This is HC2: the batch-promote categorisation precondition is specified more than one way across the workflow it feeds — under a corpus-wide reading, proceeding is illegal; under a scope-relative reading, it silently promotes a partial set. This command cannot know which reading the live handler implements and must be correct under both, so it halts rather than guess.
-- **Writes:** the categorisation file only (rows appended, promotion targets refined) — no lesson file, no item file.
+- **Writes:** lesson frontmatter (`domain:`, `origin:`, `promotion-target:`, `enforced-by:`) and the regenerated categorisation file — no item file.
 
 #### Stage 2: Promote
 

@@ -89,7 +89,7 @@ Three practices close the hole.
 2. **Say so in the dispatch prompt, and say why.** A capable runner otherwise shrinks the corpus to its own inputs. It reasons that it cannot have copied text it never read. That reasoning is sound about copying and unsound about collision.
 3. **Keep the per-task self-check as fast feedback.** Never let it stand in for the session gate.
 
-`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.29.4 carries the dispatch-prompt requirement. This section owns the case where the denominator is a subset. It does not cover a property that exists only in the relationship between runners.
+`agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md` §1.29.4 carries the dispatch-prompt requirement. This section owns the case where the denominator is a subset. It does not cover a property that exists only in the relationship between runners.
 
 ---
 

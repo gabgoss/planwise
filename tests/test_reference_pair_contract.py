@@ -50,9 +50,6 @@ _LABEL_RES = (
 # with two labels is the author's regression, never an entry added without a
 # recorded reason.
 PAIR_EXEMPTIONS = {
-    ("agent-authoring.md", "## 2b. Common Configuration Mistakes"): 3,  # @ becccfe (2026-10-20)
-    ("agent-orchestration-delegated.md", "## 1.1 Mandatory Triggers"): 2,  # @ becccfe (2026-10-20)
-    ("agent-orchestration-delegated.md", "## 1.6 Path-Scoped Rule Injection in Spawn Prompts"): 2,  # @ becccfe (2026-10-20)
     ("artifact-self-containment.md", "### 3.1 Rule body must inline, not cite the source lesson"): 3,  # @ becccfe (2026-10-20)
     ("execution-time-binding-rules.md", "## 19. Narrow Fix Reveals a Systemic Gap — Bounded Temp Fix That Seeds the Deferred Discovery (BINDING)"): 2,  # @ becccfe (2026-10-20)
     ("exit-criteria-fidelity.md", "#### 16.3 Extension — BLI-Cited Audit-Anchor Re-Verification"): 2,  # @ becccfe (2026-10-20)
@@ -60,12 +57,6 @@ PAIR_EXEMPTIONS = {
     ("lessons-promote-batch-workflow-Part-2-DraftAndWrite.md", "### 5.1a The delegated path (drafting dispatched to an authoring agent)"): 2,  # @ becccfe (2026-10-20)
     ("lessons-promote-batch-workflow-Part-2-DraftAndWrite.md", "### 5.2 The self-containment principle (BINDING)"): 4,  # @ becccfe (2026-10-20)
     ("lessons-promote-batch-workflow-Part-2-DraftAndWrite.md", "## 10. Constraints"): 8,  # @ becccfe (2026-10-20)
-    ("measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md", "### 8.8 After a behavior change, sweep the surfaces that describe and call it"): 7,  # @ becccfe (2026-10-20)
-    ("measurement-discipline.md", "### 8.2 A broad verification gate is authoritative over an audit's enumerated file list"): 2,  # @ becccfe (2026-10-20)
-    ("measurement-discipline.md", "### 8.3 Sanity-check a projected headline metric against the fixed extraction scope before starting"): 2,  # @ becccfe (2026-10-20)
-    ("measurement-discipline.md", "### 8.5 Normalize an authored-markdown field on BOTH read and write — and test it with annotated, not clean, fixtures"): 3,  # @ becccfe (2026-10-20)
-    ("measurement-discipline.md", "### 8.7 Verify the gate's input set before trusting its predicate"): 3,  # @ becccfe (2026-10-20)
-    ("measurement-discipline.md", "### 8.9 A gate's recorded figure needs its own verification, separate from its reading"): 2,  # @ becccfe (2026-10-20)
     ("read-confirm-act-protocol.md", "### 1.2 Structural Findings Beyond Literal Scope"): 2,  # @ becccfe (2026-10-20)
     ("read-confirm-act-protocol.md", "#### Audit-Trail Requirement"): 2,  # @ becccfe (2026-10-20)
     ("review-classification.md", "## The Three Claims in a Finding"): 3,  # @ becccfe (2026-10-20)

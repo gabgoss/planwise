@@ -73,7 +73,8 @@ Attempt to resolve `config.yaml` the normal way (`planwise/config.yaml`, or `*/c
 one level down from project root). If found and readable, extract `feedback.repo`,
 `feedback.include_environment`, and `plugin_version`. Read `feedback.enabled` only through the
 engine's gate 1 (`posting-state`), which tells an `absent` key from one set to a value other
-than `true`. This handler does not parse the key itself. The handler passes
+than `true`. This handler does not parse the key itself. Gate 1 re-offers posting while
+feedback.enabled is not true, in the absent and the disabled state. The handler passes
 `feedback.include_environment` to the engine. The engine's Issue Body Spec and its pre-gate-5
 step decide whether the Environment block renders, and this handler does not re-specify that
 rule. If missing or
@@ -145,13 +146,16 @@ ever removes or moves a draft or its marker; the only command that relocates one
 
 Planwise may **draft** a local feedback file during any `/planwise` work, per
 `references/feedback-drafting.md` or through the hooks-module tool when function hooks are
-enabled. Drafting is not filing. Planwise posts a model draft only through `--drafts` or
-`--post <draftId>`, and both ride the engine's gate chain. Detecting a possible bug, lesson,
-or idea elsewhere in planwise is **offer-only** — surfacing this handler as an option a user
-can take, never invoking it on their behalf. Every post, without exception, rides the
-engine's own gate 5 explicit consent — this handler introduces no second consent site. The
-engine's gate 1 enable offer for an `absent` key is a setting selection, owned by the engine,
-and it never replaces gate 5.
+enabled. Drafting is not filing. In an interactive session, Planwise posts a model draft
+through `--drafts` or `--post <draftId>`, and both ride the engine's gate chain. In an
+unattended context with `feedback.enabled: true`, the engine posts it through its unattended
+post path. Detecting a possible bug, lesson, or idea elsewhere in planwise is **offer-only** —
+surfacing this handler as an option a user can take, never invoking it on their behalf. The
+unattended contexts are Auto Mode, a backlog loop session, and harvest in any session. Every
+post outside those three contexts rides the engine's own gate 5 explicit consent — this handler
+introduces no second consent site. Every post inside them rides the engine's privacy gate
+`prepare-post` on the exact file it posts, in place of gate 5. The engine's gate 1 enable offer for an `absent`
+key is a setting selection, owned by the engine, and it never replaces gate 5.
 
 ---
 
@@ -172,5 +176,6 @@ consumer who just hit a live bug); a subcommand-only design (discards an
 already-articulated draft on any interruption); a `lessons` sub-mode (buries an outward
 network action inside an inward handler and collides with its own mode parsing); folding
 this into `upgrade-Part-3-BannerAndConflictResolution.md` Step 4.2 (that step only runs at version change, not on demand);
-auto-detect-and-file and auto-draft-and-post (each posts without the user's explicit review and gate 5 consent); a `gh`-less HTTP POST
-(would require in-plugin token handling — `gh`'s own auth is the safe borrow).
+a `gh`-less HTTP POST (would require in-plugin token handling — `gh`'s own auth is the safe
+borrow). The engine's unattended post path replaces the earlier rejection of automatic
+filing: it posts only with `feedback.enabled: true`, and only behind `prepare-post`.

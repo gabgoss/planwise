@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 
 import config_loader
 import generate_plans_index as gpi
+import read_limits
 from generate_backlog_index import _measure
 
 LEGACY_INDEX = (
@@ -469,12 +470,44 @@ class TestWrite:
         assert (result.exit_code, result.written, result.refusal) == (0, True, None)
         assert "2 comment line(s)" in result.drop_listing and "## Notes" in result.drop_listing
 
-    def test_write_plans_index_refuses_over_budget_with_its_message_and_writes_nothing(self, two_plans, monkeypatch):
+    def test_write_plans_index_writes_over_budget_with_a_routes_warning(self, tmp_path, monkeypatch, capsys):
+        config_path = make_tree(tmp_path, 'context:\n  verified_cli_version: "2.1.296"\n')
+        write_master_plan(config_path, "Alpha", "ALP")
         monkeypatch.setattr(gpi, "HUB_TOKEN_BUDGET", 10)
-        result = gpi.write_plans_index(load(two_plans))
-        assert (result.exit_code, result.written) == (2, False)
-        assert "10-token budget" in result.refusal and "Nothing was written" in result.refusal
-        assert not index_of(two_plans).exists()
+        monkeypatch.setattr(read_limits, "READ_PAGE_CAP_TOKENS", 10)
+        result = gpi.write_plans_index(load(config_path))
+        assert (result.exit_code, result.written, result.refusal) == (0, True, None)
+        assert index_of(config_path).exists()
+        warning = result.budget_warning
+        assert "10-token budget" in warning and "shard or shorten the index" in warning
+        for route in ("allow_large", "2.1.296", "offset", "Grep"):
+            assert route in warning
+        assert "\n" not in warning and "Nothing was written" not in warning
+        assert capsys.readouterr() == ("", "")
+
+    def test_write_plans_index_over_budget_with_no_version_names_pages_and_grep_only(self, two_plans, monkeypatch):
+        monkeypatch.setattr(gpi, "HUB_TOKEN_BUDGET", 10)
+        monkeypatch.setattr(read_limits, "READ_PAGE_CAP_TOKENS", 10)
+        warning = gpi.write_plans_index(load(two_plans)).budget_warning
+        assert "offset" in warning and "Grep" in warning and "allow_large" not in warning
+
+    def test_write_over_budget_under_every_read_cap_does_not_name_allow_large(self, tmp_path, monkeypatch):
+        config_path = make_tree(tmp_path, 'context:\n  verified_cli_version: "2.1.296"\n')
+        write_master_plan(config_path, "Alpha", "ALP")
+        monkeypatch.setattr(gpi, "HUB_TOKEN_BUDGET", 10)
+        warning = gpi.write_plans_index(load(config_path)).budget_warning
+        assert "allow_large" not in warning and read_limits.PLAIN_READ_ADVICE in warning
+
+    def test_write_over_budget_past_the_line_window_only_does_not_name_allow_large(self, tmp_path, monkeypatch):
+        config_path = make_tree(tmp_path, 'context:\n  verified_cli_version: "2.1.296"\n')
+        write_master_plan(config_path, "Alpha", "ALP")
+        monkeypatch.setattr(gpi, "HUB_TOKEN_BUDGET", 10)
+        monkeypatch.setattr(read_limits, "READ_LINE_CAP", 3)
+        warning = gpi.write_plans_index(load(config_path)).budget_warning
+        assert "allow_large" not in warning and "offset" in warning and "Grep" in warning
+
+    def test_write_plans_index_within_budget_carries_no_warning(self, two_plans):
+        assert gpi.write_plans_index(load(two_plans)).budget_warning is None
 
     def test_index_matches_render_masks_the_generated_line_and_reads_crlf(self, two_plans):
         config = load(two_plans)
@@ -565,29 +598,69 @@ class TestLegacyGuard:
 
 
 class TestBudget:
-    def test_write_refuses_over_budget_naming_bytes_tokens_and_budget(self, two_plans, cli, monkeypatch):
+    def test_write_over_budget_writes_and_warns_naming_bytes_tokens_and_budget(self, two_plans, cli, monkeypatch):
         monkeypatch.setattr(gpi, "HUB_TOKEN_BUDGET", 10)
         render = gpi.render_plans_index(load(two_plans))
-        code, _, err = cli(two_plans, "--write")
-        assert code == 2
-        assert not index_of(two_plans).exists()
+        code, out, err = cli(two_plans, "--write")
+        assert code == 0
+        assert index_of(two_plans).exists() and f"Wrote {index_of(two_plans)}." in out
         assert f"{render.num_bytes} bytes" in err and f"{render.tokens} tokens" in err and "10-token budget" in err
+        assert "shard or shorten the index" in err and read_limits.PLAIN_READ_ADVICE in err
 
-    def test_write_over_budget_leaves_an_existing_index_untouched(self, two_plans, cli, monkeypatch):
+    def test_legacy_check_over_budget_keeps_the_over_budget_warning(self, two_plans, monkeypatch):
+        index_of(two_plans).write_bytes(LEGACY_INDEX.encode("utf-8"))
+        monkeypatch.setattr(gpi, "HUB_TOKEN_BUDGET", 10)
+        result = gpi.check_plans_index(load(two_plans))
+        assert result.exit_code == 2
+        assert finding_classes(result.warnings) == ["over-budget"]
+
+    @pytest.mark.parametrize("argv", [("--write", "--json"), ("--write",), ("--check", "--json"), ("--check",),
+                                      ("--json",), ()])
+    def test_the_over_budget_warning_is_derived_once_per_run(self, two_plans, cli, monkeypatch, argv):
+        cli(two_plans, "--write")
+        monkeypatch.setattr(gpi, "HUB_TOKEN_BUDGET", 10)
+        calls = []
+        real = gpi._with_budget_warning
+        monkeypatch.setattr(gpi, "_with_budget_warning", lambda render: calls.append(1) or real(render))
+        cli(two_plans, *argv)
+        assert len(calls) == 1
+
+    def test_write_over_budget_json_carries_the_warning_and_one_object(self, two_plans, cli, monkeypatch):
+        monkeypatch.setattr(gpi, "HUB_TOKEN_BUDGET", 10)
+        code, out, err = cli(two_plans, "--write", "--json")
+        payload = json.loads(out)
+        assert code == 0 and payload["written"] is True
+        assert "10-token budget" in payload["budget_warning"] and payload["budget_warning"] in err
+        assert finding_classes(payload["warnings"]) == ["over-budget"] and payload["findings"] == []
+
+    def test_write_over_budget_with_an_anomaly_writes_and_exits_one(self, tmp_path, cli, monkeypatch):
+        config_path = make_tree(tmp_path)
+        write_master_plan(config_path, "Alpha", "ALP", status="DONE")
+        monkeypatch.setattr(gpi, "HUB_TOKEN_BUDGET", 10)
+        code, _, err = cli(config_path, "--write")
+        assert code == 1 and index_of(config_path).exists() and "10-token budget" in err
+
+    def test_write_over_budget_replaces_an_existing_index(self, two_plans, cli, monkeypatch):
         cli(two_plans, "--write")
         before = index_of(two_plans).read_bytes()
         write_master_plan(two_plans, "Gamma", "GAM")
         monkeypatch.setattr(gpi, "HUB_TOKEN_BUDGET", 10)
-        assert cli(two_plans, "--write")[0] == 2
-        assert index_of(two_plans).read_bytes() == before
+        code, _, err = cli(two_plans, "--write")
+        assert code == 0 and "10-token budget" in err
+        after = index_of(two_plans).read_bytes()
+        assert after != before and b"GAM" in after
 
-    def test_check_over_budget_exits_one_with_only_the_over_budget_finding(self, two_plans, cli, monkeypatch):
+    def test_check_over_budget_exits_zero_with_the_over_budget_warning(self, two_plans, cli, monkeypatch):
         cli(two_plans, "--write")
         monkeypatch.setattr(gpi, "HUB_TOKEN_BUDGET", 10)
         result = gpi.check_plans_index(load(two_plans))
-        assert result.exit_code == 1
-        assert finding_classes(result.findings) == ["over-budget"]
-        assert cli(two_plans, "--check")[0] == 1
+        assert result.exit_code == 0
+        assert result.findings == []
+        assert finding_classes(result.warnings) == ["over-budget"]
+        code, out, _ = cli(two_plans, "--check")
+        assert code == 0 and "warning over-budget" in out
+        payload = json.loads(cli(two_plans, "--check", "--json")[1])
+        assert payload["findings"] == [] and finding_classes(payload["warnings"]) == ["over-budget"]
 
     def test_the_real_budget_passes_and_is_the_shared_constant_not_a_literal(self, two_plans, cli):
         from generate_backlog_index import HUB_TOKEN_BUDGET
@@ -596,17 +669,22 @@ class TestBudget:
         assert cli(two_plans, "--write")[0] == 0
         assert cli(two_plans, "--check")[0] == 0
 
-    def test_a_render_at_the_budget_writes_and_one_token_over_refuses(self, two_plans, cli, monkeypatch):
+    def test_a_render_at_the_budget_writes_silently_and_one_token_over_writes_and_warns(
+        self, two_plans, cli, monkeypatch
+    ):
         tokens = gpi.render_plans_index(load(two_plans)).tokens
         monkeypatch.setattr(gpi, "HUB_TOKEN_BUDGET", tokens)
-        assert cli(two_plans, "--write")[0] == 0
+        code, _, err = cli(two_plans, "--write")
+        assert code == 0 and "-token budget" not in err
         monkeypatch.setattr(gpi, "HUB_TOKEN_BUDGET", tokens - 1)
-        assert cli(two_plans, "--write")[0] == 2
+        code, _, err = cli(two_plans, "--write")
+        assert code == 0 and f"{tokens - 1}-token budget" in err
 
-    def test_dry_run_over_budget_exits_one_and_names_it(self, two_plans, cli, monkeypatch):
+    def test_dry_run_over_budget_exits_zero_and_names_it_as_a_warning(self, two_plans, cli, monkeypatch):
         monkeypatch.setattr(gpi, "HUB_TOKEN_BUDGET", 10)
         code, out, _ = cli(two_plans, "--dry-run")
-        assert code == 1 and "over-budget" in out
+        assert code == 0 and "  warning over-budget: " in out and "finding over-budget" not in out
+        assert not index_of(two_plans).exists()
 
 
 class TestJson:

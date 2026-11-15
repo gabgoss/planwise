@@ -1127,8 +1127,6 @@ def build_plan(text: str, detail: tuple, config: dict, index_path: Path, paths: 
     relocated.sort(key=lambda record: record["line"])
     when = (reloc.recorded_date(read_text(changelog_path)) if relocated and changelog_path.exists() else None) or _today()
     entry = reloc.render_relocated_entry(relocated, when) if relocated else None
-    if entry:
-        reloc.check_size(relocated, entry)
     changelog = plan_changelog(text, index_path, changelog_path, pending, naming, entry)
     if changelog is None:
         return None
@@ -1480,7 +1478,11 @@ def build_report(config: dict, index_path: Path) -> dict:
     if changelog_path.exists():
         files = sup.changelog_budget_status(config, index_path)
         report["changelog_files"] = files
-        report["changelog_over_budget"] = any(f["level"] != "OK" for f in files)
+        # True only when a re-split would change the layout; a part holding one
+        # entry kept whole is reported under `changelog_oversized` instead.
+        report["changelog_over_budget"] = any(f["needs_resplit"] for f in files)
+        report["changelog_oversized"] = [{"file": f["path"], "tokens": f["tokens"], "budget": sup.READ_TOKEN_WARN}
+                                         for f in files if f["oversized_entry"]]
     if shape != "legacy":
         return report
     report["detail"] = "hand-authored index; columns: " + ", ".join(sorted(roles, key=roles.get))

@@ -35,10 +35,12 @@ reporting or offer text, which this file does not own.
 ## Table of Contents
 
 - [Gate Chain](#gate-chain)
-  - [The Enable Offer (gate 1, absent state)](#the-enable-offer-gate-1-absent-state)
+  - [The Enable Offer (gate 1, absent and disabled state)](#the-enable-offer-gate-1-absent-and-disabled-state)
   - [Resolving `gh`](#resolving-gh)
 - [Step 4.5 — Duplicate Scan (Non-Fatal)](#step-45--duplicate-scan-non-fatal)
+  - [Unattended Routing](#unattended-routing)
 - [Draft-First, Then Post](#draft-first-then-post)
+  - [The Unattended Post Path](#the-unattended-post-path)
 - [Marking a Posted Draft](#marking-a-posted-draft)
 
 Held in [Part 2](feedback-submission-Part-2-LocalDraftPipelines.md):
@@ -61,22 +63,29 @@ Held in [Part 3](feedback-submission-Part-3-FailureBodySpecAndPrivacy.md):
 
 ALL gates below MUST pass, in this order, before a post is attempted:
 
-1. **`feedback.enabled: true`** — config key, default `false` (mirrors the upgrade flow's
-   opt-in precedent). The gate reads the key with
+1. **`feedback.enabled: true`** — config key. A new config writes `true`, and an absent key reads as off.
+   The gate reads the key with
    `python "{plugin_root}/scripts/feedback_drafts.py" posting-state --config "{planwise_root}/config.yaml"`,
    which prints one word and writes nothing:
    - `enabled` — the gate passes.
-   - `disabled` — `config.yaml` sets the key to a value other than `true`. The user made this
-     decision, so the pipeline honours it without a question. It stops at the draft and prints
-     `Posting is off: config.yaml sets feedback.enabled to a value other than true. The draft was saved and nothing was posted.`
-   - `absent` — the `feedback` block or its `enabled` key is missing. The user never saw the
-     key, so this is an unasked question, not a decision. See
-     [The Enable Offer](#the-enable-offer-gate-1-absent-state).
+   - `disabled` — `config.yaml` sets the key to a value other than `true`.
+   - `absent` — the `feedback` block or its `enabled` key is missing.
+   In an interactive session, `disabled` and `absent` both lead to
+   [The Enable Offer](#the-enable-offer-gate-1-absent-and-disabled-state).
    - Exit 1 (config missing or unreadable) — the gate is unmet. The pipeline stops at the draft.
    A model draft's **Review and post** option sets the key to `true` when chosen, and says so in
    its option text first (see Reviewing Model Drafts, in [Part 2](feedback-submission-Part-2-LocalDraftPipelines.md#reviewing-model-drafts)).
-2. **Interactive session.** In Auto Mode the pipeline is **draft-only, unconditionally** —
-   gates 3-5 are skipped and execution proceeds straight to the draft-write step below.
+2. **Interactive session or unattended context.** The pipeline takes one of two branches.
+   The three unattended contexts are Auto Mode, a /planwise backlog loop session, and /planwise harvest in any session.
+   - **Interactive session.** Gates 3-5 run as written below.
+   - **Unattended context.** When gate 1 reads `enabled`, the pipeline posts with no question.
+     It runs gates 3, 4 and 4.5, then the privacy gate on the draft, then the route under
+     [The Unattended Post Path](#the-unattended-post-path):
+     ```
+     python -B "{plugin_root}/scripts/feedback_drafts.py" prepare-post --config "{planwise_root}/config.yaml" --draft "{draft_path}"
+     ```
+     When gate 1 does not read `enabled`, an unattended context writes the draft only and asks
+     nothing. An unattended context never calls `AskUserQuestion`.
 3. **`gh` resolvable** — on PATH, or at a known install location (see
    [Resolving `gh`](#resolving-gh) below). Gate 3 records the resolved `{gh_path}`, and every
    later `gh` call in this engine runs through it.
@@ -91,54 +100,51 @@ ALL gates below MUST pass, in this order, before a post is attempted:
    NOT be implemented as a second prompt. (The sweep pipeline in Part 2 has its own, separate,
    single consent site; the two are never shared or duplicated.) The gate 1 enable offer is a
    setting selection and not a second consent site: it sends nothing and never replaces this
-   call. See [The Enable Offer](#the-enable-offer-gate-1-absent-state).
+   call. See [The Enable Offer](#the-enable-offer-gate-1-absent-and-disabled-state).
 
 <!-- AUTO-MODE: critical -->
 
 **Quick reference:**
 
-| # | Gate | On Auto Mode |
+| # | Gate | On Auto Mode or another unattended context |
 |---|------|---------------|
-| 1 | `feedback.enabled: true` | `disabled` is unaffected. `absent` asks no question and stops at the draft with the Auto Mode message under The Enable Offer. |
-| 2 | Interactive session | Draft-only, unconditionally; gates 3-5 are skipped. |
-| 3 | `gh` resolvable (PATH, then known install locations) | Only evaluated in an interactive session. |
-| 4 | `{gh_path} auth status` exits 0 | Only evaluated in an interactive session. |
-| 4.5 | Duplicate scan (step, not gate) | Runs opportunistically; the result is written into the draft. No consent site. |
-| 5 | Explicit consent (`AskUserQuestion`) | Auto-deny → draft written **with the possible-duplicates block**, exit 0 (see the Auto Mode deviation in Part 3, not a fail-loud STOP). |
+| 1 | `feedback.enabled: true` | An interactive session raises the Enable Offer in the `absent` and the `disabled` state. An unattended context asks no question and stops at the draft with the unattended message under The Enable Offer. |
+| 2 | Interactive session | With gate 1 `enabled`, an unattended context runs gates 3, 4 and 4.5, then `prepare-post`, then posts with no question. With gate 1 not `enabled`, it writes the draft and skips gates 3-5. |
+| 3 | `gh` resolvable (PATH, then known install locations) | Evaluated in an interactive session, and in an unattended context with gate 1 `enabled`. Unmet → draft kept, one line, exit 0. |
+| 4 | `{gh_path} auth status` exits 0 | Evaluated in an interactive session, and in an unattended context with gate 1 `enabled`. Unmet → draft kept, one line, exit 0. |
+| 4.5 | Duplicate scan (step, not gate) | Runs opportunistically; the result is written into the draft. No consent site. With gate 1 `enabled`, its outcome picks the route (see Unattended Routing). |
+| after 4.5 | `prepare-post` (privacy gate of an unattended post) | Runs on the exact file the route posts, after the last write to it. `clean` → post. A block or exit 1 → draft kept, one line, exit 0. |
+| 5 | Explicit consent (`AskUserQuestion`) | An unattended context with gate 1 `enabled` replaces it with `prepare-post` and the automatic route. Otherwise auto-deny → draft written **with the possible-duplicates block**, exit 0 (see the Auto Mode deviation in Part 3, not a fail-loud STOP). |
 
 Row 4.5 is a **step**, not a gate — the "ALL gates below MUST pass" rule above governs
 gates 1–5 only, and a scan that fails never stops the pipeline.
 
-### The Enable Offer (gate 1, absent state)
+### The Enable Offer (gate 1, absent and disabled state)
 
-A fresh install can have no `feedback.enabled` key at all, so gate 1 would fail on a setting
-the user never saw. In the `absent` state, and only then, the pipeline asks once instead of
-stopping. The offer belongs to gate 1, so it runs before the draft is posted and after the
-user has written the report.
+In the `absent` state or the `disabled` state, an interactive run asks instead of stopping.
+The offer belongs to gate 1, so it runs before the draft is posted and after the user has
+written the report.
 
 <!-- AUTO-MODE: critical -->
 Ask with `AskUserQuestion`, in an interactive session only. Auto Mode skips the question and
-takes the keep branch. The question is: `Posting to GitHub is not set up in this project: config.yaml has no feedback.enabled key. Enable posting and continue to the post, or keep only the draft?` The options are:
+takes the keep branch. The question is: `Posting to GitHub is off in this project: config.yaml does not set feedback.enabled to true. Enable posting and continue to the post, or keep only the draft?` The options are:
 
 | Option | What it does |
 |---|---|
-| **Enable posting** | Option text: `Enable posting (this sets feedback.enabled to true in config.yaml)`. Runs `python "{plugin_root}/scripts/feedback_drafts.py" enable-posting --config "{planwise_root}/config.yaml"` and prints its one line. On exit 0 the pipeline goes on to gate 2. On exit 1 it prints the stderr line, leaves `config.yaml` unchanged and stops at the draft. |
-| **Keep the draft only** (pre-selected) | Stops at the draft and prints `Posting stays off. To stop this question, set feedback.enabled: false in config.yaml.` Any other or unparseable answer is this option. |
+| **Enable posting (Recommended)** | Option text: `Enable posting (Recommended) — this sets feedback.enabled to true in config.yaml`. Runs `python "{plugin_root}/scripts/feedback_drafts.py" enable-posting --config "{planwise_root}/config.yaml"` and prints its one line. The command also overwrites an explicit `false`. On exit 0 the pipeline goes on to gate 2. On exit 1 it prints the stderr line, leaves `config.yaml` unchanged and stops at the draft. |
+| **Keep the draft only** | Stops at the draft and prints `Posting stays off. The draft was saved, and the next feedback flow asks again.` Any other or unparseable answer is this option. |
 
-Three rules bound the offer:
+Two rules bound the offer:
 
 - **It is a selection, not consent to post.** It changes one config key and sends nothing.
   Gate 5 still shows the exact body and asks before anything is published, and enabling
   posting never skips it. This is the same posture as the model-draft **Review and post**
   option under Reviewing Model Drafts (Part 2).
-- **It never overrides a decision.** A key set to `false`, or to any value other than `true`,
-  is the `disabled` state and raises no question. Writing `feedback.enabled: false` is how a
-  user ends the offer for good.
 - **It runs once per invocation.** The pipeline does not ask again after a keep answer or a
   failed enable.
 
-In Auto Mode the `absent` state stops at the draft and prints
-`Posting is not set up: config.yaml has no feedback.enabled key. The draft was saved and nothing was posted.`
+In Auto Mode or another unattended context, the `absent` state and the `disabled` state stop at the draft and print
+`Posting is off: config.yaml does not set feedback.enabled to true. The draft was saved and nothing was posted.`
 
 ### Resolving `gh`
 
@@ -321,6 +327,23 @@ Whatever the branch, the caveat is one line — `{scan_caveat}` — the first li
 gate 5 and of the possible-duplicates block in a draft. One string, one source of truth, two render
 sites.
 
+### Unattended Routing
+
+In an unattended context with gate 1 `enabled`, the scan outcome picks the route, and no question
+is asked. The engine applies these rules in order and stops at the first that matches:
+
+1. **Self-duplicate.** The merge step found this same draft already posted by an interrupted
+   earlier run. Nothing is posted. The engine prints the self-duplicate line, keeps the draft and
+   exits 0.
+2. **Ranked candidate.** At least one candidate cleared the threshold, including on an incomplete
+   scan. The report goes as a comment on the top-ranked issue, the rank-1 row of the presented
+   table, through the comment route under
+   [The Unattended Post Path](#the-unattended-post-path). The posted marker records
+   `route: comment`.
+3. **CLEAR.** The report goes as a new issue through the issue route. A weak clear counts as CLEAR,
+   because its listed issues are recent issues, not matches.
+4. **UNKNOWN.** The scan did not complete. The report goes as a new issue through the issue route.
+
 ---
 
 ## Draft-First, Then Post
@@ -371,6 +394,63 @@ a non-zero exit or an empty result posts nothing and prints
 `Could not resolve issue #{NN} in {feedback.repo} — nothing was posted.` No further question
 is asked at any step — this post pipeline has exactly one consent site.
 
+### The Unattended Post Path
+
+In an unattended context with gate 1 `enabled`, the privacy gate `prepare-post` and the route
+from [Unattended Routing](#unattended-routing) take the place of gate 5. No question is asked.
+Each route scans the exact file it posts, after the last write to that file, and passes that
+same path to `--body-file`. No write touches the file between the scan and the post. A write
+after the scan, such as a re-rendered lead-in, requires a new scan before the post.
+
+A model draft is promoted first, as `feedback-drafting.md` § Auto Mode describes. The routes scan and post the promoted file, never the model draft.
+
+`prepare-post` cuts the scan annotation from the file in place, and deletes the
+`### Environment` section when `feedback.include_environment` is `false`. It then scans the
+file's bytes and prints one line:
+
+| Exit | Output | Route action |
+|---|---|---|
+| 0 | `clean` | Post the file |
+| 3 | `blocked: <class> at line <n>` | Keep the draft, post nothing more, print one line, exit 0 |
+| 1 or 2 | none on stdout | The gate could not run: keep the draft, print one line, exit 0 |
+
+**The issue route** (CLEAR, UNKNOWN). Scan `{draft_path}`, then post it only when the scan
+printed `clean`. The scan gate 2 ran on `{draft_path}` is this scan when nothing wrote the file
+since:
+
+```
+python -B "{plugin_root}/scripts/feedback_drafts.py" prepare-post --config "{planwise_root}/config.yaml" --draft "{draft_path}"
+"{gh_path}" issue create -R {feedback.repo} --title "{title}" --body-file "{draft_path}" --label {label}
+```
+
+**The comment route** (a ranked candidate). Write `{comment_draft_path}` first. It holds the
+draft body plus the one lead-in line of the comment variant (Part 3, Issue Body Spec). Then scan
+that file, and post that file only when the scan prints `clean`. `{NN}` is the top-ranked
+candidate's number:
+
+```
+python -B "{plugin_root}/scripts/feedback_drafts.py" prepare-post --config "{planwise_root}/config.yaml" --draft "{comment_draft_path}"
+"{gh_path}" issue comment -R {feedback.repo} {NN} --body-file "{comment_draft_path}"
+```
+
+A block on the comment body keeps both drafts, posts nothing and exits 0.
+
+**The fallback lines.** Each case keeps every draft on disk, prints one line naming the reason
+and the draft's absolute path, and exits 0. The parent flow continues:
+
+| Case | Line |
+|---|---|
+| `gh` not resolvable (gate 3) | `Feedback draft kept, not posted: gh was not found. Draft: {draft_path}` |
+| Auth failed (gate 4) | `Feedback draft kept, not posted: gh is not signed in. Draft: {draft_path}` |
+| `prepare-post` exit 3 | `Feedback draft kept, not posted: the privacy check blocked it ({class} at line {n}). Draft: {draft_path}` |
+| `prepare-post` exit 1 or 2 | `Feedback draft kept, not posted: the privacy check could not run. Draft: {draft_path}` |
+| The post failed | `Feedback draft kept, not posted: the post to {feedback.repo} failed. Draft: {draft_path}` |
+
+The privacy-check line names the class and the line number, never the matched text. On a
+success, the engine prints one line naming `{post_url}` and writes the posted marker. In a
+/planwise backlog loop session, every line this path prints comes before the loop's boundary
+line.
+
 ---
 
 ## Marking a Posted Draft
@@ -420,8 +500,9 @@ draft posted more than once carries the most recent post.
 **No new consent site.** No question is asked here. Writing the marker is post-success
 bookkeeping into a file the consumer already owns, in the directory this engine already
 writes drafts to. It is not an outward action, so it introduces no `<!-- AUTO-MODE: -->`
-marker and this post pipeline still has exactly one consent site. In Auto Mode nothing is
-ever posted, so nothing is ever marked.
+marker and this post pipeline still has exactly one consent site. An unattended post writes
+the `.posted` sidecar with `route: issue` or `route: comment`, exactly as an interactive post
+does.
 
 **Marking is never a failure path — in either direction:**
 

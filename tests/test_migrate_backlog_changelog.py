@@ -149,15 +149,30 @@ def test_single_oversized_paragraph_is_kept_whole_under_the_cap():
     assert sup.parse_changelog([t for _n, t in result]) == segments
 
 
-def test_entry_at_the_page_cap_is_still_refused():
+def test_entry_at_the_page_cap_is_kept_whole_in_its_own_part():
     naming = schema._index_naming(Path("00-Index-Backlog.md"))
     cap = sup.READ_PAGE_CAP_TOKENS
-    assert sup.entry_fits_alone(cap - 1) and not sup.entry_fits_alone(cap)
     body = ("padding words " * (int(cap * 2.6 / 14) + 50)).strip()
     assert sup.changelog_tokens(f"## Entry 1\n\n{body}\n\n") >= cap, "setup must reach the page cap"
-    with pytest.raises(sup.Refusal, match=r"entry 1, which begins 'padding words.*', is one paragraph of ~\d+ tokens") as hit:
-        sup.split_changelog([body.encode("utf-8")], naming, "00-Index-Backlog.md", "\n")
-    assert hit.value.fix == "shorten entry 1 by hand, or split it into smaller entries, then re-run"
+    segments = [b"a short first entry.", body.encode("utf-8"), b"a short last entry."]
+    result = sup.check_parts_budget(sup.split_changelog(segments, naming, "00-Index-Backlog.md", "\n"))
+    holding = [(name, text) for name, text in result if "padding words" in text]
+    assert len(holding) == 1, [name for name, _ in result]
+    name, text = holding[0]
+    assert text.count("## Entry ") == 1 and "## Entry 2\n" in text
+    assert sup.changelog_tokens(text) >= cap
+    assert sup.parse_changelog([t for _n, t in result]) == segments
+    assert sup.oversized_single_entries(result) == [{"path": name, "tokens": sup.changelog_tokens(text)}]
+
+
+def test_multi_entry_part_over_budget_is_refused():
+    one = "## Entry 1\n\n" + "padding words " * 40 + "\n\n"
+    part = "[← 00-Index-Backlog.md](00-Index-Backlog.md)\n\n" + one + one.replace("Entry 1", "Entry 2")
+    budget = sup.changelog_tokens(part) - 5
+    with pytest.raises(sup.Refusal, match=r"holds more than one entry"):
+        sup.check_parts_budget([("00-Changelog-Backlog.md", part)], budget)
+    single = "[← 00-Index-Backlog.md](00-Index-Backlog.md)\n\n" + one
+    assert sup.check_parts_budget([("p", single)], sup.changelog_tokens(single) - 5) == [("p", single)]
 
 
 def test_split_is_deterministic():
@@ -261,6 +276,30 @@ def test_split_changelog_over_budget_resplits_and_then_is_stable(tmp_path, monke
     code, out, err = run(monkeypatch, capsys, config_path, "--split-changelog")
     assert code == 0 and "within budget" in out, err + out
     assert snapshot(tmp_path) == before
+
+
+def test_kept_whole_entry_is_reported_oversized_and_not_over_budget(tmp_path, monkeypatch, capsys):
+    items = {"001": item("001")}
+    config_path, index_path = project(tmp_path, index(row("001")), items)
+    code, out, err = run(monkeypatch, capsys, config_path, "--write")
+    assert code == 0, err + out
+    promote_to_migrated(config_path)
+    part1 = index_path.with_name(schema._changelog_filename(schema._index_naming(index_path)))
+    whole = sup.changelog_text([("one paragraph " * 7000).encode()], index_path.name, "\n")
+    assert sup.changelog_tokens(whole) >= sup.READ_TOKEN_WARN
+    part1.write_bytes(whole.encode("utf-8"))
+    code, out, err = run(monkeypatch, capsys, config_path, "--report")
+    report = json.loads(out)
+    assert report["changelog_over_budget"] is False
+    assert [o["file"] for o in report["changelog_oversized"]] == [str(part1)]
+    assert sup.plan_changelog_resplit({}, index_path) is None
+
+
+def test_byte_heavy_token_light_part_is_not_a_resplit_trigger(monkeypatch):
+    text = "[← 00-Index-Backlog.md](00-Index-Backlog.md)\n\n## Entry 1\n\na\n\n## Entry 2\n\nb\n\n"
+    monkeypatch.setattr(sup, "READ_BYTE_WARN", 10)
+    assert sup._changelog_level(len(text), sup.changelog_tokens(text)) == "WARN"
+    assert sup.part_needs_resplit(text) is False
 
 
 def test_split_changelog_on_legacy_index_exits_2(tmp_path, monkeypatch, capsys):

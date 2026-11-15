@@ -15,7 +15,9 @@ WARNING, so none decides a verdict alone. Each is a text heuristic, and each
 docstring states what its heuristic cannot see.
 
 ``subject_counts`` returns how many files and lines each check examined, so a
-caller can tell an empty input from a clean one.
+reader can tell an empty input from a clean one. ``subject_line`` formats those
+counts as one line, and ``lint_verification_gates`` prints that line second in
+its report, directly after the ``Coverage:`` line.
 """
 
 import re
@@ -552,8 +554,9 @@ def subject_counts(context) -> dict:
     ``context_rows`` (check 44), ``unfenced_lines`` (check 45),
     ``expected_output_sections`` (check 46), ``flag_tables``,
     ``flag_tables_without_routed_column`` (reported as column absent) and
-    ``flag_rows`` (check 47). A caller prints these before the verdict, so an empty
-    input reads differently from a clean one."""
+    ``flag_rows`` (check 47). ``subject_line`` formats these counts, and the review
+    lint's CLI prints that line second in its report, before the findings, so an
+    empty input reads differently from a clean one."""
     tasks = list(_task_files(context))
     tables = [
         table for _rel, lines in _orchestration_files(context) for table in _flag_tables(lines)
@@ -572,6 +575,20 @@ def subject_counts(context) -> dict:
         "flag_tables_without_routed_column": len(tables) - len(with_column),
         "flag_rows": sum(len(table[1]) for table in with_column),
     }
+
+
+def subject_line(context) -> str:
+    """Return the ``subject_counts`` dictionary as one report line.
+
+    The line reads ``Dispatch subjects (Checks 42-47): key=value, ...``. It ends
+    with `` -- nothing examined`` when no task file and no orchestration file was
+    read, because Checks 42-47 then decided nothing. The review lint's CLI prints it
+    second in its report, directly after the ``Coverage:`` line."""
+    counts = subject_counts(context)
+    line = "Dispatch subjects (Checks 42-47): " + ", ".join(f"{key}={value}" for key, value in counts.items())
+    if counts["task_files"] == 0 and counts["orchestration_files"] == 0:
+        line += " -- nothing examined"
+    return line
 
 
 CHECKS = [

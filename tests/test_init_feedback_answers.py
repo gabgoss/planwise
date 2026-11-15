@@ -25,7 +25,7 @@ PLUGIN = Path(init_project.__file__).resolve().parent.parent
 SCRIPT = str(PLUGIN / "scripts" / "init_project.py")
 
 
-def _fresh_config(tmp_path, drafts=None, enabled=False):
+def _fresh_config(tmp_path, drafts=None, enabled=None):
     cfg = InitConfig(project_name="p", project_root=tmp_path, plugin_root=get_plugin_root(),
                      feedback_drafts=drafts, feedback_enabled=enabled)
     (tmp_path / cfg.planwise_root).mkdir()
@@ -48,7 +48,8 @@ def test_answers_are_written_and_read_back(tmp_path):
 
 
 def test_off_answer_keeps_posting_off(tmp_path):
-    cfg, path = _fresh_config(tmp_path, drafts="off")
+    # The template turns posting on, so a No answer to the posting question has to write false.
+    cfg, path = _fresh_config(tmp_path, drafts="off", enabled=False)
     line = init_project._apply_init_feedback_answers(cfg, path)
     assert line == "Feedback keys: feedback.drafts: off, feedback.enabled: false (answered)"
     assert _feedback(path)["enabled"] is False
@@ -58,7 +59,7 @@ def test_no_answer_keeps_the_template_defaults_and_writes_nothing(tmp_path):
     cfg, path = _fresh_config(tmp_path)
     before = path.read_bytes()
     line = init_project._apply_init_feedback_answers(cfg, path)
-    assert line == ("Feedback keys: feedback.drafts: notify, feedback.enabled: false "
+    assert line == ("Feedback keys: feedback.drafts: notify, feedback.enabled: true "
                     "(template defaults, no answer passed)")
     assert path.read_bytes() == before
 

@@ -94,6 +94,75 @@ def _resolve_valid_statuses(config: dict) -> frozenset:
     return frozenset(raw)
 
 
+# The six places a lesson's fix can be promoted to.
+PROMOTION_TARGETS = ("rule", "code", "claude-md", "agent", "skill", "settings")
+
+# The targets a machine executes, so a check can run against them.
+EXECUTABLE_TARGETS = frozenset({"code", "settings"})
+
+# Where a lesson's cause originated, in the order the resolution matrix asks them.
+LESSON_ORIGINS = (
+    "planwise", "owned-tool", "foreign-tool", "model-call", "own-rules", "own-code", "other",
+)
+
+# The origins whose fix is a `code` target.
+CODE_ORIGINS = frozenset({"owned-tool", "own-code"})
+
+# The `enforced-by:` kind that records a deliberate absence of a check.
+NO_CHECK = "none"
+
+
+def _unquote_pair(text: str) -> str:
+    """Remove one matching pair of surrounding single or double quotes."""
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'":
+        return text[1:-1]
+    return text
+
+
+def parse_enforced_by(value: str | None) -> tuple[str, str] | None:
+    """Split an `enforced-by:` answer into `(kind, text)`, or None when malformed.
+
+    None covers an absent, blank or multi-line value, a value with no colon,
+    and a value whose kind part is empty. The kind is the text before the
+    first colon, stripped and lower-cased. The text is everything after it,
+    stripped, so later colons stay in the text. The kind is never checked
+    against a list: the caller holds the configured kinds. `none:` with no
+    reason returns `("none", "")` so the caller can report the missing reason.
+    """
+    if value is None:
+        return None
+    text = value.strip()
+    if not text or "\n" in text or "\r" in text:
+        return None
+    text = _unquote_pair(text).strip()
+    kind, sep, rest = text.partition(":")
+    if not sep:
+        return None
+    kind = kind.strip().lower()
+    if not kind:
+        return None
+    return kind, rest.strip()
+
+
+def split_targets(value: str | None) -> list[str]:
+    """Read a `promotion-target:` value as lower-cased tokens.
+
+    Accepts `[a, b]`, `a, b` and a bare scalar, and strips quotes and
+    whitespace. Empty tokens are dropped. It does not split on `|`, so an
+    unfilled template value stays one token that no value set contains.
+    """
+    if not value:
+        return []
+    tokens: list[str] = []
+    for line in value.split("\n"):
+        line = line.strip().lstrip("-").strip().strip("[]")
+        for part in line.split(","):
+            token = _unquote_pair(part.strip()).strip().lower()
+            if token:
+                tokens.append(token)
+    return tokens
+
+
 class LessonsGeneratorError(Exception):
     """A scan/render condition that must abort before any row renders (a
     missing required key, an unreadable id, an undeclared status), or the

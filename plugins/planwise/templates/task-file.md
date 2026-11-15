@@ -31,6 +31,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 | 2 | {file path} | {K} | ~{X}K | {why needed} |
 | 3 | {file path} §{X}–§{Y} ({§Y} runs to EOF) | {K} | ~{X}K | {why needed} — span row, see the resolution comment below |
 | 4 | Grep {family} over {scope} — {N} lines / {B} bytes returned | {K} | ~{X}K | {why needed} — command-corpus row, priced from the dry-run below |
+| 5 | {this task file's name} | {K} | ~{X}K | this task file — self row, measured by the write-back after the last edit |
 
 <!-- Every row needs numbers, not only the Context subtotal (references/task-content-fidelity.md §9.A.2). An em-dash,
      `~?` or blank in a row's KiB or ~Tokens cell fails review, even when the subtotal below is correct.
@@ -52,12 +53,15 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
      sprint's Recovery.md read for a prerequisite check (references/task-content-fidelity.md §9.A.17). A DELEGATED
      later task takes its base from the spawn prompt's `Base commit:` line and never reads Recovery for it
      (references/gate-diff-baseline-pinning.md §8.1). -->
-<!-- Delete rows 3 and 4 above when the task cites no span and no command corpus. -->
+<!-- Delete rows 3 and 4 above when the task cites no span and no command corpus. Keep the self row (row 5): the task file is read in full, so its own size is a read like any other.
+     The self row names this task file by its bare file name. The build write-back (`token_saver.py --scan --write-estimates`) prices it from the file's in-memory text and repeats until the byte count stops moving,
+     because each rewrite of the row, the subtotal and the header changes the file's own size. A figure written by hand before that run is a placeholder. -->
+
 
 
 <!-- OPTIONAL read-handling annotation (Token Saver only): append to a row's Purpose for any file the doctor read-gate scan flagged.
-     `⚠ PAGED ≥25K {model}-tok` — file is above the per-assigned-model 25K-token page cap; the runner MUST page it (offset/limit/Grep), it does NOT all arrive in one Read.
-     `⚠ REFACTOR ≥256 KiB` — file is at/over the 256 KiB byte gate; Read refuses it without offset/limit — page it, and refactor + backlog if it is a core/edited dependency.
+     `⚠ PAGED ≥25K {model}-tok` — over one default Read page (~25K tokens): read with `allow_large` (CLI v2.1.296 or later), pages, or Grep. It does not mean "must be paged". The 2,000-line window is a defensive limit, not a measured harness stop, and `allow_large` is not shown to lift it.
+     `⚠ REFACTOR ≥256 KiB` — file is at/over the 256 KiB byte gate; read with `allow_large` (CLI v2.1.296 or later), pages, or Grep, and consider a split or refactor + backlog if it is a core/edited dependency. That is advice, not a gate.
      Both are read-reason flags — NOT resolved by the 1M-exception (the Claude 5 tokenizer trips the page cap on fewer bytes than Haiku 4.5's). -->
 
 **Context subtotal:** ~{R}K (reads — the sum of the ~Tokens column) + ~{O}K (output) + ~{W}K (working) = **~{T}K total**
@@ -85,6 +89,8 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 > **Where a consolidation multiplier applies**, it is an explicit factor on the reads term — `~{R}K reads × {M} (consolidation overhead)` per `references/task-content-fidelity.md` §9.A.5 — and the identity holds with the factor applied. Apply it **once**: a multiplier stated in the formula plus a second allowance folded into `working` double-counts the same overhead.
 >
 > **Where the output mirrors a table shape**, the output addend declares its column arithmetic, so a reviewer can check N against the Schema Pin: `+ ~{O}K (output: {N} columns × {L} lines + {C} fixed = {lines} lines; {b} bytes per entry measured from {same-shape file}, ÷ {ratio})` per `references/task-content-fidelity.md` §9.A.18.
+>
+> **Where the output is one row per {entity}**, the addend takes its count from a query run at scaffold time: `+ ~{O}K (output: {N} {entity} rows, counted {date} by {query}, × {b} bytes per row measured from {sample} ÷ {ratio} + {C} fixed)` per `references/discovery-and-exit-criteria.md` §15.4.
 >
 > **Budget the ceiling, not the hope.** Where a row's cost is a range, the row carries the ceiling. An under-budget task costs nothing; an over-budget one stalls mid-run.
 >
@@ -222,7 +228,7 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
 
 {What the subagent should produce - be specific about format and content}
 
-<!-- Column-enumerating output: a line figure states its column term, for example `{N} columns × {L} lines + {C}` (references/task-content-fidelity.md §9.A.18). -->
+<!-- Column-enumerating output: a line figure states its column term, for example `{N} columns × {L} lines + {C}` (references/task-content-fidelity.md §9.A.18). A one-row-per-{entity} output states its measured count and pre-declares `-Part-{N}-` files when the addend crosses ~22,000 tokens (references/discovery-and-exit-criteria.md §15.4). -->
 
 <!-- Structure-as-checklist + template pointer: when this task's output is consumed
      structurally by a named downstream task (an aggregator reading a named section, a
@@ -275,6 +281,7 @@ The later stale-reference sweep task lists this slot in its `## Required Context
 > Every After gate reports its Actual beside its `expect`, a plain count-equality gate included.
 > When Actual contradicts `expect` per the operator, the verdict is FAIL or `[UNCERTAIN]`, never PASS.
 > A gate that could not run is `[UNCERTAIN]` with the exact command and error.
+> The reported Actual comes from a run after the last edit to any Output.
 > See `references/gate-verdict-contract-and-adjudication.md` §5, §5.1 and §5.2.
 
 ### Per-File-Type Commands
@@ -376,7 +383,7 @@ The later stale-reference sweep task lists this slot in its `## Required Context
 > ```
 
 > [!constraint] A Live-Tree Figure Is a Census Placeholder
-> A figure a gate or step asserts about the live tree (a file count, a split boundary, a scan-set size, a line number, a line-ending tally) MUST be a `{census:<name>}` placeholder that names a row of the session orchestration file's Session Start Census. A bare literal is a claim about one tree at one moment, and the tree can move between the scaffold and the dispatch. The `# pre-edit:` annotation keeps the scaffold reading with its artifact, commit and date. The runner substitutes the value from its spawn prompt's `Census:` line and never reads it from Recovery. Put the placeholder in the trailing annotation where possible: a `{...}` token inside the command text makes `scripts/lint_verification_gates.py` treat the line as a placeholder and skip its checks.
+> A figure a gate or step asserts about the live tree (a file count, a split boundary, a scan-set size, a line number, a line-ending tally) MUST be a `{census:<name>}` placeholder that names a row of the session orchestration file's Session Start Census. A bare literal is a claim about one tree at one moment, and the tree can move between the scaffold and the dispatch. The `# pre-edit:` annotation keeps the scaffold reading with its artifact, commit and date. The runner substitutes the value from its spawn prompt's `Census:` line and never reads it from Recovery. Put the placeholder in the trailing annotation where possible: a `{...}` token inside the command text makes `scripts/lint_verification_gates.py` treat the line as a placeholder and skip its checks. The dirty-path count of a "writes no path under X" gate is not a live-tree figure for this rule, because another session moves it on a shared tree. Write that After item as an orchestrator return check that names X and the task's possible write set, and point it at `references/verify-before-cite.md` §9.B.24 item 4.
 >
 > WRONG — the scaffold-time count is a literal the gate asserts at dispatch:
 > ```bash

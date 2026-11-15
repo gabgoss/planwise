@@ -24,7 +24,9 @@ Run it through the facade, which is the invocation Step 8c cites:
 
 Exit codes: 0 when every classified file is Green (or the scan does not apply),
 or when every Critical row is handled and nothing else is Warn or worse.
-1 when any file classifies Warn, or Critical without a handled row. 2 on a
+1 when any file classifies Warn, or Critical without a handled row, or when a
+task's `**Estimated Tokens:**` plus the runner overhead exceeds the session
+target and the task carries no 1M flag (`1M (cost)` or `1M-exception`). 2 on a
 usage error.
 
 Handled rows
@@ -89,8 +91,11 @@ from markdown_parser import split_row_cells
 from read_limits import (
     READ_FILE_BYTE_CAP,
     READ_PAGE_CAP_TOKENS,
+    allow_large_lifts,
     classify_file,
+    config_cli_version,
     content_class_for_path,
+    read_routes_advice,
 )
 
 # A Required Context row whose File cell is a command corpus, not a path: the
@@ -199,6 +204,41 @@ def parse_paged_read_exception(text: str) -> bool:
 def row_is_paged(row_text: str) -> bool:
     """True when the Required Context row carries the `⚠ PAGED` annotation."""
     return bool(_PAGED_ROW_RE.search(row_text))
+
+
+# The flag spellings the dispatcher honours: the task template writes
+# `1M (cost)` in the Token Budget field, and `1M-exception` is also accepted
+# there or as a qualifier on the Agent field ("Sonnet (1M-exception)").
+_ONE_M_RE = re.compile(r"1M-exception|\b1M\s*\(cost\)")
+_ESTIMATE_RE = re.compile(
+    r"^\*\*Estimated Tokens:\*\*\s*~?\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*([KkMm])?",
+    re.MULTILINE,
+)
+
+
+def parse_estimated_tokens(text: str) -> int | None:
+    """Return the task's `**Estimated Tokens:**` figure in tokens, or None.
+
+    The header reads `~34K`; a bare number is taken as tokens and an `M`
+    suffix as millions. A header with no readable figure yields None, so the
+    ceiling check never guesses a size.
+    """
+    m = _ESTIMATE_RE.search(text)
+    if not m:
+        return None
+    value = float(m.group(1).replace(",", ""))
+    unit = (m.group(2) or "").upper()
+    scale = {"K": 1_000, "M": 1_000_000}.get(unit, 1)
+    return round(value * scale)
+
+
+def parse_one_m_flag(text: str) -> bool:
+    """True when the task carries the 1M flag in Token Budget or Agent."""
+    for label in ("Token Budget", "Agent"):
+        m = re.search(rf"^\*\*{label}:\*\*(.*)$", text, re.MULTILINE)
+        if m and _ONE_M_RE.search(m.group(1)):
+            return True
+    return False
 
 
 def _clean_file_cell(cell: str) -> str:
@@ -423,20 +463,25 @@ def scan_plan(
         "tasks": [],
         "findings": [],
         "unresolved": [],
+        "over_ceiling": [],
         "summary": {
             "tasks": 0, "files": 0,
             "green": 0, "notice": 0, "warn": 0, "critical": 0,
-            "critical_handled": 0,
+            "critical_handled": 0, "warn_handled": 0,
+            "over_ceiling_unflagged": 0,
         },
     }
     if not ts_config["token_saver"]:
         return result
 
+    session_target = int(ts_config["token_saver_session_target"])
+    runner_overhead = int(ts_config["token_saver_runner_overhead"])
     thresholds = derive_thresholds(
-        session_target=int(ts_config["token_saver_session_target"]),
-        runner_overhead=int(ts_config["token_saver_runner_overhead"]),
+        session_target=session_target,
+        runner_overhead=runner_overhead,
     )
     result["thresholds"] = thresholds
+    cli_version = config_cli_version(config)
 
     for task_path in find_task_files(plan_root):
         text = task_path.read_text(encoding="utf-8", errors="replace")
@@ -447,6 +492,23 @@ def scan_plan(
             if _is_relative(task_path, project_root) else str(task_path)
         task_entry = {"task": task_rel, "model": model, "files": []}
         result["summary"]["tasks"] += 1
+
+        # A task over the per-task ceiling is routed on purpose: it carries the
+        # 1M flag. The window size never substitutes for that flag, so an
+        # unflagged over-ceiling task is a finding, not an advisory.
+        estimate = parse_estimated_tokens(text)
+        if (
+            estimate is not None
+            and estimate + runner_overhead > session_target
+            and not parse_one_m_flag(text)
+        ):
+            result["over_ceiling"].append({
+                "task": task_rel,
+                "estimate": estimate,
+                "runner_overhead": runner_overhead,
+                "session_target": session_target,
+            })
+            result["summary"]["over_ceiling_unflagged"] += 1
 
         for row in rows:
             if is_command_corpus(row["file_cell"]):
@@ -474,6 +536,7 @@ def scan_plan(
                 projected_added_bytes=added,
                 thresholds=thresholds,
                 content=content,
+                cli_version=cli_version,
             )
             entry = {
                 "path": str(resolved),
@@ -484,10 +547,18 @@ def scan_plan(
                 "projected_added_bytes": added,
                 **verdict,
             }
-            entry["annotations"] = annotations_for(verdict, model)
-            entry["recommendation"] = recommend(verdict, file_type)
+            entry["annotations"] = annotations_for(verdict, model, cli_version)
+            entry["recommendation"] = recommend(verdict, file_type, cli_version)
+            # A token-cap crossing is Critical below the floor and Warn at or
+            # above it. A paged, annotated row is handled either way.
             entry["handled"] = bool(
-                verdict["level"] == "Critical"
+                (
+                    verdict["level"] == "Critical"
+                    or (
+                        verdict["level"] == "Warn"
+                        and is_token_cap_crossing(verdict, cli_version)
+                    )
+                )
                 and verdict["reason"] == "read"
                 and task_paged_exception
                 and row_is_paged(row.get("row", ""))
@@ -496,12 +567,28 @@ def scan_plan(
             result["summary"]["files"] += 1
             result["summary"][verdict["level"].lower()] += 1
             if entry["handled"]:
-                result["summary"]["critical_handled"] += 1
+                if verdict["level"] == "Critical":
+                    result["summary"]["critical_handled"] += 1
+                else:
+                    result["summary"]["warn_handled"] += 1
             if verdict["level"] != "Green":
                 result["findings"].append(entry)
 
         result["tasks"].append(task_entry)
     return result
+
+
+def is_token_cap_crossing(verdict: dict, cli_version: str) -> bool:
+    """True when the floor is met and `allow_large` lifts every fired cap.
+
+    At or above the `allow_large` floor a page-cap or byte-cap crossing
+    classifies Warn. This names that case so `recommend` and the handled
+    check treat it like the Critical it was below the floor. It reads the
+    verdict's `read_gates` field, which `classify_file` derives from the same
+    bytes (projected bytes included) as the level, rather than re-testing
+    the caps here.
+    """
+    return allow_large_lifts(cli_version, verdict.get("read_gates", ()))
 
 
 def _is_relative(path: Path, root: Path) -> bool:
@@ -512,28 +599,43 @@ def _is_relative(path: Path, root: Path) -> bool:
         return False
 
 
-def annotations_for(verdict: dict, model: str | None) -> list[str]:
+def annotations_for(verdict: dict, model: str | None, cli_version: str = "") -> list[str]:
     """The mechanical `PAGED` / `REFACTOR` strings for a task-file row.
 
     Emitting these from the classifier is the point: a hand-written annotation
-    and a computed one are otherwise indistinguishable.
+    and a computed one are otherwise indistinguishable. At the `allow_large`
+    floor, REFACTOR is omitted when `allow_large` lifts every fired cap.
     """
     out = []
     if verdict["tokens"] >= READ_PAGE_CAP_TOKENS:
         out.append(f"⚠ PAGED ≥25K {model or 'default'}-tok")
-    if verdict["bytes"] >= READ_FILE_BYTE_CAP:
+    if verdict["bytes"] >= READ_FILE_BYTE_CAP and not is_token_cap_crossing(
+        verdict, cli_version
+    ):
         out.append("⚠ REFACTOR ≥256 KiB")
     return out
 
 
-def recommend(verdict: dict, file_type: str) -> str:
+def recommend(verdict: dict, file_type: str, cli_version: str = "") -> str:
     """The Step 8c recommendation for one verdict.
 
     A `read`-reason Critical is NEVER `1M-exception`: the 1M window does not
     raise the per-Read page cap, so the remedy is paged reads or a refactor.
-    Only a `cost`-reason Critical earns the flag.
+    Only a `cost`-reason Critical earns the flag. At or above the
+    `allow_large` floor, a Warn that crosses a whole-read cap returns the
+    routes text from `read_routes_advice`, which names `allow_large`, pages
+    and Grep. Below the floor the text is unchanged.
     """
     level, reason = verdict["level"], verdict["reason"]
+    if (
+        level == "Warn"
+        and reason == "read"
+        and is_token_cap_crossing(verdict, cli_version)
+    ):
+        return (
+            f"{read_routes_advice(cli_version, verdict.get('read_gates', ()))} "
+            "File a backlog item."
+        )
     if level == "Critical" and reason == "cost":
         return (
             "flag the task 1M-exception (dispatch Opus/1M) + file a backlog item"
@@ -662,6 +764,20 @@ def format_report(result: dict) -> str:
             out.append(f"  - {f['cell']}  ({f['level']}/{f['reason']})")
         out.append("")
 
+    if result["over_ceiling"]:
+        out.append(
+            f"Over-ceiling tasks without a 1M flag — {len(result['over_ceiling'])} "
+            "task(s). The 1M window does not replace the flag: add `1M (cost)` "
+            "to the task's `**Token Budget:**` exception field or split the task:"
+        )
+        for o in result["over_ceiling"]:
+            out.append(
+                f"  - {o['task']}  (~{o['estimate']:,} tok + "
+                f"{o['runner_overhead']:,} overhead > "
+                f"{o['session_target']:,} target)"
+            )
+        out.append("")
+
     if result["unresolved"]:
         buckets: dict[str, list[dict]] = {}
         for u in result["unresolved"]:
@@ -683,10 +799,12 @@ def format_report(result: dict) -> str:
                 )
         out.append("")
 
+    wh = s.get("warn_handled", 0)
+    warn_note = f" ({wh} handled)" if wh else ""
     out.append(
         f"Levels (per Required Context row, so a shared file counts once per "
         f"citing task): {s['green']} Green, {s['notice']} Notice, "
-        f"{s['warn']} Warn, {s['critical']} Critical "
+        f"{s['warn']} Warn{warn_note}, {s['critical']} Critical "
         f"({s['critical_handled']} handled, "
         f"{s['critical'] - s['critical_handled']} unhandled)"
     )
@@ -814,9 +932,10 @@ def main(argv: list[str] | None = None) -> int:
 
     summary = result["summary"]
     open_rows = (
-        summary["warn"] + summary["critical"] - summary["critical_handled"]
+        summary["warn"] + summary["critical"]
+        - summary["critical_handled"] - summary["warn_handled"]
     )
-    return 1 if open_rows else 0
+    return 1 if open_rows or summary["over_ceiling_unflagged"] else 0
 
 
 if __name__ == "__main__":

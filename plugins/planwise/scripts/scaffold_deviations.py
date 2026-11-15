@@ -27,7 +27,8 @@ Classes:
     A  A `##` heading marked REQUIRED in the file kind's template is absent. Only
        orchestration, sprint and task files are graded. A Master Plan is never
        graded here, because a scaffolded one is written from a different template.
-       A marker with a condition (`REQUIRED for DELEGATED mode`) is not graded.
+       An Orchestration whose `**Mode:**` line reads DELEGATED is also graded on each `##`
+       heading marked `REQUIRED for DELEGATED mode`. Any other conditional marker is not graded.
     B  A required template line is absent: `**Total Estimated:**` and `**Mode:**`
        in an Orchestration, `**Total Sessions:**` in a Master Plan, and each
        `- [ ] **{Label}**` item of the Orchestration template's
@@ -61,6 +62,11 @@ DEFAULT_TEMPLATES = sp.DEFAULT_TEMPLATES
 # from templates/scaffolding-master-plan.md, whose headings differ.
 CLASS_A_KINDS = ("orchestration", "sprint", "task")
 REQUIRED_MARKER = re.compile(r"<!--\s*REQUIRED\s*-->\s*$")
+# The Orchestration H2s marked `REQUIRED for DELEGATED mode` are graded only in an
+# Orchestration whose `**Mode:**` line reads DELEGATED. They sit in the same dict
+# as the bare-marker lists, under this key, so `load_templates` keeps its shape.
+DELEGATED_MARKER = re.compile(r"<!--\s*REQUIRED for DELEGATED mode\s*-->\s*$")
+DELEGATED_KEY = "orchestration-delegated"
 # Class B lines: (file kind, field label). The prefix is read from the template line
 # that carries the label at run time:
 #   orchestration -> templates/orchestration.md `**Total Estimated:** ~{XX}K tokens`
@@ -86,13 +92,21 @@ def template_body(templates_dir, kind):
     return sp.extract_body(Path(templates_dir) / sp.TEMPLATE_FILES[kind])
 
 
+def _marked_headings(templates_dir, kind, marker):
+    """The (heading text, pattern) of each H2 of the kind's template that carries `marker`."""
+    _pre, secs = sp.split_sections(template_body(templates_dir, kind))
+    return [(sp.norm_heading(s[0]), sp.heading_pattern(sp.norm_heading(s[0])))
+            for s in secs if marker.search(s[0].rstrip("\r"))]
+
+
 def required_headings(templates_dir):
-    """Per graded kind: list of (heading text, pattern) for each H2 marked REQUIRED."""
-    out = {}
-    for kind in CLASS_A_KINDS:
-        _pre, secs = sp.split_sections(template_body(templates_dir, kind))
-        out[kind] = [(sp.norm_heading(s[0]), sp.heading_pattern(sp.norm_heading(s[0])))
-                     for s in secs if REQUIRED_MARKER.search(s[0].rstrip("\r"))]
+    """Per graded kind: list of (heading text, pattern) for each H2 marked REQUIRED.
+
+    The extra key DELEGATED_KEY holds the Orchestration H2s marked `REQUIRED for
+    DELEGATED mode`, which `scan` grades only in a DELEGATED Orchestration.
+    """
+    out = {kind: _marked_headings(templates_dir, kind, REQUIRED_MARKER) for kind in CLASS_A_KINDS}
+    out[DELEGATED_KEY] = _marked_headings(templates_dir, "orchestration", DELEGATED_MARKER)
     return out
 
 
@@ -190,6 +204,8 @@ def scan(root, tpl):
         heads, plain = outside_fence(text, patterns[kind])
         if kind in CLASS_A_KINDS:
             findings += [("A", f'CLASS_A {rel} missing "{h}"') for h in class_a(heads, required[kind])]
+        if kind == "orchestration" and sp.DELEGATED_MODE_RE.search("\n".join(plain)):
+            findings += [("A", f'CLASS_A {rel} missing "{h}"') for h in class_a(heads, required[DELEGATED_KEY])]
         findings += [("B", f'CLASS_B {rel} missing "{p}"') for p in class_b(plain, prefixes.get(kind, []))]
     return findings
 

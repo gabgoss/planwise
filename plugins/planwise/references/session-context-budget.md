@@ -56,8 +56,8 @@ The same fixed overhead applies on both tiers; only the available-for-work budge
 | **Available for work** | **~100K** | **~900K** | Window − overhead |
 | Practical session limit | ~100K | ~400K | Soft target — above this, recovery + review get harder even if it fits |
 | Meta-Plan threshold | > 100K | > 500K | `min(80% × available, 500K)` |
-| Subagent window (by model) | Sonnet/Haiku → 200K | Opus → 1M | **Set by the DISPATCHED model, NOT the parent tier.** See [§ Subagent Context Window](#subagent-context-window). |
-| DELEGATED check (per subagent) | `task + rules + 54K < 200K` (Sonnet/Haiku) | `task + rules + 54K < 1M` (Opus) | Check the **dispatched model's** window — not the parent `context_window`. |
+| Subagent window (by model) | Haiku 4.5 → 200K | every other current model → 1M | **Set by the DISPATCHED model, NOT the parent tier.** See [§ Subagent Context Window](#subagent-context-window). |
+| DELEGATED check (per subagent) | `task + rules + 54K < 200K` (Haiku 4.5) | `task + rules + 54K < 1M` (every other current model) | Check the **dispatched model's** window — not the parent `context_window`. |
 
 The Max practical session limit (400K) is intentionally below the available budget (900K). Sessions beyond ~400K become harder to review, recover, and reason about even when they technically fit — Meta-Plan is preferred for sustained work above this point.
 
@@ -66,18 +66,18 @@ The Max practical session limit (400K) is intentionally below the available budg
 > [!constraint] A subagent's window is the DISPATCHED MODEL's window — NOT the parent tier
 > A spawned subagent (e.g., a DELEGATED `task-runner`) gets a fresh context window sized by **the model it runs on**, independent of the orchestrator's account tier:
 >
-> | Dispatched model | Window |
-> |------------------|--------|
-> | Haiku | 200K |
-> | Sonnet | 200K |
-> | Opus | 1M |
+> | Dispatched model | Context window (API) |
+> |------------------|----------------------|
+> | Sonnet 5.5 | 1M |
+> | Sonnet 5 | 1M |
+> | Sonnet 4.6 | 1M |
+> | Haiku 5.5 | 1M |
+> | Haiku 4.5 | 200K |
+> | Opus 4.6 and later, and Fable | 1M |
 >
-> A Sonnet runner has a **200K** window even when the orchestrator is on Max (1M) — the parent's tier does NOT raise the child's window. The per-subagent DELEGATED budget check is therefore:
->
-> ```
-> task estimate + injected path-rule tokens + ~54K overhead  <  the DISPATCHED MODEL's window
-> ```
->
+> Haiku 4.5 is the only current model with a **200K** window. A Haiku 4.5 runner stays at 200K even when the orchestrator is on Max (1M) — the parent's tier does NOT raise the child's window.
+> The per-subagent DELEGATED budget check is therefore
+> `task estimate + injected path-rule tokens + ~54K overhead < the DISPATCHED MODEL's window`,
 > NOT the parent `context_window`. `injected path-rule tokens` counts every rule whose `paths:` matches a file the runner reads or writes, including its own task brief under the plans directory. The plan-path share is the total that `python {plugin_root}/scripts/init_project.py --doctor --project-root {project_root}` flags. When that surface is large enough to overflow a 200K-window model on its first plan-brief read, either raise the dispatch to a 1M-window model (see [`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md#119-model-floor-bridge-delegated--temporary) §1.19) or shrink the surface (`/planwise doctor`).
 
 ### Threshold Formulas
@@ -97,7 +97,7 @@ practical_session_limit = min(available_for_work, 400_000)  # cap at 400K on Max
 
 # DELEGATED check — per-subagent budget (see § Subagent Context Window)
 # subagent_model_window = window of the model the DELEGATED task is dispatched to:
-#   Opus 1,000,000; Sonnet 200,000; Haiku 200,000 — NOT the parent context_window
+#   Haiku 4.5 200,000; every other current model 1,000,000 — NOT the parent context_window
 delegated_cap           = subagent_model_window
 ```
 
@@ -110,9 +110,9 @@ delegated_cap           = subagent_model_window
 
 `delegated_cap` is **independent of the parent tier** — it is the window of the model the DELEGATED task is dispatched to (see [§ Subagent Context Window](#subagent-context-window)):
 
-| Variable | Opus | Sonnet | Haiku |
-|----------|------|--------|-------|
-| `delegated_cap` (= `subagent_model_window`) | 1,000,000 | 200,000 | 200,000 |
+| Variable | Haiku 4.5 | Every other current model (Sonnet 4.6+, Haiku 5.5, Opus 4.6+, Fable) |
+|----------|-----------|----------------------------------------------------------------------|
+| `delegated_cap` (= `subagent_model_window`) | 200,000 | 1,000,000 |
 
 > **Note (threshold precedence):** Where the formula above and these per-tier tables disagree, the **tables are canonical**. On Pro the formula's `0.80 × available_for_work` yields 80K, but the Tier-Specific Budget Table and the per-tier table above both set `meta_plan_threshold = 100K` on Pro (500K on Max) — use the table value. The formula is a derivation aid for non-standard tiers; the tables are the binding decision boundary. `handlers/plan.md` branches on 100K/500K, matching the tables.
 
@@ -243,7 +243,7 @@ Task token estimates MUST be computed bottom-up from measured file sizes, not ju
 **Measurement:** run `measure_files.py` over every Required Context file — tokens = bytes ÷ the assigned model's bytes-per-token ratio (see [Read-Tool Hard Limits](#read-tool-hard-limits)). For a file that does not exist yet, estimate its byte size and divide: on the Claude 5 family ≈ bytes ÷ 2.9 for prose, ÷ 2.7 for code, ÷ 2.6 for dense markdown (tables, link-heavy rows), ÷ 2.3 for a cleared notebook, ÷ 2.0 for raw JSON. Never derive a token figure from a line count.
 
 **Formula:** `Task Estimate = (sum of Required Context file tokens) + (estimated output tokens)`
-**DELEGATED check:** `Task Estimate + injected path-rule tokens + 54K overhead < the dispatched model's window` (Sonnet/Haiku 200K, Opus 1M — the window is set by the dispatched MODEL, NOT the parent tier; see [§ Subagent Context Window](#subagent-context-window))
+**DELEGATED check:** `Task Estimate + injected path-rule tokens + 54K overhead < the dispatched model's window` (Haiku 4.5 200K, every other current model 1M — the window is set by the dispatched MODEL, NOT the parent tier; see [§ Subagent Context Window](#subagent-context-window))
 
 ### A Delegated Code Task's Estimate Counts the Edit-Run-Fix Loop
 
@@ -374,17 +374,18 @@ Sprint Plan header Estimated Tokens
 
 | Check | Formula | When to Verify |
 |-------|---------|----------------|
+| Task reads | Sum of the Required Context `~Tokens` cells = the Context subtotal reads term | After writing each task file |
 | Task internal | Context subtotal = Task header `Estimated Tokens` | After writing each task file |
 | Session total | Sum of task `Est. Tokens` = Orchestration `Total Estimated` | After writing orchestration |
 | Sprint total | Sum of session `Est. Tokens` = Sprint Plan header `Estimated Tokens` | After writing sprint plan |
 
-**Enforcement:** The `/planwise plan` handler's Step 8c computes estimates bottom-up. Its Step 9b (Post-Pass Harmonization) runs `estimate_reconcile.py check` over the scaffold. The `/planwise review` handler runs the same checker through the review discovery pass, and Reviewer Check 132 reads the result. Reviewer Check 024 covers the task-internal row. Template comments in orchestration, sprint plan, and task file templates remind the planner to verify.
+**Enforcement:** The `/planwise plan` handler's Step 8c computes estimates bottom-up. Its Step 9b (Post-Pass Harmonization) runs `estimate_reconcile.py check` over the scaffold. The `/planwise review` handler runs the same checker through the review discovery pass, and Reviewer Check 132 reads the result. Reviewer Check 024 covers both task levels: the Required Context row sum and the task-internal total. Template comments in orchestration, sprint plan, and task file templates remind the planner to verify.
 
 #### Reviewer Check 024 — Task Token-Estimate Arithmetic Gate
 
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
-- **What:** Task header `Estimated Tokens` = Required Context subtotal + output tokens. No `~?` placeholders. Deviation ≤10%.
-- **Detection:** Extract header value + subtotal line. `abs(header - subtotal) / header > 0.10` → BLOCKER. Any `~?` → BLOCKER.
+- **What:** Task header `Estimated Tokens` = Required Context subtotal + output tokens. The Required Context `~Tokens` cells sum to the subtotal's reads term. No `~?` placeholders. Deviation ≤10%.
+- **Detection:** Extract header value + subtotal line. `abs(header - subtotal) / header > 0.10` → BLOCKER. Any `~?` → BLOCKER. Sum the `~Tokens` cells of the Required Context table. When the sum differs from the subtotal's reads term by more than 10% of the sum → BLOCKER. The Estimate Reconciliation section of the review discovery fact sheet carries the same comparison as a `MISMATCH task-reads` line. The row of that table that names the task file itself carries a `KiB` figure that must sit within 3% of the file's bytes. The fact sheet reports a larger drift as a `MISMATCH task-self` line, and each such line is a BLOCKER.
 - **Finding template:**
 ```
 [BLOCKER] Task token-estimate arithmetic gate failed
@@ -398,7 +399,7 @@ Fix: Reconcile per references/session-context-budget.md Token Estimate Reconcili
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
 - **What:** Each session total and sprint total equals the figures it rolls up from, within 10%. The pairs are the session and sprint rows of the reconciliation table above: orchestration task-list cells against task headers, the orchestration `Total Estimated` against its cells, the Sprint Plan session row against the orchestration total, and the Sprint Plan header against its session rows.
 - **Detection:** Read the review discovery fact sheet's Estimate Reconciliation section. It holds the verbatim output of `estimate_reconcile.py check` and its exit code. The script already drops any drift at or under 10%.
-  - Each `MISMATCH` line whose level is not `task` → one BLOCKER. Check 024 owns the `task` level, so skip those lines here.
+  - Each `MISMATCH` line whose level is not `task`, `task-reads` or `task-self` → one BLOCKER. Check 024 owns the three task levels, so skip those lines here.
   - Any `UNREAD` lines → one WARNING that lists them. An `UNREAD` line does not change the exit code, so exit 0 can still carry one.
   - A `sessions=0` total line → not applicable, no finding.
   - The section is missing, or reads `exit: 2` → report it to the lead as an unrun check, never as a plan finding.
@@ -434,7 +435,7 @@ python "{plugin_root}/scripts/measure_files.py" {file} [{file} ...] [--model {re
 
 Three criteria, in priority order — **whichever comes first binds**:
 
-1. **Tokens (primary):** stay under **22,000** (`READ_TOKEN_WARN`) at the reading model's bytes-per-token ratio; the hard page-cap is 25,000 (`READ_PAGE_CAP_TOKENS`). On text this gate binds first — roughly 3.6× before the byte gate.
+1. **Tokens (primary):** stay under **22,000** (`READ_TOKEN_WARN`) at the reading model's bytes-per-token ratio; the page cap is 25,000 (`READ_PAGE_CAP_TOKENS`), one default Read page. On text this gate binds first — roughly 3.6× before the byte gate. A file past it stays readable by the routes in [Read-Tool Hard Limits](#read-tool-hard-limits).
 2. **Bytes:** stay under **245,760** (240 KiB, `READ_BYTE_WARN`); the hard refusal cap is 262,144 (256 KiB, `READ_FILE_BYTE_CAP`).
 3. **Lines (distant third, defensive):** stay under **2,000** (`READ_LINE_CAP`) — the first-page line window. It binds alone only on many-short-line files that pass gates 1–2.
 
@@ -506,7 +507,7 @@ This procedure covers the writer's side. For reading a file that is already over
 
 ### File Size Limits — Generated Artifacts (BINDING)
 
-**Generated planwise artifacts that a runner MUST read** — task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, and task Output files — carry a **HARD** ceiling regardless of `context.token_saver`: each MUST land **OK on all three Read-tool gates** (see [Read-Tool Hard Limits](#read-tool-hard-limits) below) for the model that will read it. A generated artifact that trips any gate cannot be read cleanly in a single Read and MUST be split into multi-parts. (The gates are harness facts, not a carrying-cost policy — Token Saver's config-gated budget system is separate.)
+**Generated planwise artifacts that a runner MUST read** — task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, and task Output files — carry a split target regardless of `context.token_saver`: each SHOULD land **OK on all three Read-tool gates** (see [Read-Tool Hard Limits](#read-tool-hard-limits) below) for the model that will read it. A generated artifact that trips any gate is over one default Read page and should be split into multi-parts. A missed split is a WARNING, not a refusal: the file stays readable by a read route. (The gates are harness facts, not a carrying-cost policy — Token Saver's config-gated budget system is separate.)
 
 > [!constraint] Generated-Artifact Split — Measured, Not Line-Counted
 > WRONG — a planwise-generated Consolidated Context part is judged by its line count alone; at 9,200 bytes-per-100-lines of dense tables the file is ~44K tokens, and a runner's single Read returns only the first ~21K tokens of it:
@@ -516,7 +517,7 @@ This procedure covers the writer's side. For reading a file that is already over
 > CORRECT — measure all three gates at once; split on whichever trips first:
 > ```
 > python "{plugin_root}/scripts/measure_files.py" PI-Consolidated-Context-Part-1.md --model sonnet
-> #   tokens (primary): must stay < 22,000 (warn) / 25,000 (hard cap)
+> #   tokens (primary): must stay < 22,000 (warn) / 25,000 (one default page)
 > #   bytes:            must stay < 245,760 (warn) / 262,144 (hard cap)
 > #   lines:            must stay < 2,000 (defensive first-page window)
 > # → split into Part-1a / Part-1b if ANY gate reports WARN or OVER
@@ -536,6 +537,8 @@ The Read tool has three mechanical limits, SEPARATE from the carrying-cost budge
 
 Gate priority: **tokens first, then bytes, then lines — whichever comes first.** The caps and warn thresholds are identical on every model; only the tokenizer weight (bytes-per-token) differs.
 
+**Read routes past a cap.** A file over one default Read page has three read routes: read it whole with `allow_large: true` (Claude Code v2.1.296 or later), read it in `offset`/`limit` pages, or Grep for the section you need. Name `allow_large` only when the project's `context.verified_cli_version` is v2.1.296 or later. Below that version, or with no recorded version, the routes are pages and Grep only. `allow_large` lifts the 256 KiB byte gate and the ~25K-token page cap. The 2,000-line window is a defensive limit, not a measured harness stop, and `allow_large` is not shown to lift it. For a core or to-be-edited file, consider a split or refactor. That is advice, not a gate: an over-cap file stays readable and blocks no work. `scripts/read_limits.py` `read_routes_advice()` prints the same routes.
+
 | Model family | Token cap (hard) | Token warn | Byte cap (hard) | Byte warn | Line gate | Bytes-per-token (text measured 2026-09-07; notebook and json 2026-09-23) |
 |---|---|---|---|---|---|---|
 | Opus 5 | 25,000 | 22,000 | 262,144 (256 KiB) | 245,760 (240 KiB) | 2,000 (defensive) | dense markdown 2.6 · prose 2.9 · code 2.7 · notebook 2.3 · json 2.0 |
@@ -543,7 +546,7 @@ Gate priority: **tokens first, then bytes, then lines — whichever comes first.
 | Fable 5 | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | same tokenizer as Opus: 2.6 · 2.9 · 2.7 · 2.3 · 2.0 |
 | Haiku 4.5 | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | dense markdown 3.5 · prose 4.0 · code 3.6 · notebook 3.3 · json 2.7 |
 
-The two structured classes are selected by file extension, never by guessing: `measure_files.py` and `classify_file()` price a `.ipynb` at the **notebook** ratio and a `.json` / `.jsonl` / `.ndjson` at the **json** ratio unless an explicit content class overrides them. Every other extension takes the dense-markdown fallback. The notebook ratio is on-disk bytes per token of the Read tool's *rendered cell view* of an outputs-cleared notebook — the tool renders a notebook rather than returning its raw JSON, and counts tokens on the rendering (the same bytes measured 31,395 tokens as `.ipynb` and 37,176 as `.json`). For a notebook that still carries outputs the renderer elides large ones, so the estimate is an upper bound; measure the cleared file.
+The two structured classes are selected by file extension, never by guessing: `measure_files.py` and `classify_file()` (which also takes the project's `cli_version`; see the level model below the gate list) price a `.ipynb` at the **notebook** ratio and a `.json` / `.jsonl` / `.ndjson` at the **json** ratio unless an explicit content class overrides them. Every other extension takes the dense-markdown fallback. The notebook ratio is on-disk bytes per token of the Read tool's *rendered cell view* of an outputs-cleared notebook — the tool renders a notebook rather than returning its raw JSON, and counts tokens on the rendering (the same bytes measured 31,395 tokens as `.ipynb` and 37,176 as `.json`). For a notebook that still carries outputs the renderer elides large ones, so the estimate is an upper bound; measure the cleared file.
 
 > [!constraint] The tokenizer splits by model GENERATION, not by model size
 > Opus 5, Sonnet 5 and Fable 5 return the **same** token count for the same file — measured to within 1–2 tokens over ~54K. Haiku 4.5 alone is lighter, by ~1.31–1.38×. Do not group models by size or by cost tier when estimating.
@@ -552,30 +555,31 @@ The two structured classes are selected by file extension, never by guessing: `m
 >
 > Note also that **code tokenizes denser than prose** (2.7 vs 2.9 on the Claude 5 family), not lighter. Each cell is rounded DOWN from its measurement, because a smaller ratio estimates more tokens and so fires the gate sooner.
 
-- **Token page-cap gate (PRIMARY; model-dependent ratio):** a file above **~25,000 tokens** (`READ_PAGE_CAP_TOKENS`) does not return whole. Without an explicit `limit`, the Read soft-truncates to a first page of **~21,200 tokens (~85% of the cap)** plus a `PARTIAL view` banner reporting the file's exact total; with an explicit `limit` spanning more than the cap it **hard-errors with zero content** (the error still reports the exact token count — a zero-cost measurement oracle). Warn at **~22,000 tokens** (`READ_TOKEN_WARN`) — the warn threshold produces **no runtime marker**, so it MUST be checked proactively (`measure_files.py`), never waited for.
-- **Byte gate (model-independent):** a file **larger than 262,144 bytes (256 KiB)** (`READ_FILE_BYTE_CAP`) is refused outright unless `offset`/`limit` is passed — no partial page, no pointer, and the error reads `exceeds maximum allowed size (256KB)`. The boundary is strictly greater-than, measured at one-byte resolution: 262,145 bytes refuses, 262,144 does not. `classify_file` compares with `>=` and so flags the one exact-cap size a byte early; that conservatism is unreachable in practice, because 256 KiB of text is already Critical on the token gate (a measured 100,610 tokens). Warn at **245,760 bytes (240 KiB)** (`READ_BYTE_WARN`).
-- **Line gate (DISTANT THIRD, defensive):** **2,000 lines** (`READ_LINE_CAP`) — the first-page line window; a per-model total-read ceiling of roughly 10–20 pages is reported but UNCONFIRMED (measured sessions returned 3,000+-line single pages). Treat < 2,000 lines as the defensive target for generated artifacts; it binds alone only on many-short-line files that pass the token and byte gates.
+- **Token page-cap gate (PRIMARY; model-dependent ratio):** a file above **~25,000 tokens** (`READ_PAGE_CAP_TOKENS`) does not return whole from a default Read; with `allow_large: true` on v2.1.296 or later it does. Without an explicit `limit`, the Read soft-truncates to a first page of **~21,200 tokens (~85% of the cap)** plus a `PARTIAL view` banner reporting the file's exact total; with an explicit `limit` spanning more than the cap it **hard-errors with zero content** (the error still reports the exact token count — a zero-cost measurement oracle). Warn at **~22,000 tokens** (`READ_TOKEN_WARN`) — the warn threshold produces **no runtime marker**, so it MUST be checked proactively (`measure_files.py`), never waited for.
+- **Byte gate (model-independent):** a file **larger than 262,144 bytes (256 KiB)** (`READ_FILE_BYTE_CAP`) is refused outright unless `offset`/`limit` or (v2.1.296 or later) `allow_large: true` is passed — no partial page, no pointer, and the error reads `exceeds maximum allowed size (256KB)`. The boundary is strictly greater-than, measured at one-byte resolution: 262,145 bytes refuses, 262,144 does not. `classify_file` compares with `>=` and so flags the one exact-cap size a byte early; that conservatism is unreachable in practice, because 256 KiB of text is already Critical on the token gate (a measured 100,610 tokens). Warn at **245,760 bytes (240 KiB)** (`READ_BYTE_WARN`).
+- **Line gate (DISTANT THIRD, defensive):** **2,000 lines** (`READ_LINE_CAP`) — the first-page line window; a per-model total-read ceiling of roughly 10–20 pages is reported but UNCONFIRMED (measured sessions returned 3,000+-line single pages). Treat < 2,000 lines as the defensive target for generated artifacts; it binds alone only on many-short-line files that pass the token and byte gates. The window is a defensive limit, not a measured harness stop, and `allow_large` is not shown to lift it.
 
 **Estimating tokens:** `tokens ≈ bytes ÷ bytes-per-token` for the READING model, gate-conservative — unknown reader or content class → **2.6 B/tok** (the densest measured content on the heaviest tokenizer). Line-based token rates are unreliable and MUST NOT be used: measured per-line rates ranged 7–365 tokens/line depending on content; bytes predict the gate, lines do not.
 
-These FOLD into the per-file warning ladder. `token_saver.classify_file()` computes `level = max(cost_level, read_level)` and tags `reason = cost | read` naming whichever gate drove the level:
+These FOLD into the per-file warning ladder. `token_saver.classify_file()` computes `level = max(cost_level, read_level)` and tags `reason = cost | read` naming whichever gate drove the level. Its `cli_version` argument is the project's `context.verified_cli_version`. At v2.1.296 or later a token page-cap or byte-cap crossing is Warn, because `allow_large: true` reads the file whole. Below that version, or with no version, those crossings stay Critical. The line window stays Critical at every version. The `read_gates` field names the caps crossed, and `advice` carries the `read_routes_advice()` text:
 
 > [!constraint] A `read`-reason Critical Is NOT 1M-Exception-Resolvable
 > WRONG — a runner hits a `read`-reason Critical and escalates the dispatch to Opus (1M window) expecting the larger window to absorb it:
 > ```
 > classify_file(...) → {level: Critical, reason: read}   → "route to Opus, the 1M window fixes it"  ← FALSE
 > ```
-> CORRECT — routing to Opus does NOT raise the per-Read page cap, and the Claude 5 tokenizer (Opus, Sonnet and Fable alike) trips the token gate on FEWER bytes than Haiku 4.5 — ~65 KB of dense markdown against ~87 KB. The remedy is **paged reads** (`offset`/`limit`/Grep), and for a core or to-be-edited dependency, **refactor + backlog**:
+> CORRECT — routing to Opus does NOT raise the per-Read page cap, and the Claude 5 tokenizer (Opus, Sonnet and Fable alike) trips the token gate on FEWER bytes than Haiku 4.5 — ~65 KB of dense markdown against ~87 KB. The remedy is a **read route**. On a verified v2.1.296 or later, `allow_large: true` reads a token- or byte-gated file whole; size that read against the context window still free, not against the model's total window. Otherwise read `offset`/`limit` pages or Grep. For a core or to-be-edited dependency, a refactor + backlog item is advice:
 > ```
-> classify_file(...) → {level: Critical, reason: read}
->   → page it: Read(offset/limit) or Grep the needed section
->   → if it is a core/edited dependency: split/refactor the file + file a backlog item
+> classify_file(...) → {level: Warn|Critical, reason: read, read_gates, advice}
+>   → verified v2.1.296+ and only token/byte fired, file fits the free window: Read(allow_large: true)
+>   → else: Read(offset/limit) pages, or Grep the needed section
+>   → if it is a core/edited dependency: consider a split/refactor + backlog item
 > ```
-> A `cost`-reason Critical is a budget overflow (split the task / trim Required Context). A `read`-reason Critical is a mechanical Read failure (page it / refactor). The 1M exception addresses neither.
+> A `cost`-reason Critical is a budget overflow (split the task / trim Required Context). A `read`-reason level is a mechanical Read limit (a read route, then refactor as advice). The 1M exception addresses neither.
 
 ### Reading Discipline With Read Gates (BINDING)
 
-The [Read Files Fully](#reading-discipline-binding) rule still holds — read all relevant content, never skim or infer. This section adds one refinement: when a single Read **cannot** deliver a whole file (above the token page-cap, ≥ 256 KiB, or past the line window), reading "fully" means **paging** it, not trusting one Read returned everything.
+The [Read Files Fully](#reading-discipline-binding) rule still holds — read all relevant content, never skim or infer. This section adds one refinement: when a single Read **cannot** deliver a whole file (above the token page-cap, ≥ 256 KiB, or past the line window), reading "fully" means an `allow_large: true` read (verified v2.1.296 or later, token or byte gate only) or **paging** it, not trusting one default Read returned everything.
 
 > [!constraint] Page Large Files — Do Not Trust One Read
 > WRONG — runner issues one Read on a ~70 KB dense file, gets the first page back, and proceeds as if it read the whole file:
@@ -593,7 +597,7 @@ The [Read Files Fully](#reading-discipline-binding) rule still holds — read al
 ### Large-File Read Tactics
 
 > [!practice] Ladder for Files Exceeding a Read-Tool Gate
-> The Read tool has three mechanical gates — tokens, bytes, lines; see [Read-Tool Hard Limits](#read-tool-hard-limits) above (NOT a single line-count budget). When a file crosses any gate, apply this ladder in order — stop at the first step that succeeds. A `read`-reason Critical is NOT resolvable by routing to a 1M-window model (see the constraint above).
+> The Read tool has three mechanical gates — tokens, bytes, lines; see [Read-Tool Hard Limits](#read-tool-hard-limits) above (NOT a single line-count budget). When a file crosses only the token or byte gate and the project's `context.verified_cli_version` is v2.1.296 or later, read it whole with `allow_large: true` when it fits the free context window. Otherwise, apply this ladder in order — stop at the first step that succeeds. A split or refactor stays advice. A `read`-reason Critical is NOT resolvable by routing to a 1M-window model (see the constraint above).
 
 **Step 1 — Paged Read (`offset`/`limit`):** Read the file in pages that each stay under the gate, then stitch them — see [Page Large Files — Do Not Trust One Read](#reading-discipline-with-read-gates-binding) above for the WRONG/CORRECT pattern and the `PARTIAL view` truncation-header check.
 

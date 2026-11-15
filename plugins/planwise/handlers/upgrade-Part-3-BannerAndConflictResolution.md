@@ -28,13 +28,13 @@ Comparator verdicts: {returned}/{diverged} (late: {n} resumed, {m} recorded afte
 Config keys added:    {N}  ({list, or "(none)"})
 
 Feedback drafting: ON — Claude may now save local feedback drafts under {planwise_root}/{feedback_dir}/
-  nothing is posted without /planwise feedback --drafts and your approval
+  posting follows feedback.enabled: an interactive run asks first, and Auto Mode, backlog loop and harvest runs post once a privacy check passes
   feedback.drafts: {value} ({answered|default, no answer given}); feedback.enabled: {true (set this run)|unchanged}
   turn it off: set feedback.drafts: off in {planwise_root}/config.yaml, or run
     python "{plugin_root}/scripts/feedback_drafts.py" disable-drafts --config "{planwise_root}/config.yaml"
   — or, when the value is off:
 Feedback drafting: OFF — Claude will not save local feedback drafts under {planwise_root}/{feedback_dir}/
-  nothing is posted without /planwise feedback --drafts and your approval
+  posting follows feedback.enabled: an interactive run asks first, and Auto Mode, backlog loop and harvest runs post once a privacy check passes
   feedback.drafts: off ({answered|default, no answer given}); feedback.enabled: {true (set this run)|unchanged}
   turn it on: set feedback.drafts: notify (or quiet) in {planwise_root}/config.yaml
 (one of the two entries, and neither when the pre-upgrade config already carried feedback.drafts)
@@ -84,7 +84,8 @@ Lessons index migration:                                   (silent — nothing p
     ledger:                  {path}
     backups:                 {planwise_root}/upgrade-backups/{from}-to-{to}/lessons/ ({N} file(s), listed in DISPOSITIONS.md)
     git tree was dirty:      {yes|no|unknown} (informational — the backup above is the restore point)
-    generator --check:       clean
+    generator --check:       {clean|clean apart from location anomalies|not clean}
+    move by hand:            {lesson file} (status={status}) -> {into Archive/|to the top level}   (one line per location anomaly; the generator never moves a file)
   — or, on an already-generated index whose changelog grew past the per-file budget (state `changelog_split`):
 Lessons changelog: re-split into {N} part(s) (main file under {READ_TOKEN_WARN} tokens, each archive part under {READ_PAGE_CAP_TOKENS}; a file holding one larger entry keeps it whole); backups: {planwise_root}/upgrade-backups/{from}-to-{to}/lessons
   — or, when the changelog's entry numbers also do not strictly descend from the newest entry to the oldest (state `changelog_split`):
@@ -214,7 +215,7 @@ Upgrade complete.
 The `Comparator verdicts:` line is rendered by the handler from the Step 2.2 counts and the Step 2.3 late-verdict count, because the script cannot see the fan-out. Count each file named in a writer output line (stdout or stderr) containing `ignoring cached verdict` or `falling back to the inline primitive` as failed, not returned, because the writer discarded its verdict. Append the word `degraded` to it when `returned < diverged`. Omit the line when Step 2.2 did not run.
 
 > [!practice] The index migration blocks are a pass-through, never a handler procedure
-> Pass the `Backlog index migration:` (or `Backlog changelog:`), `Lessons index migration:` (or `Lessons changelog:`) and `Plans index migration:` blocks through verbatim, exactly as the script's own banner prints them — the handler names no repair step of its own. Step 2.3b asked the answerable questions before the writer ran, so a refusal that still prints is one only a hand edit settles (a non-UTF-8 file, an id on two files, an entry at the page cap). On `refused`, report the `fix:` line as printed, and name the refusal as action required in the chat summary.
+> Pass the `Backlog index migration:` (or `Backlog changelog:`), `Lessons index migration:` (or `Lessons changelog:`) and `Plans index migration:` blocks through verbatim, exactly as the script's own banner prints them — the handler names no repair step of its own. Step 2.3b asked the answerable questions before the writer ran, so a refusal that still prints is one only a hand edit settles (a non-UTF-8 file, an id on two files). On `refused`, report the `fix:` line as printed, and name the refusal as action required in the chat summary.
 >
 > The `({index-wins|frontmatter-wins})` token on a `reconciled` line is the reconcile mode. The default is `index-wins`. `--backlog-reconcile` and `--lessons-reconcile` are CLI-only overrides of `init_project.py --upgrade`, and this handler never passes them.
 

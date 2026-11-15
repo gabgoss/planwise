@@ -20,6 +20,7 @@ drift report.
 
 import math
 import os
+import re
 
 # ---------------------------------------------------------------------------
 # FIXED Read-tool limit constants (empirically re-measured 2026-09-07 across
@@ -54,6 +55,9 @@ READ_TOKEN_WARN = 22000
 # deliberate conservatism, and unreachable in practice: 256 KiB of text is
 # far past the token gate (measured 100,610 tokens) and already Critical
 # there. 256 KiB hard cap; warn at 240 KiB.
+# Probed 2026-11-14 on CLI v2.1.296 or later: a whole-file Read with
+# `allow_large: true` returned a 270,020-byte file whole, so `allow_large`
+# lifts this gate (verdict: lifted). Without the parameter the refusal held.
 READ_FILE_BYTE_CAP = 262144   # 256 * 1024
 READ_BYTE_WARN = 245760       # 240 * 1024
 
@@ -61,6 +65,10 @@ READ_BYTE_WARN = 245760       # 240 * 1024
 # sessions saw 3,000+-line single pages, so this is a defensive gate, not a
 # hard-measured harness fact; it can bind alone only on many-short-line files
 # that pass the token and byte gates (e.g. 3,000 lines x ~17 B/line).
+# Probed 2026-11-14 on CLI v2.1.296 or later: a 2,500-line file under the
+# token cap read whole both with and without `allow_large: true`, so no
+# window bound and the probe cannot show `allow_large` lifting it (verdict:
+# unclear).
 READ_LINE_CAP = 2000
 
 # Empirical bytes-per-token ratios by model family and content class
@@ -106,13 +114,38 @@ READ_LINE_CAP = 2000
 #       Haiku 4.5         2.717 · 2.809 · 2.842
 #   Cross-family check on every sample: Claude 5 tokens / Haiku tokens landed
 #   1.28-1.40, inside the 1.25-1.45 band the tests pin.
+#
+# One content-sniffed class, added 2026-11-14 (same oracle):
+#
+#   table-md — markdown pipe-table rows whose characters are mostly digits
+#     (see `numeric_table_bytes`). Digits tokenize near one token per one to
+#     two bytes, so a dense numeric table costs far more per byte than the
+#     prose and index rows `dense-md` covers. The class is never reached by
+#     extension, so `estimate_file_tokens` prices a file's table rows at this
+#     cell and every other byte at the fallback. Three generated samples of
+#     45,045, 52,004 and 60,031 bytes (6, 7 and 8 columns of values shaped
+#     like `-0.087 (0.124)`, `n=4,344` and `42.17`, about 60%, 20% and 20% of
+#     cells) read 30,737, 35,496 and 40,977 tokens:
+#       Claude 5 family   1.465 · 1.465 · 1.466
+#       Haiku 4.5         derived, not measured: 1.465 x 1.25 = 1.83
+#     The 1.25 factor is the low edge of the cross-family band above. A report
+#     of two real numeric-table files gave 1.64 and 1.84 bytes per token. Those
+#     counts came from a runner and were not re-measured, and they are lighter
+#     than the generated samples. The cell takes the measured minimum, as every
+#     other cell does, so those two files price about 17% and 31% heavy. A
+#     heavy estimate is the safe side of the gate.
 DEFAULT_BYTES_PER_TOKEN = 2.6  # most restrictive TEXT class: dense markdown, Claude 5 tokenizer
 BYTES_PER_TOKEN = {
-    "opus":   {"dense-md": 2.6, "prose": 2.9, "code": 2.7, "notebook": 2.3, "json": 2.0},
-    "fable":  {"dense-md": 2.6, "prose": 2.9, "code": 2.7, "notebook": 2.3, "json": 2.0},   # same tokenizer as opus (measured)
-    "sonnet": {"dense-md": 2.6, "prose": 2.9, "code": 2.7, "notebook": 2.3, "json": 2.0},   # same tokenizer as opus (measured directly)
-    "haiku":  {"dense-md": 3.5, "prose": 4.0, "code": 3.6, "notebook": 3.3, "json": 2.7},   # Haiku 4.5 — the one lighter family
+    "opus":   {"dense-md": 2.6, "prose": 2.9, "code": 2.7, "notebook": 2.3, "json": 2.0, "table-md": 1.4},
+    "fable":  {"dense-md": 2.6, "prose": 2.9, "code": 2.7, "notebook": 2.3, "json": 2.0, "table-md": 1.4},   # same tokenizer as opus (measured)
+    "sonnet": {"dense-md": 2.6, "prose": 2.9, "code": 2.7, "notebook": 2.3, "json": 2.0, "table-md": 1.4},   # same tokenizer as opus (measured directly)
+    "haiku":  {"dense-md": 3.5, "prose": 4.0, "code": 3.6, "notebook": 3.3, "json": 2.7, "table-md": 1.8},   # Haiku 4.5 — the one lighter family; table-md derived
 }
+
+# A markdown table row is "numeric" when digits are at least this share of its
+# non-space, non-pipe characters. The generated samples sit near 0.60. A
+# backlog-index row and an ordinary prose table sit far below 0.40.
+NUMERIC_TABLE_DIGIT_SHARE = 0.4
 
 # The class `bytes_per_token()` falls back to when no content class is given.
 # It is the densest TEXT class: an extension cannot tell prose from a dense
@@ -135,6 +168,16 @@ JSON_SUFFIXES = frozenset({".json", ".jsonl", ".ndjson"})
 # /planwise init and refreshed by /planwise upgrade; /planwise doctor reports
 # drift between it and the live `claude --version` without ever writing here.
 READ_LIMITS_MEASURED_ON = "2026-09-07"
+
+# Feature floor for the Read tool's `allow_large: true` parameter. The Claude
+# Code tools reference documents it as available "on Claude Code v2.1.296 or
+# later". At or above this build a whole-file read of an over-cap file is one
+# call away, so the token page-cap and the byte cap become advisories (Warn)
+# rather than hard stops (Critical). The line window keeps Critical: a probe
+# could not show it binding at all, so it cannot show `allow_large` lifting it.
+# The version is never discovered here: callers pass the consuming project's
+# `context.verified_cli_version` (see `read_verified_cli_version`).
+ALLOW_LARGE_MIN_CLI = "2.1.296"
 
 _LEVELS = ("Green", "Notice", "Warn", "Critical")
 _LEVEL_RANK = {name: i for i, name in enumerate(_LEVELS)}
@@ -221,14 +264,289 @@ def estimate_tokens(
     return math.ceil(num_bytes / bytes_per_token(model, content))
 
 
-def _read_level(num_bytes: int, tokens: int, line_count: int = 0) -> str:
-    """Classify against the three FIXED Read-tool gates (tokens, bytes, lines)."""
-    if (
-        tokens >= READ_PAGE_CAP_TOKENS
-        or num_bytes >= READ_FILE_BYTE_CAP
-        or line_count >= READ_LINE_CAP
-    ):
-        return "Critical"
+def numeric_table_bytes(data: bytes) -> int:
+    """Return the bytes of `data` that sit on numeric markdown table rows.
+
+    A row qualifies when its stripped text starts with `|` and digits are at
+    least NUMERIC_TABLE_DIGIT_SHARE of its non-space, non-pipe bytes. The
+    count includes the row's line terminator, so the qualifying rows and the
+    other lines add back to `len(data)`. A separator row (`|---|---:|`), a
+    header row and a prose line carry no digit share and never qualify.
+    """
+    total = 0
+    for line in data.splitlines(keepends=True):
+        stripped = line.strip()
+        if not stripped.startswith(b"|"):
+            continue
+        body = [b for b in stripped if b not in b" \t|"]
+        if not body:
+            continue
+        digits = sum(1 for b in body if 0x30 <= b <= 0x39)
+        if digits / len(body) >= NUMERIC_TABLE_DIGIT_SHARE:
+            total += len(line)
+    return total
+
+
+def estimate_file_tokens(
+    path: str,
+    model: str | None = None,
+    content: str | None = None,
+    *,
+    extra_bytes: int = 0,
+) -> tuple[int, str | None]:
+    """Estimate a file's token cost and return (tokens, content class used).
+
+    A named `content` class, or the class the extension identifies
+    (`content_class_for_path`), prices the whole file at that one ratio, as
+    `estimate_tokens` does. With neither, the file is read and its numeric
+    table rows (`numeric_table_bytes`) are priced at the `table-md` ratio and
+    every other byte at the family fallback. The class returned is `table-md`
+    only when the blend priced at least one table byte, else None.
+
+    `extra_bytes` is a projected addition. It prices at the fallback, because
+    the caller knows its size and not its shape. An unreadable file prices
+    `extra_bytes` alone.
+    """
+    if content is None:
+        content = content_class_for_path(path)
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        size = 0
+    total = size + max(0, extra_bytes)
+    if content is not None:
+        return estimate_tokens(total, model, content), content
+    try:
+        with open(path, "rb") as handle:
+            table = numeric_table_bytes(handle.read())
+    except OSError:
+        table = 0
+    if table <= 0:
+        return estimate_tokens(total, model, None), None
+    table_tokens = math.ceil(table / bytes_per_token(model, "table-md"))
+    return table_tokens + estimate_tokens(total - table, model, None), "table-md"
+
+
+def _version_parts(version: str) -> tuple[int, ...] | None:
+    """Parse a dotted version into integer parts, or None when unparsable."""
+    text = (version or "").strip()
+    if not text:
+        return None
+    parts = text.split(".")
+    if not all(p.isdigit() for p in parts):
+        return None
+    return tuple(int(p) for p in parts)
+
+
+def allow_large_available(version: str) -> bool:
+    """True when `version` is at or above ALLOW_LARGE_MIN_CLI.
+
+    Compares dotted integer parts (so "2.1.1000" > "2.1.296"). An empty or
+    unparsable value returns False: an unknown build keeps the hard gates.
+    """
+    have = _version_parts(version)
+    if have is None:
+        return False
+    floor = _version_parts(ALLOW_LARGE_MIN_CLI)
+    if floor is None:
+        return False
+    width = max(len(have), len(floor))
+    padded_have = have + (0,) * (width - len(have))
+    padded_floor = floor + (0,) * (width - len(floor))
+    return padded_have >= padded_floor
+
+
+_CONTEXT_BLOCK_RE = re.compile(r"context\s*:\s*(#.*)?$")
+_CLI_VERSION_KEY_RE = re.compile(r"verified_cli_version\s*:(.*)$")
+
+
+def _yaml_scalar(raw: str) -> str:
+    """The value of a one-line YAML scalar: quotes and a trailing comment removed.
+
+    A value in one pair of matching single or double quotes returns the text
+    between them, and anything after the closing quote is ignored. A bare
+    value drops a ` # comment` tail. An unterminated quote is read as bare.
+    """
+    value = raw.strip()
+    if value[:1] in ("'", '"'):
+        close = value.find(value[0], 1)
+        if close != -1:
+            return value[1:close].strip()
+    return re.split(r"\s#", value, maxsplit=1)[0].strip()
+
+
+def read_verified_cli_version(config_path) -> str:
+    """Read `context.verified_cli_version` from a config.yaml WITHOUT PyYAML.
+
+    Only a direct child of a top-level `context:` block counts. A key of the
+    same name under any other block is ignored. The value may be bare or in
+    single or double quotes, with or without a trailing ` # comment`. When
+    the file holds the key more than once, the last one wins, as in YAML.
+
+    Returns "" (the uncalibrated sentinel) when the key is absent, empty, or
+    the file can't be read -- the field predates any config written before
+    this key shipped, so absence is expected, not an error. A caller that
+    must reject a missing file checks for it before calling. Accepts a str
+    or a Path.
+    """
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return ""
+    found = ""
+    in_context = False
+    child_indent = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip(" \t"))
+        if indent == 0:
+            in_context = _CONTEXT_BLOCK_RE.match(line) is not None
+            child_indent = None
+            continue
+        if not in_context:
+            continue
+        if child_indent is None:
+            child_indent = indent
+        if indent != child_indent:
+            continue
+        match = _CLI_VERSION_KEY_RE.match(stripped)
+        if match:
+            found = _yaml_scalar(match.group(1))
+    return found
+
+
+def config_cli_version(config) -> str:
+    """Read `context.verified_cli_version` from an already loaded config dict.
+
+    The dict-reading twin of `read_verified_cli_version`. A caller that holds
+    the config `load_config` returned uses this one, so the version comes from
+    the config it loaded and never from a second read of the file. Returns ""
+    (the uncalibrated sentinel) for a config that is not a dict, a missing or
+    non-mapping `context:` block, a missing key, or a null value.
+    """
+    context = config.get("context") if isinstance(config, dict) else None
+    if not isinstance(context, dict):
+        return ""
+    value = context.get("verified_cli_version")
+    return "" if value is None else str(value).strip()
+
+
+# Read-gate names, as `classify_file` reports them in `read_gates`.
+READ_GATE_TOKEN = "token"
+READ_GATE_BYTE = "byte"
+READ_GATE_LINE = "line"
+
+# The gates a Read with `allow_large: true` lifts. The line window is not
+# here: a probe could not show `allow_large` lifting it.
+ALLOW_LARGE_LIFTS = frozenset({READ_GATE_TOKEN, READ_GATE_BYTE})
+
+
+def fired_read_gates(num_bytes: int, tokens: int, line_count: int = 0) -> tuple:
+    """The hard Read-tool caps a file crosses, in gate-priority order.
+
+    Draws from "token" (the page cap), "byte" (the whole-read cap) and
+    "line" (the line window). A file in a warn band only, or under every
+    cap, returns an empty tuple.
+    """
+    gates = []
+    if tokens >= READ_PAGE_CAP_TOKENS:
+        gates.append(READ_GATE_TOKEN)
+    if num_bytes >= READ_FILE_BYTE_CAP:
+        gates.append(READ_GATE_BYTE)
+    if line_count >= READ_LINE_CAP:
+        gates.append(READ_GATE_LINE)
+    return tuple(gates)
+
+
+def content_read_gates(text: str, num_bytes: int | None = None, model: str | None = None,
+                       content: str | None = None) -> tuple:
+    """The hard Read-tool caps `text` crosses once written, as `fired_read_gates` reports them.
+
+    For a writer that holds the content but no file yet. `num_bytes` is the
+    written byte count (pass it when the file takes CRLF endings); it defaults
+    to the UTF-8 length of `text`. Tokens use `estimate_tokens` with `model`
+    and `content`, and lines count as `classify_file` counts them on disk.
+    """
+    if num_bytes is None:
+        num_bytes = len(text.encode("utf-8"))
+    line_count = text.count("\n") + (1 if text and not text.endswith("\n") else 0)
+    return fired_read_gates(num_bytes, estimate_tokens(num_bytes, model, content), line_count)
+
+
+def allow_large_lifts(cli_version: str, read_gates) -> bool:
+    """True when `allow_large` reads the file whole.
+
+    The version must be at or above ALLOW_LARGE_MIN_CLI, at least one cap
+    must have fired, and every fired cap must be one `allow_large` lifts.
+    """
+    gates = set(read_gates or ())
+    return bool(
+        allow_large_available(cli_version) and gates and gates <= ALLOW_LARGE_LIFTS
+    )
+
+
+def read_routes_advice(cli_version: str = "", read_gates=None) -> str:
+    """One-line advice naming the read routes open to an over-limit file.
+
+    With `read_gates` None the advice follows the version alone: at or above
+    ALLOW_LARGE_MIN_CLI it names `allow_large`, `offset`/`limit` pages and
+    Grep. With `read_gates` given (the `classify_file` field), it names
+    `allow_large` only when `allow_large_lifts` holds, so a file over the
+    line window gets pages and Grep only. Below the floor, or with no
+    version, it names pages and Grep only. Both forms recommend a split or
+    refactor as advice. The text holds no line break, so a writer can print
+    it as one warning line.
+    """
+    if read_gates is None:
+        named = allow_large_available(cli_version)
+    else:
+        named = allow_large_lifts(cli_version, read_gates)
+    if named:
+        return (
+            "Read it whole with `allow_large: true` (Claude Code v"
+            f"{ALLOW_LARGE_MIN_CLI} or later), in `offset`/`limit` pages, or "
+            "Grep for the section you need. For a core or to-be-edited file, "
+            "consider a split or refactor."
+        )
+    return (
+        "Read it in `offset`/`limit` pages, or Grep for the section you need. "
+        "For a core or to-be-edited file, consider a split or refactor."
+    )
+
+
+PLAIN_READ_ADVICE = "A plain Read still returns it whole."
+
+
+def written_read_advice(text: str, cli_version: str = "", num_bytes: int | None = None) -> str:
+    """The read-routes line for content a writer wrote over its own budget.
+
+    Measures the content with `content_read_gates`. When no hard Read cap
+    fires, a plain Read returns the file whole, and the line says so. When a
+    cap fires, it is `read_routes_advice(cli_version, gates)`, which names
+    `allow_large` only when that flag lifts every fired cap.
+    """
+    gates = content_read_gates(text, num_bytes)
+    if not gates:
+        return PLAIN_READ_ADVICE
+    return read_routes_advice(cli_version, gates)
+
+
+def _read_level(
+    num_bytes: int, tokens: int, line_count: int = 0, *, cli_version: str = ""
+) -> str:
+    """Classify against the three FIXED Read-tool gates (tokens, bytes, lines).
+
+    With `cli_version` at or above ALLOW_LARGE_MIN_CLI, a token page-cap or
+    byte-cap crossing classifies Warn, not Critical: `allow_large` reads
+    such a file whole. The line window keeps Critical at every version. The
+    default (no version) reproduces the hard-gate levels exactly.
+    """
+    gates = fired_read_gates(num_bytes, tokens, line_count)
+    if gates:
+        return "Warn" if allow_large_lifts(cli_version, gates) else "Critical"
     if tokens >= READ_TOKEN_WARN or num_bytes >= READ_BYTE_WARN:
         return "Warn"
     return "Green"
@@ -240,6 +558,8 @@ def classify_file(
     projected_added_bytes: int = 0,
     thresholds: dict | None = None,
     content: str | None = None,
+    *,
+    cli_version: str = "",
 ) -> dict:
     """Classify a file's read/cost risk for a given runner model.
 
@@ -253,31 +573,48 @@ def classify_file(
     file that an edit will push past a gate is flagged pre-emptively
     (estimate the delta as added lines x that file's observed bytes/line).
 
-    A `read`-reason Critical is NOT resolvable by the 1M context exception:
-    every model shares the same mechanical caps, and the Claude 5 family
-    tokenizer trips the token gate on FEWER bytes; the remedy is paged reads
-    (offset/limit/Grep), and for a core/to-be-edited dependency, a refactor.
+    `cli_version` is the consuming project's verified Claude Code build
+    (`read_verified_cli_version`); the classifier never discovers it. At or
+    above ALLOW_LARGE_MIN_CLI a token page-cap or byte-cap crossing is Warn,
+    because a Read with `allow_large: true` returns the file whole. Below
+    the floor, or with no version, those crossings stay Critical. The line
+    window stays Critical at every version. A `read`-reason level is NOT
+    resolvable by the 1M context exception: every model shares the same
+    mechanical caps, and the Claude 5 family tokenizer trips the token gate
+    on FEWER bytes. The `read_gates` field names the hard caps the file
+    crosses (`fired_read_gates`, projected bytes included). The `advice`
+    field names the routes that remain: `read_routes_advice(cli_version,
+    read_gates)` when the read gate is Warn or Critical, else "". It names
+    `allow_large` only when every fired cap is one `allow_large` lifts.
 
     When `content` is None the class is auto-detected from the extension
     (`content_class_for_path`): a `.ipynb` prices at the notebook ratio and a
     `.json` at the json ratio, both denser than the text fallback. An explicit
-    `content` always wins.
+    `content` always wins. With no class named and none identified, the file is
+    line-sniffed (`estimate_file_tokens`): numeric markdown table rows price at
+    the `table-md` ratio, every other byte and the projected addition at the
+    fallback, and `content` reports `table-md` when any table byte was priced.
 
-    Returns {"level", "reason", "bytes", "tokens", "lines", "content"} where
-    level is in Green|Notice|Warn|Critical, reason is "cost"|"read" naming
-    the driver, and content is the class the estimate used (None = fallback).
+    Returns {"level", "reason", "bytes", "tokens", "lines", "content",
+    "advice", "read_gates"} where level is in Green|Notice|Warn|Critical,
+    reason is "cost"|"read" naming the driver, content is the class the
+    estimate used (None = fallback), advice is the read-routes text or "",
+    and read_gates is a tuple drawn from "token", "byte" and "line" (empty
+    when no hard cap is crossed).
     """
-    if content is None:
-        content = content_class_for_path(path)
     try:
         num_bytes = os.path.getsize(path)
     except OSError:
         num_bytes = 0
     line_count = _count_lines(path)
-    tokens = estimate_tokens(num_bytes + max(0, projected_added_bytes), model, content)
+    gated_bytes = num_bytes + max(0, projected_added_bytes)
+    tokens, content = estimate_file_tokens(
+        path, model, content, extra_bytes=projected_added_bytes
+    )
 
     cost = _cost_level(tokens, thresholds)
-    read = _read_level(num_bytes + max(0, projected_added_bytes), tokens, line_count)
+    read = _read_level(gated_bytes, tokens, line_count, cli_version=cli_version)
+    gates = fired_read_gates(gated_bytes, tokens, line_count)
 
     level = _max_level(cost, read)
     # reason names whichever gate drove the final level; ties go to read because
@@ -297,4 +634,8 @@ def classify_file(
         "tokens": tokens,
         "lines": line_count,
         "content": content,
+        "advice": (
+            read_routes_advice(cli_version, gates) if read in ("Warn", "Critical") else ""
+        ),
+        "read_gates": gates,
     }

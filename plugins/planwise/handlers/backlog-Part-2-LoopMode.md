@@ -12,6 +12,8 @@ Without the module the marker line prints and nothing else happens; continue by 
 
 The loop runs only in the interactive REPL. A non-interactive run ends after its first item.
 
+A loop session is an unattended feedback context, as `references/feedback-submission.md` gate 2 defines it. A feedback draft or post in a loop session asks no question. With `feedback.enabled: true`, a report posts behind the privacy gate `prepare-post`, through the engine's unattended post path.
+
 ---
 
 ## Run state
@@ -127,7 +129,7 @@ Then map the result to the loop action:
 | `REFINED` | `--mark --refined REFINED`. Run `--mark --outcome SKIPPED --note "refined; review before run"`. Regenerate the index. Continue to Phase 7. The item now carries `refined: true`, so a later run queues it as `run` once the user has read `## Resolution` or the item's diff |
 | `QUESTIONS` | `--mark --refined QUESTIONS`. Run `--mark --outcome SKIPPED --note "open questions"`. Regenerate the index. Continue to Phase 7 |
 | `ALREADY_MET` | The author writes the close record. Run `update_backlog.py --status COMPLETE`, then regenerate the index. Run `--mark --refined ALREADY_MET`, then `--mark --outcome COMPLETE --note "already met"` |
-| `DECOMPOSE` | The author files the sub-items with `blocks: [{parent}]`. Run `--mark --refined DECOMPOSE --sub-items {ids}`, then `--mark --outcome SKIPPED --note "decomposed: {ids}"`. Regenerate the index |
+| `DECOMPOSE` | The author files the sub-items with `blocks: [{parent}]` and adds each ordered dependent's id to its prerequisite sibling's `blocks:`. Run `--mark --refined DECOMPOSE --sub-items {ids}`, then `--mark --outcome SKIPPED --note "decomposed: {ids}"`. Regenerate the index |
 | `NEEDS_PLAN` | The author writes `needs_plan: true`. Run `--mark --refined NEEDS_PLAN`, then `--mark --outcome SKIPPED --note "needs plan"`. Regenerate the index |
 | `RESOLVED` or `DUPLICATE` (refine path) | The author writes one `### Q` block that proposes CLOSED, with the evidence. Run `--mark --refined QUESTIONS`, then skip as for `QUESTIONS`. The loop never sets CLOSED unattended |
 | `PREMISE_FAILS` (refine path) | The author writes one `### Q` block that states the absent target and the options re-target, retire and keep. Run `--mark --refined QUESTIONS`, then `--mark --outcome SKIPPED --note "open questions"`. Regenerate the index |
@@ -159,6 +161,7 @@ Q1, Q2, Q3 and the HALT question are the only questions in loop mode. Every othe
 | Phase 5 a `build_commands.verify` command fails | Fix it once. Route A returns the command's output to the same fix-agent. Route B fixes it in the main session. A second failure is a documented skip whose evidence names the command |
 | Phase 7 follow-up candidates | File none. Print each candidate in the iteration summary |
 | Phase 8 lessons | Auto-capture (see § Phase 8 in loop mode) |
+| A feedback draft or post | Ask nothing. With `feedback.enabled: true`, post behind `prepare-post` through the engine's unattended post path. Otherwise keep the draft. A block or a failure keeps the draft and the iteration continues |
 
 ### Documented skip
 
@@ -339,6 +342,6 @@ BACKLOG LOOP: run=<run-id> done=<item-id> remaining=<N> state=<abs path>
 
 Rule: copy `--boundary`'s stdout line that starts `BACKLOG LOOP:` verbatim, or copy the JSON `marker` field. Never compose the line yourself. Never paraphrase it.
 
-Place that line as the last line of the final message. Nothing follows it. No question, no sentence, no closing remark. The hooks module reads the final answer for this line, and a trailing `AskUserQuestion` defers the boundary until the module gives up.
+Place that line as the last line of the final message. Nothing follows it. No question, no sentence, no closing remark. The hooks module reads the final answer for this line, and a trailing `AskUserQuestion` defers the boundary until the module gives up. When the session posted feedback, a post notice prints before the BACKLOG LOOP: line, and nothing prints after it.
 
 `state` is the absolute run-file path with forward slashes. A second `--boundary` call prints the same line and changes nothing.

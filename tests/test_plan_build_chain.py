@@ -153,6 +153,52 @@ def test_chain_estimates_runs_once_per_session(big):
     assert "sessions=9 tasks=35 failed=0" in gates(report)[0]["estimates"][2]
 
 
+def test_chain_estimates_rerolls_every_orchestration_row_and_total(tmp_path):
+    plan = estimated_plan(tmp_path / "reroll")
+    code, report = plan.run("--skip-index")
+    assert code == 0, report
+    assert gates(report)[0]["estimates"][0] == "ok"
+    assert detail_lines(report, "estimates") == []
+    assert "Totals not re-rolled" not in report
+    spec_k = {t["number"]: t["estimate_k"] for t in make_spec()["sprints"][0]["sessions"][0]["tasks"]}
+    sprint = next(p for p in plan.out.rglob("*Sprint-Plan.md")).read_text(encoding="utf-8")
+    sessions, moved = 0, []
+    for orch_path in sorted(plan.out.rglob("*-Orchestration.md")):
+        orch = orch_path.read_text(encoding="utf-8")
+        rows = {}
+        for task_path in sorted(orch_path.parent.glob("*-[0-9][0-9]-*-*.md")):
+            stem = task_path.stem
+            number, name = int(stem.split("-")[3]), stem.split("-")[-1]
+            header = re.search(r"\*\*Estimated Tokens:\*\* ~(\d+(?:\.\d+)?)K", task_path.read_text(encoding="utf-8"))
+            assert header, task_path
+            cell = re.search(rf"^\| {number} \| {name}: [^|]*\| \w+ \| ~(\d+(?:\.\d+)?)K \|", orch, re.MULTILINE)
+            assert cell, (task_path, "no Orchestration row")
+            assert header.group(1) == cell.group(1), task_path
+            assert f"| {number} | {name}: " in sprint
+            moved.append(float(header.group(1)) != spec_k[number])
+            rows[number] = float(cell.group(1))
+        total = re.search(r"\*\*Total Estimated:\*\* ~(\d+(?:\.\d+)?)K", orch)
+        assert total and float(total.group(1)) == pytest.approx(sum(rows.values()), abs=0.1), orch_path
+        sessions += 1
+    assert sessions == 2
+    # The write-back ran. One header may land on its spec figure by chance, since the
+    # self row adds a measured addend, so the proof is that the headers do not all match.
+    assert any(moved), moved
+
+
+def test_chain_built_task_files_state_their_own_size(tmp_path):
+    plan = estimated_plan(tmp_path / "own")
+    code, report = plan.run("--skip-index")
+    assert code == 0, report
+    tasks = sorted(plan.out.rglob("*-[0-9][0-9]-*-*-*.md"))
+    assert len(tasks) == 4, tasks
+    for path in tasks:
+        text = path.read_text(encoding="utf-8")
+        row = re.search(rf"^\| \d+ \| `{re.escape(path.name)}` \| ([\d,.]+) \| ~[\d.]+K \| this task file", text, re.MULTILINE)
+        assert row, path
+        assert row.group(1) == f"{round(len(path.read_bytes()) / 1024, 1):,}", path  # the bytes the build left on disk
+
+
 def test_chain_second_build_with_no_edit_exits_0(tmp_path):
     plan = estimated_plan(tmp_path / "twice")
     first, _ = plan.run("--skip-index")

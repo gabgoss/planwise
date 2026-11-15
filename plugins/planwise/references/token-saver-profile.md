@@ -41,7 +41,7 @@ The orchestrator's window is not held to `token_saver_session_target`. What repl
 
 **The driver is session length, not task count.** Peak window tracks turns plus the auto-injected rule surface (see [Injection Visibility](#injection-visibility) below); correlation with task count is weak. Splitting a session into more tasks does not lower its window — ending the session sooner does, and so does shrinking the injected surface.
 
-**Enforcement is the model floor.** Project the session's window forward — it starts at the measured whole-session start cost in `token_saver_session_start_range` and grows with turns — then escalate the dispatch or split the session when that projection approaches the real ceiling of the model the session runs on: Haiku/Sonnet 200K, Opus 1M (see [§ Subagent Context Window](session-context-budget.md#subagent-context-window)). That ceiling is a mechanical limit, so it holds whether or not anyone is watching; the band above is planning context, not a split trigger.
+**Enforcement is the model floor.** Project the session's window forward — it starts at the measured whole-session start cost in `token_saver_session_start_range` and grows with turns — then escalate the dispatch or split the session when that projection approaches the real ceiling of the model the session runs on: Haiku 4.5 200K, every other current model 1M (see [§ Subagent Context Window](session-context-budget.md#subagent-context-window)). That ceiling is a mechanical limit, so it holds whether or not anyone is watching; the band above is planning context, not a split trigger.
 
 **Reporting is config-gated.** `context.token_saver_orchestrator_advisory` (`measured` | `off`) controls whether the band is surfaced in reports. With `off`, the model floor still applies — it is a hard limit, not an advisory. Nothing here changes the dispatched window's HARD ceiling.
 
@@ -70,7 +70,7 @@ warn               = min(40000, round(0.5 × available_per_task))   # 40K = guar
 - `warn` is the lighter caution band: **40,000 is the guaranteed-warn ceiling** (every install warns by at least 40K), but on a heavy install where `0.5 × available_per_task < 40,000`, the lower derived value wins. A task at or above `warn` should be reviewed for trimming.
 
 > [!constraint] Subagent Window = Dispatched MODEL, Not Parent Tier
-> A Token Saver runner's window is set by the **model it runs on**, NOT the orchestrator's tier (see [§ Subagent Context Window](session-context-budget.md#subagent-context-window)): Haiku/Sonnet = **200K**, Opus = **1M**. The `~150K` Token Saver target is a carrying-cost ceiling that sits *below* even a Sonnet runner's 200K window — it is about per-turn cost and iteration quality, not about fitting the window. Do NOT raise the Token Saver target to a runner's window size; the target is deliberately tighter than the window.
+> A Token Saver runner's window is set by the **model it runs on**, NOT the orchestrator's tier (see [§ Subagent Context Window](session-context-budget.md#subagent-context-window)): Haiku 4.5 = **200K**, every other current model = **1M**. The `~150K` Token Saver target is a carrying-cost ceiling that sits *below* even a Haiku 4.5 runner's 200K window — it is about per-turn cost and iteration quality, not about fitting the window. Do NOT raise the Token Saver target to a runner's window size; the target is deliberately tighter than the window.
 
 ## Which keys feed the session budget
 

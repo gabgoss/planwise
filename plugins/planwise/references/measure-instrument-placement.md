@@ -5,13 +5,13 @@ paths: {planwise_root}/{plans_dir}/**
 ---
 # Instrument Placement — The Control Was Well-Designed, Correctly Worded, and Structurally Incapable of Firing
 
-**Purpose:** Two instruments, each specified carefully and executed faultlessly, each placed at a point in the schedule where it could not observe the event it existed to observe. Neither failed loudly. One produced a reassuring empty result; the other produced no signal at all until someone measured out of curiosity.
+**Purpose:** Bind an instrument to the event it measures, not to the plan's shape. An instrument placed where it cannot observe its event fails quietly. It returns a reassuring empty result, or no signal at all.
 
 **Read this when** you are scheduling a re-measure whose headline is "the figure fell", writing the success criteria that will judge it, reporting a measurement whose sample came back empty, or dispatching a probe whose cost is bounded by a budget guard in the task file.
 
-The shared defect is that **the instrument was bound to the plan's structure rather than to the event's**. A re-measure scheduled as "the last sprint, after the install" opens its window at the newest event in the repository, so the window starts empty by construction. A budget guard worded as "stop when cumulative spend approaches N" can only be evaluated between units of work, so an overrun inside the first unit happens before any evaluation point exists. In both cases the specification reads as prudent, and the placement guarantees the failure.
+The shared defect is that **the instrument was bound to the plan's structure rather than to the event's**. A re-measure scheduled as "the last sprint, after the install" opens its window at the newest event in the repository, so the window starts empty by construction. A budget guard worded as "stop when cumulative spend approaches N" can only be evaluated between units of work. An overrun inside the first unit happens before any evaluation point exists.
 
-Two neighbouring rules own adjacent halves. [`dispatch-preflight-claim-expiry.md`](dispatch-preflight-claim-expiry.md) §6 requires a re-measure *instruction* to carry a threshold and a divergence action; §1 below is about *when* that instruction is scheduled to run. [`exit-criteria-fidelity.md`](exit-criteria-fidelity.md) §16.10.3 states that a null result deserves more scrutiny than a positive one; §2 below is the case where the null result is an empty sample rather than an unchanged reading.
+Two neighbouring rules own adjacent halves. [`dispatch-preflight-claim-expiry.md`](dispatch-preflight-claim-expiry.md) §6 requires a re-measure *instruction* to carry a threshold and a divergence action. §1 below is about *when* that instruction is scheduled to run. [`exit-criteria-fidelity.md`](exit-criteria-fidelity.md) §16.10.3 states that a null result deserves more scrutiny than a positive one. §2 below is the case where the null result is an empty sample rather than an unchanged reading.
 
 ## Table of Contents
 
@@ -25,23 +25,25 @@ Two neighbouring rules own adjacent halves. [`dispatch-preflight-claim-expiry.md
 ## 1. Schedule a Measurement Against a Traffic Precondition, Not Against Plan Position
 
 > [!constraint] "Last sprint, after the install" and "the first window containing organic samples of the measured class" are not merely different — the first actively guarantees the failure
-> The install is by construction the newest event in the repository, so a window opening at the install starts empty, and the only traffic reliably inside it is the measuring session's own — which is precisely the traffic that must be excluded.
+> The install is by construction the newest event in the repository, so a window opening at the install starts empty. The only traffic reliably inside it is the measuring session's own, which is precisely the traffic that must be excluded. A faultless method cannot rescue that window. Selftest first, attribution from spawn records, deny pairing on `is_error` plus the deny-record shape, both window endpoints declared, self-contamination quantified: the measurement still returns nothing.
 >
-> A remediation plan's headline success signal was *the per-reviewer shell-call figure falls, and is shown to have fallen*, against a baseline of 218 successful violating calls recoverable with primary-source attribution — itself a floor, since some source transcripts were already gone. The re-measure was scheduled as the plan's final sprint, immediately after the sprint that installed the controls, and its execution was faultless on every method dimension:
+> WRONG — the re-measure is scheduled by plan position, and the window holds only the measurer's own traffic:
+> ```
+> re-measure: the plan's final sprint, immediately after the install sprint
+> window: install-commit → now (17 min)
+> in-window shell calls: 25, of which 23 are the measuring session's own
+> reviewer dispatches in-window: 0
+> ```
+> CORRECT — the re-measure is bound to a traffic precondition, and the result criterion carries an owner:
+> ```
+> re-measure: the first window containing organic samples of the measured class
+> precondition: non-self samples of the measured class, n > 0, asserted before measuring
+> result criterion: the headline figure, with a named owner; deferred past plan close if the traffic has not arrived
+> ```
 >
-> - instrument selftest run **first**, at 7/7 PASS, before any figure was trusted;
-> - agent attribution taken from the parent session's spawn records rather than the sidecar, a trap that had already fired twice in the same plan;
-> - deny → next-call pairing done on `is_error` plus the live rule-deny record shape, rather than the keyword detector already measured finding 0 of 4 genuine denials;
-> - the window declared with both endpoints;
-> - self-contamination quantified and excluded rather than silently dropped.
+> **The exclusion step is the tell.** When self-contamination exclusion removes nearly the entire sample — "23 of 25 excluded, 0 remain" — the window is the defect, not the exclusion. The measurement was scheduled inside its own instrument's shadow.
 >
-> And the result was **nothing to measure**. The window ran from the install commit to the moment of measurement, about 17 minutes, and contained **zero** reviewer dispatches. Of the 25 in-window shell calls, **23 belonged to the measuring session's own two tasks**, and the other 2 were the previous sprint's closeout `git push` / `git status`. Widening the window does not rescue it: the most recent reviewer transcript **anywhere in the corpus** predated the window by more than a day.
->
-> **Every method dimension was right and the measurement still returned nothing.** A reader who takes this as a diligence problem will apply more diligence to the same schedule.
->
-> **The exclusion step is the tell.** When self-contamination exclusion removes nearly the entire sample — "23 of 25 excluded, 0 remain" — the window is the defect, not the exclusion. That sweep has proven the measurement was scheduled inside its own instrument's shadow.
->
-> **Separate the method criterion from the result criterion in the plan's own success criteria.** A criterion reading *"figures reported with windows, surfaces, and the corrected pairing method; deltas stated against the baselines with their qualifiers carried"* is a **method** criterion, and an empty window satisfies it completely — correctly so, since honest reporting of a gap is the right outcome. But a plan stating only the method criterion **can close having never obtained its headline number, with nothing anywhere recording that the number is still owed.** Write both, and let the result criterion carry the owner. Be willing to defer the re-measure past plan close with a named owner.
+> **Separate the method criterion from the result criterion in the plan's own success criteria.** A method criterion ("figures reported with windows, surfaces, and the corrected pairing method; deltas stated against the baselines") is satisfied completely by an empty window, and correctly so. A plan stating only the method criterion **can close having never obtained its headline number, with nothing recording that the number is still owed.** Write both, and let the result criterion carry the owner. Be willing to defer the re-measure past plan close with a named owner.
 
 The result criterion is not free: it can leave a plan formally open past its last sprint. That is the intended outcome. A plan that closes without its headline number has not succeeded quietly. It has lost the number.
 
@@ -58,15 +60,15 @@ The result criterion is not free: it can leave a plan formally open past its las
 >
 > The failure mode is collapsing the third row into the second. *"The figure did not rise"* reads as a reassuring negative result and is unsupported when the denominator is zero — **it claims a measurement that was never performed.** Collapsing it into the first row is worse and rarer, because it is obvious.
 >
+> WRONG — the window is declared, the exclusions are honest, and the conclusion silently rests on an empty set:
 > ```
-> WRONG — the window is declared, the exclusions are honest, and the conclusion
->         silently rests on an empty set:
 > window: install-commit → now (17 min)
 > self-contamination: 23 of 25 calls excluded
 > reviewer Bash traffic in-window: 0
 > → "consistent with the control working"          ← measures nothing
->
+> ```
 > CORRECT — assert the precondition, and when it fails, say so and name an owner:
+> ```
 > window: install-commit → now (17 min)
 > non-self samples of the measured class: n = 0
 > → DATA GAP. No delta computable against the 218 floor in either direction.
@@ -78,30 +80,31 @@ The result criterion is not free: it can leave a plan formally open past its las
 >
 > **Gate the delta on sample count, and state n on every figure.**
 
-§1 and §2 are one instrument seen from two ends: §1 is where the window was placed, §2 is what the empty window is allowed to mean. [`measure-scope-and-sample.md`](measure-scope-and-sample.md) §1 carries the general form of stating n beside a figure; this section is the degenerate case where n is zero.
+§1 and §2 are one instrument seen from two ends: §1 is where the window was placed, §2 is what the empty window is allowed to mean. [`measure-scope-and-sample.md`](measure-scope-and-sample.md) §1 carries the general form of stating n beside a figure. This section is the degenerate case where n is zero.
 
 ---
 
 ## 3. Bound the Single Call, Not the Running Total
 
 > [!constraint] A guard that only runs after the damage is a report, not a guard
-> The guard's own wording, because it reads as competent and that is the point:
+> A cumulative guard can only be evaluated *between* calls, so an overrun inside the first call happens before any stop-point exists. The failure may also give no in-flight signal: a costly malformed probe can reply with a short non-answer that looks like the cheap silent pass. **A campaign-level budget is a planning figure; it is not a control. The control has to sit where the spend is incurred.**
 >
-> > *Budget guard: if cumulative probe spend approaches ~100K tokens (sum the probes' own JSONL usage), STOP probing.*
->
-> A discovery task was authorised to spend real plan usage on ~8–12 cheap headless calibration probes under that guard. The task made **four** calls — comfortably inside the call-count bound — and spent **276,511 tokens**, 2.76× the budget. The entire overrun was the **first** call: a `/context` probe invoked through a path where the shell's path rewriting mangled its argument, so the child received a filesystem path instead of the slash command. The remaining three calls cost 54,064 combined, exactly the cheap profile the guard anticipated.
->
-> Two independent reasons it could not work, either alone sufficient:
->
-> - **It was a between-calls check.** "If cumulative spend approaches N, stop" can only be evaluated *between* probes. The overrun happened inside probe #1, before any stop-point existed, and by the time the condition could first be tested 222,447 tokens were already spent.
-> - **The failure gave no in-flight signal.** The reply text was a short conversational non-answer, visually indistinguishable from the cheap silent-pass that prior art described as the expected failure mode. The real cost was invisible until a token count was run against the transcript afterwards.
->
-> **A campaign-level budget is a planning figure; it is not a control. The control has to sit where the spend is incurred.**
+> WRONG — a running-total guard, first evaluable only after probe #1 has overrun:
+> ```
+> Budget guard: if cumulative probe spend approaches ~100K tokens (sum the probes' own JSONL usage), STOP probing.
+> # 4 calls, 276,511 tokens: probe #1 alone spent 222,447 before the guard could first be tested
+> ```
+> CORRECT — a per-call ceiling shown to bind, and the cost read after the first probe:
+> ```
+> per-probe ceiling: a turn cap, a spend cap, or a wrapper that kills the child past N turns or M seconds
+> proof: one malformed probe with the ceiling and the same probe without it terminate differently
+> check: read probe #1's cost before dispatching the rest
+> ```
 >
 > Two remedies:
 >
-> - **Give every probe a per-call ceiling** — a turn cap, a spend cap, or a wrapper that kills the child past N turns or M seconds — so that a probe *supposed* to be one turn is structurally unable to become eight. **Then verify, on the harness version in use, that the ceiling binds:** run one malformed probe under the ceiling and the same probe without it, and confirm the two terminate differently. A flag the harness accepts without error is not thereby a flag it honours, and a ceiling that has only ever been run on well-behaved probes has never been shown to stop anything. Grade whether the ceiling fired on the child's **stop reason** (the `result` event's subtype), not on its reported turn count: a turn cap is denominated in API round-trips, a round-trip may carry several parallel tool calls, and the reported count can therefore exceed a cap that did bind. A spend cap is itself a between-calls check at the scale of one call — it stops after the call that crosses it, so budget the overshoot as one call's cost.
-> - **Measure after probe #1, not after the batch.** The cheapest possible moment to discover a cost model is wrong is immediately after the first observation, while every remaining decision is still open. A cumulative check defers that discovery to a point where it can only be reported.
+> - **Give every probe a per-call ceiling**, so that a probe *supposed* to be one turn is structurally unable to become eight. **Then verify, on the harness version in use, that the ceiling binds:** run one malformed probe under the ceiling and the same probe without it, and confirm the two terminate differently. A flag the harness accepts without error is not thereby a flag it honours. Grade whether the ceiling fired on the child's **stop reason** (the `result` event's subtype), not on its reported turn count. A turn cap counts API round-trips, and one round-trip may carry several parallel tool calls, so the reported count can exceed a cap that did bind. A spend cap stops after the call that crosses it, so budget the overshoot as one call's cost.
+> - **Measure after probe #1, not after the batch.** The cheapest moment to discover a wrong cost model is immediately after the first observation, while every remaining decision is still open. A cumulative check defers that discovery to a point where it can only be reported.
 
 The same shape one layer down — a guard placed where the work is *represented* rather than where the cost is *incurred*, such as a skip inside a test body that cannot prevent work its fixture setup already did — is the layer argument this section applies to probe budgets. Put the control at the layer that spends.
 
@@ -110,9 +113,18 @@ The same shape one layer down — a guard placed where the work is *represented*
 ## 4. Never Assume a Failed Probe Was a Cheap Probe
 
 > [!constraint] "It failed, so it cost nothing" is an assumption about the harness's failure mode, not an observation
-> Under Auto Mode with `bashFirst: true` — confirmed in the transcript's `attachment` records — the model did not reject the mangled path. It treated the filesystem path it had been handed as a real target and **investigated it across 8 turns with real tool calls, enumerating the directory's actual contents before replying**, at 222,447 tokens. **On an agentic harness, a malformed input is an invitation to explore, not a hard stop.** Verify the cost of the failure path once, then budget it.
+> **On an agentic harness, a malformed input is an invitation to explore, not a hard stop.** Verify the cost of the failure path once, then budget it. When inheriting a cost model from prior art, re-derive the conclusion, not just the number. A cost model carries the configuration it was measured under. State that configuration beside the figure, and treat a configuration change as invalidating the figure.
 >
-> **When inheriting a cost model from prior art, re-derive the conclusion, not just the number.** Two prior lessons on this exact trap were both correct about the *mechanism* and both silent about the *cost*, because neither had been run under a configuration where Auto Mode's `bashFirst` was active. Their cost model — "silent pass, one wasted call" — undercounted the realistic worst case by more than two orders of magnitude. A cost model carries the configuration it was measured under. State that configuration beside the figure, and treat a configuration change as invalidating the figure.
+> WRONG — the failure path is priced from an inherited cost model, measured under another configuration:
+> ```
+> failed probe (mangled path): "silent pass, one wasted call" → priced at 0
+> ```
+> CORRECT — the failure path is measured once under the configuration in use, and the configuration is stated beside the figure:
+> ```
+> failed probe (mangled path), Auto Mode with bashFirst: true (from the transcript's attachment records):
+>   8 turns of real tool calls exploring the path, 222,447 tokens → budget it
+>   inherited "one wasted call" model: low by more than two orders of magnitude
+> ```
 
 §3 and §4 stay separate because §3 corrects a *placement* and §4 corrects an *inherited belief*. A reader who fixes the placement and keeps pricing failed probes at zero will set the per-call ceiling from the wrong cost model.
 

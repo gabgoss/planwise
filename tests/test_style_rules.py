@@ -748,6 +748,62 @@ class TestDuplicateSkip(_StyleFixtureBase):
             f"Style rule {LANGUAGE}: not installed, an older copy exists at {path}.",
         )
 
+    def _shipped_plus(self, appended: bytes) -> bytes:
+        """The shipped rule with `appended` added after its last line."""
+        return _shipped_bytes(LANGUAGE).rstrip(b"\n") + b"\n" + appended
+
+    def test_a_line_appended_in_any_shape_reads_as_a_customized_copy(self):
+        shapes = {
+            "heading": b"\n# mine\n",
+            "sub heading": b"\n## mine\n",
+            "prose": b"\nI always use tabs here for my notes.\n",
+            "one word": b"\nmine\n",
+            "html comment": b"\n<!-- mine -->\n",
+            "list item": b"\n- mine\n",
+            "fenced line": b"\n```\nmine\n```\n",
+        }
+        for label, appended in shapes.items():
+            with self.subTest(shape=label):
+                copy = self.write_top_level_copy(self.project_root, LANGUAGE, self._shipped_plus(appended))
+                found = sr.find_existing_copy(self.cfg, LANGUAGE)
+                self.assertIsNotNone(found)
+                path, verdict = found
+                self.assertEqual(path, copy)
+                self.assertEqual(verdict, "HAS_UNIQUE")
+                self.assertEqual(
+                    sr.format_duplicate_line(LANGUAGE, path, verdict),
+                    f"Style rule {LANGUAGE}: not installed, a customized copy exists at {path}.",
+                )
+
+    def test_an_appended_heading_line_installs_no_managed_copy_and_leaves_the_found_copy_alone(self):
+        data = self._shipped_plus(b"\n# mine\n")
+        copy = self.write_top_level_copy(self.project_root, LANGUAGE, data)
+
+        installed, reports = sr.install_style_rules(self.cfg)
+
+        self.assertNotIn(LANGUAGE, installed)
+        self.assertFalse((self.project_rules_dir / LANGUAGE).exists())
+        self.assertEqual(copy.read_bytes(), data)
+        language_rows = [row for row in reports if row[0] == LANGUAGE]
+        self.assertEqual(len(language_rows), 1)
+        self.assertEqual(language_rows[0][1], copy)
+        self.assertEqual(language_rows[0][2], "HAS_UNIQUE")
+
+    def test_a_subset_verdict_at_reorg_confidence_reads_as_a_customized_copy(self):
+        reorg = types.SimpleNamespace(classification="SUBSET", confidence="reorg", notes="", source="inline")
+        self.write_top_level_copy(self.project_root, LANGUAGE, _customized_bytes(LANGUAGE))
+
+        with mock.patch.object(rd, "_classify_diverged", return_value=reorg):
+            found = sr.find_existing_copy(self.cfg, LANGUAGE)
+
+        self.assertIsNotNone(found)
+        path, verdict = found
+        self.assertEqual(verdict, "HAS_UNIQUE")
+        self.assertEqual(
+            sr.format_duplicate_line(LANGUAGE, path, verdict),
+            f"Style rule {LANGUAGE}: not installed, a customized copy exists at {path}.",
+        )
+
     def test_verdict_for_an_unreadable_copy_is_not_analyzed(self):
         path, verdict = self._verdict_of(b"\xff\xfe\x00 not valid utf-8 \x80\x81\n")
         self.assertEqual(verdict, "NOT_ANALYZED")

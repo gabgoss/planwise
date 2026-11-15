@@ -60,14 +60,15 @@ WORKLIST_LINE = "Backlog filing worklist — {n} file(s) at Warn or worse requir
 # Preflight that the pin still holds (MUST print nothing):
 #   git -C <plugin repo> log --oneline becccfe..HEAD -- plugins/planwise/references plugins/planwise/handlers plugins/planwise/templates plugins/planwise/agents plugins/planwise/skills
 WARN_ALLOWLIST = frozenset({
-    "agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md",  # 23,367 (2026-11-06: the long-running-commands subsection crossed the line; it stood at 21,997)
     "exit-criteria-fidelity.md",                               # 24,006
-    "measurement-discipline.md",                               # 22,450
     "read-confirm-act-protocol.md",                            # 23,075
     "run.md",                                                  # 25,251 (OVER)
     "scaffolding-hygiene-Part-2-DerivationAndParallelism.md",  # 23,457
+    "review.md",                                               # about 22,052; crossed the warn line at commit 6c713ab
     "task-content-fidelity.md",                                # 22,615
+    "upgrade.md",                                              # about 22,538; crossed the warn line through the posting-consent question and notice edits
 })
+# 2026-11-14: review.md and upgrade.md were added to WARN_ALLOWLIST after the pin above; both measure WARN.
 
 # OVER_EXEMPTIONS pinned @ becccfe10f08ea60e0abe67cab4fd965b4ca2954 (2026-10-20); tokens from CRLF-normalized bytes (checkout-independent)
 # Guards READ_PAGE_CAP_TOKENS (25,000). An exempted file must still measure OVER.

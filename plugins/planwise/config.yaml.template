@@ -162,9 +162,10 @@ upgrade:
   descope_preserve_paths_edits: true   # true = keep today's preserve-on-paths-only-edit behavior; false opts in to removal
 
 feedback:
-  # Opt-in. Nothing is ever sent upstream without BOTH this flag AND an
-  # explicit interactive confirmation of the exact issue body.
-  enabled: false
+  # On by default. Posting also needs gh installed and authenticated. An interactive
+  # run shows the exact issue body and asks before each post. A No answer at init or
+  # upgrade writes false.
+  enabled: true
   # Upstream target passed to the issue-create command's explicit -R flag.
   # NEVER derived from your own git remote — that would file planwise
   # issues in your project's repo.
@@ -217,7 +218,7 @@ statuses:
 # Three status vocabularies live side by side here: `statuses:` above is the
 # backlog item lifecycle (parse_backlog.py / update_backlog.py validate
 # against it); `lesson_statuses:` below is the lesson lifecycle; and
-# `plan_statuses:` after it is the Master Plan `**Status:**` vocabulary.
+# `plan_statuses:` further below is the Master Plan `**Status:**` vocabulary.
 #
 # `lesson_statuses` is DECLARATIVE. This list is the single place the lesson
 # vocabulary is stated as data; references/lessons-schema.md's Status
@@ -233,6 +234,17 @@ lesson_statuses:
   - applied
   - rule
   - orphaned
+
+# `lesson_check_kinds` IS read at run time. It lists the kinds a lesson's
+# `enforced-by:` answer may name. references/lessons-schema.md defines the
+# answer and what each shipped kind means. Add a kind here when the project
+# enforces lessons with a check this list does not name. When the key is
+# absent the loader supplies this same four-value default.
+lesson_check_kinds:
+  - hook
+  - test
+  - lint
+  - script
 
 # Unlike `lesson_statuses`, `plan_statuses` IS read at run time: the plans
 # index generator renders its Status Legend from this list and reports any

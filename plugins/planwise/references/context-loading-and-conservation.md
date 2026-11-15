@@ -29,7 +29,7 @@ consult-when: Choosing standard- vs. Meta-Plan context loading and conservation 
 | Back-and-forth messages | **+adds** each turn |
 | Subagent runs | **Fresh context** (doesn't inherit your accumulation) |
 
-**Key insight:** Subagents don't inherit your context accumulation. Each gets a fresh context window sized by its **dispatched model** (Sonnet/Haiku 200K, Opus 1M — see [§ Subagent Context Window](session-context-budget.md#subagent-context-window)), NOT the parent's tier. Use this to your advantage.
+**Key insight:** Subagents don't inherit your context accumulation. Each gets a fresh context window sized by its **dispatched model** (Haiku 4.5 200K, every other current model 1M — see [§ Subagent Context Window](session-context-budget.md#subagent-context-window)), NOT the parent's tier. Use this to your advantage.
 
 ### When to Use Meta-Plan
 
@@ -45,7 +45,7 @@ consult-when: Choosing standard- vs. Meta-Plan context loading and conservation 
 
 ### Meta-Plan Purpose
 
-1. **Fresh context per agent** - Each subagent gets its own fresh context window, sized by its dispatched model (Sonnet/Haiku 200K, Opus 1M — not the parent's tier)
+1. **Fresh context per agent** - Each subagent gets its own fresh context window, sized by its dispatched model (Haiku 4.5 200K, every other current model 1M — not the parent's tier)
 2. **Persistent artifacts** - File outputs survive session boundaries
 3. **Recovery points** - Written documents survive context compaction
 4. **Fan-out, not compression** - More detail = more execution units, not fewer

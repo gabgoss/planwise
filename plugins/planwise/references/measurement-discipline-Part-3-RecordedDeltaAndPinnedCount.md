@@ -1,29 +1,18 @@
 ---
 description: Recorded-figure discipline continued — a recorded delta states both endpoints and says whether it is net or set size, with the figure stated on both sides of any transform (§8.10), and a pinned count names the artifact and version it was read from, with the diff-gate header-line corollary (§8.11), and a byte pin names its instrument because blob bytes and checkout bytes differ by the line count under `core.autocrlf` (§8.12). Split out of measurement-discipline.md when that file crossed the Read-tool token gate.
-consult-when: Writing a spec delta, a test assertion copied from a spec, or a pinned count — record both endpoints beside a "+A/-R" delta and say whether it is net or set size, state the figure on both sides of a transform, write the artifact and version beside a pinned count, and count removed diff lines with `grep -c '^-[^-]'`; a byte count from a blob and one from the checkout differ by the line count under `core.autocrlf`, so name the instrument beside every byte pin; carries §8.10, §8.11 and §8.12 of `measurement-discipline.md`
+consult-when: Writing a spec delta, a test assertion copied from a spec, or a pinned count — record both endpoints beside a "+A/-R" delta and say whether it is net or set size, state the figure on both sides of a transform, write the artifact and version beside a pinned count, and count diff lines with a filter anchored on the sign alone that removes the `---` and `+++` header lines by name; a byte count from a blob and one from the checkout differ by the line count under `core.autocrlf`, so name the instrument beside every byte pin; carries §8.10, §8.11 and §8.12 of `measurement-discipline.md`
 paths: {planwise_root}/{plans_dir}/**
 ---
 
 # Measurement Discipline, Part 3 — Recorded Delta and Pinned Count
 
-**Purpose:** §8.10, §8.11 and §8.12, split out of [measurement-discipline.md](measurement-discipline.md) when that file crossed the Read-tool token gate. §8.1–§8.7 and §8.9 stay on that anchor, which keeps the original filename, and §8.8 lives in [measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md). Both subsections extend §8.9 sub-rule A, which re-measures a recorded figure at execution time.
+**Purpose:** §8.10, §8.11 and §8.12, split out of [measurement-discipline.md](measurement-discipline.md) when that file crossed the Read-tool token gate. §8.1–§8.7 and §8.9 stay on that anchor, which keeps the original filename, and §8.8 lives in [measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md). All three sections extend §8.9 sub-rule A, which re-measures a recorded figure at execution time.
 
 ---
 
 ### 8.10 A recorded delta states both endpoints and says whether it is net or set size
 
-A delta written "+A/−R" in prose can mean two things: the sizes of the added and removed sets, or the net change with the removals broken out. A spec that does not say which is read the convenient way by whoever writes the assertion. A transform between the measurement and the return value (rename pairing, deduplication, normalisation) makes it worse. A set-difference figure taken before pairing and a return value taken after pairing are both true. They differ by exactly the paired count.
-
-A spec's facts table recorded a pinned pair of files as "exports +71/−4, event keys +12/−1". A downstream brief consumed the row as test assertions:
-
-```python
-len(exports_added) == 71
-events_added == {the twelve names}      # includes '<key-b>'
-events_removed == []                    # after rename pairing
-events_renamed_suspected == [{'removed': '<key-a>', 'added': '<key-b>', ...}]
-```
-
-The producing task measured the pair with the calibrated regexes: exports 192 -> 263, with 75 added and 4 removed. The spec's 71 was `263 - 192`, a net figure. For events the raw counts were +12/−1, but the rename rule the same spec mandates moves `<key-a>` -> `<key-b>` out of both sets. The diff function returns eleven added, zero removed and one renamed. The brief's three event assertions contradicted each other. "The twelve names" includes `<key-b>`, and "`events_removed` empty after pairing" holds only if `<key-b>` was paired out of `events_added`. A correct implementation would have failed two tests written against a correct spec.
+A delta written "+A/−R" in prose can mean two things: the sizes of the added and removed sets, or the net change with the removals broken out. A spec that does not say which is read the convenient way by whoever writes the assertion. A transform between the measurement and the return value (rename pairing, deduplication, normalisation) makes it worse. A set-difference figure taken before pairing and a return value taken after pairing are both true. They differ by exactly the paired count. Assertions copied from such a figure can contradict each other, and a correct implementation then fails tests written against a correct spec.
 
 > [!constraint] The spec states which quantity the figure is, and the assertion names the quantity the function returns
 > WRONG — lift the figure into the assertion that reads most naturally:
@@ -51,16 +40,7 @@ Applies to any task brief whose success criterion is a literal count or list cop
 
 ### 8.11 A pinned count names the artifact and version it was read from
 
-A literal count depends on the exact artifact and version it was read from. When the artifact is regenerated, the dependency moves and the number does not. One session met four stale counts, each true when written:
-
-| Pin | Written against | Observed | Where it failed |
-|-----|-----------------|----------|-----------------|
-| `assert len(parsed["rows"]) == 124` | the committed candidates file for one version pair | 110 after regeneration | a test outside the regenerating task's write-set |
-| "34 unnamed tool blocks" | an earlier build | 53 on the later build | a backlog item's acceptance box |
-| "four `new Set(` subset sites, 11 / 5 / 21 / 9" | one build | seven sites, 1 / 2 / 4 / 5 / 6 / 9 / 21 on three later builds | a design spec |
-| `git diff … \| grep -c '^-'  # expect 0` | a diff with no header in mind | 1 on any non-empty diff (the `--- a/` line) | a pinned verification gate |
-
-None of the four was a defect in the code under test. The test pin failed loudest and latest. The task that regenerated the report could not edit the test, so a green session ended with a red tier and an orchestrator round-trip to expand the write-set.
+A literal count depends on the exact artifact and version it was read from. When the artifact is regenerated, the dependency moves and the number does not. The pin in a test fails loudest and latest. The task that regenerates the artifact may not be allowed to edit the test, so a green session ends with a red tier and a round-trip to widen the write-set.
 
 > [!constraint] Write the dependency beside the number
 > WRONG — the number alone:
@@ -83,13 +63,18 @@ None of the four was a defect in the code under test. The test pin failed loudes
 - **Treat every pin against a regenerated artifact as untrusted until re-read.** `Grep` the tests and briefs for the artifact's path before dispatch. Put the re-pin in the regenerating task's write-set. Otherwise the tier goes red in a file the runner is forbidden to touch.
 - **Write a count from a version-dependent source as "N on version V", never as N.** This holds in a backlog item or a spec. The build changes under the item. The item does not.
 
-**Diff-gate corollary.** A `grep -c` over `git diff` output counts the header lines too. Count removed lines with `grep -c '^-[^-]'` and added lines with `grep -c '^+[^+]'`, so the `---` and `+++` header lines do not register.
+**Diff-gate corollary.** A line count over `git diff` output counts the `---` and `+++` header lines too, so a gate that expects 0 removed lines reads 1 on any non-empty diff. Anchor the filter on the sign alone, and remove the header lines by name. A character class written right after the sign also drops every changed line that starts with that character, such as a removed or added bullet. [`gate-predicate-discrimination.md`](gate-predicate-discrimination.md) §6 holds the general rule and its counter-example. Check 52 of `scripts/lint_gate_checks_measure.py` flags a gate that puts a character class right after the diff sign.
+
+```bash
+git diff -- <path> | grep -E '^-' | grep -vE '^---' | wc -l          # removed lines
+git diff -- <path> | grep -E '^\+' | grep -vE '^\+\+\+' | wc -l      # added lines
+```
 
 Applies to test assertions that pin the row, line or entry count of a committed report, fixture or snapshot. It also applies to backlog items and design-spec rows that quote a figure from one build.
 
 ### 8.12 A byte pin names its instrument: blob bytes and checkout bytes differ under autocrlf
 
-A byte count from a blob and a byte count from the checkout are two instruments. Under `core.autocrlf=true` a blob holds LF line endings and the checkout holds CRLF. The two counts differ by exactly the number of lines. A pin taken from one instrument and compared to the other reads as drift. The figure has the size of the line count. That is large enough to look like a missing row. It grows with the file, so it is not noise.
+A byte count from a blob and a byte count from the checkout are two instruments. Under `core.autocrlf=true` a blob holds LF line endings and the checkout holds CRLF. The two counts differ by exactly the number of lines. A pin taken from one instrument and compared to the other reads as drift. The gap is large enough to look like a missing row, and it grows with the file, so it is not noise.
 
 > [!constraint] Use the same instrument on both sides, or carry the line count across
 > WRONG — blob bytes compared to a working-tree pin:
@@ -108,5 +93,12 @@ A byte count from a blob and a byte count from the checkout are two instruments.
 - **Pin working-tree bytes with `wc -c` when the subject is the checkout, and say so.** A conservation identity runs against files on disk, so every term comes from disk.
 - **Add the line count when a term must come from git history.** Run `git show <sha>:<path> | wc -l` and add it before comparing to a working-tree pin. Or compare blob to blob.
 - **Treat a gap that equals the line count as the signature of this trap.** Check `git config core.autocrlf` before looking for a lost row.
+
+Check 53 of `scripts/lint_gate_checks_measure.py` warns on a gate that compares `git show` bytes with a checkout `wc -c` pin and adds no line count.
+
+**A character count is a third instrument.** `awk '{print length($0)}'`, `${#var}` and `len(str)` count decoded characters, not bytes. A byte identity that takes one operand from such a counter false-fails by the extra bytes of the multi-byte characters in the text. [`measure-aggregate-provenance.md`](measure-aggregate-provenance.md) §5 states this form.
+
+- **Take every operand of a byte gate from a byte instrument:** `wc -c`, an `rb` read or a byte regex.
+- **Run a pinned measurement command once beside a second instrument before a gate trusts it.** The two figures must agree, or the disagreement is the finding.
 
 Applies to any byte pin, size gate, or conservation identity on a Windows checkout with `core.autocrlf=true`. It applies whenever one operand comes from `git show`, `git cat-file`, or a diff stat and another comes from the working tree.

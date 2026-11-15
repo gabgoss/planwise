@@ -74,11 +74,12 @@ If your own reading contradicts the sheet, say so explicitly: re-measure — `wc
 - When a brief's Success Criteria cite a test by name, walk each row of its test table through the contract prose; report a row the contract makes unreachable (`references/task-file-and-tracking-requirements.md` §9, "Walk the Worked Example Through the Contract Prose Before Dispatch")
 - Verify that a task whose Success Criteria discharge a sprint criterion quotes the criterion and carries a gate that measures the criterion's own comparand, population and operator, and that sibling criteria naming one artifact can all hold on a real instance of it (Check 112, Task Gate Measures a Different Property Than the Sprint Criterion It Discharges; `references/gate-anchor-outcome-set.md` §10.11)
 - Verify that a brief which sends an inherited parameter only when the endpoint document lists it also states the signature outcome, either removal from the signature spec or a raise on a non-default value, and not only a `False` or `None` audit value (Check 118; `references/verify-before-cite.md` §9.B.26)
-- Verify that a paid or irreversible step whose target is pinned by a recency-ordered query over a stored corpus cites a census of the corpus, sets the fallback ceiling above the largest known gap, keeps the `NONE` sentinel with the measure-don't-substitute instruction, and asserts the target exists in the corpus the runner reads (Check 120, Corpus Target Pin With No Census, Fallback Ceiling or NONE Sentinel; `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.31.1)
+- Verify that a paid or irreversible step whose target is pinned by a recency-ordered query over a stored corpus cites a census of the corpus, sets the fallback ceiling above the largest known gap, keeps the `NONE` sentinel with the measure-don't-substitute instruction, and asserts the target exists in the corpus the runner reads (Check 120, Corpus Target Pin With No Census, Fallback Ceiling or NONE Sentinel; `references/agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md` §1.31.1)
 - Verify that a task dispatched to a runner, subagent or CI actor is not bound to a rule that names a tool only a human can reach, and that a rule naming a tool states the capability behind it, an instance for each bound actor and the reason for each prohibition (Check 121, Dispatched Runner Bound to a Rule Naming a Human-Only Tool; `references/rule-authoring.md` §8)
 - Verify that no Success Criterion, exit criterion or Signoff anchor uses a data-state literal as its pass or fail value, cited or not, and that measurement work carries one criterion tying a produced value to its evidence (Check 124, Data-State Literal Used as a Pass or Fail Value; `references/exit-criteria-fidelity.md` §16.10.1, `references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md` §16.19)
 - Verify that a task which corrects, reconciles or supersedes a state assertion restated elsewhere carries a wider-tree restatement sweep, and that no uncorrected live copy survives outside the plan's Outputs (Check 129, Correction Leaves an Uncorrected Sibling Copy; `references/dispatch-edit-surface-sweep.md` §14)
-- [Token Saver on only] Each task's Required Context obeys the `references/task-content-fidelity.md` §9.A.8 large-file ladder (Check 065): no over-ceiling task without `1M-exception`; Warn+ files carry a backlog item; a `read`-reason Critical is never `1M-exception`'d; oversized generated artifacts are Multi-Part split
+- Verify that a test whose safety rests on rollback or on no commit cites a search of the callee's commit calls, and that a committing callee has a named neutralising mechanism and a second-connection before-and-after count (Check 133, Rollback-Protected Test Against a Committing Callee; `references/destructive-change-requirements.md` §10.11)
+- [Token Saver on only] Each task's Required Context obeys the `references/task-content-fidelity.md` §9.A.8 large-file ladder (Check 065): no over-ceiling task without `1M-exception`; Warn+ files carry a backlog item; a `read`-reason finding is advice and never `1M-exception`'d (read routes: `allow_large` at Claude Code v2.1.296 or later, `offset`/`limit` pages, or Grep); oversized generated artifacts are a WARNING with a split advised
 - Session Summary's Consumption Record present with `measured|estimated` tags; orchestrator-window total kept distinct from summed dispatch budgets
 
 - Check 010 — Task DELEGATED Mandatory Triggers Honored → references/agent-orchestration-delegated.md §1.1
@@ -147,11 +148,12 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 116 — Task Edits a Pinned Artifact With No Pin Tests in Its Write-Set → references/verify-caller-before-complete.md §6
 - Check 112 — Task Gate Measures a Different Property Than the Sprint Criterion It Discharges → references/gate-anchor-outcome-set.md §10.11
 - Check 118 — Documentation Check on an Inherited Parameter With No Signature Outcome → references/verify-before-cite.md §9.B.26
-- Check 120 — Corpus Target Pin With No Census, Fallback Ceiling or NONE Sentinel → references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md §1.31.1
+- Check 120 — Corpus Target Pin With No Census, Fallback Ceiling or NONE Sentinel → references/agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md §1.31.1
 - Check 121 — Dispatched Runner Bound to a Rule Naming a Human-Only Tool → references/rule-authoring.md §8
 - Check 124 — Data-State Literal Used as a Pass or Fail Value → references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md §16.19
 - Check 125 — Equality Filter on a State Column With No Measured Vocabulary → references/schema-pin-requirement.md §5.1
 - Check 126 — Table-Shaped Output Estimate With No Column Term → references/task-content-fidelity.md §9.A.18
+- Check 134 — One-Row-per-Entity Output Priced Without a Measured Count → references/discovery-and-exit-criteria.md §15.4
 - Check 129 — Correction Leaves an Uncorrected Sibling Copy → references/dispatch-edit-surface-sweep.md §14
 - Check 130 — Unmodified-Tests Criterion Beside a Behaviour-Changing Default → references/verify-caller-before-complete.md §7
 - Check 131 — Authorized Omission (an `<!-- OMITTED: … (spec omit_sections) -->` line in place of a CONDITIONAL section is an authorized omission, not a finding. A section removed with no OMITTED line is template drift.) → references/scaffolding-hygiene.md §8
@@ -221,6 +223,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 072 — Destructive-Path Spec Missing Interaction Matrix → references/destructive-change-requirements.md §10.1
 - Check 073 — Absent-Key Pin Rewrite During Non-Default-Gated Change → references/destructive-change-requirements.md §10.3
 - Check 122 — Destructive Guard Evidenced Only by a Read or an Injected Input → references/destructive-change-requirements.md §10.10
+- Check 133 — Rollback-Protected Test Against a Committing Callee (also a verify bullet in `### Task Reviewer`, so every plan gets it) → references/destructive-change-requirements.md §10.11
 
 ## Sub-role: Verification-Gate Reviewer (NEW)
 

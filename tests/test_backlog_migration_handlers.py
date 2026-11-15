@@ -449,12 +449,14 @@ class TestIndexShapeGateIsDefinedOnce(unittest.TestCase):
         self.assertLess(text.index("index_shape_preflight.py"), text.index("### Step 0: Detect Mode"))
         self.assertNotIn("Step 2.4 with `--upgrade-pair", text)
 
-    def test_plan_step_8d_routes_the_three_exit_2_causes(self):
+    def test_plan_step_8d_routes_the_two_exit_2_causes(self):
         text = (RUN_HANDLER.parent / "plan-Part-3-VerifyConfirmAndReview.md").read_text(encoding="utf-8-sig")
         step = _span_between(text, "### Step 8d", "### Step 8e")
         self.assertIn("hand-authored plans index", step)
         self.assertIn("migrate_plans_index.py --report", step)
-        self.assertIn("token budget", step)
+        # an over-budget render writes with a warning and exits 0, so Step 8d routes it as a warning
+        self.assertIn("An over-budget render is not an exit-2 cause", step)
+        self.assertIn("relay the warning", step)
 
     def test_no_shipped_file_names_the_removed_run_part_file(self):
         self.assertFalse((_SHIPPED / "handlers" / "run-Part-2-PreflightGate.md").exists())

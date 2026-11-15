@@ -16,6 +16,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import config_gen
 import config_loader
 import init_project
 import upgrade_card_project as ucp
@@ -276,19 +277,43 @@ def test_feedback_flags_reach_writer_argv(tmp_path, capsys, monkeypatch):
     assert exc.value.code == 2 and "invalid choice" in capsys.readouterr().err
 
 
+def test_no_feedback_enabled_reaches_writer_argv(tmp_path, capsys, monkeypatch):
+    root = ucp.make_project(tmp_path)
+    code, out = run(monkeypatch, capsys, root, "--pair", PAIR, "--no-feedback-enabled", "--dry-argv")
+    assert code == 0, out
+    argv = upgrade_run.LAST_ARGV
+    assert "--no-feedback-enabled" in argv and "--feedback-enabled" not in argv
+    assert json.loads(out.split("writer argv: ", 1)[1]) == argv
+
+
+POSTING_LINE = config_gen._POSTING_LINE
+
+
 def test_summary_passes_feedback_banner_through(capsys):
     writer_out = ("Refreshed: 1\n"
                   "Feedback drafting: ON — Claude may now save local feedback drafts under planwise/Feedback/\n"
-                  "  nothing is posted without /planwise feedback --drafts and your approval\n"
+                  f"{POSTING_LINE}\n"
                   "  feedback.drafts: notify (default, no answer given); feedback.enabled: unchanged\n"
                   "Unrelated banner line\n")
     capsys.readouterr()
     upgrade_run.print_summary(writer_out, PAIR, [])
     summary = capsys.readouterr().out
     assert "Feedback drafting: ON — Claude may now save local feedback drafts under planwise/Feedback/\n" \
-           "  nothing is posted without /planwise feedback --drafts and your approval\n" \
+           f"{POSTING_LINE}\n" \
            "  feedback.drafts: notify (default, no answer given); feedback.enabled: unchanged" in summary
     assert "Unrelated banner line" not in summary
+
+
+def test_drafts_banner_states_unattended_posting():
+    """Both banner variants state that unattended runs post; the handler template carries the same line."""
+    for value in ("off", "notify"):
+        banner = config_gen._drafts_banner(value, True, None, planwise_root="planwise", feedback_dir="Feedback",
+                                           plugin_root=Path("."))
+        assert f"\n{POSTING_LINE}\n" in banner, value
+        assert "nothing is posted" + " without" not in banner, value  # split: the repo-wide sweep for the old line reads 0
+    template = (Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "handlers"
+                / "upgrade-Part-3-BannerAndConflictResolution.md").read_text(encoding="utf-8")
+    assert template.count(f"\n{POSTING_LINE}\n") == 2
 
 
 def test_flip_offers_screened_by_the_writer_checks(tmp_path):

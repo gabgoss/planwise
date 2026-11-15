@@ -7,6 +7,7 @@ description: >
   plan-bodies workflow. Writes nothing and authors nothing.
 tools: Read, Glob, Grep, Bash
 model: sonnet
+effort: high
 maxTurns: 20
 ---
 

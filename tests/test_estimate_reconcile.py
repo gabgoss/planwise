@@ -9,13 +9,27 @@ import estimate_reconcile as er
 import token_saver_writeback as tsw
 
 SCRIPT = Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts" / "estimate_reconcile.py"
+SELF_NAME = "{SELF}"  # `_write` swaps in the task file's own name
+SELF_KIB = "{SELFKIB}"  # `_write` swaps in the settled KiB figure
 TASK_LIST_HEAD = (
     "| # | Task | Agent | Est. Tokens | Depends On |\n"
     "|---|------|-------|-------------|------------|\n"
 )
 
 
-def _task(task_id, header, subtotal_total, reads="~4K", row_file="`kit/tool.py`"):
+def _task(task_id, header, subtotal_total, reads="~4K", row_file="`kit/tool.py`", rows=None,
+          self_row=True, pad=0):
+    """`rows` lists the ~Tokens cells, one row each. The default is one row equal to `reads`.
+
+    `self_row` appends the row that names the task file itself, at zero tokens so the
+    reads term stays put. `_write` fills its name and KiB. `pad` adds filler lines to
+    the Execution Steps, so a test can work on a file large enough that the KiB cell's
+    one-decimal rounding is far under 3%.
+    """
+    body = "".join(f"| {n} | {row_file} | 9.9 | {cell} | whole file |\n"
+                   for n, cell in enumerate(rows or [reads], 1))
+    if self_row:
+        body += f"| {len(rows or [reads]) + 1} | `{SELF_NAME}` | {SELF_KIB} | ~0K | this task file |\n"
     return (
         "# Task: Probe\n\n"
         f"**Task ID:** {task_id}\n"
@@ -25,11 +39,11 @@ def _task(task_id, header, subtotal_total, reads="~4K", row_file="`kit/tool.py`"
         "## Required Context\n\n"
         "| Priority | File | KiB | ~Tokens | Purpose |\n"
         "|----------|------|----:|--------:|---------|\n"
-        f"| 1 | {row_file} | 9.9 | {reads} | whole file |\n\n"
+        f"{body}\n"
         f"**Context subtotal:** {reads} (reads — the sum of the ~Tokens column)"
         f" + ~5K (output) + ~1K (working) = **{subtotal_total} total**\n\n"
         "---\n\n"
-        "## Execution Steps\n\n1. Do the thing.\n"
+        "## Execution Steps\n\n1. Do the thing.\n" + "Filler line for size.\n" * pad
     )
 
 
@@ -71,15 +85,32 @@ def _sprint_plan(row1="~30K", header="~45K", detail1="~10K", detail2="~20K",
     )
 
 
+def _write(path, text):
+    """Write a task file whose self row names the file and states its own size.
+
+    The KiB figure is part of the bytes it measures, so the write repeats until the
+    figure matches the size the file ends at.
+    """
+    text = text.replace(SELF_NAME, path.name)
+    kib = "0.0"
+    for _ in range(8):
+        path.write_text(text.replace(SELF_KIB, kib), encoding="utf-8")
+        measured = tsw._fmt_kib(path.stat().st_size)
+        if measured == kib:
+            return
+        kib = measured
+    raise AssertionError(f"the self row of {path.name} never settled")
+
+
 def _tree(tmp_path, task1=None, task2=None, orch=None, sprint=None):
     """A reconciled Exec-DM tree; each argument replaces one file's text."""
     exec_dir = tmp_path / "Exec-DM"
     session = exec_dir / "Sprint-01-Alpha" / "Session-01-Beta"
     session.mkdir(parents=True)
-    (session / "DM-S01-01-01-Sonnet-Probe.md").write_text(
-        task1 or _task("DM-S01-01-01", "~10K", "~10K", reads="~4K"), encoding="utf-8")
-    (session / "DM-S01-01-02-Sonnet-Other.md").write_text(
-        task2 or _task("DM-S01-01-02", "~20K", "~20K", reads="~14K"), encoding="utf-8")
+    _write(session / "DM-S01-01-01-Sonnet-Probe.md",
+           task1 or _task("DM-S01-01-01", "~10K", "~10K", reads="~4K"))
+    _write(session / "DM-S01-01-02-Sonnet-Other.md",
+           task2 or _task("DM-S01-01-02", "~20K", "~20K", reads="~14K"))
     (session / "DM-S01-01-Orchestration.md").write_text(orch or _orchestration(), encoding="utf-8")
     (exec_dir / "Sprint-01-Alpha" / "DM-S01-Sprint-Plan.md").write_text(
         sprint or _sprint_plan(), encoding="utf-8")
@@ -159,6 +190,59 @@ def test_placeholder_header_is_unread_not_a_mismatch(tmp_path, capsys):
     assert lines[-1] == "estimates: sessions=1 mismatches=0 unread=1"
 
 
+def _reads_tree(tmp_path, rows):
+    """A tree whose task 1 reads ~100K, priced as 106K with output and working tokens.
+
+    Every other level repeats the ~106K figure, so only the Required Context rows
+    (`rows`, the ~Tokens cells) can disagree with the subtotal's reads term.
+    """
+    task1 = _task("DM-S01-01-01", "~106K", "~106K", reads="~100K", rows=rows)
+    orch = _orchestration(cell1="~106K", total="~126K tokens (106 + 20)")
+    sprint = _sprint_plan(row1="~126K", header="~141K", detail1="~106K",
+                          detail_total="~126K tokens (106 + 20)")
+    return _tree(tmp_path, task1=task1, orch=orch, sprint=sprint)
+
+
+def test_rows_below_the_reads_term_fail_at_task_reads_only(tmp_path, capsys):
+    # Rows sum to 90.0K, the reads term, header, total and every rollup say ~100K / ~106K.
+    code, lines = _check(_reads_tree(tmp_path, ["~50K", "~40.0K"]), capsys)
+    assert code == 1
+    assert lines == [
+        ("MISMATCH task-reads Sprint-01-Alpha/Session-01-Beta/DM-S01-01-01-Sonnet-Probe.md:17 "
+         "declared ~100K expected ~90K (11.1%)"),
+        "estimates: sessions=1 mismatches=1 unread=0",
+    ]
+
+
+def test_rows_matching_the_reads_term_are_clean(tmp_path, capsys):
+    code, lines = _check(_reads_tree(tmp_path, ["~60K", "~40K"]), capsys)
+    assert code == 0
+    assert lines == ["estimates: sessions=1 mismatches=0 unread=0"]
+
+
+def test_rows_within_ten_percent_of_the_reads_term_pass(tmp_path, capsys):
+    code, lines = _check(_reads_tree(tmp_path, ["~55K", "~40K"]), capsys)  # 95K against 100K
+    assert code == 0
+    assert lines == ["estimates: sessions=1 mismatches=0 unread=0"]
+
+
+def test_row_without_a_figure_is_unread_not_a_mismatch(tmp_path, capsys):
+    code, lines = _check(_reads_tree(tmp_path, ["~50K", "~?K"]), capsys)
+    assert code == 0
+    assert ("UNREAD task-reads Sprint-01-Alpha/Session-01-Beta/DM-S01-01-01-Sonnet-Probe.md:14 "
+            "a Required Context row has no figure in the ~Tokens cell") in lines
+    assert lines[-1] == "estimates: sessions=1 mismatches=0 unread=1"
+
+
+def test_task_without_a_required_context_table_is_unread(tmp_path, capsys):
+    text = _task("DM-S01-01-01", "~10K", "~10K", reads="~4K")
+    no_table = "".join(ln for ln in text.splitlines(keepends=True) if not ln.startswith("|"))
+    code, lines = _check(_tree(tmp_path, task1=no_table), capsys)
+    assert code == 0
+    assert any(ln.startswith("UNREAD task-reads ") and ln.endswith("no Required Context table")
+               for ln in lines)
+
+
 def test_tree_rerolled_by_write_estimates_passes(tmp_path, capsys):
     kit = tmp_path / "kit"
     kit.mkdir()
@@ -206,3 +290,125 @@ def test_cli_rejects_unknown_flag_and_prints_the_total_line(tmp_path):
                         capture_output=True, text=True, encoding="utf-8", check=False)
     assert ok.returncode == 0
     assert ok.stdout.splitlines()[-1] == "estimates: sessions=1 mismatches=0 unread=0"
+
+
+# -- task-self: a task's own KiB row against the task file's bytes -----------------------------
+TASK1 = "Sprint-01-Alpha/Session-01-Beta/DM-S01-01-01-Sonnet-Probe.md"
+
+
+def _self_tree(tmp_path, grow_percent=0):
+    """A tree whose task 1 is about 22 KiB with a settled self row, then grown by a share of its size."""
+    exec_dir = _tree(tmp_path, task1=_task("DM-S01-01-01", "~10K", "~10K", reads="~4K", pad=1000))
+    path = exec_dir / TASK1
+    extra = path.stat().st_size * grow_percent // 100
+    with path.open("ab") as handle:
+        handle.write(b"x" * extra)  # trailing bytes outside every table, so only the file's size moves
+    return exec_dir
+
+
+def test_self_row_that_states_the_file_size_is_clean(tmp_path, capsys):
+    code, lines = _check(_self_tree(tmp_path), capsys)
+    assert code == 0
+    assert lines == ["estimates: sessions=1 mismatches=0 unread=0"]
+
+
+def test_self_row_five_percent_under_the_file_fails(tmp_path, capsys):
+    exec_dir = _self_tree(tmp_path, grow_percent=5)
+    code, lines = _check(exec_dir, capsys)
+    size = (exec_dir / TASK1).stat().st_size
+    assert code == 1
+    assert len(lines) == 2
+    assert lines[0].startswith(f"MISMATCH task-self {TASK1}:")
+    assert f"expected {tsw._fmt_kib(size)} KiB (" in lines[0]
+    assert lines[-1] == "estimates: sessions=1 mismatches=1 unread=0"
+
+
+def test_self_row_two_percent_under_the_file_passes(tmp_path, capsys):
+    code, lines = _check(_self_tree(tmp_path, grow_percent=2), capsys)
+    assert code == 0
+    assert lines == ["estimates: sessions=1 mismatches=0 unread=0"]
+
+
+def test_self_row_over_the_file_fails_too(tmp_path, capsys):
+    exec_dir = _self_tree(tmp_path)
+    path = exec_dir / TASK1
+    declared = tsw._fmt_kib(path.stat().st_size)
+    inflated = f"{float(declared) * 1.05:.1f}"
+    path.write_bytes(path.read_bytes().replace(f"| {declared} |".encode(), f"| {inflated} |".encode()))
+    code, lines = _check(exec_dir, capsys)
+    assert code == 1
+    assert lines[0].startswith(f"MISMATCH task-self {TASK1}:")
+
+
+def test_self_row_rounding_alone_never_fails_a_small_file(tmp_path, capsys):
+    # A file under 2 KiB can sit up to 0.05 KiB, over 2.5%, from the one-decimal figure it prints.
+    # `_write` settles each fixture on exactly that figure, and the check must stay silent.
+    for task in (_task("DM-S01-01-01", "~10K", "~10K", reads="~4K", pad=n) for n in range(0, 40, 7)):
+        sub = tmp_path / f"t{len(task)}"
+        sub.mkdir()
+        code, lines = _check(_tree(sub, task1=task), capsys)
+        assert code == 0, lines
+        assert lines == ["estimates: sessions=1 mismatches=0 unread=0"]
+
+
+def test_task_without_a_self_row_is_unread_and_exits_zero(tmp_path, capsys):
+    task = _task("DM-S01-01-01", "~10K", "~10K", reads="~4K", self_row=False)
+    code, lines = _check(_tree(tmp_path, task1=task), capsys)
+    assert code == 0
+    assert f"UNREAD task-self {TASK1}:11 no Required Context row names this task file" in lines
+    assert lines[-1] == "estimates: sessions=1 mismatches=0 unread=1"
+
+
+def test_self_row_without_a_figure_is_unread(tmp_path, capsys):
+    exec_dir = _self_tree(tmp_path)
+    path = exec_dir / TASK1
+    declared = tsw._fmt_kib(path.stat().st_size)
+    path.write_bytes(path.read_bytes().replace(f"| {declared} |".encode(), b"| {K} |"))
+    code, lines = _check(exec_dir, capsys)
+    assert code == 0
+    assert any(ln.startswith(f"UNREAD task-self {TASK1}:")
+               and ln.endswith("no figure in the KiB cell of the row that names this task file")
+               for ln in lines)
+
+
+def test_only_a_whole_file_row_for_the_task_file_counts_as_the_self_row(tmp_path, capsys):
+    # A row that cites the task file with a span, or names another file, is not the self row.
+    exec_dir = _self_tree(tmp_path, grow_percent=5)
+    path = exec_dir / TASK1
+    text = path.read_text(encoding="utf-8").replace(f"`{path.name}`", f"`{path.name}` §Execution Steps")
+    path.write_text(text, encoding="utf-8")
+    code, lines = _check(exec_dir, capsys)
+    assert code == 0
+    assert not any("MISMATCH task-self" in ln for ln in lines)
+    assert any(ln.startswith("UNREAD task-self ") for ln in lines)
+
+
+def _settle_bytes(path, body, newline):
+    """Write `body` with `newline` endings and a self-row KiB figure that matches the result."""
+    kib = "0.0"
+    for _ in range(8):
+        path.write_bytes(body.replace(SELF_KIB, kib).replace("\n", newline).encode("utf-8"))
+        measured = tsw._fmt_kib(path.stat().st_size)
+        if measured == kib:
+            return
+        kib = measured
+    raise AssertionError("the self row never settled")
+
+
+def test_self_row_in_a_crlf_file_is_measured_in_bytes(tmp_path, capsys):
+    body = _task("DM-S01-01-01", "~10K", "~10K", reads="~4K", pad=1000)
+    body = body.replace(SELF_NAME, "DM-S01-01-01-Sonnet-Probe.md")
+    exec_dir = _tree(tmp_path)
+    path = exec_dir / TASK1
+    # The same text at CRLF is one byte longer per line, about 4% here, so a figure that
+    # counted the LF copy would drift past 3%. A figure settled on the CRLF bytes is clean.
+    _settle_bytes(path, body, "\r\n")
+    assert _check(exec_dir, capsys) == (0, ["estimates: sessions=1 mismatches=0 unread=0"])
+    lf_kib = tsw._fmt_kib(len(body.replace(SELF_KIB, "0.0").encode("utf-8")))
+    crlf_kib = tsw._fmt_kib(path.stat().st_size)
+    assert float(crlf_kib) > float(lf_kib) * 1.03
+    text = path.read_bytes().decode("utf-8").replace(f"| {crlf_kib} |", f"| {lf_kib} |")
+    path.write_bytes(text.encode("utf-8"))
+    code, lines = _check(exec_dir, capsys)
+    assert code == 1
+    assert lines[0].startswith(f"MISMATCH task-self {TASK1}:")

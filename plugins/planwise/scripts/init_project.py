@@ -34,6 +34,7 @@ Options:
 """
 
 import argparse
+import copy
 import dataclasses
 import json
 import os
@@ -296,18 +297,28 @@ class SkippedArtifact:
 
 
 def create_directories(cfg: InitConfig) -> list[str]:
-    """Create planwise directories. Returns list of created paths."""
+    """Create planwise directories. Returns only the paths this call created;
+    a directory that already existed is omitted.
+
+    When config.yaml exists, its directory names win over the `cfg` values,
+    resolved the way the seed copy and the upgrade feedback backfill resolve
+    them. On a fresh init config.yaml does not exist yet, so the `cfg` values
+    apply.
+    """
     created = []
+    root = cfg.project_root
+    feedback_rel = _configured_feedback_rel(cfg, root / cfg.planwise_root / "config.yaml")
     dirs = [
-        cfg.project_root / cfg.planwise_root / cfg.plans_dir,
-        cfg.project_root / cfg.planwise_root / cfg.backlog_dir,
-        cfg.project_root / cfg.planwise_root / cfg.lessons_dir,
-        cfg.project_root / cfg.planwise_root / cfg.feedback_dir,
-        cfg.project_root / ".claude" / "rules" / "planwise",
+        *(root / config_loader.resolve_index_target(cfg, family)[0]
+          for family in ("plans", "backlog", "lessons")),
+        root / cfg.planwise_root / feedback_rel,
+        root / ".claude" / "rules" / "planwise",
     ]
     for d in dirs:
+        existed = d.is_dir()
         d.mkdir(parents=True, exist_ok=True)
-        created.append(str(d.relative_to(cfg.project_root)))
+        if not existed:
+            created.append(str(d.relative_to(root)))
     return created
 
 
@@ -348,7 +359,6 @@ def copy_seed_files(cfg: InitConfig) -> list[str]:
         except FileNotFoundError:
             print(f"  Warning: seed file not found: {src}", file=sys.stderr)
             continue
-        # A config-named directory may differ from the one create_directories made.
         dst.parent.mkdir(parents=True, exist_ok=True)
         try:
             with open(dst, "xb") as f:
@@ -447,24 +457,51 @@ def get_settings_path(cfg: InitConfig) -> Path:
         return cfg.project_root / ".claude" / "settings.json"
 
 
-def configure_settings(cfg: InitConfig) -> tuple[str | None, str | None]:
+_UTF8_BOM = b"\xef\xbb\xbf"
+
+
+def _read_settings_bytes(path: Path) -> bytes | None:
+    """The file's bytes, or None when it does not exist."""
+    try:
+        return path.read_bytes()
+    except FileNotFoundError:
+        return None
+
+
+def _write_settings_json(path: Path, settings: dict, original: bytes | None) -> None:
+    """Write `settings` keeping the original file's newline style, BOM and
+    trailing newline. A new file gets LF endings and a trailing newline."""
+    text = (original or b"").decode("utf-8-sig", errors="replace")
+    newline = "\r\n" if "\r\n" in text else "\n"
+    body = json.dumps(settings, indent=2, ensure_ascii=False).replace("\n", newline)
+    if not original or text.endswith("\n"):
+        body += newline
+    bom = _UTF8_BOM if original and original.startswith(_UTF8_BOM) else b""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(bom + body.encode("utf-8"))
+
+
+def configure_settings(cfg: InitConfig) -> tuple[str | None, str | None, str | None]:
     """Apply all settings.json mutations in a single read-write cycle.
 
     Configures the Agent Teams env var, the Task checklist tools env var,
-    and plugin read permissions.
-    Returns (settings_path, plugin_dir) — either may be None if skipped.
+    and plugin read permissions. A file whose merged content equals what it
+    already holds is not rewritten.
+    Returns (settings_path, plugin_dir, status). status is "added" (no file
+    before), "updated" or "unchanged". All three are None when the file holds
+    invalid JSON; plugin_dir is None when the grant already existed.
     """
     settings_path = get_settings_path(cfg)
     settings_path.parent.mkdir(parents=True, exist_ok=True)
 
+    original = _read_settings_bytes(settings_path)
     try:
-        settings = json.loads(settings_path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        settings = {}
-    except json.JSONDecodeError:
+        settings = {} if original is None else json.loads(original.decode("utf-8-sig"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
         print(f"  Warning: {settings_path} contains invalid JSON — skipping settings configuration.", file=sys.stderr)
         print("  Fix the file manually and re-run /planwise init.", file=sys.stderr)
-        return None, None
+        return None, None, None
+    before = copy.deepcopy(settings)
 
     # Agent Teams
     env = settings.setdefault("env", {})
@@ -503,8 +540,10 @@ def configure_settings(cfg: InitConfig) -> tuple[str | None, str | None]:
         additional_dirs.append(grant_dir)
         plugin_dir = grant_dir
 
-    settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
-    return str(settings_path), plugin_dir
+    if original is not None and settings == before:
+        return str(settings_path), plugin_dir, "unchanged"
+    _write_settings_json(settings_path, settings, original)
+    return str(settings_path), plugin_dir, "added" if original is None else "updated"
 
 
 THRIFTY_SONIC_KEY = "CLAUDE_CODE_THRIFTY_SONIC"
@@ -535,11 +574,10 @@ def configure_thrifty_sonic(cfg: InitConfig) -> list[tuple[Path, str]]:
     """
     results: list[tuple[Path, str]] = []
     for path in get_thrifty_sonic_paths(cfg):
+        original = _read_settings_bytes(path)
         try:
-            settings = json.loads(path.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            settings = {}
-        except json.JSONDecodeError:
+            settings = {} if original is None else json.loads(original.decode("utf-8-sig"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
             print(f"  Warning: {path} contains invalid JSON — skipping {THRIFTY_SONIC_KEY}.", file=sys.stderr)
             results.append((path, "skipped"))
             continue
@@ -549,8 +587,7 @@ def configure_thrifty_sonic(cfg: InitConfig) -> list[tuple[Path, str]]:
             results.append((path, "unchanged"))
             continue
         env[THRIFTY_SONIC_KEY] = THRIFTY_SONIC_VALUE
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+        _write_settings_json(path, settings, original)
         results.append((path, "added" if current is None else "corrected"))
     return results
 
@@ -634,7 +671,7 @@ def _apply_init_feedback_answers(cfg: InitConfig, config_path: Path) -> str:
     from the values read back from the file. The `Feedback drafting:` banner is not printed:
     init asked the question, so the banner would only repeat the answer.
     """
-    answered = cfg.feedback_drafts is not None or cfg.feedback_enabled
+    answered = cfg.feedback_drafts is not None or cfg.feedback_enabled is not None
     if answered:
         _apply_feedback_keys(config_path, "set", cfg.feedback_drafts, cfg.feedback_enabled,
                              planwise_root=cfg.planwise_root, feedback_dir=cfg.feedback_dir,
@@ -651,7 +688,7 @@ def _apply_init_feedback_answers(cfg: InitConfig, config_path: Path) -> str:
     if not answered:
         return f"Feedback keys: {shown} (template defaults, no answer passed)"
     written = ((cfg.feedback_drafts is None or values["drafts"] == cfg.feedback_drafts)
-               and (not cfg.feedback_enabled or values["enabled"]))
+               and (cfg.feedback_enabled is None or bool(values["enabled"]) == cfg.feedback_enabled))
     return f"Feedback keys: {shown} ({'answered' if written else 'answer NOT written, see the warning above'})"
 
 
@@ -762,8 +799,9 @@ def main():
                              "calibrated via /planwise calibrate.")
     parser.add_argument("--feedback-drafts", choices=("notify", "quiet", "off"), default=None,
                         help="fresh init or --upgrade: set feedback.drafts to this value")
-    parser.add_argument("--feedback-enabled", action="store_true",
-                        help="fresh init or --upgrade: set feedback.enabled: true; never flips it off")
+    parser.add_argument("--feedback-enabled", action=argparse.BooleanOptionalAction, default=None,
+                        help="fresh init or --upgrade: --feedback-enabled sets feedback.enabled: true, "
+                             "--no-feedback-enabled sets it to false; with neither, the template value stays")
     parser.add_argument("--no-calibrate", action="store_true",
                         help="With --upgrade: skip the Token Saver recalibration the "
                              "upgrade runs when Token Saver is on.")
@@ -903,7 +941,7 @@ def main():
 
     # The feedback flags carry an init or upgrade answer. Every other mode would
     # drop them silently, so it refuses them instead.
-    if args.feedback_drafts is not None or args.feedback_enabled:
+    if args.feedback_drafts is not None or args.feedback_enabled is not None:
         _other = [flag for flag, on in (
             ("--migrate", args.migrate and not args.upgrade), ("--doctor", args.doctor),
             ("--list-diverged", args.list_diverged), ("--review-transfers", args.review_transfers),
@@ -997,9 +1035,12 @@ def main():
     print()
 
     dirs = create_directories(cfg)
-    print("Directories created:")
-    for d in dirs:
-        print(f"  + {d}")
+    if dirs:
+        print("Directories created:")
+        for d in dirs:
+            print(f"  + {d}")
+    else:
+        print("Directories: already exist, skipped")
     print()
 
     _ensure_draft_gitignore(
@@ -1023,7 +1064,7 @@ def main():
         print(_apply_init_feedback_answers(cfg, cfg.project_root / cfg.planwise_root / "config.yaml"))
     elif result == ConfigResult.SKIPPED_EXISTS:
         print("Configuration: already exists, skipped")
-        if cfg.feedback_drafts is not None or cfg.feedback_enabled:
+        if cfg.feedback_drafts is not None or cfg.feedback_enabled is not None:
             print("Feedback keys: answers not applied, because config.yaml already exists. "
                   "Run /planwise upgrade, or set feedback.drafts and feedback.enabled by hand.")
     else:
@@ -1165,10 +1206,10 @@ def main():
         print("Rules: already exist, skipped")
     print()
 
-    settings_path, plugin_dir = configure_settings(cfg)
+    settings_path, plugin_dir, settings_status = configure_settings(cfg)
     if settings_path:
         print(f"Settings configured ({cfg.install_scope} scope):")
-        print(f"  + Agent Teams: {settings_path}")
+        print(f"  {settings_status}: Agent Teams + Task tools ({settings_path})")
         if plugin_dir:
             print(f"  + additionalDirectories: {plugin_dir}")
     else:

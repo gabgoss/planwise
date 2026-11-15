@@ -11,6 +11,7 @@ are FIXED module-level values, NOT `/context`-derived.
 Run with:  python -m pytest tests/test_read_limits.py
 """
 
+import math
 import os
 import shutil
 import sys
@@ -23,6 +24,54 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 from conftest import _engine
+
+
+class TestWrittenContentReadAdvice(unittest.TestCase):
+    """`content_read_gates` and `written_read_advice` measure content a writer holds."""
+
+    def setUp(self):
+        import read_limits
+        self.rl = read_limits
+
+    def _patch(self, name, value):
+        original = getattr(self.rl, name)
+        setattr(self.rl, name, value)
+        self.addCleanup(setattr, self.rl, name, original)
+
+    def test_under_every_cap_fires_no_gate_and_names_a_plain_read(self):
+        text = "a short file\n"
+        self.assertEqual(self.rl.content_read_gates(text), ())
+        advice = self.rl.written_read_advice(text, "2.1.296")
+        self.assertEqual(advice, self.rl.PLAIN_READ_ADVICE)
+        self.assertNotIn("allow_large", advice)
+
+    def test_token_cap_only_names_allow_large_at_the_floor(self):
+        self._patch("READ_PAGE_CAP_TOKENS", 10)
+        text = "x" * 200 + "\n"
+        self.assertEqual(self.rl.content_read_gates(text), (self.rl.READ_GATE_TOKEN,))
+        self.assertIn("allow_large", self.rl.written_read_advice(text, "2.1.296"))
+
+    def test_token_cap_only_below_the_floor_or_unversioned_omits_allow_large(self):
+        self._patch("READ_PAGE_CAP_TOKENS", 10)
+        text = "x" * 200 + "\n"
+        for version in ("2.1.295", ""):
+            advice = self.rl.written_read_advice(text, version)
+            self.assertNotIn("allow_large", advice)
+            self.assertIn("Grep", advice)
+
+    def test_line_window_only_omits_allow_large_at_every_version(self):
+        self._patch("READ_LINE_CAP", 3)
+        text = "a\nb\nc\nd\n"
+        self.assertEqual(self.rl.content_read_gates(text), (self.rl.READ_GATE_LINE,))
+        for version in ("2.1.296", "2.1.295", ""):
+            advice = self.rl.written_read_advice(text, version)
+            self.assertNotIn("allow_large", advice)
+            self.assertIn("offset", advice)
+
+    def test_num_bytes_overrides_the_utf8_length(self):
+        self._patch("READ_FILE_BYTE_CAP", 100)
+        self.assertEqual(self.rl.content_read_gates("tiny\n"), ())
+        self.assertIn(self.rl.READ_GATE_BYTE, self.rl.content_read_gates("tiny\n", num_bytes=100))
 
 
 # ---------------------------------------------------------------------------
@@ -68,12 +117,22 @@ class TestReadLimits(unittest.TestCase):
                 min(ratios[c] for c in text_classes), ratios["dense-md"],
                 f"{family}: dense-md must be the gate-conservative text ratio",
             )
-            for structured in ("notebook", "json"):
+            for structured in ("notebook", "json", "table-md"):
                 self.assertIn(structured, ratios, f"{family} lacks the {structured} cell")
                 self.assertLess(
                     ratios[structured], ratios["dense-md"],
                     f"{family}: {structured} measured denser than dense-md",
                 )
+        # table-md is line-sniffed, never extension-identified, and it stays
+        # out of the no-class fallback so prose and index rows keep dense-md.
+        self.assertNotEqual(ts.FALLBACK_CONTENT_CLASS, "table-md")
+        for family in ts.BYTES_PER_TOKEN:
+            self.assertNotEqual(ts.bytes_per_token(family), ts.BYTES_PER_TOKEN[family]["table-md"])
+        # The Claude 5 / Haiku gap on the new cell stays inside the band the
+        # cross-model test pins for every other class.
+        gap = ts.BYTES_PER_TOKEN["haiku"]["table-md"] / ts.BYTES_PER_TOKEN["opus"]["table-md"]
+        self.assertGreaterEqual(gap, 1.25)
+        self.assertLessEqual(gap, 1.45)
         # The overall most-restrictive measured TEXT ratio is the default.
         self.assertEqual(
             ts.DEFAULT_BYTES_PER_TOKEN,
@@ -298,6 +357,356 @@ class TestReadLimits(unittest.TestCase):
         self.assertEqual(fallback["level"], "Green")
         self.assertEqual(json_file["level"], "Critical")
         self.assertEqual(json_file["reason"], "read")
+
+
+# ---------------------------------------------------------------------------
+# Numeric markdown tables: the line-sniffed table-md class
+# ---------------------------------------------------------------------------
+NUMERIC_ROW = "| M{n} | -0.087 (0.124) | n=4,344 | 42.17 | -0.512 (0.301) | n=1,205 | 0.64 |"
+PROSE_LINE = "This sentence is ordinary prose with no table markup and few digits.\n"
+INDEX_ROW = (
+    "| 820 | BUG | Medium | NOT_STARTED | "
+    "[BB-820-01-BUG-MeasureFilesTableMd](BB-820-01-BUG-MeasureFilesTableMd.md) |\n"
+)
+
+
+def numeric_table_text(target_bytes: int) -> str:
+    """Return a pipe table of decimal cells at least `target_bytes` long (LF only)."""
+    rows = ["| Model | A | B | C | D | E | F |", "|---|---:|---:|---:|---:|---:|---:|"]
+    size = sum(len(r) + 1 for r in rows)
+    n = 0
+    while size < target_bytes:
+        n += 1
+        row = NUMERIC_ROW.format(n=n)
+        rows.append(row)
+        size += len(row) + 1
+    return "\n".join(rows) + "\n"
+
+
+class TestNumericTableEstimate(unittest.TestCase):
+    """`numeric_table_bytes` and `estimate_file_tokens` blend the table-md class."""
+
+    def setUp(self):
+        import read_limits
+        self.rl = read_limits
+        self.tmp = Path(tempfile.mkdtemp(prefix="rso_numeric_table_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _write(self, name: str, text: str) -> str:
+        path = self.tmp / name
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        return str(path)
+
+    def test_numeric_row_qualifies_and_text_rows_do_not(self):
+        qualifies = (NUMERIC_ROW.format(n=1) + "\n").encode()
+        self.assertEqual(self.rl.numeric_table_bytes(qualifies), len(qualifies))
+        for name, line in (
+            ("header row", "| Model | A | B | C |\n"),
+            ("separator row", "|---|---:|---:|---:|\n"),
+            ("backlog-index row", INDEX_ROW),
+            ("prose line", PROSE_LINE),
+            ("empty pipe row", "| | | |\n"),
+            ("numbers outside a table", "-0.087 (0.124) n=4,344 42.17 0.64 31 98 7\n"),
+        ):
+            self.assertEqual(self.rl.numeric_table_bytes(line.encode()), 0, name)
+
+    def test_share_threshold_is_the_boundary(self):
+        # 10 non-space bytes per row, so 4 digits is exactly the 0.4 share.
+        at = b"| 1234abcdef |\n"
+        below = b"| 123abcdefg |\n"
+        self.assertEqual(self.rl.NUMERIC_TABLE_DIGIT_SHARE, 0.4)
+        self.assertEqual(self.rl.numeric_table_bytes(at), len(at))
+        self.assertEqual(self.rl.numeric_table_bytes(below), 0)
+
+    def test_count_includes_crlf_terminators_and_a_missing_final_newline(self):
+        row = NUMERIC_ROW.format(n=1).encode()
+        data = row + b"\r\n" + PROSE_LINE.encode() + row
+        self.assertEqual(self.rl.numeric_table_bytes(data), len(row) + 2 + len(row))
+
+    def test_blend_equals_the_two_part_sum_on_a_mixed_file(self):
+        table = numeric_table_text(20_000)
+        prose = PROSE_LINE * 300
+        path = self._write("mixed.md", prose + table + INDEX_ROW * 50)
+        data = Path(path).read_bytes()
+        table_bytes = self.rl.numeric_table_bytes(data)
+        self.assertGreater(table_bytes, 19_000)
+        rest_bytes = len(data) - table_bytes
+        for model in ("opus", "sonnet", "fable", "haiku"):
+            tokens, content = self.rl.estimate_file_tokens(path, model)
+            expected = (
+                math.ceil(table_bytes / self.rl.BYTES_PER_TOKEN[model]["table-md"])
+                + math.ceil(rest_bytes / self.rl.BYTES_PER_TOKEN[model]["dense-md"])
+            )
+            self.assertEqual(tokens, expected, model)
+            self.assertEqual(content, "table-md", model)
+            self.assertGreater(tokens, self.rl.estimate_tokens(len(data), model), model)
+
+    def test_a_file_without_numeric_rows_keeps_the_fallback(self):
+        path = self._write("prose.md", PROSE_LINE * 800 + INDEX_ROW * 200)
+        size = os.path.getsize(path)
+        for model in ("opus", "haiku", None):
+            self.assertEqual(
+                self.rl.estimate_file_tokens(path, model),
+                (self.rl.estimate_tokens(size, model), None),
+                model,
+            )
+
+    def test_a_named_or_extension_class_is_never_sniffed(self):
+        path = self._write("dense.md", numeric_table_text(30_000))
+        size = os.path.getsize(path)
+        self.assertEqual(
+            self.rl.estimate_file_tokens(path, "opus", "prose"),
+            (self.rl.estimate_tokens(size, "opus", "prose"), "prose"),
+        )
+        self.assertEqual(
+            self.rl.estimate_file_tokens(path, "opus", "table-md"),
+            (self.rl.estimate_tokens(size, "opus", "table-md"), "table-md"),
+        )
+        js = self._write("dense.json", numeric_table_text(30_000))
+        self.assertEqual(
+            self.rl.estimate_file_tokens(js, "opus"),
+            (self.rl.estimate_tokens(os.path.getsize(js), "opus", "json"), "json"),
+        )
+
+    def test_unreadable_file_prices_only_the_projected_bytes(self):
+        missing = str(self.tmp / "absent.md")
+        self.assertEqual(self.rl.estimate_file_tokens(missing, "opus"), (0, None))
+        self.assertEqual(
+            self.rl.estimate_file_tokens(missing, "opus", extra_bytes=2600), (1000, None)
+        )
+
+    def test_classify_file_reports_table_md_and_prices_the_projection_at_the_fallback(self):
+        # ~55 KB of decimal tables: 21.2K tokens at the old 2.6 flat ratio (OK),
+        # far over the 25K page cap once the table rows price at table-md.
+        path = self._write("dense.md", numeric_table_text(55_000))
+        data = Path(path).read_bytes()
+        result = self.rl.classify_file(path, "opus")
+        self.assertEqual(result["content"], "table-md")
+        self.assertEqual(result["level"], "Critical")
+        self.assertEqual(result["reason"], "read")
+        self.assertIn(self.rl.READ_GATE_TOKEN, result["read_gates"])
+        self.assertLess(self.rl.estimate_tokens(len(data), "opus"), self.rl.READ_TOKEN_WARN)
+        table_bytes = self.rl.numeric_table_bytes(data)
+        projected = self.rl.classify_file(path, "opus", projected_added_bytes=2600)
+        self.assertEqual(
+            projected["tokens"],
+            math.ceil(table_bytes / 1.4) + math.ceil((len(data) - table_bytes + 2600) / 2.6),
+        )
+        # An explicit class keeps the whole-file ratio, so the sniff is off.
+        forced = self.rl.classify_file(path, "opus", content="dense-md")
+        self.assertEqual(forced["content"], "dense-md")
+        self.assertEqual(forced["tokens"], self.rl.estimate_tokens(len(data), "opus", "dense-md"))
+
+    def test_classify_file_leaves_prose_and_index_files_at_the_fallback(self):
+        path = self._write("index.md", INDEX_ROW * 600)
+        result = self.rl.classify_file(path, "opus")
+        self.assertIsNone(result["content"])
+        self.assertEqual(
+            result["tokens"], self.rl.estimate_tokens(os.path.getsize(path), "opus")
+        )
+
+
+# ---------------------------------------------------------------------------
+# Version-gated read levels: the allow_large feature floor
+# ---------------------------------------------------------------------------
+class TestVersionGatedReadLevels(unittest.TestCase):
+    """The token page-cap moves to Warn at or above ALLOW_LARGE_MIN_CLI."""
+
+    BELOW, FLOOR, EMPTY = "2.1.295", "2.1.296", ""
+
+    def setUp(self):
+        import read_limits
+        self.rl = read_limits
+        self.tmp = Path(tempfile.mkdtemp(prefix="rso_read_levels_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        # 1,300 lines x 61 B = 79,300 B -> ~30.5K tokens at 2.6 B/tok: over
+        # the 25K page cap, under the byte warn and the 2,000-line window.
+        self.path = self.tmp / "thirty_k.txt"
+        with open(self.path, "w", encoding="utf-8", newline="\n") as f:
+            f.write("\n".join("x" * 60 for _ in range(1300)) + "\n")
+
+    def test_floor_constant(self):
+        self.assertEqual(self.rl.ALLOW_LARGE_MIN_CLI, "2.1.296")
+
+    def test_allow_large_available_at_three_versions(self):
+        self.assertFalse(self.rl.allow_large_available(self.BELOW))
+        self.assertTrue(self.rl.allow_large_available(self.FLOOR))
+        self.assertFalse(self.rl.allow_large_available(self.EMPTY))
+        # Integer comparison, not string comparison.
+        self.assertTrue(self.rl.allow_large_available("2.1.1000"))
+        self.assertTrue(self.rl.allow_large_available("3.0"))
+        self.assertFalse(self.rl.allow_large_available("2.1.x"))
+
+    def test_read_routes_advice_at_three_versions(self):
+        for version, has_allow_large in (
+            (self.BELOW, False), (self.FLOOR, True), (self.EMPTY, False),
+        ):
+            advice = self.rl.read_routes_advice(version)
+            self.assertEqual("allow_large" in advice, has_allow_large, version)
+            self.assertIn("offset", advice, version)
+            self.assertIn("limit", advice, version)
+            self.assertIn("Grep", advice, version)
+            self.assertNotIn("\n", advice, version)
+        # The byte gate is lifted by allow_large, so no 256 KiB caveat.
+        self.assertNotIn("256", self.rl.read_routes_advice(self.FLOOR))
+        self.assertEqual(self.rl.read_routes_advice(), self.rl.read_routes_advice(self.EMPTY))
+
+    def test_thirty_k_token_file_at_three_versions(self):
+        for version, level in (
+            (self.BELOW, "Critical"), (self.FLOOR, "Warn"), (self.EMPTY, "Critical"),
+        ):
+            result = self.rl.classify_file(str(self.path), "opus", cli_version=version)
+            self.assertGreaterEqual(result["tokens"], self.rl.READ_PAGE_CAP_TOKENS)
+            self.assertEqual(result["level"], level, version)
+            self.assertEqual(result["reason"], "read", version)
+            self.assertEqual(result["advice"], self.rl.read_routes_advice(version))
+        warn = self.rl.classify_file(str(self.path), "opus", cli_version=self.FLOOR)
+        self.assertIn("allow_large", warn["advice"])
+        # No version argument at all reproduces the hard gate.
+        self.assertEqual(self.rl.classify_file(str(self.path), "opus")["level"], "Critical")
+
+    def test_read_level_gates_by_version(self):
+        rl = self.rl
+        # Positional callers keep their result.
+        self.assertEqual(rl._read_level(1000, 30_000, 10), "Critical")
+        self.assertEqual(rl._read_level(1000, 30_000, 10, cli_version=self.FLOOR), "Warn")
+        # The byte gate follows the token rule (allow_large lifts it).
+        self.assertEqual(rl._read_level(300 * 1024, 100, 10), "Critical")
+        self.assertEqual(rl._read_level(300 * 1024, 100, 10, cli_version=self.FLOOR), "Warn")
+        # The line window keeps Critical at every version.
+        for version in (self.BELOW, self.FLOOR, self.EMPTY):
+            self.assertEqual(rl._read_level(1000, 100, 2500, cli_version=version), "Critical")
+
+    def test_green_file_has_empty_advice(self):
+        small = self.tmp / "small.txt"
+        small.write_text("x\n", encoding="utf-8")
+        result = self.rl.classify_file(str(small), "opus", cli_version=self.FLOOR)
+        self.assertEqual(result["level"], "Green")
+        self.assertEqual(result["advice"], "")
+
+    def test_shared_cli_version_reader(self):
+        cfg = self.tmp / "config.yaml"
+        cfg.write_text('context:\n  verified_cli_version: "2.1.296"\n', encoding="utf-8")
+        self.assertEqual(self.rl.read_verified_cli_version(cfg), "2.1.296")
+        self.assertEqual(self.rl.read_verified_cli_version(str(cfg)), "2.1.296")
+        bare = self.tmp / "bare.yaml"
+        bare.write_text("context:\n  verified_cli_version: 2.1.300\n", encoding="utf-8")
+        self.assertEqual(self.rl.read_verified_cli_version(bare), "2.1.300")
+        self.assertEqual(self.rl.read_verified_cli_version(self.tmp / "missing.yaml"), "")
+        nokey = self.tmp / "nokey.yaml"
+        nokey.write_text("context:\n  plan_tier: max\n", encoding="utf-8")
+        self.assertEqual(self.rl.read_verified_cli_version(nokey), "")
+
+    def test_line_window_file_advice_omits_allow_large(self):
+        # 2,500 short lines: under the token and byte caps, over the window.
+        path = self.tmp / "many_lines.txt"
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write("x\n" * 2500)
+        for version in (self.BELOW, self.FLOOR, self.EMPTY):
+            result = self.rl.classify_file(str(path), None, cli_version=version)
+            self.assertEqual(result["level"], "Critical", version)
+            self.assertEqual(result["read_gates"], ("line",), version)
+            self.assertNotIn("allow_large", result["advice"], version)
+            self.assertIn("offset", result["advice"], version)
+            self.assertIn("Grep", result["advice"], version)
+
+    def test_read_gates_field_names_the_caps_that_fired(self):
+        token = self.rl.classify_file(str(self.path), "opus", cli_version=self.FLOOR)
+        self.assertEqual(token["read_gates"], ("token",))
+        small = self.tmp / "small.txt"
+        small.write_text("x\n", encoding="utf-8")
+        self.assertEqual(self.rl.classify_file(str(small), "opus")["read_gates"], ())
+        # Projected bytes count toward the gates, as they do toward the level.
+        grown = self.rl.classify_file(
+            str(small), "opus", projected_added_bytes=300 * 1024, cli_version=self.FLOOR
+        )
+        self.assertEqual(grown["read_gates"], ("token", "byte"))
+        self.assertEqual(grown["level"], "Warn")
+        self.assertIn("allow_large", grown["advice"])
+        # A token cap plus the line window stays Critical with no allow_large.
+        both = self.tmp / "both.txt"
+        with open(both, "w", encoding="utf-8", newline="\n") as f:
+            f.write(("x" * 40 + "\n") * 2500)
+        mixed = self.rl.classify_file(str(both), "opus", cli_version=self.FLOOR)
+        self.assertEqual(mixed["read_gates"], ("token", "line"))
+        self.assertEqual(mixed["level"], "Critical")
+        self.assertNotIn("allow_large", mixed["advice"])
+
+    def test_cli_version_reader_value_shapes(self):
+        cases = (
+            ('context:\n  verified_cli_version: "2.1.300"  # bumped\n', "2.1.300"),
+            ("context:\n  verified_cli_version: '2.1.300'\n", "2.1.300"),
+            ("context:\n  verified_cli_version: 2.1.300  # bumped\n", "2.1.300"),
+            ('context:\n  verified_cli_version: "2.1.300"\n', "2.1.300"),
+            ("context:\n  verified_cli_version: 2.1.300\n", "2.1.300"),
+            (
+                (
+                    'other:\n  verified_cli_version: "9.9.9"\ncontext:\n'
+                    '  verified_cli_version: "2.1.300"\n'
+                ),
+                "2.1.300",
+            ),
+            ('other:\n  verified_cli_version: "9.9.9"\ncontext:\n  plan_tier: max\n', ""),
+            ('context:\n  nested:\n    verified_cli_version: "9.9.9"\n', ""),
+            ('verified_cli_version: "9.9.9"\n', ""),
+        )
+        for i, (text, expected) in enumerate(cases):
+            cfg = self.tmp / f"shape_{i}.yaml"
+            cfg.write_text(text, encoding="utf-8")
+            self.assertEqual(self.rl.read_verified_cli_version(cfg), expected, text)
+
+    def test_config_cli_version_empty_and_malformed_configs(self):
+        for config in (
+            None,
+            "context",
+            [],
+            {},
+            {"context": None},
+            {"context": "2.1.300"},
+            {"context": {}},
+            {"context": {"verified_cli_version": None}},
+            {"verified_cli_version": "9.9.9"},
+        ):
+            self.assertEqual(self.rl.config_cli_version(config), "", config)
+        padded = {"context": {"verified_cli_version": " 2.1.300 "}}
+        self.assertEqual(self.rl.config_cli_version(padded), "2.1.300")
+
+    def test_config_cli_version_equals_the_path_reader_through_load_config(self):
+        # Parity: the dict helper reads what the path reader reads, for a config
+        # loaded with PyYAML and for one loaded by the no-PyYAML fallback parser.
+        from unittest import mock
+
+        import config_loader
+
+        shared = (
+            'context:\n  verified_cli_version: "2.1.300"\n',
+            "context:\n  verified_cli_version: '2.1.300'\n",
+            "context:\n  verified_cli_version: 2.1.300\n",
+            'context:\n  verified_cli_version: ""\n',
+            "context:\n  plan_tier: max\n",
+            'other:\n  verified_cli_version: "9.9.9"\ncontext:\n  plan_tier: max\n',
+        )
+        # The no-PyYAML fallback parser keeps a trailing `# comment` on every key (its
+        # documented lossy reading), so a commented value is compared under PyYAML only.
+        commented = (
+            'context:\n  verified_cli_version: "2.1.300"  # bumped\n',
+            "context:\n  verified_cli_version: 2.1.300  # bumped\n",
+        )
+        for has_yaml in (True, False):
+            if has_yaml and not config_loader.HAS_YAML:
+                continue  # PyYAML is absent here, so only the fallback path runs
+            cases = shared + commented if has_yaml else shared
+            for i, text in enumerate(cases):
+                cfg = self.tmp / f"parity_{has_yaml}_{i}.yaml"
+                cfg.write_text(text, encoding="utf-8")
+                with mock.patch.object(config_loader, "HAS_YAML", has_yaml):
+                    loaded = config_loader.load_config(config_path=cfg)
+                self.assertEqual(
+                    self.rl.config_cli_version(loaded),
+                    self.rl.read_verified_cli_version(cfg),
+                    (has_yaml, text),
+                )
 
 
 if __name__ == "__main__":

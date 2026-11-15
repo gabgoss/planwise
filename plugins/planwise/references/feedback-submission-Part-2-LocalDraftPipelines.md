@@ -312,12 +312,22 @@ After the listing, `--drafts` asks the per-draft question once for each Queued d
 listing order. An expired draft is listed only, and is never offered for posting.
 
 <!-- AUTO-MODE: critical -->
+Before the first draft, the interactive review runs
+`python "{plugin_root}/scripts/feedback_drafts.py" posting-state --config "{planwise_root}/config.yaml"`.
+When it prints anything but `enabled`, ask the posting question once, with one
+`AskUserQuestion`. It uses the question text of The Enable Offer (gate 1) in
+[Part 1](feedback-submission.md#the-enable-offer-gate-1-absent-and-disabled-state), and
+**Enable posting (Recommended)** is the first option. On Enable, run
+`enable-posting --config "{planwise_root}/config.yaml"` and print its one line. On No, or on
+an exit 1 from `enable-posting`, review the drafts with posting off. The review asks this
+question once per invocation, never once per draft.
+
 One `AskUserQuestion` per draft. It shows the draft's body below its frontmatter, verbatim,
 and offers three options:
 
 | Option | What it does |
 |---|---|
-| **Review and post** | The steps below. When `feedback.enabled` is not `true`, the option text adds `(this sets feedback.enabled to true in config.yaml)`. |
+| **Review and post** | The steps below. While posting is still off, the option text adds `(this sets feedback.enabled to true in config.yaml)`. After an Enable answer to the posting question, it does not. |
 | **Discard** | Runs `discard {draft_id}`. The status becomes `discarded`. It never deletes the file. Exit 1 prints `Model draft {draft_id} was not found.` |
 | **Keep** (pre-selected) | Nothing. The draft stays queued. Any other or unparseable answer is Keep. |
 
@@ -347,6 +357,10 @@ prompt. `--drafts` prints the listing, then this line, and exits 0:
 `--post {draft_id}` prints this line, posts nothing, and exits 0:
 
 `Non-interactive session — model draft {draft_id} was not posted. Re-run /planwise feedback --post {draft_id} interactively to review it.`
+
+`--drafts` and `--post` stay review commands that need an interactive run. An unattended
+context posts a model draft at drafting time instead, as `feedback-drafting.md` § Auto Mode
+describes. Gate 2 routes that post at drafting time, never through these two commands.
 
 This is the deviation shape of the sweep's branch 4. The declined branch has a complete
 outcome, so failing loud would break an unattended run for no gain. Nothing is enabled,

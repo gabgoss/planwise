@@ -338,6 +338,20 @@ class TestFullMigration:
         assert gen._run_companion_cli(SimpleNamespace(write=False, json=False, replace_legacy=False),
                                       lessons_dir, lessons_dir / "Archive", index_path, naming, config) == 0
 
+    def test_over_budget_companion_warning_reaches_the_report(self, tmp_path, capsys, monkeypatch):
+        config, _index_path, lessons_dir = _build(tmp_path, harvest=True)
+        monkeypatch.setattr(gen, "READ_TOKEN_WARN", 10)
+        code = _run(config, "--write", "--backfill-frontmatter", "--quote-titles",
+                    "--reconcile", "index-wins", "--harvest-cells", "--relocate-prose",
+                    "--allow-untracked-tree")
+        captured = capsys.readouterr()
+        assert code == 0, captured
+        warnings = [line for line in captured.err.splitlines() if line.startswith("Warning: companion projects")]
+        assert len(warnings) == 1 and "largest table" in warnings[0]
+        ledger = json.loads((lessons_dir / mig.LEDGER_FILENAME).read_text(encoding="utf-8"))
+        assert ledger["generator"]["companion_warnings"] == warnings
+        assert (lessons_dir / gen.COMPANION_FILENAME).is_file()
+
     def test_ledger_sections_present(self, tmp_path):
         _config, _index_path, lessons_dir = self._migrate(tmp_path)
         ledger = json.loads((lessons_dir / mig.LEDGER_FILENAME).read_text(encoding="utf-8"))
@@ -612,7 +626,7 @@ def _ledger(lessons_dir):
     return json.loads((lessons_dir / mig.LEDGER_FILENAME).read_text(encoding="utf-8"))
 
 
-def test_index_wins_location_anomaly_is_an_accepted_check_result(tmp_path):
+def test_index_wins_location_anomaly_is_an_accepted_check_result(tmp_path, capsys):
     # The row says `applied`, the top-level file says `documented`: index-wins moves the file's
     # status to a non-hub one, which the generator reports as a location-anomaly it never heals.
     config, _index_path, lessons_dir = _build(tmp_path, status_row="applied")
@@ -620,6 +634,10 @@ def test_index_wins_location_anomaly_is_an_accepted_check_result(tmp_path):
     generator = _ledger(lessons_dir)["generator"]
     assert generator["index_check_exit"] == 1 and generator["index_check_findings"] == ["location-anomaly"]
     assert _ledger(lessons_dir)["generator_verdict"] == "accepted"
+    anomalies = generator["index_check_anomalies"]
+    assert len(anomalies) == 1 and "status=applied" in anomalies[0]["detail"]
+    out = capsys.readouterr().out
+    assert "generated and clean" not in out and "1 location anomaly(ies)" in out
     assert _run(config, "--write", "--allow-untracked-tree") == 0  # the resume path does not loop
 
 
@@ -1310,3 +1328,30 @@ def test_each_relocated_unit_is_counted_in_one_bucket(tmp_path):
     assert _run(config, *_WRITE_ARGS) == 0
     ledger = _ledger(lessons_dir)
     assert ledger["prose"]["relocate"] == ["Quick Reference"] and ledger["relocated"]["rows"] == 1
+
+
+def test_write_creates_a_missing_archive_folder(tmp_path):
+    """A project with no `Archive/` folder migrates instead of failing to stage the
+    archived promotion-log shard into a folder that does not exist."""
+    config, _index_path, lessons_dir = _build(tmp_path)
+    (lessons_dir / "Archive").rmdir()
+    assert _run(config, *_WRITE_ARGS) == 0
+    assert (lessons_dir / "Archive" / "PromotionLog-LessonsLearned-001-050.md").is_file()
+
+
+def test_companion_warnings_come_from_the_companion_not_from_its_printed_output(tmp_path, monkeypatch):
+    """Only the budget warning the companion run hands back reaches `companion_warnings`.
+    An unrelated `Warning:` line in its captured output does not."""
+    real = "Warning: companion projects 99 tokens (budget 10); largest table D has 2 rows. It was written."
+
+    def fake_companion(args, *_rest, warnings=None):
+        print("Warning: an unrelated line the companion printed", file=sys.stderr)
+        if args.write and warnings is not None:
+            warnings.append(real)
+        return 0
+
+    monkeypatch.setattr(gen, "_cmd_write_lessons", lambda *a, **k: 0)
+    monkeypatch.setattr(gen, "_run_companion_cli", fake_companion)
+    monkeypatch.setattr(mig, "_check_index_findings", lambda *a, **k: (0, []))
+    steps = mig._run_generator_steps(tmp_path, tmp_path / "Archive", tmp_path / "index.md", None, {})
+    assert steps["companion_warnings"] == [real]

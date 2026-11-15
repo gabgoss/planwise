@@ -72,7 +72,7 @@ For `gh`, run the one command matching your platform:
 Installing `gh` is not the whole job — two more gates stand between the binary and a posted report:
 
 1. `gh auth login` — an interactive browser flow. Run it yourself; planwise never authorizes an account on your behalf.
-2. Set `feedback.enabled: true` in `{planwise_root}/config.yaml`. Posting is opt-in and off by default.
+2. Posting is on by default: a new config writes `feedback.enabled: true` in `{planwise_root}/config.yaml`. A No answer at init or upgrade writes `false`, and the next interactive feedback flow or upgrade asks again. With posting on, Auto Mode, backlog loop sessions and harvest post without asking, once `prepare-post` passes. A blocked draft waits for `/planwise feedback --drafts`.
 
 Until both are done, [`/planwise feedback`](#12-planwise-feedback) saves a local draft instead of posting. That is a supported configuration, not a broken install.
 
@@ -318,7 +318,7 @@ Promotion lints what it generates before finalising it: content the new rule/ski
 /planwise lessons curate --phase=promote
 ```
 
-Curate runs two phases against your lesson set. Phase 1 sorts uncategorised lessons into the domain buckets defined in `config.yaml` (Database, Application Code, Process, Tooling — customisable), tags each lesson's promotion target from its own structure (a fenced code block reads as `code`, a MUST/NEVER callout reads as `rule`), and flags a lesson that spans several target types as a split candidate. Phase 2 lands `promoted` lessons whose owning backlog item has shipped — verifying the destination artifact exists and logging each one in the Rule Promotion Log, alongside your generated lessons index. Run `--phase=both` (the default) to do both at once, or scope to just one phase.
+Curate runs two phases against your lesson set. Phase 1 sorts uncategorised lessons into the domain buckets defined in `config.yaml` (Database, Application Code, Process, Tooling — customisable), sets each lesson's origin, promotion target and check answer by asking the resolution matrix: whose artifact failed, and what fires when the failure recurs, and flags a lesson that spans several target types as a split candidate. Phase 2 lands `promoted` lessons whose owning backlog item has shipped — verifying the destination artifact exists and logging each one in the Rule Promotion Log, alongside your generated lessons index. Run `--phase=both` (the default) to do both at once, or scope to just one phase.
 
 **Batch-draft promotion plans for a whole bucket:**
 ```
@@ -358,7 +358,7 @@ flowchart LR
 - **Version-state gate** — before any diagnostics, verifies the project is initialized and the pinned `plugin_version` matches the installed plugin; when it doesn't, recommends `/planwise init` or `/planwise upgrade` and stops there. It also prints a non-stopping advisory when the running copy is not the project's marketplace install. The advisory never changes the gate's verdict.
 - **Rule scope** — lists any `.claude/rules/**` still scoped to plan/backlog/lessons paths. These inject into every plan-brief read and can overflow a 200K-window task-runner, so `doctor` flags them with their size.
 - **Token Saver overhead staleness** — reports the stored `/context`-measured overheads and flags them stale after a plugin upgrade or a change in your agent/skill count.
-- **Read-gate scan** — checks your active plan's files against the Read-tool limits (the ~25K-token page cap — the binding gate on text — plus the 256 KiB byte cap and the 2,000-line window) and flags any that can't be read in one pass.
+- **Read-gate scan** — checks your active plan's files against the Read-tool limits (the ~25K-token page cap on text, plus the 256 KiB byte cap) and flags any over one default Read page. A flagged file stays readable: read it whole with `allow_large` (Claude Code v2.1.296 or later), in pages, or by Grep. A split is advice, not a gate.
 - **CLI-version drift** — reports when your CLI build has moved past the version `verified_cli_version` in `config.yaml` was last measured against. `/planwise init` probes `claude --version` to set it. `/planwise upgrade` refreshes it whenever the plugin version changes. The stage only reports. It never writes.
 - **Stale de-scoped rule sweep** — finds rule copies left behind in `.claude/rules/planwise/` by older versions; those rules are now loaded on demand from the plugin instead.
 - **Installed rule divergence lint** — classifies every still-installed rule against its shipped counterpart: a stale copy of an older shipped version (run [`/planwise upgrade`](#10-planwise-upgrade) — it refreshes it safely), a genuine customization (re-home it — never delete), or not analyzable (diff it manually).
@@ -371,7 +371,7 @@ flowchart LR
 - **Thrifty-sonic env var sweep** — checks that `CLAUDE_CODE_THRIFTY_SONIC` is `"false"` in both your user and project `settings.json`. It never writes. [`/planwise upgrade`](#10-planwise-upgrade) offers to set it, and `/planwise init` sets it for new projects.
 - **Task-tools advisory** — reports whether the Claude Code Task tools are available in this session. Newer model families omit them, and `/planwise run` then tracks progress in its recovery file only. The report names the setting that turns them on and never edits it.
 - **Backlog item body-status audit** — finds a legacy `**Status:**` line left under an item's title, so the frontmatter `status:` stays the only status field. It strips a line only after you consent.
-- **Backlog index shape audit** — classifies your backlog index as generated, hand-authored, or unrecognized, flags any changelog file over its read budget, and names the fix: [`/planwise upgrade`](#10-planwise-upgrade) for a hand-authored index, or `migrate_backlog_index.py --split-changelog` for an over-budget changelog.
+- **Backlog index shape audit** — classifies your backlog index as generated, hand-authored, or unrecognized, flags a changelog only when a re-split would change its layout, lists any kept-whole oversized entry as `oversized entry:`, and names the fix: [`/planwise upgrade`](#10-planwise-upgrade) for a hand-authored index, or `migrate_backlog_index.py --split-changelog` for a changelog a re-split would change.
 - **Lessons index shape audit** — classifies your lessons index as generated, hand-authored, or unrecognized, and names the fix: [`/planwise upgrade`](#10-planwise-upgrade) for a hand-authored index.
 - **Plans index shape audit** — classifies your plans index as generated, hand-authored, or unrecognized, counts what a migration would move, and names the fix: [`/planwise upgrade`](#10-planwise-upgrade) for a hand-authored index.
 - **Project read-gate scan** — checks your `.claude/` rules, agents and skills, and every in-progress plan's files, against the same Read-tool limits. For each file it flags, it names the open backlog item that tracks it, or prints a line to file one.
@@ -406,7 +406,7 @@ flowchart LR
 Token Saver is an optional budget mode that keeps each task session lean — under a ~150K carrying-cost target — instead of letting context balloon across turns. When it's on, planwise:
 
 - **Sizes tasks by carrying cost**, warning (or splitting) a task whose Required Context would push a runner past its measured budget.
-- **Flags files that are too large to read in one pass** — a file at or over the Read tool's ~25K-token page cap, 256 KiB byte cap, or 2,000-line window is marked for paged reads (`offset`/`limit`/Grep) or refactor. Measure any file yourself with `scripts/measure_files.py` (KiB + estimated tokens + gate level per file). (This is a separate gate from the budget: a file can fit the budget yet still be unreadable in a single Read.)
+- **Flags files that are too large to read in one pass** — a file over one default Read page (~25K tokens) or at the 256 KiB byte cap is flagged. It stays readable: read it whole with `allow_large: true` (Claude Code v2.1.296 or later), in `offset`/`limit` pages, or by Grep. A split is advice, not a gate. Measure any file yourself with `scripts/measure_files.py` (KiB + estimated tokens + gate level per file). (This is a separate gate from the budget: a file can fit the budget yet still be unreadable in a single Read.)
 - **Routes a genuinely oversized, indivisible file to the 1M (Opus) window** via a `1M-exception` marker — but only for a *cost*-reason overflow. A file that is too large to *read* is never fixed by the bigger window (the Claude 5 tokenizer hits the page cap on fewer bytes than Haiku 4.5's); it is paged or refactored instead.
 
 **Toggle it anytime** — you don't have to wait for an init or upgrade:
@@ -514,7 +514,7 @@ flowchart LR
 
 Walks you through a short prompt — bug, lesson, or idea — and drafts a submission from what you type. Only your answers to the prompt go into the draft; file contents, repo paths, and config values are never included.
 
-**Opt-in, off by default.** Posting upstream requires `feedback.enabled: true` in your `config.yaml` AND an interactive confirmation that shows any possible duplicates found in the tracker, then the exact body, before anything is sent — nothing goes out without both. You can post as a new issue, comment on an existing one instead, or cancel. If your `config.yaml` has no `feedback.enabled` key at all, `feedback` offers once to set it to `true` for you, or to keep only the draft. A key you set to `false` is a decision, and `feedback` never asks about it. In Auto Mode, `feedback` never posts: it always saves the draft to disk and prints the file path instead.
+**On by default, and an interactive run asks first.** Posting upstream requires `feedback.enabled: true` in your `config.yaml`. In an interactive run it also requires a confirmation that shows any possible duplicates found in the tracker, then the exact body, before anything is sent. You can post as a new issue, comment on an existing one instead, or cancel. While `feedback.enabled` is not `true` (the key is absent or set to `false`), an interactive `feedback` run offers to set it to `true` for you, or to keep only the draft. With posting on, Auto Mode, backlog loop sessions and harvest post without asking, once `prepare-post` passes. A blocked draft waits for `/planwise feedback --drafts`. With posting off, the draft stays on disk and the run prints the file path instead.
 
 **Privacy.** The submitted body never contains your file contents, repo paths, or config values — only what you wrote in the prompt. If `gh` isn't installed, isn't authenticated, or you decline the post, your draft is preserved locally and the issues URL is printed so you can file it by hand.
 
@@ -559,7 +559,7 @@ When the tool queues a draft, meaning the helper admitted it, the card component
 
 `harvest` chains four stages together so you don't have to run each by hand: it categorises your documented lessons into their domain buckets, promotes them in batch into backlog items, processes each resulting item through the triage handler, then lands the lessons whose owning items shipped. The order is forced — the final stage can't land a lesson until the per-item stage has flipped its owning item to COMPLETE.
 
-1. **Categorise** — sync the categorisation file and refine each lesson's promotion target.
+1. **Categorise** — sync the categorisation file and set each lesson's origin, promotion target and check answer.
 2. **Promote** — resolve the scope, group lessons by bucket, draft the backlog items, and capture each lesson.
 3. **Process** — pre-flight, triage, route, and dispatch a foreground agent for every item this run created.
 4. **Land** — set the final status and artifact pointer on every lesson whose owning item reached COMPLETE.
@@ -683,7 +683,7 @@ planwise/                           # Plugin root
   manifests/                        # Artifact manifest and agent history
   seed/                             # Index file seeds for init
   scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py, list_plans.py, skill_preflight.py (the zero-call list, the upgrade card and the plan Config Gate) and scaffold_plan.py (the plan skeleton render), plan_build.py (the plan build driver: keys, lint, build))
-  hooks/                            # hooks.json and register.ts — the backlog loop's compaction-and-re-entry module
+  hooks/                            # hooks.json and register.ts — the backlog loop's compaction-and-re-entry module; agent-guard.ts — the task-runner dispatch guard (plugin option agent_guard: reports by default, refuses when set to deny)
   examples/                         # Sample outputs
   config.yaml.template              # Config template
 ```

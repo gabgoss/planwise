@@ -67,8 +67,8 @@ Never overwrite an existing `00-Index-Backlog.md`; if it is hand-authored, run `
 3. **Write** the result to `{planwise_root}/config.yaml`
 4. Apply the two feedback answers from Step 1 with **Edit**, inside the `feedback:` block only:
    - When `{feedback_drafts}` is set, change the line `  drafts: notify` to `  drafts: {feedback_drafts}`.
-   - When `{feedback_enabled}` is `yes`, change the line `  enabled: false` to `  enabled: true`.
-   - Change nothing else. With no answer, the template values stay: `drafts: notify` and `enabled: false`.
+   - When `{feedback_enabled}` is `no`, change the line `  enabled: true` to `  enabled: false`.
+   - Change nothing else. With no answer, or a `yes` answer, the template values stay: `drafts: notify` and `enabled: true`.
 
 <!-- AUTO-MODE: critical --> If `{planwise_root}/config.yaml` already exists, ask the user before overwriting.
 

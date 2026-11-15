@@ -79,7 +79,7 @@ Test the outcomes in this order and return the first that applies:
 | Return | When |
 |---|---|
 | `NEEDS_PLAN` | The fix needs a session plan: multi-sprint, architectural, or more than one independent part that is itself over the step cap |
-| `DECOMPOSE` | The parts are independent and each fits the step cap |
+| `DECOMPOSE` | The parts are separate items that each fit the step cap. A part that must land after another names that sibling in `{after}`. Parts that cannot be ordered as a chain are not `DECOMPOSE`: return `NEEDS_PLAN` |
 | `QUESTIONS` | A choice is architectural, changes a documented invariant, or belongs to the user; each question carries options and a recommendation |
 | `REFINED` | One solution dominates and fits `ROUTE_B_MAX_STEPS` (5) steps |
 
@@ -101,7 +101,7 @@ APPROACH:          {2 to 4 sentences, one chosen solution}
 STEPS:             {n}. `{path}` -- {edit}             (REFINED only; 1 to 5 lines)
 VERIFICATION:      `{command}` -> {expected output}    (one per line)
 QUESTIONS:         Q{n}. {question} | Options: (A) … (B) … | Recommendation: {letter}. {why}
-SUB_ITEMS:         {title} | {summary} | {steps} | {criteria}   (DECOMPOSE only, one per line)
+SUB_ITEMS:         {title} | {summary} | {steps} | {criteria} | {after}   (DECOMPOSE only, one per line)
 NEEDS_PLAN_REASON: {one line}
 ```
 
@@ -111,6 +111,7 @@ Rules for the fields:
 - Each `STEPS` line names one file and one edit, and cites an anchor from the sheet's `ANCHORS` where one exists.
 - Each `VERIFICATION` line is a command the author can copy and its expected output. One line covers each UNMET criterion.
 - Each `SUB_ITEMS` line must itself fit the step cap. A sub-item over the cap means the outcome is `NEEDS_PLAN`, not `DECOMPOSE`.
+- The planner fills `{after}` for every sub-item that waits on a sibling, and writes `-` only for a sub-item that waits on none. `{after}` is the 1-based position, among this design file's `SUB_ITEMS` lines, of the one sibling this sub-item must land after. It is `-` when the sub-item waits on none. A position names an earlier `SUB_ITEMS` line only. A line never names itself or a later line. A sub-item waits on at most one sibling. Write a chain A, B, C as B after A and C after B. Sibling ids do not exist when this agent writes the line, so a position is the only reference the author can resolve. The author writes the dependent's id into the prerequisite's `blocks:`. Example: the second line ends in `| 1` when it must land after the first line, and the first line ends in `| -`.
 
 ## 5. RESUME
 

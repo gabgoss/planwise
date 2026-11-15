@@ -7,5 +7,14 @@
   },
   "license": "AGPL-3.0-or-later",
   "types": "./types/index.d.ts",
-  "keywords": ["project-management", "planning", "execution", "review", "backlog", "sessions"]
+  "keywords": ["project-management", "planning", "execution", "review", "backlog", "sessions"],
+  "userConfig": {
+    "agent_guard": {
+      "type": "string",
+      "title": "Agent guard",
+      "description": "Checks planwise:task-runner dispatches only; other agents and calls pass untouched. report (default): log each finding and let the call proceed. deny: refuse a background task-runner spawn, refuse a bare cd or file-read Bash verb inside a task-runner, and block a task-runner that stops unfinished. The spawn-prompt check only reports, at either value.",
+      "default": "report",
+      "options": ["report", "deny"]
+    }
+  }
 }

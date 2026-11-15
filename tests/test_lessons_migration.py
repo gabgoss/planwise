@@ -838,6 +838,24 @@ def test_accepted_check_finding_reports_the_generator_clean(tmp_path):
     assert report.counts["generator_check_clean"] is True
 
 
+def test_migrated_banner_names_the_manual_move_for_a_misplaced_lesson(tmp_path, capsys):
+    """A `status: rule` lesson left at the top level is a location anomaly the
+    generator never moves: the banner says so and names the file, instead of
+    reporting a clean check while `--check` still exits 1."""
+    index = LEGACY_INDEX.replace("| fixture | documented |", "| fixture | rule |")
+    cfg, _lessons_dir = _project(tmp_path, index)
+    report = _migrate(cfg)
+    lm._emit_lessons_migration_banner(report)
+    out = capsys.readouterr().out
+    assert report.state == "migrated", report.detail
+    assert out.strip(), "a successful migration prints its banner"
+    assert "generator --check:      clean apart from location anomalies" in out
+    moves = [line for line in out.splitlines() if "move by hand:" in line]
+    assert len(moves) == 1 and "LL-001-PROC-One.md" in moves[0]
+    assert "status=rule" in moves[0] and moves[0].endswith("-> into Archive/")
+    assert "generated and clean" not in report.detail
+
+
 def test_unexpected_exception_becomes_state_error(tmp_path, monkeypatch):
     cfg, _lessons_dir = _project(tmp_path)
     before = _snapshot(tmp_path)

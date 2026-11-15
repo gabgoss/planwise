@@ -33,6 +33,7 @@ DOCTOR_CLI = PLUGIN_ROOT / "scripts" / "doctor_cli.py"
 
 READ_GATE_HEADING = "Consumer Read-Gate Scan"
 CITATION_HEADING = "Consumer Section-Citation Check"
+LESSON_KEYS_HEADING = "Lesson Resolution Keys"
 
 _STAGE_HEADING_RE = re.compile(r"^### Stage ([0-9]+[a-z]?): (.+)$", re.MULTILINE)
 
@@ -90,6 +91,7 @@ class TestPart3StageHeadings:
         headings = {text: num for num, text in _STAGE_HEADING_RE.findall(part3)}
         assert READ_GATE_HEADING in headings
         assert CITATION_HEADING in headings
+        assert LESSON_KEYS_HEADING in headings
 
         cli = DOCTOR_CLI.read_text(encoding="utf-8-sig")
         read_gate_reg = re.search(r"^\s*# Stage ([0-9]+): consumer read-gate scan", cli, re.MULTILINE)
@@ -97,11 +99,15 @@ class TestPart3StageHeadings:
         assert read_gate_reg and citation_reg
         assert headings[READ_GATE_HEADING] == read_gate_reg.group(1)
         assert headings[CITATION_HEADING] == citation_reg.group(1)
+        lesson_keys_reg = re.search(r"^\s*# Stage ([0-9]+): lesson resolution keys", cli, re.MULTILINE)
+        assert lesson_keys_reg
+        assert headings[LESSON_KEYS_HEADING] == lesson_keys_reg.group(1)
 
         part_rows = [ln for ln in DOCTOR_HANDLER.read_text(encoding="utf-8-sig").splitlines() if ln.startswith("| 3 |")]
         assert len(part_rows) == 1
         assert READ_GATE_HEADING in part_rows[0]
         assert CITATION_HEADING in part_rows[0]
+        assert LESSON_KEYS_HEADING in part_rows[0]
 
 
 class TestConsumerReadGateStage:
@@ -397,3 +403,33 @@ def test_stage24_notice_level_is_silent_and_unreachable_at_the_stage_ratio(tmp_p
     out = capsys.readouterr().out
     assert "No file at Warn or Critical (1 file(s) scanned)." in out
     assert path.name not in out
+
+
+def _thirty_k_rule(root: Path, version: str) -> Path:
+    """A ~30K-token rule file, and a config.yaml that records `version` under `context:`."""
+    (root / "planwise" / "config.yaml").write_text(
+        f'project:\n  name: fixture\ncontext:\n  verified_cli_version: "{version}"\n', encoding="utf-8"
+    )
+    target = math.ceil(30_000 * read_limits.bytes_per_token(None))
+    return _sized(root / ".claude" / "rules" / "thirty.md", target, line_bytes=120)
+
+
+@pytest.mark.parametrize(
+    "version, level, has_allow_large",
+    [("2.1.296", "Warn", True), ("2.1.295", "Critical", False)],
+)
+def test_stage24_thirty_k_token_file_level_and_advice_follow_the_config_version(
+    tmp_path, capsys, version, level, has_allow_large
+):
+    root = _project(tmp_path / "proj")
+    path = _thirty_k_rule(root, version)
+    actor = read_limits.classify_file(str(path.resolve()), None, cli_version=version)
+    assert actor["level"] == level
+    run_read_gate_stage(_cfg(root))
+    out = capsys.readouterr().out
+    assert re.search(rf"^  {level}  reason=\w+  \.claude/rules/thirty\.md  ", out, re.MULTILINE)
+    advice = re.findall(r"^      advice: (.+)$", out, re.MULTILINE)
+    assert len(advice) == 1
+    assert advice[0] == actor["advice"]
+    assert ("allow_large" in advice[0]) is has_allow_large
+    assert "offset" in advice[0]

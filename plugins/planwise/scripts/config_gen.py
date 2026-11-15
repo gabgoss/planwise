@@ -104,9 +104,10 @@ MIGRATABLE_TOP_LEVEL_KEYS = [
     "context",
     "categorization",
     "upgrade",          # HAS_UNIQUE handoff routing + de-scope paths-only-edit policy
-    "feedback",         # opt-in upstream issue-create block
+    "feedback",         # upstream issue-create block; the template turns posting on
     "lesson_statuses",  # declarative lesson lifecycle vocabulary, paired with `statuses:`
     "plan_statuses",    # Master Plan status vocabulary the plans index generator reads
+    "lesson_check_kinds",  # kinds a lesson's enforced-by answer may name; read at run time
     "style",            # global always-on style rules install toggles (plain_language, plain_presentation)
 ]
 
@@ -376,7 +377,7 @@ class InitConfig:
     plugin_version: str = "0.0.0"
     token_saver: bool = False
     feedback_drafts: str | None = None
-    feedback_enabled: bool = False
+    feedback_enabled: bool | None = None  # True writes true, False writes false, None keeps the file's value
     no_calibrate: bool = False
 
     @property
@@ -715,24 +716,30 @@ def drafts_key_state(config: dict) -> str:
     return "set" if "drafts" in block else "absent"
 
 
-def _drafts_banner(value: str, answered: bool, enabled_set: bool, *,
+# One sentence in both banner variants: it describes feedback.enabled, not the drafts switch.
+_POSTING_LINE = ("  posting follows feedback.enabled: an interactive run asks first, and Auto Mode, backlog loop "
+                 "and harvest runs post once a privacy check passes")
+
+
+def _drafts_banner(value: str, answered: bool, enabled_set: str | None, *,
                    planwise_root: str, feedback_dir: str, plugin_root: Path) -> str:
+    """`enabled_set` is the `feedback.enabled` value this run wrote (`true` or `false`), or None."""
     source = "answered" if answered else "default, no answer given"
-    flipped = "true (set this run)" if enabled_set else "unchanged"
+    flipped = f"{enabled_set} (set this run)" if enabled_set else "unchanged"
     config = f"{planwise_root}/config.yaml"
     keys = f"  feedback.drafts: {value} ({source}); feedback.enabled: {flipped}\n"
     if value == "off":
         return (
             f"Feedback drafting: OFF — Claude will not save local feedback drafts under "
             f"{planwise_root}/{feedback_dir}/\n"
-            "  nothing is posted without /planwise feedback --drafts and your approval\n"
+            f"{_POSTING_LINE}\n"
             + keys
             + f"  turn it on: set feedback.drafts: notify (or quiet) in {config}"
         )
     return (
         f"Feedback drafting: ON — Claude may now save local feedback drafts under "
         f"{planwise_root}/{feedback_dir}/\n"
-        "  nothing is posted without /planwise feedback --drafts and your approval\n"
+        f"{_POSTING_LINE}\n"
         + keys
         + f"  turn it off: set feedback.drafts: off in {config}, or run\n"
         f'    python "{plugin_root.as_posix()}/scripts/feedback_drafts.py" disable-drafts '
@@ -740,11 +747,12 @@ def _drafts_banner(value: str, answered: bool, enabled_set: bool, *,
     )
 
 
-def _apply_feedback_keys(config_path: Path, state_before: str, drafts: str | None, enabled: bool, *,
+def _apply_feedback_keys(config_path: Path, state_before: str, drafts: str | None, enabled: bool | None, *,
                          planwise_root: str, feedback_dir: str, plugin_root: Path,
                          real_upgrade: bool = False) -> list[str]:
     """Splice the flagged `feedback.drafts` / `feedback.enabled` values and backfill a missing drafts key.
 
+    `enabled` is True to write `true`, False to write `false`, and None to leave the key as it is.
     Reuses the feedback_drafts splice, so only the named lines change and comments survive.
     `state_before` is drafts_key_state of the config as it stood before this run. Returns the
     lines to print: one `feedback.{key}: {old} -> {new}` per changed key when the key was already
@@ -777,8 +785,8 @@ def _apply_feedback_keys(config_path: Path, state_before: str, drafts: str | Non
     try:
         if drafts is not None:
             splice("drafts", drafts)
-        if enabled:
-            splice("enabled", "true")
+        if enabled is not None:
+            splice("enabled", "true" if enabled else "false")
         # Backfill notify into a block that has no drafts key: one that was already there, or one a
         # flagged splice just created. Leaving the key out would make the next run ask and announce again.
         if drafts is None and (state_before == "absent" or (state_before == "no-block" and changes)):
@@ -800,7 +808,7 @@ def _apply_feedback_keys(config_path: Path, state_before: str, drafts: str | Non
 
     # Read the value back through the loader's normalization, so the banner agrees with what runs.
     value = get_feedback_config(parsed)["drafts"] if isinstance(parsed, dict) else (drafts or "notify")
-    enabled_set = any(key == "enabled" for key, _, _ in changes)
+    enabled_set = next((new for key, _, new in changes if key == "enabled"), None)
     return [_drafts_banner(value, drafts is not None, enabled_set,
                            planwise_root=planwise_root, feedback_dir=feedback_dir, plugin_root=plugin_root)]
 

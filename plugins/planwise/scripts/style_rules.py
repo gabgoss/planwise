@@ -142,12 +142,17 @@ def _classify_copy(shipped: Path, found: Path) -> str:
     `identical` when both normalise to equal text and carry the same `paths:`
     value. Equal text with a different `paths:` value is an edit, so it returns
     `HAS_UNIQUE`, which the line formatter renders as a customized copy.
-    Otherwise the shared classifier's verdict string, unchanged. `NOT_ANALYZED`
-    when either file is unreadable or the classifier returns its degraded
-    stand-in.
+    Otherwise the shared classifier's verdict string, with one exception:
+    `SUBSET` is reported only when the destructive-removal gate accepts the
+    verdict. A `SUBSET` that tolerated installed-only content (a non-empty
+    `notes`) or that sits below `exact` or `contained` confidence, such as
+    `reorg`, reads as `HAS_UNIQUE`, so "an older copy" means the same thing
+    here as in `_has_edits`. `NOT_ANALYZED` when either file is unreadable or
+    the classifier returns its degraded stand-in.
     """
     from rule_divergence import (
         _classify_diverged,
+        _destructively_removable,
         _extract_paths_value,
         _verdict_not_analyzed,
         normalize_pair,
@@ -165,6 +170,8 @@ def _classify_copy(shipped: Path, found: Path) -> str:
     verdict = _classify_diverged(found_norm, shipped_norm)
     if _verdict_not_analyzed(verdict):
         return _NOT_ANALYZED
+    if verdict.classification == "SUBSET" and not _destructively_removable(verdict):
+        return "HAS_UNIQUE"
     return verdict.classification
 
 

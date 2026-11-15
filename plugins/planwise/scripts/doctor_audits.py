@@ -200,11 +200,18 @@ def _report_failed(report: dict) -> bool:
 
 
 def _print_changelog_budget(report: dict) -> None:
-    """Each changelog file at WARN or OVER, then the over-budget line."""
-    files = [f for f in report.get("changelog_files", []) if f.get("level") in ("WARN", "OVER")]
+    """Each changelog file at WARN or OVER, each oversized entry kept whole,
+    then the re-split line when `changelog_over_budget` says a re-split would
+    change the layout."""
+    oversized = {str(o.get("file")): o for o in report.get("changelog_oversized") or []}
+    files = [f for f in report.get("changelog_files", [])
+             if f.get("level") in ("WARN", "OVER") and str(f.get("path")) not in oversized]
     for entry in sorted(files, key=lambda f: Path(str(f.get("path", ""))).name):
         print(f"changelog file {Path(str(entry.get('path', ''))).name}: "
               f"{entry['level']} ({entry.get('tokens')} tokens)")
+    for o in sorted(oversized.values(), key=lambda o: Path(str(o.get("file"))).name):
+        print(f"oversized entry: {Path(str(o.get('file'))).name}: {o.get('tokens')} tokens, "
+              f"budget {o.get('budget')}; kept whole, a re-split would not change it")
     if report.get("changelog_over_budget"):
         print("changelog file(s) over the read budget — `/planwise upgrade` re-splits them with backups, "
               "or run `migrate_backlog_index.py --config <planwise_root>/config.yaml --split-changelog`")
@@ -226,7 +233,7 @@ _LESSONS_FIELDS = (
 _PLANS_FIELDS = (
     "shape", "detail", "index", "rows", "comments", "narrative_cells", "attributable", "unattributed",
     "uncarried_lines", "root_path_rows", "prefixed_rows", "status_changes", "append_targets", "ready",
-    "would_refuse",
+    "would_refuse", "warnings",
 )
 
 

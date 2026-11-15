@@ -58,7 +58,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If a task creates or modifies rules: Read `references/rule-authoring.md`
 - If a task involves DB writes or MERGE/upsert briefs: Read `references/task-content-fidelity.md`, `references/schema-pin-requirement.md`
 - If a session is IPC/protocol/codec or runs a `git diff` gate: Read `references/verification-gates.md` and the `gate-*` files it names
-- If executing in DELEGATED mode (orchestrator dispatches task-runner subagents): Read all three parts of the DELEGATED dispatch discipline — `references/agent-orchestration-delegated.md` (§1.1–§1.13, foundations and spawn-prompt construction), `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` (§1.14–§1.22, dispatch mechanics and returns), and `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` (§1.23–§1.32, cross-cutting discipline). An orchestrator needs all three: Part 1 to build a spawn prompt, Part 2 to handle what comes back, Part 3 for the constraints that bind every dispatch.
+- If executing in DELEGATED mode (orchestrator dispatches task-runner subagents): Read all four parts of the DELEGATED dispatch discipline — `references/agent-orchestration-delegated.md` (§1.1–§1.13, foundations and spawn-prompt construction), `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` (§1.14–§1.22, dispatch mechanics and returns), `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` (§1.23–§1.28, cross-cutting discipline), and `references/agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md` (§1.29–§1.32, delivery, liveness and remediation). An orchestrator needs all four: Part 1 to build a spawn prompt, Part 2 to handle what comes back, Parts 3 and 4 for the constraints that bind every dispatch.
 - If the plan was authored before today — held behind an external gate, scaffolded many sprints in one pass, or waiting on an upstream that has since closed: Read `references/dispatch-preflight-claim-expiry.md` — re-take the premises on the surfaces no gate reads before dispatch
 - If a session runs verification tasks (match-pattern + pass/fail gate): Read `references/verification-task-authoring.md` and the `gate-*` files it names
 - If a session authors a gate (guard, hook, linter, validation pass) or is about to report a gate's result as evidence: Read `references/verification-gate-evidence.md` and the `gate-*` files it names — run the positive control before citing the pass; when correct work and a gate's annotated value disagree, the artifact wins
@@ -154,7 +154,7 @@ While reading, watch for structural findings beyond the literal task scope -- la
 > - [ ] **Check every destination, not only the session.** For each flag, list every task whose deliverable the flag's text names, plus every task its front-door entry names. Each listed task file must carry the flag itself. A hit in a sibling task file does not count
 > - [ ] **Treat a leftover `*(none yet)*` placeholder as a claim to verify.** Run `Grep pattern='none yet' path='{session_dir}' glob='*-0*-*.md' output_mode='count'`. A count above zero beside an upstream session marked COMPLETE is a routing question. Answer it before CONFIRM, and never read it as proof that the upstream session raised no flag
 > - [ ] **Match on the flag's SUBJECT, never on its id alone**, at every step of that diff. Ids are sender-scoped and collide freely, so a destination already carrying that id makes a missing flag look present — and a sender's own "delivered" record is written in the same pass that performs or fails the write, so it is never evidence. Recover a zero-hit flag, renumber it if its id is occupied rather than overwriting the occupant, and record the propagation gap as a finding rather than a silent patch. See [dispatch-boundary-evidence.md §5](../references/dispatch-boundary-evidence.md#5-a-flag-the-sender-says-it-delivered-is-a-claim-only-the-destination-file-is-evidence)
-> - [ ] Run `python -B "{plugin_root}/scripts/flag_subject_diff.py" --sprint-plan {sprint plan} --orchestration {orchestration} --session {session id}` to match each carried flag by subject, not only by id.
+> - [ ] Run `python -B "{plugin_root}/scripts/flag_subject_diff.py" --sprint-plan {sprint plan} --orchestration {orchestration} --session {session id}`. It checks both hops by subject, not only by id: carried rows against the orchestration, then each orchestration row against every task file it names. An absent optional section prints a `note:` line and counts as empty, and exit 2 means a file cannot be read. Rows naming no task still need the per-deliverable routing above.
 > - [ ] Route each missing flag: write it into the affected task file(s) under `## Pre-Known Cross-Task Coordination Flags`, and carry it into that task's spawn prompt at dispatch
 > - [ ] **Re-derive every value the flag supplies before acting on it** — its counts, its scope forecast, its classification, and its prescribed remedy. The location is usually still good; the values are expired. A flag's own supplied verify gate is the most dangerous artifact it carries, because a stale gate fails correct work and reads as "your fix is broken". See [read-confirm-act-protocol.md §1.4.C–§1.4.D](../references/read-confirm-act-protocol.md#14-reconciling-an-inherited-flag-receiver-side)
 > - [ ] **Count every absence check against the whole target before routing it.** A routed flag or an orchestrator-authored delta may carry a check such as "this pattern MUST match 0 times". Record the before-count in the delta. Map each hit to an in-scope edit, a recorded Scope-Expansion Decisions row, or a check narrowed to the in-scope region. A hit outside the scope is a sibling finding. See [gate-satisfiability.md §6](../references/gate-satisfiability.md#6-an-absence-check-must-match-the-edit-scope-of-its-own-brief)
@@ -179,7 +179,7 @@ Corollary — when an upstream contract SUPERSEDES an EI-verbatim block, the fla
 > [!binding] Read every repo's status before CONFIRM, and attribute each dirty path
 > Run `git status --porcelain` in every repo the session touches, nested repos included (`git -C <nested repo> status --porcelain`). A dirty path the plan did not write is **foreign** until this session's Files Modified list claims it. Find its owner before dispatch. HALT, revert, and override are remedies for this session's own changes only.
 >
-> Surface a foreign path in the CONFIRM block as a structural finding (Step 1.2a). Options: commit the peer's finished work here after verification, the owner commits it, or dispatch literally and HALT. Committing a peer's work is the user's decision, never the session's. Log the approval as a Scope-Expansion Decisions row. See [read-confirm-act-protocol.md §1.5](../references/read-confirm-act-protocol.md#15-attribute-a-dirty-path-before-choosing-a-remedy) for the verify-stage-commit order. On a resume, run the resume compare of `references/gate-diff-baseline-pinning.md` §8.6 before the first dispatch. A wanted user edit to an in-scope file adds a per-file base option to the Step 1.2a gate.
+> Surface a foreign path in the CONFIRM block as a structural finding (Step 1.2a). Options: commit the peer's finished work here after verification, the owner commits it, or dispatch literally and HALT. Committing a peer's work is the user's decision, never the session's. Log the approval as a Scope-Expansion Decisions row. The foreign paths attributed here are the peer-owned list of the path-set form of a "wrote nothing under X" gate (`references/verify-before-cite.md` §9.B.24 item 4). Re-read status at each return to attribute any path that appeared mid-task before that gate runs. See [read-confirm-act-protocol.md §1.5](../references/read-confirm-act-protocol.md#15-attribute-a-dirty-path-before-choosing-a-remedy) for the verify-stage-commit order. On a resume, run the resume compare of `references/gate-diff-baseline-pinning.md` §8.6 before the first dispatch. A wanted user edit to an in-scope file adds a per-file base option to the Step 1.2a gate.
 
 ### Step 1.1c: PLUGIN-PATH CURRENCY CHECK
 
@@ -332,14 +332,14 @@ Before dispatching, read the DELEGATED dispatch discipline for the sections each
 
 - `references/agent-orchestration-delegated.md` — §1.3 (context boundary), §1.6 (path-rule injection), §1.8 (HARD CONSTRAINTS skeleton), §1.13 (shared-edit-target strategy; parallel-dispatch Recovery contract).
 - `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` — §1.17 (classify every return before consuming it), §1.19 (Model-Floor Bridge), §1.20 (1M-Exception Dispatch), §1.21 (Background vs Foreground Gate), §1.22 (Anti-Patterns checklist).
-- `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` — §1.29 (a subagent's world is its definition plus its prompt — name the delivery channel).
+- `references/agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md` — §1.29 (a subagent's world is its definition plus its prompt — name the delivery channel).
 - `references/parallel-layer-shared-objects.md` — before composing the layer: the allocation namespace two members share but neither writes.
 - `references/dispatch-batch-gate.md` — after the batch returns green and before consolidating: the cross-checks only the orchestrator can run.
 - `references/dispatch-boundary-evidence.md` — while writing the prompt and reading the return: confirm each inbound flag arrived (§5) before resolving its consumer (§2).
 - `references/measure-from-the-record.md` — when a recovered reply is synthesised or a permission result is graded: the synthesis is provisional, and a denial is scored on `permission_denials`, never on `is_error` alone.
 - `references/measure-artifact-identity.md` — when a runner and the orchestrator disagree about what a file says, or a read-only layer runs while another session may write the tree: triangulate line numbers, pin content hashes, and at close commit only what this session wrote.
 
-The spawn prompt states the single-task scope in three positions — the opener, a hard-constraint line, and the return instruction — so the scope is stated even against a session-scoped identity that would otherwise outrank a single mention. When the project declares an isolated environment (Config Gate), it also adds an environment-discipline block naming interpreter/linter/runner paths in the platform-matched form (POSIX `./.venv/bin/{tool}` or Windows `.\.venv\Scripts\{tool}.exe` — emit the one matching the project's platform, never both), and on the session's FIRST dispatch only, a one-line interpreter diagnostic:
+The spawn prompt is the Orchestration's `## Spawn-Prompt Skeleton`, filled once per task. Replace each `{placeholder}` with the task's value and keep every other line, including the numbered HARD CONSTRAINTS and the SCOPE BOUNDARY. The skeleton states the single-task scope in three positions, so the scope holds against a session-scoped identity that would outrank a single mention. When the Orchestration has no skeleton (a plan scaffolded before the rule), fill the skeleton in `{plugin_root}/templates/orchestration.md` instead. Pass the filled text as `prompt`:
 
 ```
 Agent(
@@ -347,51 +347,36 @@ Agent(
   run_in_background: false,
   description: "Execute task {task-num}: {task-name}",
   model: "{model-override-from-task-file-Agent-field}",
-  prompt: |
-    You are dispatched to execute ONE task: {task-id}. The session has other
-    tasks; you DO NOT execute them.
-
-    Execute the following task YOURSELF, directly, with your own tool calls.
-    Do NOT spawn, dispatch, or delegate to any other agent (no Agent
-    tool calls) — you ARE the task-runner.
-
-    Task file: {task-file-absolute-path}
-    Session ID: {session-id}
-    Abbreviation: {abbrev}
-    Plugin root: {config.yaml plugin_root, read at dispatch}
-    Project root: {absolute path of the folder that holds the planwise folder, resolved at dispatch}
-    Recovery file: {recovery-file-absolute-path}
-    Output directory: {output-dir-absolute-path}
-
-    HARD CONSTRAINTS: Execute ONLY {task-id}. Do not start any other task in
-    the session even if the Recovery file lists it as PENDING. Files you may
-    write: {explicit list from the task file's Output}.
-
-    (If the project declares an isolated environment, add:)
-    ## ENVIRONMENT DISCIPLINE
-    Do not change directory — pass absolute paths for file arguments, or
-    `git -C {repo-path}` for git, so a bare tool name resolves against the
-    paths given, not a changed working directory. Use these tool paths
-    exactly as written — a bare tool name resolves to the platform
-    default, not this project's environment:
-      interpreter:  {env-interpreter-path}
-      linter:       {env-linter-path}
-      test/notebook runner: {env-runner-path}
-      (each project-relative, in a form an allow entry grants)
-    Confirm connectivity/setup with `{env-interpreter-path} {project-precheck}`
-    BEFORE doing dependent work.
-
-    (On this session's first dispatch only, add:)
-    First-spawn diagnostic — run one probe per tool class this task invokes.
-    HALT if a probe is denied, or if the interpreter output does not resolve
-    inside the project environment:
-      {env-interpreter-path} -c "import sys; print(sys.executable)"
-      {env-linter-path} --version
-      {env-runner-path} --version
-
-    Return after writing the single expected output file. Do NOT proceed to
-    task {n+1}.
+  prompt: "{the filled Spawn-Prompt Skeleton, plus the addenda below}"
 )
+```
+
+Three addenda go on top of the filled skeleton:
+
+1. **Recovery file.** On sequential dispatch only, add `Recovery file: {recovery-file-absolute-path}` under `Output directory:`.
+2. **Environment discipline.** When the project declares an isolated environment (Config Gate), add the block below. Emit the interpreter, linter and runner paths in the platform-matched form (POSIX `./.venv/bin/{tool}` or Windows `.\.venv\Scripts\{tool}.exe`), never both.
+3. **First-spawn diagnostic.** On the session's FIRST dispatch only, add the probe lines below.
+
+```
+## ENVIRONMENT DISCIPLINE
+Do not change directory — pass absolute paths for file arguments, or
+`git -C {repo-path}` for git, so a bare tool name resolves against the
+paths given, not a changed working directory. Use these tool paths
+exactly as written — a bare tool name resolves to the platform
+default, not this project's environment:
+  interpreter:  {env-interpreter-path}
+  linter:       {env-linter-path}
+  test/notebook runner: {env-runner-path}
+  (each project-relative, in a form an allow entry grants)
+Confirm connectivity/setup with `{env-interpreter-path} {project-precheck}`
+BEFORE doing dependent work.
+
+First-spawn diagnostic — run one probe per tool class this task invokes.
+HALT if a probe is denied, or if the interpreter output does not resolve
+inside the project environment:
+  {env-interpreter-path} -c "import sys; print(sys.executable)"
+  {env-linter-path} --version
+  {env-runner-path} --version
 ```
 
 **Plugin root:** Read `plugin_root` from `config.yaml` at dispatch and write it as the `Plugin root:` line of every spawn prompt. The value never comes from a path inside a task file.
@@ -402,7 +387,7 @@ Agent(
 
 **Parallel dispatch (3+ tasks):** launch all task-runners in the layer in a single message (multiple Agent tool calls in one assistant turn — they run concurrently). Include the PARALLEL DISPATCH addendum and Status Block format from `references/agent-orchestration-delegated.md` §1.13 in each spawn prompt, and omit the `Recovery file:` parameter — parallel runners must not touch Recovery. Before dispatch, repeat the called-symbol grep on each brief, routed flags included (`references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §17.4): a layer-mate's symbol makes the layer sequential, and so does a read of a layer-mate's Output path (same §17.4). After all runners return, classify each per `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17, then reconcile Recovery centrally per §1.13's orchestrator contract and Step 3.3's "After a parallel batch" instructions below.
 
-Every parallel spawn prompt names the **delivery channel** as well as the block's format. A named runner's plain-text final message reaches you only after your turn ends, inside an idle notification, so a prompt giving the shape alone produces a block you cannot use in time (`references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.29.1). Add these two lines above the Status Block format in each parallel spawn prompt:
+Every parallel spawn prompt names the **delivery channel** as well as the block's format. A named runner's plain-text final message reaches you only after your turn ends, inside an idle notification, so a prompt giving the shape alone produces a block you cannot use in time (`references/agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md` §1.29.1). Add these two lines above the Status Block format in each parallel spawn prompt:
 
 ```markdown
 ## Status Block delivery (REQUIRED)
@@ -454,7 +439,7 @@ After each task completes (DIRECT or DELEGATED, sequential):
 After a **parallel batch** of 3+ task-runners returns:
 
 1. Parse the status block each runner delivered by `SendMessage` (schema: `TASK_STATUS / TASK_ID / OUTPUT_FILES / LINES_PRODUCED / KEY_FINDINGS / ISSUES`)
-2. **On a missing block, name the tool AND the recipient in the re-request.** This resumes the same runner for the same unit of work, so check it against the size ceiling in `agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17.7 first. A generic re-request — "reply with your status block" — reproduces the original failure, because it leaves the channel unnamed a second time. Send the runner: `Deliver your status block now by calling the SendMessage tool with to="main". Plain-text output does not reach me.` Acceptance does not wait on this: run the on-disk deliverable gate (`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17.4) meanwhile, which confirms COMPLETE independently of the block. The recovered block then supplies KEY_FINDINGS for the reconciliation below (`references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.29.1).
+2. **On a missing block, name the tool AND the recipient in the re-request.** This resumes the same runner for the same unit of work, so check it against the size ceiling in `agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17.7 first. A generic re-request — "reply with your status block" — reproduces the original failure, because it leaves the channel unnamed a second time. Send the runner: `Deliver your status block now by calling the SendMessage tool with to="main". Plain-text output does not reach me.` Acceptance does not wait on this: run the on-disk deliverable gate (`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17.4) meanwhile, which confirms COMPLETE independently of the block. The recovered block then supplies KEY_FINDINGS for the reconciliation below (`references/agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md` §1.29.1).
 3. Verify referenced OUTPUT_FILES exist on disk for every COMPLETE row
 4. **Recovery file** -- write ONCE for the entire batch:
    - One Step Completion row per task in the batch, all with the reconciliation timestamp
@@ -491,11 +476,11 @@ After a **parallel batch** of 3+ task-runners returns:
 
 **Unreported silence** — nothing arrives at all. This is a different branch, and it is the one where you must act on inference rather than on a report. A runner produces no observable output between dispatch and its final status block, so silence alone does not distinguish *working* from *dead* from *stalled*.
 
-1. **Do NOT re-dispatch yet.** Re-dispatching onto a live runner puts two writers on one task's declared output set (rationale: `agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.30, cited in step 2).
-2. **Run the liveness check** in `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.30: sample the runner's own transcript twice, a minute apart. A last-entry timestamp seconds old means alive. Minutes old **with no line growth across both samples** is a genuine stall. Do not substitute an agent listing or a disk inventory: neither shows whether a writer is still attached (§1.30 gives the measurement).
+1. **Do NOT re-dispatch yet.** Re-dispatching onto a live runner puts two writers on one task's declared output set (rationale: `agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md` §1.30, cited in step 2).
+2. **Run the liveness check** in `references/agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md` §1.30: sample the runner's own transcript twice, a minute apart. A last-entry timestamp seconds old means alive. Minutes old **with no line growth across both samples** is a genuine stall. Do not substitute an agent listing or a disk inventory: neither shows whether a writer is still attached (§1.30 gives the measurement).
 3. **Alive** → wait, or steer the existing runner with a message (`agent-orchestration-delegated.md` §1.7, §1.10). Do not replace it, and do not write to anything it owns (`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.26).
 4. **Stalled** → resume the SAME agent per `agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17, never a fresh one, while the runner is inside the size ceiling in §1.17.7. Past the ceiling, or for a new round of work, dispatch a fresh runner per §1.17.7.
-5. **Genuinely dead** → re-dispatch, and put two things in the replacement's brief: an inventory of what the dead runner left on disk marked **UNVERIFIED**, and the frozen-snapshot self-check from `agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.30 (compare the inventory against live modification times before the first write, and HOLD if anything moved).
+5. **Genuinely dead** → re-dispatch, and put two things in the replacement's brief: an inventory of what the dead runner left on disk marked **UNVERIFIED**, and the frozen-snapshot self-check from `agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md` §1.30 (compare the inventory against live modification times before the first write, and HOLD if anything moved).
 6. Record which branch fired in Recovery, with the measurement that settled it — not the conclusion alone.
 
 ### Step 3.5: Session-Length Checkpoint
@@ -601,9 +586,17 @@ Read recovery file and orchestration file. Generate the summary document using [
 | 5 | Success Criteria Status | Orchestration success criteria |
 | 6 | Context Notes | Key Findings in Recovery |
 | 7 | Consumption Record | Orchestrator window accounting for this session, plus the per-task consumption rows in Recovery. Field semantics are defined once in the template's own Consumption Record section — do not restate them here |
-| 8 | Next Session | Sprint plan dependencies |
+| 8 | Next Session | The resolver output below, as the `**Next run:**` line |
 | 9 | Lessons Learned | Lesson files created this session (populated after Step 4.2) |
 | 10 | Plan-Specific Sections | The H3 sections this session needed that no template heading covers (omit when there are none) |
+
+Resolve the next session once, here, before Step 4.3 marks this one COMPLETE. The script reads the Master Plan tracking table, crosses sprint boundaries, and never writes:
+
+```bash
+python {plugin_root}/scripts/resolve_next_session.py --config {planwise_root}/config.yaml --orchestration {orchestration path}
+```
+
+It prints `NEXT: /planwise:planwise run @{path}`, `NEXT_UNSCAFFOLDED: {Sprint} {Session}`, or `NEXT: none`. Copy the value after the colon into the Summary's `**Next run:**` line.
 
 Write to: `Outputs/{Abbrev}-S{XX}-{YY}-Summary.md` in the sprint folder.
 
@@ -621,22 +614,7 @@ Ask the user: "Were any lessons learned during this session?"
    - Domain (infer from files worked on, or ask user)
    - Technology and language involved
    - Severity (high / medium / low)
-3. Draft the lesson with pre-filled YAML frontmatter:
-   ```yaml
-   ---
-   id: LL-{next-available}
-   title: {auto-generated from context}
-   date: {today}
-   source: {session-id}
-   category: {inferred: anti-pattern | pattern | process}
-   severity: {inferred: low | medium | high}
-   language: [{inferred}]
-   technology: [{inferred}]
-   domain: [{inferred domain abbreviation}]
-   status: documented
-   applied-as: null
-   ---
-   ```
+3. Draft the lesson with the frontmatter of `templates/lesson.md`, filled from item 2. Set `origin:`, `promotion-target:` and `enforced-by:` by asking the Resolution Matrix in `references/lessons-schema.md`.
 4. Present draft to user: "Capture this lesson? (approve / edit / skip)"
 5. If approved:
    - Write file: `{lessons_dir}/LL-{NNN}-{Domain}-{Name}.md`
@@ -657,7 +635,7 @@ Ask the user: "Were any lessons learned during this session?"
 
    > [!practice] User-Action-Gate Check
    > When all sprints COMPLETE, check Master Plan's "Project Complete When" section for user-action gates. If user-action gates remain, set IN_PROGRESS with note — NOT COMPLETE.
-5. Set the Master Plan `*Last Updated:*` footer to today. Run `python {plugin_root}/scripts/generate_plans_index.py --config {planwise_root}/config.yaml --write`. On exit 2 nothing was written. Print the `Error:` line verbatim and route by cause. `hand-authored plans index`: the Phase 0 Index shape gate was bypassed, so run it. `neither a hand-authored nor a generated`: `/planwise upgrade` will not migrate it, so point the user at `migrate_plans_index.py --report`. `over the … -token budget`: the render is too large, so tell the user to shard or shorten the index.
+5. Set the Master Plan `*Last Updated:*` footer to today. Run `python {plugin_root}/scripts/generate_plans_index.py --config {planwise_root}/config.yaml --write`. On exit 2 nothing was written. Print the `Error:` line verbatim and route by cause. `hand-authored plans index`: the Phase 0 Index shape gate was bypassed, so run it. `neither a hand-authored nor a generated`: `/planwise upgrade` will not migrate it, so point the user at `migrate_plans_index.py --report`. An over-budget render is written with a warning and exits 0: pass the warning on and suggest the user shorten the index. Exit 2 names a shape refusal only.
 6. **Close the backlog items this plan resolves** — only when step 4 just set the Master Plan to `Status: COMPLETE`:
    1. `Read` the Master Plan header `**Resolves:**` field. Absent, or `none`: skip this step. A Master Plan authored before the field existed names the item under `## References` instead — treat that citation as the field.
    2. For each item id listed, `Edit` the item file **first**: append a dated line under its `## Notes` section (create the section if absent) — `{today}: resolved by plan {Abbrev}; closed at session {session-id}`. Edit before the status write, because the status write archives the file.
@@ -747,9 +725,16 @@ Tasks: {completed}/{total} completed
 Summary: Outputs/{Abbrev}-S{XX}-{YY}-Summary.md
 Lessons: {N} captured (or "None")
 Backlog closed: {item ids closed in Step 4.3, or "none"; items held PLANNING behind a user-action gate are named here}
-
-Next: {next session from summary, or "Sprint complete"}
+Plan status: {the Master Plan Status: line that Step 4.3 wrote}
 ```
+
+Then branch on the Summary's `**Next run:**` line:
+
+- **A `/planwise:planwise run @{path}` command.** Print `Next session:` and then the command alone in its own fenced block. That block is the last thing printed:
+  ```
+  /planwise:planwise run @{path}
+  ```
+- **`none`, or an unscaffolded `{Sprint} {Session}`.** Print no command. The `Plan status:` line states where the plan stands. For an unscaffolded session, add one line naming it and saying it needs scaffolding before it can run.
 
 **(Track B)** Leave the session's task entries `completed`. Do not delete them. The list is per Claude session and ends with it.
 

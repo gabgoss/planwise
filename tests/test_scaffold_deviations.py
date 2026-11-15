@@ -199,6 +199,39 @@ def test_conditional_marker_headings_are_not_graded(bad_copy):
     assert (code, lines) == (0, ["deviations: A=0 B=0 C=0"])
 
 
+@pytest.mark.parametrize("heading", ["## Dispatch Layers", "## Spawn-Prompt Skeleton",
+                                     "## Orchestrator Post-Dispatch Checklist"])
+def test_delegated_orchestration_missing_delegated_heading_is_class_a(bad_copy, heading):
+    # The rendered fixture is DELEGATED. Drop one `REQUIRED for DELEGATED mode` H2 and keep the Mode line.
+    path = one(bad_copy, "*-Orchestration.md")
+    assert "**Mode:** DELEGATED" in path.read_bytes().decode("utf-8")
+    drop_lines(path, heading)
+    code, lines = check(bad_copy)
+    assert code == 1
+    assert totals(lines) == (1, 0, 0)
+    assert lines[0].startswith("CLASS_A ") and lines[0].endswith(f'missing "{heading}"')
+
+
+def test_delegated_heading_inside_a_fence_is_missing(bad_copy):
+    # A heading that appears only inside a code fence does not count as present.
+    path = one(bad_copy, "*-Orchestration.md")
+    drop_lines(path, "## Spawn-Prompt Skeleton")
+    path.write_bytes(path.read_bytes() + b"\n```text\n## Spawn-Prompt Skeleton\n```\n")
+    code, lines = check(bad_copy)
+    assert code == 1
+    assert any(ln.startswith("CLASS_A ") and ln.endswith('missing "## Spawn-Prompt Skeleton"') for ln in lines)
+
+
+def test_mode_line_only_inside_a_fence_does_not_grade_delegated_headings(bad_copy):
+    # A DIRECT Orchestration that quotes a DELEGATED Mode line inside a fence stays ungraded for the DELEGATED H2s.
+    path = one(bad_copy, "*-Orchestration.md")
+    edit(path, "**Mode:** DELEGATED", "**Mode:** DIRECT")
+    drop_lines(path, "## Spawn-Prompt Skeleton")
+    path.write_bytes(path.read_bytes() + b"\n```text\n**Mode:** DELEGATED\n```\n")
+    code, lines = check(bad_copy)
+    assert (code, lines) == (0, ["deviations: A=0 B=0 C=0"])
+
+
 def test_unclosed_fence_does_not_hide_later_headings(bad_copy):
     path = one(bad_copy, "*-Orchestration.md")
     edit(path, "## Session Objective", "```text\n## Session Objective")

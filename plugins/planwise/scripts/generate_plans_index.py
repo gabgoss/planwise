@@ -17,22 +17,26 @@ through `_escape_cell`. The Status cell is the normalized status token.
 ## Refusals and exit codes
 
 - `--write` refuses to overwrite a hand-authored (legacy-shaped) index unless
-  `--replace-legacy` is given, refuses a non-empty index that is neither
-  hand-authored nor generated (`--replace-legacy` never overrides that), and
-  refuses when the render measures over `HUB_TOKEN_BUDGET`. All exit 2 and
-  write nothing. A missing, zero-byte or blank index writes.
+  `--replace-legacy` is given, and refuses a non-empty index that is neither
+  hand-authored nor generated (`--replace-legacy` never overrides that). Both
+  exit 2 and write nothing. A missing, zero-byte or blank index writes.
 - `--write` still writes when the tree carries an anomaly (an unknown or missing
   status, two Master Plans with one Path, an unreadable file), then exits 1. The
   index never lags the tree.
+- `--write` still writes a render over `HUB_TOKEN_BUDGET`, and prints a budget
+  warning on stderr. The warning alone does not change the exit code.
 - `--check` compares the on-disk file with a fresh render and exits 1 on any
   finding. A legacy-shaped index exits 2. `--dry-run` (the default) renders and
-  reports without writing.
+  reports without writing. In both, an over-budget render is a warning, not a
+  finding, so it alone exits 0.
 
 ## Budget
 
 The index is one file and is never split. The budget is measured on the file
 that ships (title, `Generated:` line, table and legend), on the CRLF worst case.
-A render over budget is refused, and the refusal is the signal to shard.
+A render over budget is written with a warning, and the warning is the signal
+to shard. The warning also names the read routes open to the file, from
+`read_limits.read_routes_advice` at the config's verified CLI version.
 
 The generic index helpers (measurement, escaping, atomic write, line-ending
 detection) are imported through the `generate_backlog_index` facade.
@@ -68,6 +72,7 @@ from parse_plans import (
     parse_index_table,
     read_master_plan_fields,
 )
+from read_limits import config_cli_version, written_read_advice
 from reconcile_common import read_text_preserving_newlines
 
 __all__ = [
@@ -468,12 +473,21 @@ def _over_budget_finding(render: PlansRender) -> dict:
     )
 
 
+def _with_budget_warning(render: PlansRender) -> list:
+    """The render's warnings, plus an `over-budget` warning when the render measures over the budget."""
+    if render.tokens > HUB_TOKEN_BUDGET:
+        return [*render.warnings, _over_budget_finding(render)]
+    return list(render.warnings)
+
+
 def check_plans_index(config: dict) -> CheckResult:
     """The `--check` logic: compare the on-disk index with a fresh render.
 
     Exit 0 means the file equals the render (the `Generated:` line masked) and
     the tree has no anomaly. Exit 1 means any finding or anomaly. Exit 2 means
-    the on-disk index is legacy-shaped and was not compared.
+    the on-disk index is legacy-shaped and was not compared. An over-budget
+    render is an `over-budget` entry in `warnings`, never a finding, so it
+    alone exits 0.
     """
     index_path = plans_index_path(config)
     render = render_plans_index(config)
@@ -482,7 +496,7 @@ def check_plans_index(config: dict) -> CheckResult:
     shape = detect_index_shape(disk)
     if shape == "legacy":
         finding = _finding("legacy-shape", _legacy_message(index_path), index=str(index_path))
-        return CheckResult(2, shape, [finding], render.anomalies, render.warnings, 0, render, exists)
+        return CheckResult(2, shape, [finding], render.anomalies, _with_budget_warning(render), 0, render, exists)
 
     findings: list = []
     if not exists:
@@ -502,10 +516,9 @@ def check_plans_index(config: dict) -> CheckResult:
         )
     if exists:
         findings.extend(_shape_findings(disk, table, render, rows_clean=not findings))
-    if render.tokens > HUB_TOKEN_BUDGET:
-        findings.append(_over_budget_finding(render))
     code = 1 if findings or render.anomalies else 0
-    return CheckResult(code, shape, findings, render.anomalies, render.warnings, row_findings.compared, render, exists)
+    warnings = _with_budget_warning(render)
+    return CheckResult(code, shape, findings, render.anomalies, warnings, row_findings.compared, render, exists)
 
 
 # ---------------------------------------------------------------------------
@@ -513,24 +526,28 @@ def check_plans_index(config: dict) -> CheckResult:
 # ---------------------------------------------------------------------------
 
 
-def _payload(index_path: Path, shape: str, render: PlansRender, findings: list, compared: int | None) -> dict:
+def _payload(index_path: Path, shape: str, render: PlansRender, findings: list, compared: int | None,
+             warnings: list) -> dict:
+    """The `--json` object. `warnings` is the caller's list, derived once per run by `_with_budget_warning`."""
     payload = {"index": str(index_path), "shape": shape, "rows": len(render.rows)}
     if compared is not None:
         payload["compared"] = compared
     payload["findings"] = findings
     payload["anomalies"] = render.anomalies
-    payload["warnings"] = render.warnings
+    payload["warnings"] = list(warnings)
     payload.update(_budget_fields(render.num_bytes, render.tokens, HUB_TOKEN_BUDGET))
     return payload
 
 
-def _report(index_path: Path, shape: str, render: PlansRender, findings: list, compared: int | None) -> str:
+def _report(index_path: Path, shape: str, render: PlansRender, findings: list, compared: int | None,
+            warnings: list) -> str:
+    """The text report. `warnings` is the caller's list, derived once per run by `_with_budget_warning`."""
     head = f"Plans index {index_path}: {len(render.rows)} rows rendered"
     if compared is not None:
         head += f", {compared} compared with the file on disk"
     head += f" ({shape}); {render.num_bytes} bytes, {render.tokens} of {HUB_TOKEN_BUDGET} tokens."
     lines = [head]
-    for label, items in (("anomaly", render.anomalies), ("finding", findings), ("warning", render.warnings)):
+    for label, items in (("anomaly", render.anomalies), ("finding", findings), ("warning", warnings)):
         lines.extend(f"  {label} {item['class']}: {item['message']}" for item in items)
     if not render.anomalies and not findings:
         lines.append("  no anomalies and no findings")
@@ -555,6 +572,10 @@ class WriteResult:
     `refusal` is the refusal message, or `None` when the write went ahead.
     `drop_listing` names the hand-written content a `replace_legacy` write drops,
     or is `None`. `shape` is the on-disk shape the write found.
+    `budget_warning` is the one-line warning for a render written over the
+    budget, or `None` when the render is within it. The caller prints it.
+    `warnings` is the render's warnings plus the `over-budget` entry, derived
+    once from the same measurement as `budget_warning`.
     """
 
     exit_code: int
@@ -563,6 +584,8 @@ class WriteResult:
     render: PlansRender
     shape: str
     drop_listing: str | None = None
+    budget_warning: str | None = None
+    warnings: tuple = ()
 
 
 def index_matches_render(disk: str, render: PlansRender) -> bool:
@@ -574,11 +597,13 @@ def write_plans_index(config: dict, *, replace_legacy: bool = False) -> WriteRes
     """Write the index from a fresh render. Prints nothing and raises nothing on a refusal.
 
     Refuses, and writes nothing, when the file on disk is hand-authored and
-    `replace_legacy` is false, when it is non-empty and neither hand-authored
-    nor generated (`replace_legacy` never overrides that), or when the render
-    measures over the budget. A missing, zero-byte or blank file writes. The
-    refusal message is in the result. A tree anomaly does not stop the write: it
-    sets exit code 1.
+    `replace_legacy` is false, or when it is non-empty and neither hand-authored
+    nor generated (`replace_legacy` never overrides that). A missing, zero-byte
+    or blank file writes. The refusal message is in the result. A tree anomaly
+    does not stop the write: it sets exit code 1. A render over the budget
+    writes too, and the result carries `budget_warning`. The warning names the
+    size and the read routes for the config's verified CLI version, and does
+    not change the exit code.
     """
     index_path = plans_index_path(config)
     render = render_plans_index(config)
@@ -598,21 +623,34 @@ def write_plans_index(config: dict, *, replace_legacy: bool = False) -> WriteRes
             "`migrate_plans_index.py --report`, then move it aside or migrate it."
         )
         return WriteResult(2, False, refusal, render, shape)
-    if render.tokens > HUB_TOKEN_BUDGET:
-        refusal = (
-            f"Error: the rendered plans index measures {render.num_bytes} bytes ({render.tokens} tokens), "
-            f"over the {HUB_TOKEN_BUDGET}-token budget. Nothing was written. "
-            "The index is one file, so shard or shorten it before writing."
-        )
-        return WriteResult(2, False, refusal, render, shape)
     ending = detect_line_ending(plans_dir, plans_dir, _index_naming(index_path))
     _atomic_write_files({index_path: render.text.replace("\n", ending)}, [])
     listing = _drop_listing(disk) if shape == "legacy" else None
-    return WriteResult(1 if render.anomalies else 0, True, None, render, shape, listing)
+    warnings = _with_budget_warning(render)
+    warning = _budget_warning(config, render) if render.tokens > HUB_TOKEN_BUDGET else None
+    return WriteResult(1 if render.anomalies else 0, True, None, render, shape, listing, warning, tuple(warnings))
+
+
+def _budget_warning(config: dict, render: PlansRender) -> str:
+    """The over-budget warning: the size, the advice to shard, then the read routes
+    for the config's CLI version and the Read caps the written file crosses."""
+    version = config_cli_version(config)
+    return (
+        f"Warning: the rendered plans index measures {render.num_bytes} bytes ({render.tokens} tokens), "
+        f"over the {HUB_TOKEN_BUDGET}-token budget. It was written. "
+        "The index is one file, so shard or shorten the index. "
+        f"{written_read_advice(render.text, version, render.num_bytes)}"
+    )
 
 
 def _cmd_write(config: dict, replace_legacy: bool, json_out: bool) -> int:
-    """The `--write` CLI: `write_plans_index` plus its printed report."""
+    """The `--write` CLI: `write_plans_index` plus its printed report.
+
+    `--write --json` carries the over-budget state twice on purpose: the
+    `warnings` list holds the structured `over-budget` entry that `--check`
+    and the dry run also print, and `budget_warning` holds the printed
+    advice line with its read routes. Both come from one measurement.
+    """
     index_path = plans_index_path(config)
     result = write_plans_index(config, replace_legacy=replace_legacy)
     if result.refusal is not None:
@@ -620,13 +658,16 @@ def _cmd_write(config: dict, replace_legacy: bool, json_out: bool) -> int:
         return result.exit_code
     if result.drop_listing is not None:
         print(result.drop_listing, file=sys.stderr)
+    if result.budget_warning is not None:
+        print(result.budget_warning, file=sys.stderr)
     if json_out:
-        payload = _payload(index_path, result.shape, result.render, [], None)
+        payload = _payload(index_path, result.shape, result.render, [], None, list(result.warnings))
         payload["written"] = True
+        payload["budget_warning"] = result.budget_warning
         print(json.dumps(payload, indent=2))
     else:
         print(f"Wrote {index_path}.")
-        print(_report(index_path, result.shape, result.render, [], None))
+        print(_report(index_path, result.shape, result.render, [], None, list(result.warnings)))
     return result.exit_code
 
 
@@ -649,7 +690,8 @@ def main() -> int:
         "--write",
         action="store_true",
         help="Write the index. Refuses (exit 2) on a hand-authored index without --replace-legacy, "
-        "and when the render is over budget. Exits 1 after writing when the tree has an anomaly.",
+        "and on an unrecognized non-empty index. A render over budget writes and warns on stderr. "
+        "Exits 1 after writing when the tree has an anomaly.",
     )
     parser.add_argument("--json", action="store_true", help="Print the report and budget fields as JSON.")
     parser.add_argument(
@@ -670,20 +712,22 @@ def main() -> int:
         if result.exit_code == 2:
             print(_legacy_message(index_path), file=sys.stderr)
         if args.json:
-            print(json.dumps(_payload(index_path, result.shape, result.render, result.findings, result.compared), indent=2))
+            print(json.dumps(_payload(index_path, result.shape, result.render, result.findings, result.compared,
+                                      result.warnings), indent=2))
         elif result.exit_code != 2:
-            print(_report(index_path, result.shape, result.render, result.findings, result.compared))
+            print(_report(index_path, result.shape, result.render, result.findings, result.compared, result.warnings))
         return result.exit_code
 
     render = render_plans_index(config)
     disk = read_text_preserving_newlines(index_path) if index_path.is_file() else ""
     shape = detect_index_shape(disk)
-    findings = [_over_budget_finding(render)] if render.tokens > HUB_TOKEN_BUDGET else []
+    findings: list = []  # an over-budget render is a warning, never a finding
+    warnings = _with_budget_warning(render)
     if args.json:
-        print(json.dumps(_payload(index_path, shape, render, findings, None), indent=2))
+        print(json.dumps(_payload(index_path, shape, render, findings, None, warnings), indent=2))
     else:
         print(render.text)
-        print(_report(index_path, shape, render, findings, None))
+        print(_report(index_path, shape, render, findings, None, warnings))
     return 1 if findings or render.anomalies else 0
 
 
