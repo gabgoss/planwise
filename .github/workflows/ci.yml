@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHON_VERSION: "3.13"
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      # ruff.toml pins required-version, so any other ruff version exits 2 instead of linting.
+      - run: python -m pip install ruff==0.16.8
+      - run: python -m ruff check .
+
+  shipped-tree:
+    name: Shipped subtree
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Reference library is current
+        run: python -B tools/gen_reference_library.py --check
+
+      - name: Marketplace and plugin manifests validate
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude plugin validate .
+
+      - name: No dev artifacts in the shipped subtree
+        # The walk must see its subject: a known tracked file must be found first,
+        # or an empty hit list proves nothing.
+        run: |
+          control=$(find plugins/planwise -name 'parse_lessons.py' | wc -l)
+          if [ "$control" -ne 1 ]; then
+            echo "::error::control file not found (count=$control): the walk cannot see plugins/planwise"
+            exit 1
+          fi
+          hits=$(find plugins/planwise \
+            \( -name 'test_*.py' -o -name '*_test.py' -o -name 'conftest.py' \) -o \
+            -type d \( -name '__pycache__' -o -name '.pytest_cache' -o -name '.ruff_cache' \
+                       -o -name '.mypy_cache' -o -name 'probe_*' \))
+          echo "walked $(find plugins/planwise -type f | wc -l) files"
+          if [ -n "$hits" ]; then
+            echo "::error::dev artifacts in the shipped subtree. Relocate tests to tests/, delete caches and probe dirs:"
+            echo "$hits"
+            exit 1
+          fi
+
+      - name: No external identifiers added to the shipped subtree
+        if: github.event_name == 'pull_request'
+        # Candidates, not verdicts: a hit fails the job so a human classifies it.
+        # The exempt zones carry the plugin's own sample vocabulary on purpose.
+        run: |
+          base="origin/${{ github.base_ref }}"
+          git diff --no-ext-diff "$base"...HEAD -- plugins/planwise/ \
+            ':(exclude)plugins/planwise/references/artifact-self-containment.md' > all.diff
+          git diff --no-ext-diff "$base"...HEAD -- plugins/planwise/ \
+            ':(exclude)plugins/planwise/references/artifact-self-containment.md' \
+            ':(exclude)plugins/planwise/templates' \
+            ':(exclude)plugins/planwise/examples' \
+            ':(exclude)plugins/planwise/handlers/plan.md' > scoped.diff
+          added() { grep '^+' "$1" | grep -v '^+++' || true; }
+          echo "scanning $(added all.diff | wc -l) added lines in $(git diff --name-only "$base"...HEAD -- plugins/planwise/ | wc -l) shipped files"
+          ids=$(added all.diff | grep -E '(LL-[0-9]|BB-[0-9]|BLI-[0-9]|PLG-[0-9]|\bD-[0-9]|\b(LL|BB|BLI|PLG)([A-Z][a-z]|[0-9]))' || true)
+          plans=$(added scoped.diff | grep -E 'Sprint-[0-9]|Session-[0-9]' || true)
+          status=0
+          if [ -n "$ids" ]; then
+            echo "::error::bookkeeping identifiers added to shipped files (inline the content or repoint to a plugin file):"
+            echo "$ids"; status=1
+          fi
+          if [ -n "$plans" ]; then
+            echo "::error::sprint or session names added to shipped files outside the sample-vocabulary zones:"
+            echo "$plans"; status=1
+          fi
+          exit $status
+
+  tests:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: python -m pip install pytest==9.0.2 pytest-xdist==3.8.0 pyyaml==6.0.3
+      - name: Full suite
+        run: python -B tools/suite.py --full --no-cache
