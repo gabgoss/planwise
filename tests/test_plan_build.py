@@ -36,7 +36,7 @@ PLAN_RE = re.compile(r"^plan missing=(\d+) errors=(\d+)$", re.MULTILINE)
 
 def _task(number, name, agent, deps, outputs):
     return {
-        "number": number, "name": name, "title": f"{name} work", "agent": agent, "estimate_k": 20 + number,
+        "number": number, "name": name, "title": f"Step {number} of the ledger", "agent": agent, "estimate_k": 20 + number,
         "depends_on": deps, "outputs": outputs,
         "required_context": [{"priority": 1, "path": "src/orchard/ledger.py", "kib": 4.0, "tokens_k": 1.5,
                               "purpose": "the module"}],

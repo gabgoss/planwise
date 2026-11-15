@@ -78,6 +78,7 @@ If your own reading contradicts the sheet, say so explicitly: re-measure — `wc
 - Verify that a task dispatched to a runner, subagent or CI actor is not bound to a rule that names a tool only a human can reach, and that a rule naming a tool states the capability behind it, an instance for each bound actor and the reason for each prohibition (Check 121, Dispatched Runner Bound to a Rule Naming a Human-Only Tool; `references/rule-authoring.md` §8)
 - Verify that no Success Criterion, exit criterion or Signoff anchor uses a data-state literal as its pass or fail value, cited or not, and that measurement work carries one criterion tying a produced value to its evidence (Check 124, Data-State Literal Used as a Pass or Fail Value; `references/exit-criteria-fidelity.md` §16.10.1, `references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md` §16.19)
 - Verify that a task which corrects, reconciles or supersedes a state assertion restated elsewhere carries a wider-tree restatement sweep, and that no uncorrected live copy survives outside the plan's Outputs (Check 129, Correction Leaves an Uncorrected Sibling Copy; `references/dispatch-edit-surface-sweep.md` §14)
+- Verify that a test whose safety rests on rollback or on no commit cites a search of the callee's commit calls, and that a committing callee has a named neutralising mechanism and a second-connection before-and-after count (Check 133, Rollback-Protected Test Against a Committing Callee; `references/destructive-change-requirements.md` §10.11)
 - [Token Saver on only] Each task's Required Context obeys the `references/task-content-fidelity.md` §9.A.8 large-file ladder (Check 065): no over-ceiling task without `1M-exception`; Warn+ files carry a backlog item; a `read`-reason finding is advice and never `1M-exception`'d (read routes: `allow_large` at Claude Code v2.1.296 or later, `offset`/`limit` pages, or Grep); oversized generated artifacts are a WARNING with a split advised
 - Session Summary's Consumption Record present with `measured|estimated` tags; orchestrator-window total kept distinct from summed dispatch budgets
 
@@ -221,6 +222,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 072 — Destructive-Path Spec Missing Interaction Matrix → references/destructive-change-requirements.md §10.1
 - Check 073 — Absent-Key Pin Rewrite During Non-Default-Gated Change → references/destructive-change-requirements.md §10.3
 - Check 122 — Destructive Guard Evidenced Only by a Read or an Injected Input → references/destructive-change-requirements.md §10.10
+- Check 133 — Rollback-Protected Test Against a Committing Callee (also a verify bullet in `### Task Reviewer`, so every plan gets it) → references/destructive-change-requirements.md §10.11
 
 ## Sub-role: Verification-Gate Reviewer (NEW)
 

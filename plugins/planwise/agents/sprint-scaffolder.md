@@ -122,7 +122,7 @@ Columns and slots the headings above do not show. The `### Computed Write-Target
 - [ ] **Git commit and push** — stage specific files (`git add` by name, never `git add .`), commit, push
 ```
 
-### Recovery — `templates/recovery.md` (169 lines)
+### Recovery — `templates/recovery.md` (190 lines)
 
 ```
 ## Step Completion Status
@@ -131,6 +131,7 @@ Columns and slots the headings above do not show. The `### Computed Write-Target
 ## Issues Identified
 ## Cross-Task Coordination Flags
 ## Scope-Expansion Decisions
+## Premise Corrections
 ## Files Modified
 ## Session Commit Pin
 ## Change Log
@@ -148,7 +149,7 @@ The template document also carries three sections after its fenced body. They de
 ## Change Log Status Values
 ```
 
-### Task file — `templates/task-file.md` (495 lines)
+### Task file — `templates/task-file.md` (499 lines)
 
 ```
 ## Objective <!-- REQUIRED -->

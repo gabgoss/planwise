@@ -287,9 +287,18 @@ def _section_span(path: Path, x: str, y: str,
     return start.line, stop, sum(len(r) for r in lines[start.line - 1:stop])
 
 
+def _same_file(a: Path, b: Path) -> bool:
+    """True when both paths name one existing file."""
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
 def price_row(
     cell: str, task_path: Path, plan_root: Path, project_root: Path,
     model: str | None, cache: _FileCache | None = None,
+    own_bytes: int | None = None,
 ) -> dict:
     """Price one Required Context File cell, or say why it is left as authored.
 
@@ -299,6 +308,9 @@ def price_row(
     span forms means the author priced something narrower than the file.
     `cache` is the run's `_FileCache`, so a file cited by several span rows
     is read once. File I/O errors propagate as `OSError` to the caller.
+    `own_bytes` is the encoded size of the task file's in-memory text. A
+    whole-file row that resolves to the task file itself takes that size, not
+    the size on disk, because the disk copy predates this run's edits.
     """
     cache = cache if cache is not None else _FileCache()
     raw = cell.replace("`", "").replace("**", "").strip().strip("<>").strip()
@@ -342,7 +354,8 @@ def price_row(
         resolved = _resolve(cell)
         if resolved is None:
             return {"priced": False, "reason": unresolved_reason(cell, project_root)}
-        num_bytes = os.path.getsize(resolved)
+        num_bytes = (own_bytes if own_bytes is not None and _same_file(resolved, task_path)
+                     else os.path.getsize(resolved))
 
     _, content = content_class_for(resolved)
     tokens = estimate_tokens(num_bytes, model or "", content)
@@ -542,9 +555,61 @@ def _task_id(lines: list[str], task_path: Path) -> str:
     return task_path.stem
 
 
+_SELF_ROW_PASSES = 8  # a pass that still moves the byte count after this many is not converging
+_PASS_LISTS = ("left", "spans", "unreadable")
+
+
+def _text_bytes(lines: list[str]) -> int:
+    """The encoded size of the buffer, which is what `_Buffers.commit` writes."""
+    return len("\n".join(lines).encode("utf-8"))
+
+
 def _write_task(buf: _Buffers, report: dict, task_path: Path, plan_root: Path,
                 project_root: Path, cache: _FileCache) -> str | None:
     """Write one task's row cells, subtotal and header. Returns the header text.
+
+    A task file may cite itself in Required Context. Writing that row changes
+    the file's own size, so the write repeats until a pass leaves the encoded
+    byte count where it found it. The row, the subtotal and the header then
+    describe the bytes that `commit` writes. The report keeps one record per
+    changed cell: the value as read, and the value after the last pass.
+    """
+    lines = buf.get(task_path)
+    original = list(lines)
+    marks = {key: len(report[key]) for key in _PASS_LISTS}
+    n_changes = len(report["changes"])
+    merged: dict[tuple, dict] = {}
+    for n_pass in range(_SELF_ROW_PASSES):
+        measured = _text_bytes(lines)
+        for key, n in marks.items():
+            del report[key][n:]  # each pass lists them again
+        total = _write_task_pass(buf, report, task_path, plan_root, project_root,
+                                 cache, measured)
+        for change in report["changes"][n_changes:]:
+            hit = merged.setdefault((change["line"], change["what"]), dict(change))
+            hit["new"] = change["new"]
+        del report["changes"][n_changes:]
+        if total is None:
+            if n_pass:  # a later pass failed: the file goes back as authored
+                lines[:] = original
+            else:
+                report["changes"].extend(c for c in merged.values() if c["old"] != c["new"])
+            return None
+        if _text_bytes(lines) == measured:
+            report["changes"].extend(c for c in merged.values() if c["old"] != c["new"])
+            return total
+    lines[:] = original
+    for key, n in marks.items():
+        del report[key][n:]
+    report["unreadable"].append({"file": str(task_path), "what": "task file size",
+                                 "reason": f"the byte count still moved after {_SELF_ROW_PASSES} "
+                                           "passes (task file left as authored)"})
+    return None
+
+
+def _write_task_pass(buf: _Buffers, report: dict, task_path: Path, plan_root: Path,
+                     project_root: Path, cache: _FileCache, own_bytes: int) -> str | None:
+    """One pass of `_write_task`: row cells, subtotal and header, priced at `own_bytes`.
 
     The row cells are kept only with a re-rolled subtotal: when the subtotal
     cannot be re-rolled, the whole task file stays as authored.
@@ -586,7 +651,7 @@ def _write_task(buf: _Buffers, report: dict, task_path: Path, plan_root: Path,
             continue
         try:
             price = price_row(cells[file_idx], task_path, plan_root, project_root,
-                              model, cache)
+                              model, cache, own_bytes)
         except OSError as exc:
             price = {"priced": False, "reason": f"read error: {exc}"}
         if price["priced"]:

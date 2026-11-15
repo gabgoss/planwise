@@ -374,17 +374,18 @@ Sprint Plan header Estimated Tokens
 
 | Check | Formula | When to Verify |
 |-------|---------|----------------|
+| Task reads | Sum of the Required Context `~Tokens` cells = the Context subtotal reads term | After writing each task file |
 | Task internal | Context subtotal = Task header `Estimated Tokens` | After writing each task file |
 | Session total | Sum of task `Est. Tokens` = Orchestration `Total Estimated` | After writing orchestration |
 | Sprint total | Sum of session `Est. Tokens` = Sprint Plan header `Estimated Tokens` | After writing sprint plan |
 
-**Enforcement:** The `/planwise plan` handler's Step 8c computes estimates bottom-up. Its Step 9b (Post-Pass Harmonization) runs `estimate_reconcile.py check` over the scaffold. The `/planwise review` handler runs the same checker through the review discovery pass, and Reviewer Check 132 reads the result. Reviewer Check 024 covers the task-internal row. Template comments in orchestration, sprint plan, and task file templates remind the planner to verify.
+**Enforcement:** The `/planwise plan` handler's Step 8c computes estimates bottom-up. Its Step 9b (Post-Pass Harmonization) runs `estimate_reconcile.py check` over the scaffold. The `/planwise review` handler runs the same checker through the review discovery pass, and Reviewer Check 132 reads the result. Reviewer Check 024 covers both task levels: the Required Context row sum and the task-internal total. Template comments in orchestration, sprint plan, and task file templates remind the planner to verify.
 
 #### Reviewer Check 024 — Task Token-Estimate Arithmetic Gate
 
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
-- **What:** Task header `Estimated Tokens` = Required Context subtotal + output tokens. No `~?` placeholders. Deviation ≤10%.
-- **Detection:** Extract header value + subtotal line. `abs(header - subtotal) / header > 0.10` → BLOCKER. Any `~?` → BLOCKER.
+- **What:** Task header `Estimated Tokens` = Required Context subtotal + output tokens. The Required Context `~Tokens` cells sum to the subtotal's reads term. No `~?` placeholders. Deviation ≤10%.
+- **Detection:** Extract header value + subtotal line. `abs(header - subtotal) / header > 0.10` → BLOCKER. Any `~?` → BLOCKER. Sum the `~Tokens` cells of the Required Context table. When the sum differs from the subtotal's reads term by more than 10% of the sum → BLOCKER. The Estimate Reconciliation section of the review discovery fact sheet carries the same comparison as a `MISMATCH task-reads` line. The row of that table that names the task file itself carries a `KiB` figure that must sit within 3% of the file's bytes. The fact sheet reports a larger drift as a `MISMATCH task-self` line, and each such line is a BLOCKER.
 - **Finding template:**
 ```
 [BLOCKER] Task token-estimate arithmetic gate failed
@@ -398,7 +399,7 @@ Fix: Reconcile per references/session-context-budget.md Token Estimate Reconcili
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
 - **What:** Each session total and sprint total equals the figures it rolls up from, within 10%. The pairs are the session and sprint rows of the reconciliation table above: orchestration task-list cells against task headers, the orchestration `Total Estimated` against its cells, the Sprint Plan session row against the orchestration total, and the Sprint Plan header against its session rows.
 - **Detection:** Read the review discovery fact sheet's Estimate Reconciliation section. It holds the verbatim output of `estimate_reconcile.py check` and its exit code. The script already drops any drift at or under 10%.
-  - Each `MISMATCH` line whose level is not `task` → one BLOCKER. Check 024 owns the `task` level, so skip those lines here.
+  - Each `MISMATCH` line whose level is not `task`, `task-reads` or `task-self` → one BLOCKER. Check 024 owns the three task levels, so skip those lines here.
   - Any `UNREAD` lines → one WARNING that lists them. An `UNREAD` line does not change the exit code, so exit 0 can still carry one.
   - A `sessions=0` total line → not applicable, no finding.
   - The section is missing, or reads `exit: 2` → report it to the lead as an unrun check, never as a plan finding.

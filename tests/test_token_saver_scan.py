@@ -19,6 +19,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 # Allow imports whether pytest is launched from the repo root or from inside
 # tests/ — mirrors the sibling test modules' self-locating sys.path line.
@@ -550,6 +551,122 @@ class TestVersionGatedRoutes(unittest.TestCase):
         self.assertEqual(result["summary"]["critical_handled"], 1)
 
 
+class TestOverCeilingTask(unittest.TestCase):
+    """A task over the per-task ceiling must carry the 1M flag.
+
+    The ceiling is `Estimated Tokens + runner overhead > session target`. The 1M
+    window never replaces the flag, so an unflagged over-ceiling task makes the
+    scan exit 1 and print the task on a worklist line.
+    """
+
+    TARGET = 150_000
+    OVERHEAD = 1_000
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="tss_ceiling_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.plan = self.tmp / "Plans" / "Probe"
+        (self.plan / "Session-01").mkdir(parents=True)
+        (self.tmp / "docs").mkdir()
+        (self.tmp / "docs" / "small.md").write_bytes(b"x" * 2_000)
+
+    def _write_cfg(self, token_saver: bool = True) -> Path:
+        cfg = self.tmp / "planwise" / "config.yaml"
+        cfg.parent.mkdir(exist_ok=True)
+        cfg.write_text(
+            "project:\n  name: Demo\n"
+            f"context:\n  token_saver: {'true' if token_saver else 'false'}\n"
+            f"  token_saver_session_target: {self.TARGET}\n"
+            f"  token_saver_runner_overhead: {self.OVERHEAD}\n",
+            encoding="utf-8",
+        )
+        return cfg
+
+    def _task(self, estimate: str, budget: str = "", agent: str = "Sonnet",
+              name: str = "T-01.md"):
+        text = _task(
+            TEMPLATE_COLUMNS, "| 1 | `docs/small.md` | 2 | ~1K | why |", agent,
+        ).replace("**Estimated Tokens:** ~10K", f"**Estimated Tokens:** {estimate}")
+        if budget:
+            text = text.replace(
+                "**Estimated Tokens:**",
+                f"**Token Budget:** {budget}\n**Estimated Tokens:**",
+            )
+        (self.plan / "Session-01" / name).write_text(text, encoding="utf-8")
+
+    def _main(self, token_saver: bool = True):
+        cfg = self._write_cfg(token_saver)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = tss.main(["--scan", "--plan", str(self.plan),
+                             "--config", str(cfg)])
+        return code, buf.getvalue()
+
+    def test_unflagged_over_ceiling_task_exits_one_and_prints_its_line(self):
+        self._task("~182K")
+        code, out = self._main()
+        self.assertEqual(code, 1)
+        self.assertIn("Over-ceiling tasks without a 1M flag", out)
+        self.assertRegex(out, r"(?m)^  - .*T-01\.md")
+
+    def test_one_m_cost_flag_clears_the_task(self):
+        self._task("~182K", budget="~182K (exception: 1M (cost))")
+        code, out = self._main()
+        self.assertEqual(code, 0)
+        self.assertNotIn("Over-ceiling", out)
+
+    def test_one_m_exception_spelling_clears_the_task(self):
+        self._task("~182K", budget="~182K (exception: 1M-exception)")
+        code, out = self._main()
+        self.assertEqual(code, 0)
+        self.assertNotIn("Over-ceiling", out)
+
+    def test_agent_qualifier_clears_the_task(self):
+        self._task("~182K", agent="Opus (1M-exception)")
+        code, _ = self._main()
+        self.assertEqual(code, 0)
+
+    def test_under_ceiling_task_prints_nothing(self):
+        self._task("~148K")
+        code, out = self._main()
+        self.assertEqual(code, 0)
+        self.assertNotIn("Over-ceiling", out)
+
+    def test_ceiling_includes_the_runner_overhead(self):
+        # 149K + 1K overhead is exactly the target, so not over; 149.5K is over.
+        self._task("~149K")
+        self.assertEqual(self._main()[0], 0)
+        self._task("~149.5K")
+        self.assertEqual(self._main()[0], 1)
+
+    def test_token_saver_off_prints_nothing(self):
+        self._task("~182K")
+        code, out = self._main(token_saver=False)
+        self.assertEqual(code, 0)
+        self.assertNotIn("Over-ceiling", out)
+
+    def test_levels_line_keeps_its_shape_for_plan_build(self):
+        self._task("~182K")
+        _, out = self._main()
+        self.assertRegex(
+            out, r"\d+ Green, \d+ Notice, \d+ Warn, \d+ Critical \(\d+ handled"
+        )
+
+    def test_summary_and_findings_carry_the_task(self):
+        self._task("~182K")
+        cfg = {"context": {"token_saver": True,
+                           "token_saver_session_target": self.TARGET,
+                           "token_saver_runner_overhead": self.OVERHEAD}}
+        result = tss.scan_plan(self.plan, cfg, self.tmp)
+        self.assertEqual(result["summary"]["over_ceiling_unflagged"], 1)
+        self.assertEqual(result["over_ceiling"][0]["estimate"], 182_000)
+
+    def test_header_without_a_figure_is_never_guessed(self):
+        self.assertIsNone(tss.parse_estimated_tokens("**Estimated Tokens:** ~?K\n"))
+        self.assertEqual(tss.parse_estimated_tokens("**Estimated Tokens:** ~34K\n"), 34_000)
+        self.assertEqual(tss.parse_estimated_tokens("**Estimated Tokens:** ~1.5K\n"), 1_500)
+
+
 class TestCli(unittest.TestCase):
     """Exit codes and the facade entry point Step 8c cites."""
 
@@ -960,6 +1077,73 @@ class TestWriteEstimates(unittest.TestCase):
         self._run()
         data = self.task.read_bytes()
         self.assertEqual(data.count(b"\n"), data.count(b"\r\n"))
+
+    # -- the task file's own row --------------------------------------------
+    SELF_CELL = "`DM-S01-01-01-Sonnet-Probe.md`"
+
+    def _write_self_row_task(self) -> None:
+        """A task whose rewrite shrinks it by more than 0.1 KiB, so the disk size is stale after pass one."""
+        junk = "9" * 60 + ".9"  # rows 1-3 are priced and lose this padding
+        rows = TASK_ROWS.replace("| 9.9 |", f"| {junk} |")
+        rows += f"\n| 6 | {self.SELF_CELL} | 0.1 | ~0.1K | this task file |"
+        self.task.write_text(_wb_task(rows, SUBTOTAL), encoding="utf-8")
+
+    def test_self_row_is_priced_from_the_final_bytes(self):
+        self._write_self_row_task()
+        disk_before = len(self.task.read_bytes())
+        report = self._run()
+        size = len(self.task.read_bytes())
+        self.assertLess(size, disk_before - 102)  # the control: one pass over the disk size is stale
+        cells = self._row_cells(6)
+        self.assertEqual(cells[2].strip(), tsw._fmt_kib(size))
+        tokens = tsw.estimate_tokens(size, "sonnet", tsw.content_class_for(self.task)[1])
+        self.assertEqual(cells[3].strip(), tsw._fmt_k(tokens))
+        # The subtotal and the header carry the self row's figure.
+        text = self.task.read_text(encoding="utf-8")
+        reads = sum(tsw._parse_token_cell(self._row_cells(n)[3]) for n in range(1, 7))
+        sub = next(ln for ln in text.splitlines() if ln.startswith("**Context subtotal:**"))
+        self.assertIn(tsw._fmt_k(reads), sub)
+        total = int((reads / 1000 + 8).quantize(tsw.Decimal("1"), rounding=tsw.ROUND_HALF_UP))
+        self.assertIn(f"**Estimated Tokens:** ~{total}K", text)
+        # One record per changed cell: the value as read, then the value as written.
+        kib = [c for c in report["changes"] if c["what"] == "row 6 KiB"]
+        self.assertEqual([(c["old"], c["new"]) for c in kib], [("0.1", tsw._fmt_kib(size))])
+
+    def test_second_run_over_a_self_row_writes_nothing(self):
+        self._write_self_row_task()
+        self._run()
+        snapshot = self.task.read_bytes()
+        second = self._run()
+        self.assertEqual(second["changes"], [])
+        self.assertEqual(second["written"], [])
+        self.assertEqual(self.task.read_bytes(), snapshot)
+
+    def test_self_row_in_a_crlf_file_counts_the_carriage_returns(self):
+        self._write_self_row_task()
+        self.task.write_bytes(self.task.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+        self._run()
+        size = len(self.task.read_bytes())
+        self.assertEqual(self._row_cells(6)[2].strip(), tsw._fmt_kib(size))
+
+    def test_self_row_that_never_settles_leaves_the_task_as_authored(self):
+        self._write_self_row_task()
+        before = self.task.read_bytes()
+        with mock.patch.object(tsw, "_SELF_ROW_PASSES", 1):
+            report = self._run()  # the first pass moves the byte count, and no pass is left to settle it
+        self.assertEqual(self.task.read_bytes(), before)
+        self.assertEqual(report["written"], [])
+        self.assertFalse(any(c["file"] == str(self.task) for c in report["changes"]))
+        self.assertTrue(any(u["what"] == "task file size" for u in report["unreadable"]))
+
+    def test_only_the_row_that_names_the_task_file_takes_its_in_memory_size(self):
+        cell = "`kit/tool.py`"
+        other = tsw.price_row(cell, self.task, self.plan, self.project, "sonnet", own_bytes=1)
+        self.assertEqual(other["bytes"], (self.project / "kit" / "tool.py").stat().st_size)
+        own = tsw.price_row(self.SELF_CELL, self.task, self.plan, self.project, "sonnet",
+                            own_bytes=12345)
+        self.assertEqual(own["bytes"], 12345)
+        plain = tsw.price_row(self.SELF_CELL, self.task, self.plan, self.project, "sonnet")
+        self.assertEqual(plain["bytes"], self.task.stat().st_size)
 
 
 class TestWriteBackRealShapes(unittest.TestCase):

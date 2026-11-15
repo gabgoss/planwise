@@ -19,7 +19,15 @@ Pairs compared, per session:
 
     task                  a task's `**Estimated Tokens:**` header against the
                           total after `=` on its `**Context subtotal:**` line
-    orchestration-cell    each `## Session Task List` row's token cell against the
+    task-reads            the first `~NK` term of that subtotal line (the reads term)
+                          against the sum of the Required Context table's `~Tokens`
+                          cells. A cell with no figure is an UNREAD line
+    task-self             the `KiB` cell of the Required Context row that names the
+                          task file itself, against the file's size in bytes. The
+                          threshold is 3%, not 10%, and the drift ignores the 0.05 KiB
+                          the cell loses by printing one decimal. A task with no such
+                          row, or a row with no figure, is an UNREAD line
+    orchestration-cell   each `## Session Task List` row's token cell against the
                           header of the task whose Task ID ends in the row's `#`
     orchestration-total   `**Total Estimated:**` against the sum of the task-list cells
     sprint-row            the Sprint Plan `## Sessions` row holding the session ID
@@ -41,7 +49,9 @@ one line per figure that could not be read, then one total line that is always l
     estimates: sessions=<n> mismatches=<m> unread=<u>
 
 <file> is the path relative to PATH with forward slashes. A drift at or under 10%
-is rounding and prints nothing. An UNREAD line names a figure the script could not
+is rounding and prints nothing. The `task-self` level has its own limit of 3%. For
+that level the line reads `declared <a> KiB expected <b> KiB (<pct>%)`. An UNREAD
+line names a figure the script could not
 parse, such as a `~?K` placeholder or a missing row, and does not change the exit code.
 
 Exit codes: 0 clean, or every drift at or under 10%. 1 one or more MISMATCH lines.
@@ -61,15 +71,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import scaffold_plan as sp
 from token_saver_writeback import (
     _K_TERM_RE,
+    _TOKEN_HEADERS,
     _cells,
     _col,
+    _fmt_kib,
     _parse_token_cell,
+    _required_context_table,
     _section_bounds,
     _split_eol,
+    _table_rows,
     _token_tables,
 )
 
 THRESHOLD_PCT = Decimal(10)
+SELF_THRESHOLD_PCT = Decimal(3)
+# A KiB cell prints one decimal, so it can sit 0.05 KiB from the size it measured.
+SELF_ROUNDING_BYTES = Decimal("0.05") * 1024
+KIB_CELL_RE = re.compile(r"^~?\s*(\d[\d,]*(?:\.\d+)?)$")
 HEADER_RE = re.compile(r"^\*\*Estimated Tokens:\*\*")
 TOTAL_RE = re.compile(r"^\*\*Total Estimated:\*\*")
 SUBTOTAL_LABEL = "**Context subtotal:**"
@@ -130,9 +148,95 @@ class Checker:
         self.unread.append(f"UNREAD {level} {where} {reason}")
 
     # -- task level ----------------------------------------------------------
+    def task_reads(self, path, lines):
+        """Compare the Required Context ~Tokens rows with the subtotal's reads term.
+
+        A missing subtotal line is reported once, by `task`, so it stays silent here.
+        """
+        s_idx = next((i for i, ln in enumerate(lines) if ln.startswith(SUBTOTAL_LABEL)), None)
+        if s_idx is None:
+            return
+        reads = _figure_after(lines[s_idx], len(SUBTOTAL_LABEL))
+        if reads is None:
+            self.miss("task-reads", path, "no `~NK` reads term on the Context subtotal line", s_idx)
+            return
+        table = _required_context_table(lines)
+        if table is None:
+            self.miss("task-reads", path, "no Required Context table", s_idx)
+            return
+        header_idx, header = table
+        tok = _col(header, _TOKEN_HEADERS)
+        if tok is None:
+            self.miss("task-reads", path, "no ~Tokens column in the Required Context table",
+                      s_idx)
+            return
+        values = []
+        for r in _table_rows(lines, header_idx):
+            cells = _cells(_split_eol(lines[r])[0], len(header))
+            value = _parse_token_cell(cells[tok]) if len(cells) == len(header) else None
+            if value is None:
+                self.miss("task-reads", path, "a Required Context row has no figure in the "
+                          "~Tokens cell", r)
+                return
+            values.append(value)
+        if values:
+            self.compare("task-reads", path, s_idx, reads, sum(values, Decimal(0)))
+
+    def task_self(self, path, lines):
+        """Compare the KiB cell of the row that names this task file with its bytes.
+
+        A task with no Required Context table is reported once, by `task-reads`,
+        so it stays silent here.
+        """
+        table = _required_context_table(lines)
+        if table is None:
+            return
+        header_idx, header = table
+        file_col = next((i for i, c in enumerate(header) if c.startswith("file")), None)
+        kib_col = _col(header, ("kib",))
+        if file_col is None or kib_col is None:
+            self.miss("task-self", path, "no File or KiB column in the Required Context table",
+                      header_idx)
+            return
+        try:
+            size = path.stat().st_size
+        except OSError as exc:
+            raise PlanReadError(f"cannot read plan file {self.rel(path)}: {exc}") from exc
+        found = False
+        for r in _table_rows(lines, header_idx):
+            cells = _cells(_split_eol(lines[r])[0], len(header))
+            if len(cells) != len(header) or not self._names_file(cells[file_col], path):
+                continue
+            found = True
+            m = KIB_CELL_RE.match(cells[kib_col].replace("`", "").replace("**", "").strip())
+            if m is None:
+                self.miss("task-self", path, "no figure in the KiB cell of the row that names "
+                          "this task file", r)
+                continue
+            declared = Decimal(m.group(1).replace(",", ""))
+            drift = abs(declared * 1024 - size)
+            pct = Decimal(100) if size == 0 else drift / size * 100
+            allowed = max(Decimal(0), drift - SELF_ROUNDING_BYTES)
+            if (Decimal(100) if size == 0 else allowed / size * 100) > SELF_THRESHOLD_PCT:
+                self.mismatches.append(
+                    f"MISMATCH task-self {self.rel(path)}:{r + 1} declared {declared:f} KiB "
+                    f"expected {_fmt_kib(size)} KiB ({pct.quantize(Decimal('0.1'))}%)")
+        if not found:
+            self.miss("task-self", path, "no Required Context row names this task file",
+                      header_idx)
+
+    @staticmethod
+    def _names_file(cell, path):
+        """True when a File cell is the bare path of `path`, with no span after it."""
+        raw = cell.replace("`", "").replace("**", "").strip().strip("<>").strip()
+        raw = raw.replace("\\", "/")
+        return bool(raw) and " " not in raw and raw.rsplit("/", 1)[-1] == path.name
+
     def task(self, path):
         """(task number, header tokens or None) after checking header against subtotal."""
         lines = self.lines(path)
+        self.task_reads(path, lines)
+        self.task_self(path, lines)
         task_id = next((m.group(1) for ln in lines if (m := TASK_ID_RE.match(ln))), "")
         num = re.search(r"-(\d+)\s*$", task_id.replace("`", "").replace("*", "").strip())
         num = int(num.group(1)) if num else None

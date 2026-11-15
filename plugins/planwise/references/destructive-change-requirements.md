@@ -1,6 +1,6 @@
 ---
-description: Destructive-path and config-gated change requirements — interaction-matrix spec, independent test authorship, gated-branch pin discipline, pre-commit adversarial review, a lexical scorer's absent verdict is not evidence of absence (adjudicate before the writer runs), a similarity heuristic may only escalate in refuse-by-default tooling, and review convergence gated on consequence classes rather than severity labels, what the adversarial review must be told (seven case classes, the fix-diff review and the stopping rule), and an exemption modelled on a reference check copies the whole refusal condition, and a destructive-step guard is verified through the producer of its condition, not by a read or an injected input
-consult-when: A branch can DELETE, OVERWRITE, MIGRATE, PRUNE or SWEEP user data — interaction-matrix spec, independent tests, adjudicating a lexical scorer's absent verdict before the writer runs, an escalate-only similarity heuristic, adversarial review gated on consequence classes, and an exemption that copies the whole refusal condition, a guard before a destructive step whose evidence is a read, a "reasoned" label or an injected input, and the producer of a guard's condition
+description: Destructive-path and config-gated change requirements — interaction-matrix spec, independent test authorship, gated-branch pin discipline, pre-commit adversarial review, a lexical scorer's absent verdict is not evidence of absence (adjudicate before the writer runs), a similarity heuristic may only escalate in refuse-by-default tooling, and review convergence gated on consequence classes rather than severity labels, what the adversarial review must be told (seven case classes, the fix-diff review and the stopping rule), and an exemption modelled on a reference check copies the whole refusal condition, a destructive-step guard is verified through the producer of its condition, not by a read or an injected input, and a rollback-protected test cites a search of the callee's commit calls
+consult-when: A branch can DELETE, OVERWRITE, MIGRATE, PRUNE or SWEEP user data — interaction-matrix spec, independent tests, adjudicating a lexical scorer's absent verdict before the writer runs, an escalate-only similarity heuristic, adversarial review gated on consequence classes, and an exemption that copies the whole refusal condition, a guard before a destructive step whose evidence is a read, a "reasoned" label or an injected input, and the producer of a guard's condition, a test that writes to or deletes from a real data store and relies on rollback for cleanup
 ---
 
 # Destructive-Path and Config-Gated Change Requirements
@@ -12,7 +12,7 @@ consult-when: A branch can DELETE, OVERWRITE, MIGRATE, PRUNE or SWEEP user data 
 
 ## 10. Destructive-Path & Config-Gated Change Requirements
 
-*Applies to any task that adds or extends a branch which can DELETE, OVERWRITE, MIGRATE, PRUNE, or SWEEP user data or user customizations. For such code the ordinary per-task gates — lint clean, unit suite green, smoke passing, self-containment greps empty — certify nothing about the inputs and adjacent states nobody named. These requirements are a chain, not duplicates: §10.1 makes the spec cover the whole interaction matrix; §10.2 has an independent test task re-derive the contract; §10.3 pins the gated branch without disturbing default-path evidence; §10.4 backstops all three with an adversarial review before the commit. §10.5 to §10.7 cover a destructive path that a similarity score or a severity label steers: §10.5 says a lexical scorer's "absent" verdict is not evidence of absence, so a semantic adjudicator runs before the writer; §10.6 says a similarity heuristic may only escalate toward refusal; §10.7 gates a review loop's convergence on consequence classes, not on severity labels. §10.8 and §10.9 cover what a review and a guard author each miss when the author of the feature also wrote its fixtures: §10.8 names the case classes the review brief must carry, requires a review of a fix diff, and sets the stopping rule. §10.9 says an exemption modelled on a reference check copies that check's whole refusal condition. §10.10 covers the guard itself: a guard before a destructive step is verified through the producer of its condition, not by a read of the guard or a test that injects the condition's value.*
+*Applies to any task that adds or extends a branch which can DELETE, OVERWRITE, MIGRATE, PRUNE, or SWEEP user data or user customizations. For such code the ordinary per-task gates — lint clean, unit suite green, smoke passing, self-containment greps empty — certify nothing about the inputs and adjacent states nobody named. These requirements are a chain, not duplicates: §10.1 makes the spec cover the whole interaction matrix; §10.2 has an independent test task re-derive the contract; §10.3 pins the gated branch without disturbing default-path evidence; §10.4 backstops all three with an adversarial review before the commit. §10.5 to §10.7 cover a destructive path that a similarity score or a severity label steers: §10.5 says a lexical scorer's "absent" verdict is not evidence of absence, so a semantic adjudicator runs before the writer; §10.6 says a similarity heuristic may only escalate toward refusal; §10.7 gates a review loop's convergence on consequence classes, not on severity labels. §10.8 and §10.9 cover what a review and a guard author each miss when the author of the feature also wrote its fixtures: §10.8 names the case classes the review brief must carry, requires a review of a fix diff, and sets the stopping rule. §10.9 says an exemption modelled on a reference check copies that check's whole refusal condition. §10.10 covers the guard itself: a guard before a destructive step is verified through the producer of its condition, not by a read of the guard or a test that injects the condition's value. §10.11 covers a test whose safety rests on a rollback: it cites a search of the callee's commit calls, because a rollback protects only a callee that does not commit.*
 
 ### 10.1 Enumerate the config-interaction matrix in the spec
 
@@ -293,6 +293,56 @@ Five rules:
 File: {task or report file path} | Location: {the guard or the verification line}
 Issue: The guard "{quoted guard}" stands before "{destructive step}" and its only evidence is {a code read | a reasoned label | an injected input | a live run that never hit the trigger}. {No producer of its condition is named | The producer was never driven to the triggering value}
 Fix: Name the producer, add a test that drives it end to end to the triggering value, and show the test failing on the pre-fix artifact and passing on the fixed one, per references/destructive-change-requirements.md §10.10 | Confidence: HIGH
+```
+
+### 10.11 A Rollback Protects Only a Callee That Does Not Commit
+
+> [!constraint] A test whose safety rests on `rollback()` or on "no commit" cites a search of the callee's commit calls
+> A rollback undoes only the writes the callee leaves uncommitted. When the code under test calls `commit()` itself, the first call commits every row the test inserted before it. The same call commits any change a known-bad control makes afterward. The test then leaves its fixture rows in the store, and the control can delete real rows for the keys it targets.
+>
+> The claim "the test rolls back" and the claim "every writer commits" each read as correct alone. They sit in different sections of a plan or its Execution Input, so extraction, scaffolding and structural review pass both. Only a search of the callee's commit calls puts the two side by side.
+>
+> One scaffolded sprint specified integration tests for eight database writers. Each test inserted one live row, called the writer with `origin='backfill'`, asserted the live row survived, then called `rollback()` in a `finally`. A known-bad control called the same writer with `origin='live'` and asserted the row was gone. The same Execution Input stated that every writer commits explicitly with `conn.commit()` in its `try`. A task reviewer found the conflict by searching the writer modules for `.commit()` and counting nine call sites. As written, the first writer call would have committed the pre-inserted row. The control's DELETE would have removed real production rows. The sprint's own gate counted `backfill` rows after the test, so it could not see damage to `live` rows.
+>
+> WRONG — the safety claim rests on the rollback, and nothing checks the callee:
+> ```text
+> Test: insert one live row; call writer(origin='backfill'); assert the live row survives; rollback() in a finally.
+> Control: call writer(origin='live'); assert the row is gone.
+> Gate: backfill row count = 0 after the test.
+> EI, 40 lines earlier: "every writer commits explicitly (conn.commit() in its try)".
+> ```
+> CORRECT — the callee's commit calls are searched, the mechanism is named, and the gate counts what the control could destroy:
+> ```text
+> Callee search: 9 commit() call sites in the writer modules, so the writers commit and a rollback protects nothing.
+> Mechanism: the test connection is a commit-swallowing proxy (commit() is a no-op), and the control targets a scratch key that holds no real row.
+> Gate: a second connection counts the rows the control could destroy before and after the run. The counts match.
+> ```
+
+Four rules:
+
+- **Search the callee before trusting a rollback.** The plan or task cites a search of the code under test for `commit()` calls, with the count. A cited count of zero lets the rollback stand. Any other count means the callee commits.
+- **Name a neutralising mechanism when the callee commits.** Two work: a commit-swallowing connection proxy, and a scratch key that holds no real row. State which one the test uses. Reading "the writers commit" in one place and "the test rolls back" in another is not a mechanism.
+- **Count on a second connection, before and after.** The test's own connection sees its own uncommitted writes, so it cannot show what reached the store. A second connection reads only committed rows.
+- **Count the rows the known-bad control could destroy.** A gate that counts only the rows the test wrote misses damage to rows the test never touched.
+
+**Applies to** any test that writes to or deletes from a real data store and relies on rollback, or on the absence of a commit, for cleanup. It also applies to any Execution Input that states both a rollback-based cleanup and a callee that commits.
+
+#### Reviewer Check 133 — Rollback-Protected Test Against a Committing Callee
+
+- **Severity / Role / Type:** ERROR | Task Reviewer | NEW
+- **What:** A test whose safety or cleanup rests on `rollback()`, on "no commit" or on "the transaction is never committed" MUST cite a search of the callee's commit calls. When the callee commits, the test MUST name a neutralising mechanism and a before-and-after row count read on a second connection. Without them the rollback protects nothing, and a known-bad control can destroy real rows.
+- **Detection:**
+  1. List each test in the task, its Execution Input and its verification plan whose cleanup or safety claim is a rollback, "no commit" or "the transaction is never committed".
+  2. Flag a test that cites no search of the callee's commit calls.
+  3. Flag a test whose callee commits, per the cited search or per any Execution Input or plan sentence such as "every writer commits", and that names no neutralising mechanism.
+  4. Flag a named mechanism that has no before-and-after count on a second connection.
+  5. A cited search showing zero commit calls is not a finding. A named mechanism with a second-connection count is not a finding. A test that touches no real data store is not a finding.
+- **Finding template:**
+```
+[ERROR] Rollback-protected test against a committing callee
+File: {task or Execution Input file path} | Location: {the test or the sentence stating the callee commits}
+Issue: The test "{quoted test}" relies on {rollback | no commit} for safety, and {it cites no search of the callee's commit calls | the callee commits ({quoted sentence or cited count}) and no neutralising mechanism is named | the mechanism has no second-connection before-and-after count}
+Fix: Cite a search of the callee's commit calls. If it commits, name a commit-swallowing proxy or a scratch key that holds no real row, and add a before-and-after count on a second connection, per references/destructive-change-requirements.md §10.11 | Confidence: HIGH
 ```
 
 ---

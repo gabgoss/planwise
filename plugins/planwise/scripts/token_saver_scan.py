@@ -24,7 +24,9 @@ Run it through the facade, which is the invocation Step 8c cites:
 
 Exit codes: 0 when every classified file is Green (or the scan does not apply),
 or when every Critical row is handled and nothing else is Warn or worse.
-1 when any file classifies Warn, or Critical without a handled row. 2 on a
+1 when any file classifies Warn, or Critical without a handled row, or when a
+task's `**Estimated Tokens:**` plus the runner overhead exceeds the session
+target and the task carries no 1M flag (`1M (cost)` or `1M-exception`). 2 on a
 usage error.
 
 Handled rows
@@ -202,6 +204,41 @@ def parse_paged_read_exception(text: str) -> bool:
 def row_is_paged(row_text: str) -> bool:
     """True when the Required Context row carries the `⚠ PAGED` annotation."""
     return bool(_PAGED_ROW_RE.search(row_text))
+
+
+# The flag spellings the dispatcher honours: the task template writes
+# `1M (cost)` in the Token Budget field, and `1M-exception` is also accepted
+# there or as a qualifier on the Agent field ("Sonnet (1M-exception)").
+_ONE_M_RE = re.compile(r"1M-exception|\b1M\s*\(cost\)")
+_ESTIMATE_RE = re.compile(
+    r"^\*\*Estimated Tokens:\*\*\s*~?\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*([KkMm])?",
+    re.MULTILINE,
+)
+
+
+def parse_estimated_tokens(text: str) -> int | None:
+    """Return the task's `**Estimated Tokens:**` figure in tokens, or None.
+
+    The header reads `~34K`; a bare number is taken as tokens and an `M`
+    suffix as millions. A header with no readable figure yields None, so the
+    ceiling check never guesses a size.
+    """
+    m = _ESTIMATE_RE.search(text)
+    if not m:
+        return None
+    value = float(m.group(1).replace(",", ""))
+    unit = (m.group(2) or "").upper()
+    scale = {"K": 1_000, "M": 1_000_000}.get(unit, 1)
+    return round(value * scale)
+
+
+def parse_one_m_flag(text: str) -> bool:
+    """True when the task carries the 1M flag in Token Budget or Agent."""
+    for label in ("Token Budget", "Agent"):
+        m = re.search(rf"^\*\*{label}:\*\*(.*)$", text, re.MULTILINE)
+        if m and _ONE_M_RE.search(m.group(1)):
+            return True
+    return False
 
 
 def _clean_file_cell(cell: str) -> str:
@@ -426,18 +463,22 @@ def scan_plan(
         "tasks": [],
         "findings": [],
         "unresolved": [],
+        "over_ceiling": [],
         "summary": {
             "tasks": 0, "files": 0,
             "green": 0, "notice": 0, "warn": 0, "critical": 0,
             "critical_handled": 0, "warn_handled": 0,
+            "over_ceiling_unflagged": 0,
         },
     }
     if not ts_config["token_saver"]:
         return result
 
+    session_target = int(ts_config["token_saver_session_target"])
+    runner_overhead = int(ts_config["token_saver_runner_overhead"])
     thresholds = derive_thresholds(
-        session_target=int(ts_config["token_saver_session_target"]),
-        runner_overhead=int(ts_config["token_saver_runner_overhead"]),
+        session_target=session_target,
+        runner_overhead=runner_overhead,
     )
     result["thresholds"] = thresholds
     cli_version = config_cli_version(config)
@@ -451,6 +492,23 @@ def scan_plan(
             if _is_relative(task_path, project_root) else str(task_path)
         task_entry = {"task": task_rel, "model": model, "files": []}
         result["summary"]["tasks"] += 1
+
+        # A task over the per-task ceiling is routed on purpose: it carries the
+        # 1M flag. The window size never substitutes for that flag, so an
+        # unflagged over-ceiling task is a finding, not an advisory.
+        estimate = parse_estimated_tokens(text)
+        if (
+            estimate is not None
+            and estimate + runner_overhead > session_target
+            and not parse_one_m_flag(text)
+        ):
+            result["over_ceiling"].append({
+                "task": task_rel,
+                "estimate": estimate,
+                "runner_overhead": runner_overhead,
+                "session_target": session_target,
+            })
+            result["summary"]["over_ceiling_unflagged"] += 1
 
         for row in rows:
             if is_command_corpus(row["file_cell"]):
@@ -706,6 +764,20 @@ def format_report(result: dict) -> str:
             out.append(f"  - {f['cell']}  ({f['level']}/{f['reason']})")
         out.append("")
 
+    if result["over_ceiling"]:
+        out.append(
+            f"Over-ceiling tasks without a 1M flag — {len(result['over_ceiling'])} "
+            "task(s). The 1M window does not replace the flag: add `1M (cost)` "
+            "to the task's `**Token Budget:**` exception field or split the task:"
+        )
+        for o in result["over_ceiling"]:
+            out.append(
+                f"  - {o['task']}  (~{o['estimate']:,} tok + "
+                f"{o['runner_overhead']:,} overhead > "
+                f"{o['session_target']:,} target)"
+            )
+        out.append("")
+
     if result["unresolved"]:
         buckets: dict[str, list[dict]] = {}
         for u in result["unresolved"]:
@@ -863,7 +935,7 @@ def main(argv: list[str] | None = None) -> int:
         summary["warn"] + summary["critical"]
         - summary["critical_handled"] - summary["warn_handled"]
     )
-    return 1 if open_rows else 0
+    return 1 if open_rows or summary["over_ceiling_unflagged"] else 0
 
 
 if __name__ == "__main__":

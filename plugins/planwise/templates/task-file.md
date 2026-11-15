@@ -31,6 +31,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 | 2 | {file path} | {K} | ~{X}K | {why needed} |
 | 3 | {file path} §{X}–§{Y} ({§Y} runs to EOF) | {K} | ~{X}K | {why needed} — span row, see the resolution comment below |
 | 4 | Grep {family} over {scope} — {N} lines / {B} bytes returned | {K} | ~{X}K | {why needed} — command-corpus row, priced from the dry-run below |
+| 5 | {this task file's name} | {K} | ~{X}K | this task file — self row, measured by the write-back after the last edit |
 
 <!-- Every row needs numbers, not only the Context subtotal (references/task-content-fidelity.md §9.A.2). An em-dash,
      `~?` or blank in a row's KiB or ~Tokens cell fails review, even when the subtotal below is correct.
@@ -52,7 +53,10 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
      sprint's Recovery.md read for a prerequisite check (references/task-content-fidelity.md §9.A.17). A DELEGATED
      later task takes its base from the spawn prompt's `Base commit:` line and never reads Recovery for it
      (references/gate-diff-baseline-pinning.md §8.1). -->
-<!-- Delete rows 3 and 4 above when the task cites no span and no command corpus. -->
+<!-- Delete rows 3 and 4 above when the task cites no span and no command corpus. Keep the self row (row 5): the task file is read in full, so its own size is a read like any other.
+     The self row names this task file by its bare file name. The build write-back (`token_saver.py --scan --write-estimates`) prices it from the file's in-memory text and repeats until the byte count stops moving,
+     because each rewrite of the row, the subtotal and the header changes the file's own size. A figure written by hand before that run is a placeholder. -->
+
 
 
 <!-- OPTIONAL read-handling annotation (Token Saver only): append to a row's Purpose for any file the doctor read-gate scan flagged.
