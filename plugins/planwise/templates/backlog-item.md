@@ -30,7 +30,7 @@ blocks: []
 | `status` | enum | Yes | `NOT_STARTED` for new items |
 | `abbrev` | string | Yes | Domain code (see config.yaml) |
 | `created` | date | Yes | ISO 8601 date (YYYY-MM-DD) |
-| `blocks` | list | Yes | IDs of items this blocks (empty `[]` if none). The single source of truth for blocking — see Gating Mechanism below |
+| `blocks` | list | Yes | IDs of items this blocks (empty `[]` if none). The single source of truth for blocking — see Gating Mechanism below. `B waits for A` is written as `blocks: [B]` in A's file, where B stands for B's id, and B's own file never lists A |
 | `route_hint` | enum | No | `A`, `B`, or `C` — the filing author's provisional triage route (Direct Fix / Task List / Session Planning) |
 | `route_evidence` | string | No | One line: why that route, from what the author verified live at filing time |
 | `route_dated` | date | No | ISO 8601 date the route was judged. A stored route is a dated claim about the repository and rots like any other claim; the date makes that staleness visible at triage |
@@ -119,6 +119,17 @@ The date makes staleness visible at triage; the command makes re-verification a 
 ### Gating Mechanism (Triage Pivots)
 
 Pivot/triage blocking is declared in the umbrella item's `blocks:` frontmatter, and that field is the **single source of truth** for blocking. The index row's `Blocks` column is its generated projection, never a place to declare blocking: the index is a build artifact regenerated from item files, and a build artifact cannot be a source of truth. An umbrella item represents the pivot; its `blocks:` list records which items it blocks, and the index row's `Blocks` column shows the same list after the next regeneration. See `references/backlog-triage-pivot-detection.md` §2.1.
+
+Sibling order uses the same field. The prerequisite sibling lists the dependent, and the dependent lists only the parent:
+
+```yaml
+# A's file: A is the prerequisite, so A lists B
+blocks: [{parent}, B]
+# B's file: B waits for A, so B lists only the parent
+blocks: [{parent}]
+```
+
+Writing A into B's own list makes A wait on B, and the loop then selects neither item.
 
 ### Files Touched (Optional)
 

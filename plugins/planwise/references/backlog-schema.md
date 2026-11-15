@@ -28,7 +28,7 @@ text, so a column that moved position would break them silently.
 | Status | 3 | See status values below | Current item state. Read at this literal index by a downstream reader |
 | Domain | 4 | 2-4 chars | Category domain (defined in `config.yaml`) |
 | Created | 5 | date (YYYY-MM-DD) | Item creation date, from frontmatter |
-| Blocks | 6 | List of item IDs or blank | IDs of open items this item blocks; the generated projection of the item's own `blocks:` frontmatter (single source of truth — see the frontmatter table below) |
+| Blocks | 6 | List of item IDs or blank | IDs of open items this item blocks; the generated projection of the item's own `blocks:` frontmatter (single source of truth — see the frontmatter table below). `B waits for A` is written as `blocks: [B]` in A's file, where B stands for B's id, and B's own file never lists A |
 | Score | 7 (second-to-last) | Integer or `-` | Computed priority score (open items only; `-` for COMPLETE/CLOSED) |
 | File | 8 (last) | One markdown link | Reference file: `[003](path.md)` |
 
@@ -121,6 +121,15 @@ abbrev: APP
 created: 2026-01-15
 blocks: []
 ---
+```
+
+`B waits for A` is written as `blocks: [B]` in A's file. A worked pair, where A is the prerequisite sibling:
+
+```yaml
+# A's file: A is the prerequisite, so A lists B
+blocks: [{parent}, B]
+# B's file: B waits for A, so B lists only the parent
+blocks: [{parent}]
 ```
 
 | Field | Type | Required | Used By |
