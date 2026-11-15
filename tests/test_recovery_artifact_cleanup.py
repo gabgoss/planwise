@@ -1119,9 +1119,14 @@ def _lstat_reparse(name: str, tag: int):
 
     class _St:
         def __init__(self, st):
+            self._st = st
             self.st_mode = st.st_mode
             self.st_file_attributes = stat_mod.FILE_ATTRIBUTE_REPARSE_POINT
             self.st_reparse_tag = tag
+
+        def __getattr__(self, attr):
+            # Every other field (st_ino, st_dev, ...) comes from the real result.
+            return getattr(self._st, attr)
 
     def fake(p, *a, **k):
         st = real_lstat(p, *a, **k)

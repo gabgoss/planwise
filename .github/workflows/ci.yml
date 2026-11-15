@@ -111,12 +111,21 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     steps:
+      # Some tests read an older revision with `git show <sha>:<path>`.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: python -m pip install pytest==9.0.2 pytest-xdist==3.8.0 pyyaml==6.0.3
       - name: Full suite
+        # The Windows runner's default TEMP is the 8.3 short path C:\Users\RUNNER~1\...,
+        # while the code resolves paths to the long form, so path comparisons in
+        # tests disagree. runner.temp is a long-form path on every OS.
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         run: python -B tools/suite.py --full --no-cache
       # suite.py prints only a summary. The full pytest output stays in its log.
       - name: Upload the suite log
