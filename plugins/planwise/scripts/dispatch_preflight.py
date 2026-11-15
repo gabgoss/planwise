@@ -5,8 +5,9 @@ Four subcommands, each a set comparison that prints the number of subjects
 it saw before its verdict. Every subcommand exits 0 when its sets agree, 1
 when it lists a difference, and 2 on unreadable or missing input.
 
-``overlap --candidate <task file> --running <task file>...``
-    A candidate task's ``**Output:**`` paths intersect a running task's
+``overlap --candidate <task file> [--running <task file>...]``
+    Omit ``--running`` when no other task is running, and the check reports
+    ``disjoint``. A candidate task's ``**Output:**`` paths intersect a running task's
     ``**Output:**`` paths. Shared paths are listed per running task.
     ``output_paths`` is a plain function so a scaffold-time layer check can
     import it. Cannot see: two spellings of one path (a relative
@@ -421,7 +422,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("overlap", help="candidate Output paths against running tasks")
     p.add_argument("--candidate", required=True, type=Path)
-    p.add_argument("--running", required=True, nargs="+", type=Path)
+    p.add_argument("--running", nargs="*", default=[], type=Path)
     p.set_defaults(func=_cmd_overlap)
 
     p = sub.add_parser("prereq", help="quantified prerequisite against the sprint folder list")

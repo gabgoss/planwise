@@ -43,6 +43,18 @@ FEEDBACK_ENABLED_QUESTION = (
     'authenticated, and every post asks you first. Options: "Yes (Recommended)" — set '
     'feedback.enabled: true | "No" — keep drafts local'
 )
+UNATTENDED_POSTING_ABSENT = (
+    "Unattended: add --feedback-enabled (Auto Mode infers posting on) and no --feedback-drafts; "
+    "the writer backfills feedback.drafts: notify into an existing feedback block."
+)
+UNATTENDED_POSTING_KEPT = (
+    "Unattended: add no --feedback-enabled (feedback.enabled: false stays, and an interactive upgrade asks again) "
+    "and no --feedback-drafts; the writer backfills feedback.drafts: notify into an existing feedback block."
+)
+UNATTENDED_POSTING_ON = (
+    "Unattended: add no --feedback-drafts; the writer backfills feedback.drafts: notify into an existing "
+    "feedback block."
+)
 COMPARATOR_LINE = ("Comparator verdicts: {returned}/{diverged} (late: {n} resumed, {m} recorded after the writer "
                    "ran; failed: {k} — inline primitive used)")
 
@@ -297,6 +309,16 @@ def offers_pending(found: dict, scope: str) -> str:
     return ""
 
 
+def posting_state(config_path: Path) -> str:
+    """`enabled`, `disabled` or `absent` from feedback_drafts.read_posting_state; `unreadable` when it raises."""
+    import feedback_drafts
+
+    try:
+        return feedback_drafts.read_posting_state(config_path)
+    except (ValueError, OSError):
+        return "unreadable"
+
+
 def noop_proof(branch: str, rows: list, config: dict, config_path: Path, found: dict,
                scope: str) -> tuple[bool, str, list]:
     """True only when every condition of the no-op row holds. Returns (ok, reason, argvs)."""
@@ -315,6 +337,8 @@ def noop_proof(branch: str, rows: list, config: dict, config_path: Path, found: 
 
     if config_gen.drafts_key_state(config) == "absent":
         return False, "config has no feedback.drafts key", argvs
+    if posting_state(config_path) != "enabled":
+        return False, "feedback.enabled is not true", argvs
 
     cfg_arg = ("--config", str(config_path))
     backlog = _json_call(argvs, "migrate_backlog_index.py", *cfg_arg, "--report")
@@ -392,18 +416,22 @@ def next_command(root: Path, project_root: Path, pair: str, token_saver: bool, a
     return [" ".join(parts), example, HEREDOC]
 
 
-def question_steps(token_saver: bool, questions: list, feedback_state: str = "set") -> list[str]:
+def question_steps(token_saver: bool, questions: list, feedback_state: str = "set",
+                   posting_state: str = "enabled") -> list[str]:
     """The AskUserQuestion step text: the pre-writer questions and the migration questions, merged when they fit.
 
-    The pre-writer questions are the Token Saver question (when off) and the two feedback questions (when the
-    config has no `feedback.drafts` key). The run command takes the answers as flags the model adds.
+    The pre-writer questions are the Token Saver question (when off), the feedback drafts question (when the
+    config has no `feedback.drafts` key) and the feedback posting question (when `feedback.enabled` is not
+    true). The run command takes the answers as flags the model adds.
     """
-    ask_feedback = feedback_state != "set"
-    pre = (0 if token_saver else 1) + (2 if ask_feedback else 0)
+    ask_drafts = feedback_state != "set"
+    ask_posting = posting_state != "enabled"
+    pre = (0 if token_saver else 1) + (1 if ask_drafts else 0) + (1 if ask_posting else 0)
     if not pre and not questions:
         return []
-    names = (["the Token Saver question"] if not token_saver else []) + (
-        ["the feedback drafts question and the feedback posting question"] if ask_feedback else [])
+    names = ((["the Token Saver question"] if not token_saver else [])
+             + (["the feedback drafts question"] if ask_drafts else [])
+             + (["the feedback posting question"] if ask_posting else []))
     pre_what = " and ".join(names)
     lines = []
     if pre and pre + len(questions) <= QUESTION_LIMIT:
@@ -419,13 +447,22 @@ def question_steps(token_saver: bool, questions: list, feedback_state: str = "se
         lines.append(f"  Token Saver question: {TOKEN_SAVER_QUESTION}")
         lines.append("  On Yes, add --token-saver to the run command below, right after its --user-settings value. "
                      "On No, run it as written.")
-    if ask_feedback:
+    if ask_drafts:
         lines.append(f"  Feedback drafts question: {FEEDBACK_DRAFTS_QUESTION}")
+    if ask_posting:
         lines.append(f"  Feedback posting question: {FEEDBACK_ENABLED_QUESTION}")
-        lines.append("  On notify / quiet / off, add `--feedback-drafts {value}` to the run command below, right "
-                     "after `--user-settings` (or after `--token-saver` when present). On Yes to posting, add "
-                     "`--feedback-enabled`. Unattended: add neither; the writer backfills `feedback.drafts: notify` "
-                     "into an existing feedback block and leaves `feedback.enabled` as it is.")
+    if ask_drafts or ask_posting:
+        flags = (["On notify / quiet / off, add `--feedback-drafts {value}`."] if ask_drafts else []) + (
+            ["On Yes to posting, add `--feedback-enabled`. On No, add `--no-feedback-enabled`."]
+            if ask_posting else [])
+        lines.append("  " + " ".join(flags) + " Put each flag in the run command below, right after "
+                     "`--user-settings` (or after `--token-saver` when present).")
+        if posting_state == "absent":
+            lines.append(f"  {UNATTENDED_POSTING_ABSENT}")
+        elif ask_posting:
+            lines.append(f"  {UNATTENDED_POSTING_KEPT}")
+        else:
+            lines.append(f"  {UNATTENDED_POSTING_ON}")
     if questions:
         lines.append("  Each migration option above ends in `=> {answer}`. Build the stdin object's \"answers\" by "
                      "merging the answer object of every chosen option: same key, lists concatenate. Example, with "
@@ -440,7 +477,8 @@ def render_next(branch: str, noop: bool, ctx: dict) -> list[str]:
     lines = ["NEXT"]
     step = 1
     questions = ctx.get("questions") or []
-    asks = question_steps(ctx["token_saver"], questions, ctx.get("feedback_drafts", "set"))
+    asks = question_steps(ctx["token_saver"], questions, ctx.get("feedback_drafts", "set"),
+                          ctx.get("feedback_enabled", "enabled"))
     if asks:
         lines.append(f"{step}. {asks[0]}")
         lines += asks[1:]
@@ -516,7 +554,8 @@ def render_card(ctx: dict, rows: list, questions: list, transfers: list, found: 
          f"plugin_root (live): {ctx['root'].as_posix()}"),
         f"pinned: {ctx['pinned']}  shipped: {ctx['shipped']}  pair: {ctx['pair']}  branch: {ctx['branch']}",
         (f"token_saver: {'on' if ctx['token_saver'] else 'off'}    "
-         f"feedback_drafts: {ctx['feedback_drafts'].replace('-', ' ')}    yaml: {ctx['yaml']}"),
+         f"feedback_drafts: {ctx['feedback_drafts'].replace('-', ' ')}    "
+         f"feedback_enabled: {ctx['feedback_enabled']}    yaml: {ctx['yaml']}"),
         f"user settings: {ctx['user_settings'].as_posix()} ({ctx['user_step']})",
         *install,
         "",
@@ -609,6 +648,7 @@ def build_card(rest: list[str]) -> str:
         "pair": pair, "branch": branch, "token_saver": cfg.token_saver, "yaml": yaml_state(),
         "user_settings": user_settings, "user_step": user_step,
         "feedback_drafts": config_gen.drafts_key_state(config),
+        "feedback_enabled": posting_state(config_path),
         "install": install_state(cfg.plugin_root, project_root),
         "config_rel": config_path.relative_to(project_root).as_posix()
         if project_root in config_path.parents else config_path.as_posix(),

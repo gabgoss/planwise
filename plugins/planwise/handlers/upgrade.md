@@ -69,7 +69,7 @@ The skill's `!` line runs the upgrade preflight before you see the skill. It pri
 1. **What the card holds.** The header names the project root, the config path, the live plugin root, the pinned and shipped versions, the version pair and the branch, plus the Token Saver state. An `install_check: {verdict}` line follows the user-settings line (`unavailable` when the install record cannot be read). On `NOT_MARKETPLACE_INSTALL` a `!` warning line with the install command follows, and NEXT opens by telling you to show it before step 1. It never stops the upgrade. The `Diverged rules` table has one row per diverged file, with its `installed_sha256`, the inline verdict and an `agent` column (`yes` when the row needs a comparator). A `shas:` line carries each full digest, and one `paths:` line per row carries the absolute installed and shipped paths. Then come the migration questions, the earlier-pair transfers, the offers, the recovery artifacts and the NEXT block.
 2. **Follow NEXT exactly.** Run its steps in order, with its commands as printed. Never rebuild a command from the numbered Steps.
 3. **Token Saver.** When Token Saver is off, the card's single `AskUserQuestion` offers it before the run. This is the Step 1.5 offer, asked once. On Yes, add `--token-saver` to the run command where NEXT says.
-   When the card header reads `feedback_drafts: absent` or `no block`, the card's single question call also carries the two feedback questions. On the answers, add `--feedback-drafts {value}` and `--feedback-enabled` to the run command where NEXT says.
+   The card's single question call also carries the feedback questions. The drafts question rides when the header reads `feedback_drafts: absent` or `no block`. The posting question rides when the header's `feedback_enabled:` field (`enabled`, `disabled`, `absent` or `unreadable`) is not `enabled`, including on an up-to-date run. On the answers, add `--feedback-drafts {value}`, `--feedback-enabled` on Yes, or `--no-feedback-enabled` on No, to the run command where NEXT says. Unattended, the card prints one of three lines. With posting state `absent`, it adds `--feedback-enabled`. With `disabled` or `unreadable`, it adds no `--feedback-enabled`, and `feedback.enabled: false` stays. With `enabled` and the drafts key absent, it adds no `--feedback-drafts`.
 4. **Comparators.** When a row needs an agent in an interactive session, spawn the comparators as in Step 2.2, with the two paths from the row's `paths:` line. That Step's spawn prompt and its late-return rule apply unchanged.
 5. **Verdicts.** Paste each comparator's JSON entry whole, and add `installed_sha256` copied from the card's `shas:` line. Never compute the digest yourself. Pass the merged verdicts by heredoc in the run command, as NEXT shows. When the harness refuses the heredoc, `Write` the same JSON to a file and run the same command with `--verdicts-file {path}` in place of `--verdicts-stdin`.
 6. **Migration questions.** When the card holds migration questions, ask them in the merged `AskUserQuestion` the card names. Merge the chosen options' answer objects as the NEXT block states, and pass them with `--answers-json`. The stdin document then holds `{"verdicts": [...], "answers": {...}}`. This wraps Step 2.3b, the way item 4 wraps the Step 2.2 fan-out. A project with a hand-authored index reaches this path. An unanswered question adds nothing, and the writer refuses only that family.
@@ -86,7 +86,7 @@ The card maps onto the numbered Steps as follows:
 | Card field or NEXT step | Numbered Step it replaces or wraps |
 |---|---|
 | `pinned`, `shipped`, `pair`, `branch` | Replaces Step 1, which pins the pair once |
-| `token_saver`, `feedback_drafts` and their questions | Replaces Steps 1.5 and 1.6 |
+| `token_saver`, `feedback_drafts`, `feedback_enabled` and their questions | Replaces Steps 1.5 and 1.6 |
 | `Diverged rules` table, `shas:` and `paths:` lines | Replaces the Step 2.1 pre-scan |
 | The comparator spawn step | Wraps Step 2.2 |
 | Verdicts on stdin, or `--verdicts-file` | Replaces the Step 2.3 `verdicts.json` write |
@@ -157,17 +157,17 @@ On the card path, the card asks the same question in its single `AskUserQuestion
 
 ### Step 1.6 — Offer the feedback keys
 
-Read the raw `feedback.drafts` key from `config.yaml`. When it is set, skip this step silently. When it is absent, or the config has no `feedback:` block, ask both questions below. Store the answers for Step 2.4.
+Read the raw `feedback.drafts` key from `config.yaml`. Ask the drafts question only when the key is absent, or the config has no `feedback:` block. Read the posting state with `python -B "{plugin_root}/scripts/feedback_drafts.py" posting-state --config {config}`. Ask the posting question on every run, including an up-to-date re-run, while it prints anything but `enabled`. Store the answers for Step 2.4.
 
 <!-- AUTO-MODE: convenience -->
-<!-- Default: per references/auto-mode-policy.md § Inference Defaults ("Feedback drafts level" and "Feedback posting opt-in"): ask nothing, pass neither flag, log the inference. -->
-Use `AskUserQuestion` with two questions in one call:
+<!-- Default: per references/auto-mode-policy.md § Inference Defaults ("Feedback drafts level" and "Feedback drafts posting opt-in"): ask nothing. Pass `--feedback-enabled` only when the posting state is `absent`, and pass no `--feedback-drafts`. An explicit `feedback.enabled: false` (state `disabled`, or `unreadable`) stays, with no posting flag. Log the inference. -->
+Use `AskUserQuestion` with the questions that apply, in one call:
 
 > "Claude may now save local feedback drafts while planwise runs. Nothing is posted without `/planwise feedback --drafts` and your approval. How loud should drafting be? (notify — one line per draft, recommended / quiet — write silently / off — never draft)"
 >
 > "Enable upstream posting (`feedback.enabled: true`)? Posting still needs `gh` installed and authenticated, and every post asks you first. Options: "Yes (Recommended)" — set feedback.enabled: true | "No" — keep drafts local"
 
-Map the answers to flags: `notify`, `quiet` or `off` becomes `--feedback-drafts {value}`. `Yes` becomes `--feedback-enabled`. `No` adds no flag. In Auto Mode, ask nothing, pass neither flag, and log `Auto-Mode inference: feedback.drafts=notify, feedback.enabled=unchanged (reason: Inference Defaults rows)`.
+Map the answers to flags: `notify`, `quiet` or `off` becomes `--feedback-drafts {value}`. `Yes` becomes `--feedback-enabled`. `No` becomes `--no-feedback-enabled`. In Auto Mode, ask nothing. When the posting state is `absent`, pass `--feedback-enabled` and log `Auto-Mode inference: feedback.drafts=notify, feedback.enabled=true (reason: Inference Defaults rows)`. When the state is `disabled`, pass no posting flag and log `Auto-Mode inference: feedback.enabled=false kept (reason: an explicit No; the next interactive upgrade asks again)`. When the state is `enabled` and the drafts key is absent, pass no `--feedback-drafts`, and the writer backfills `notify`.
 
 On the card path, the card asks the same questions in its single question call, so never ask them a second time.
 
@@ -353,7 +353,7 @@ python "{plugin_root}/scripts/init_project.py" --project-root "{project_root}" -
 
 Omit the trailing `--token-saver` when `{token_saver}` is `no` — the upgrade leaves the existing `context.token_saver` value untouched (migration is non-destructive; it never flips a user-set toggle off).
 
-Append `--feedback-drafts {value}` and `--feedback-enabled` only as Step 1.6 recorded them. With no flag, the writer backfills `feedback.drafts: notify` into an existing `feedback:` block that lacks the key, and leaves `feedback.enabled` untouched.
+Append `--feedback-drafts {value}`, `--feedback-enabled` and `--no-feedback-enabled` only as Step 1.6 recorded them. A flag always writes its value: `--feedback-enabled` writes `true` and `--no-feedback-enabled` writes `false`. With no flag, the writer backfills `feedback.drafts: notify` into an existing `feedback:` block that lacks the key, and leaves `feedback.enabled` as it is.
 
 `--migration-answers "{answers_path}"` goes after `--upgrade-pair`, and only when the file exists. The script checks the file before any write. An `Upgrade refused: … answers …` line with exit code 2 means the file is malformed. Rewrite it from the same answers in the form Step 2.3b shows, then run the command again.
 
@@ -472,7 +472,7 @@ Implemented inside Step 2.4's script invocation, not as a separate handler-side 
 - **`feedback.drafts` already set:** write nothing, except one `feedback.{key}: {old} -> {new}` line per flagged key that changed. No banner.
 - **Key absent:** write the flagged value, or `notify` when `--feedback-drafts` was not passed.
 - **No `feedback:` block at a current pin:** write nothing, because the config merge in Step 2.4 adds the block whole.
-- **A flag always writes its value.** `--feedback-enabled` sets `feedback.enabled: true` and never flips it off.
+- **A flag always writes its value.** `--feedback-enabled` writes `feedback.enabled: true`, and `--no-feedback-enabled` writes `feedback.enabled: false`. With neither flag, the key stays as it is.
 
 The banner prints once, when the key was absent or the block missing before the run, because the key exists after it. Pass the `Feedback drafting:` entry through verbatim.
 

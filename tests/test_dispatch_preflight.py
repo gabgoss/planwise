@@ -49,6 +49,20 @@ def test_overlap_missing_output_line_is_input_error(tmp_path):
     assert dp.main(["overlap", "--candidate", str(cand), "--running", str(run)]) == 2
 
 
+def test_overlap_without_running_is_disjoint(tmp_path, capsys):
+    cand = _task(tmp_path, "c.md", "`scripts/a.py`")
+    assert dp.main(["overlap", "--candidate", str(cand)]) == 0
+    out = capsys.readouterr().out
+    assert "running tasks: 0" in out
+    assert "disjoint" in out
+
+
+def test_overlap_without_running_still_checks_the_candidate(tmp_path, capsys):
+    cand = _w(tmp_path / "c.md", "# Task with no output line\n")
+    assert dp.main(["overlap", "--candidate", str(cand)]) == 2
+    assert "no **Output:** line" in capsys.readouterr().out
+
+
 # --- prereq -----------------------------------------------------------------
 
 
