@@ -37,6 +37,16 @@ PLUGIN_PATH = REPO_ROOT / "plugins" / "planwise" / ".claude-plugin" / "plugin.js
 # replace only the quoted value in between.
 VERSION_LINE = re.compile(r'^(\s*"version"\s*:\s*)"[^"]*"(,?\s*)$', re.MULTILINE)
 
+# Releases use 3-part semver, MAJOR.MINOR.PATCH, with an optional pre-release
+# suffix. Claude Code resolves plugin dependency ranges against
+# `planwise--vX.Y.Z` tags, and a 4-part version cannot match a semver range.
+SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z.-]+)?$")
+
+
+def is_semver(version: str) -> bool:
+    """True when `version` is MAJOR.MINOR.PATCH with an optional -pre-release suffix."""
+    return SEMVER.match(version) is not None
+
 
 def read_text_preserving_newlines(path: Path) -> str:
     """Read a file's raw text with newline="" so its original line endings
@@ -82,12 +92,19 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description="Bump the plugin version in both manifest files together."
     )
-    parser.add_argument("version", help='Target version string, e.g. "1.2.0"')
+    parser.add_argument("version", help='Target semver version, e.g. "1.2.0"')
     parser.add_argument(
         "--dry-run", action="store_true",
         help="Report what would change without writing either file",
     )
     args = parser.parse_args(argv)
+
+    if not is_semver(args.version):
+        print(
+            f"ERROR: {args.version!r} is not a semver version. Use MAJOR.MINOR.PATCH, e.g. 1.1.0",
+            file=sys.stderr,
+        )
+        return 2
 
     changed = []
     for path in (MARKETPLACE_PATH, PLUGIN_PATH):
