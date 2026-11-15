@@ -47,6 +47,14 @@ outcome — a draft on disk — and failing loud would let an unattended feedbac
 break an otherwise-successful parent flow. The site still carries
 `<!-- AUTO-MODE: critical -->` so it passes the policy's compliance grep.
 
+**An unattended context with posting on replaces gate 5.** The unattended contexts are Auto
+Mode, a /planwise backlog loop session, and /planwise harvest in any session (Part 1, gate 2).
+When gate 1 reads `enabled`, the privacy gate `prepare-post` and the automatic route take the
+place of gate 5, and no question is asked (Part 1,
+[The Unattended Post Path](feedback-submission.md#the-unattended-post-path)). A block or a
+failure keeps the draft and exits 0, as the deviation above does. When gate 1 does not read
+`enabled`, the deviation above applies unchanged.
+
 **The draft carries the scan result.** In Auto Mode the duplicate scan still runs — it is a
 step, not a gate, so the gate 3–5 skip does not govern it, and if `gh` is missing or
 unauthenticated it simply lands on its own UNKNOWN caveat. Its result is appended to the
@@ -170,6 +178,13 @@ removes the block from every issue and comment body, model drafts included.
 - `config.yaml` verbatim
 - plan/backlog/lesson file bodies
 - git remote URLs
+
+**An unattended post passes the privacy gate first.** No person reads an unattended post before
+it is published, so `prepare-post` scans the exact bytes `--body-file` will send, frontmatter
+included. It blocks on four classes: `absolute-path`, `email`, `git-remote` and `handle`. The
+gate is default-closed. A false positive defers the post to an interactive review, and a block
+never publishes the file. A blocked draft stays on disk in its cut state, and the block line
+names the class and the line number, never the matched text.
 
 The consent prompt states plainly the body will be **public** on a third-party repo.
 Consumer-side identifiers the user pastes into their own prose are their vocabulary and

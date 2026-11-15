@@ -265,6 +265,37 @@ def test_card_has_no_version_notice(tmp_path, capsys):
         assert not any(line.startswith("planwise:") for line in lines)
 
 
+def test_posting_notice_on_upgrade_branch_when_enabled(tmp_path, capsys):
+    lines = run_card(capsys, ucp.make_project(tmp_path)).splitlines()
+    assert any("branch: upgrade" in line for line in lines)
+    header = next(i for i, line in enumerate(lines) if "feedback_enabled: enabled" in line)
+    assert lines[header + 1] == upgrade_preflight.FEEDBACK_POSTING_NOTICE
+    assert lines.count(upgrade_preflight.FEEDBACK_POSTING_NOTICE) == 1
+    assert lines[1].startswith("UPGRADE CARD")
+    assert upgrade_preflight.FEEDBACK_POSTING_NOTICE == (
+        "feedback posting: on — Auto Mode, backlog loop and harvest runs post without asking; "
+        "set feedback.enabled: false to stop")
+
+
+def test_no_posting_notice_when_posting_off(tmp_path, capsys):
+    root = ucp.make_project(tmp_path, name="posting-off")
+    ucp.edit_config(root, *POSTING_OFF)
+    card = run_card(capsys, root)
+    assert "branch: upgrade" in card and "feedback_enabled: disabled" in card
+    assert "feedback posting: on" not in card
+    ucp.edit_config(root, r"^  enabled: false\n", "")
+    card = run_card(capsys, root)
+    assert "feedback_enabled: absent" in card and "feedback posting: on" not in card
+
+
+def test_no_posting_notice_on_up_to_date(tmp_path, capsys, monkeypatch):
+    root = ucp.make_up_to_date(tmp_path)
+    monkeypatch.setattr(doctor_probes, "_gh_environment", lambda: dict(GH_OK))
+    card = run_card(capsys, root)
+    assert "branch: up-to-date" in card and "feedback_enabled: enabled" in card
+    assert "feedback posting: on" not in card
+
+
 def test_migration_questions_block(tmp_path, capsys):
     assert "Migration questions (0):" in run_card(capsys, ucp.make_project(tmp_path))
     card = run_card(capsys, ucp.make_project(tmp_path, name="asked", diverged=(), question=True))

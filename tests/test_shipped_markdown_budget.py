@@ -64,8 +64,11 @@ WARN_ALLOWLIST = frozenset({
     "read-confirm-act-protocol.md",                            # 23,075
     "run.md",                                                  # 25,251 (OVER)
     "scaffolding-hygiene-Part-2-DerivationAndParallelism.md",  # 23,457
+    "review.md",                                               # about 22,052; crossed the warn line at commit 6c713ab
     "task-content-fidelity.md",                                # 22,615
+    "upgrade.md",                                              # about 22,538; crossed the warn line through the posting-consent question and notice edits
 })
+# 2026-11-14: review.md and upgrade.md were added to WARN_ALLOWLIST after the pin above; both measure WARN.
 
 # OVER_EXEMPTIONS pinned @ becccfe10f08ea60e0abe67cab4fd965b4ca2954 (2026-10-20); tokens from CRLF-normalized bytes (checkout-independent)
 # Guards READ_PAGE_CAP_TOKENS (25,000). An exempted file must still measure OVER.

@@ -149,3 +149,15 @@ status: pending
 ## Auto Mode
 
 Drafting behaves the same in Auto Mode. It asks no question, so it adds no consent site and needs no Auto Mode marker. Consent happens later, at the user's review through `/planwise feedback --drafts`.
+
+An unattended context is Auto Mode, a /planwise backlog loop session, or /planwise harvest in any session. When `feedback.enabled` is `true` there, an admitted model draft goes through the same post path as any unattended report: `feedback-submission.md`, The Unattended Post Path. The privacy gate `prepare-post` runs on the exact file the route posts, and no question is asked.
+
+- With `feedback.drafts: notify`, a posted draft prints this one line instead of the saved-draft line:
+  ```
+  planwise: a feedback draft was posted to {url}
+  ```
+  `{url}` is the issue URL or the comment URL that `gh` printed.
+- A draft that the privacy gate blocks, or that any other failure keeps, prints the saved-draft line above, unchanged.
+- With `feedback.drafts: quiet`, nothing prints in either case.
+- For a model draft, these output rules take the place of the post path's fallback and success lines.
+- Drafting and posting still ask no question.

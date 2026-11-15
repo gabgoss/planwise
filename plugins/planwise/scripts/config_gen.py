@@ -716,6 +716,11 @@ def drafts_key_state(config: dict) -> str:
     return "set" if "drafts" in block else "absent"
 
 
+# One sentence in both banner variants: it describes feedback.enabled, not the drafts switch.
+_POSTING_LINE = ("  posting follows feedback.enabled: an interactive run asks first, and Auto Mode, backlog loop "
+                 "and harvest runs post once a privacy check passes")
+
+
 def _drafts_banner(value: str, answered: bool, enabled_set: str | None, *,
                    planwise_root: str, feedback_dir: str, plugin_root: Path) -> str:
     """`enabled_set` is the `feedback.enabled` value this run wrote (`true` or `false`), or None."""
@@ -727,14 +732,14 @@ def _drafts_banner(value: str, answered: bool, enabled_set: str | None, *,
         return (
             f"Feedback drafting: OFF — Claude will not save local feedback drafts under "
             f"{planwise_root}/{feedback_dir}/\n"
-            "  nothing is posted without /planwise feedback --drafts and your approval\n"
+            f"{_POSTING_LINE}\n"
             + keys
             + f"  turn it on: set feedback.drafts: notify (or quiet) in {config}"
         )
     return (
         f"Feedback drafting: ON — Claude may now save local feedback drafts under "
         f"{planwise_root}/{feedback_dir}/\n"
-        "  nothing is posted without /planwise feedback --drafts and your approval\n"
+        f"{_POSTING_LINE}\n"
         + keys
         + f"  turn it off: set feedback.drafts: off in {config}, or run\n"
         f'    python "{plugin_root.as_posix()}/scripts/feedback_drafts.py" disable-drafts '

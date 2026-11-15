@@ -103,7 +103,7 @@ Use `AskUserQuestion` to collect:
 
 10. **Upstream posting** (`feedback.enabled`) — ask exactly this text, the same text `/planwise upgrade` Step 1.6 asks:
 
-    > "Enable upstream posting (`feedback.enabled: true`)? Posting still needs `gh` installed and authenticated, and every post asks you first. Options: "Yes (Recommended)" — set feedback.enabled: true | "No" — keep drafts local"
+    > "Enable upstream posting (`feedback.enabled: true`)? Posting needs `gh` installed and authenticated. An interactive run shows you each issue body and asks first. Auto Mode, backlog loop and harvest runs post without asking, once a privacy check passes. Options: "Yes (Recommended)" — set feedback.enabled: true | "No" — keep drafts local and set feedback.enabled: false"
 
 `AskUserQuestion` takes at most four questions per call, so split the ten questions across calls.
 

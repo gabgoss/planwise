@@ -28,13 +28,13 @@ Comparator verdicts: {returned}/{diverged} (late: {n} resumed, {m} recorded afte
 Config keys added:    {N}  ({list, or "(none)"})
 
 Feedback drafting: ON — Claude may now save local feedback drafts under {planwise_root}/{feedback_dir}/
-  nothing is posted without /planwise feedback --drafts and your approval
+  posting follows feedback.enabled: an interactive run asks first, and Auto Mode, backlog loop and harvest runs post once a privacy check passes
   feedback.drafts: {value} ({answered|default, no answer given}); feedback.enabled: {true (set this run)|unchanged}
   turn it off: set feedback.drafts: off in {planwise_root}/config.yaml, or run
     python "{plugin_root}/scripts/feedback_drafts.py" disable-drafts --config "{planwise_root}/config.yaml"
   — or, when the value is off:
 Feedback drafting: OFF — Claude will not save local feedback drafts under {planwise_root}/{feedback_dir}/
-  nothing is posted without /planwise feedback --drafts and your approval
+  posting follows feedback.enabled: an interactive run asks first, and Auto Mode, backlog loop and harvest runs post once a privacy check passes
   feedback.drafts: off ({answered|default, no answer given}); feedback.enabled: {true (set this run)|unchanged}
   turn it on: set feedback.drafts: notify (or quiet) in {planwise_root}/config.yaml
 (one of the two entries, and neither when the pre-upgrade config already carried feedback.drafts)

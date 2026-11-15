@@ -39,9 +39,15 @@ FEEDBACK_DRAFTS_QUESTION = (
     "(notify — one line per draft, recommended / quiet — write silently / off — never draft)"
 )
 FEEDBACK_ENABLED_QUESTION = (
-    "Enable upstream posting (`feedback.enabled: true`)? Posting still needs `gh` installed and "
-    'authenticated, and every post asks you first. Options: "Yes (Recommended)" — set '
-    'feedback.enabled: true | "No" — keep drafts local'
+    "Enable upstream posting (`feedback.enabled: true`)? Posting needs `gh` installed and "
+    "authenticated. An interactive run shows you each issue body and asks first. Auto Mode, backlog "
+    "loop and harvest runs post without asking, once a privacy check passes. Options: "
+    '"Yes (Recommended)" — set feedback.enabled: true | "No" — keep drafts local and set '
+    "feedback.enabled: false"
+)
+FEEDBACK_POSTING_NOTICE = (
+    "feedback posting: on — Auto Mode, backlog loop and harvest runs post without asking; "
+    "set feedback.enabled: false to stop"
 )
 UNATTENDED_POSTING_ABSENT = (
     "Unattended: add --feedback-enabled (Auto Mode infers posting on) and no --feedback-drafts; "
@@ -556,6 +562,8 @@ def render_card(ctx: dict, rows: list, questions: list, transfers: list, found: 
         (f"token_saver: {'on' if ctx['token_saver'] else 'off'}    "
          f"feedback_drafts: {ctx['feedback_drafts'].replace('-', ' ')}    "
          f"feedback_enabled: {ctx['feedback_enabled']}    yaml: {ctx['yaml']}"),
+        # the upgrade branch only: a Yes given before unattended posting shipped learns it now
+        *([FEEDBACK_POSTING_NOTICE] if ctx["branch"] == "upgrade" and ctx["feedback_enabled"] == "enabled" else []),
         f"user settings: {ctx['user_settings'].as_posix()} ({ctx['user_step']})",
         *install,
         "",

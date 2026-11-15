@@ -11,6 +11,8 @@ The chain is four ordered stages. The order is forced, not conventional: the fin
 
 This command makes no commits. Every change it lands sits in the working tree for a single aggregate review at the end of the run.
 
+Harvest is an unattended feedback context in any session, as `references/feedback-submission.md` gate 2 defines it. A feedback draft that harvest writes asks no question. With `feedback.enabled: true`, it posts without a question, behind the privacy gate `prepare-post`, through the engine's unattended post path. A block or a failure keeps the draft, and the run continues.
+
 **Invocation examples:**
 ```
 /planwise harvest
