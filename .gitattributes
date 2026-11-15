@@ -1,1 +1,4 @@
 tests/hooks/types/*.d.ts -text
+# tools/gen_reference_library.py writes this file with CRLF and --check compares bytes.
+# Force CRLF on checkout so a Linux or macOS clone matches a Windows one.
+plugins/planwise/references/00-Reference-Library.md text eol=crlf
