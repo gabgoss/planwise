@@ -72,7 +72,7 @@ For `gh`, run the one command matching your platform:
 Installing `gh` is not the whole job — two more gates stand between the binary and a posted report:
 
 1. `gh auth login` — an interactive browser flow. Run it yourself; planwise never authorizes an account on your behalf.
-2. Set `feedback.enabled: true` in `{planwise_root}/config.yaml`. Posting is opt-in and off by default.
+2. Posting is on by default: a new config writes `feedback.enabled: true` in `{planwise_root}/config.yaml`. A No answer at init or upgrade writes `false`, and the next interactive feedback flow or upgrade asks again.
 
 Until both are done, [`/planwise feedback`](#12-planwise-feedback) saves a local draft instead of posting. That is a supported configuration, not a broken install.
 
@@ -514,7 +514,7 @@ flowchart LR
 
 Walks you through a short prompt — bug, lesson, or idea — and drafts a submission from what you type. Only your answers to the prompt go into the draft; file contents, repo paths, and config values are never included.
 
-**Opt-in, off by default.** Posting upstream requires `feedback.enabled: true` in your `config.yaml` AND an interactive confirmation that shows any possible duplicates found in the tracker, then the exact body, before anything is sent — nothing goes out without both. You can post as a new issue, comment on an existing one instead, or cancel. If your `config.yaml` has no `feedback.enabled` key at all, `feedback` offers once to set it to `true` for you, or to keep only the draft. A key you set to `false` is a decision, and `feedback` never asks about it. In Auto Mode, `feedback` never posts: it always saves the draft to disk and prints the file path instead.
+**On by default, and an interactive run asks first.** Posting upstream requires `feedback.enabled: true` in your `config.yaml` AND an interactive confirmation that shows any possible duplicates found in the tracker, then the exact body, before anything is sent — nothing goes out without both. You can post as a new issue, comment on an existing one instead, or cancel. While `feedback.enabled` is not `true` (the key is absent or set to `false`), an interactive `feedback` run offers to set it to `true` for you, or to keep only the draft. In Auto Mode, `feedback` never posts: it always saves the draft to disk and prints the file path instead.
 
 **Privacy.** The submitted body never contains your file contents, repo paths, or config values — only what you wrote in the prompt. If `gh` isn't installed, isn't authenticated, or you decline the post, your draft is preserved locally and the issues URL is printed so you can file it by hand.
 

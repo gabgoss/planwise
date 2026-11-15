@@ -784,7 +784,12 @@ _SECTION_ANCHOR_RE = re.compile(r"§(\d+)(?:\.(\d+))?")
 _MD_LINK_RE = re.compile(r"[\w./\\-]+\.md")
 _OUTPUT_FIELD_RE = re.compile(r"^\*\*Output:\*\*\s*(.+)$", re.MULTILINE)
 _BACKTICK_SPAN_RE = re.compile(r"`([^`]+)`")
-_VERDICT_MARKER_RE = re.compile(r"\*\*Verdict:\*\*")
+_ATX_HEADING_RE = re.compile(r"^ {0,3}#{1,6}\s")
+_LEGEND_LINE_RE = re.compile(r"^\s*(?:[-*>]\s+)?(?:\*\*)?legend\b", re.IGNORECASE)
+_BOLD_LABEL_LINE_RE = re.compile(r"^\s*(?:[-*>]\s+)?\*\*[^*\n]+\*\*")
+_TABLE_SEPARATOR_RE = re.compile(
+    r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?\s*$"
+)
 
 _RECURSIVE_FLAG_CHARS = frozenset("rR")
 
@@ -1377,14 +1382,79 @@ def _check5_stale_ownership(context: LintContext) -> list:
     return findings
 
 
+def _has_ignore_case_flag(argv) -> bool:
+    """True when the grep command matches case-insensitively (``-i``, ``-y``
+    or ``--ignore-case``). Reads option letters only, on the same terms as
+    ``_has_fixed_flag``.
+    """
+    for token in argv[1:]:
+        if token == "--":
+            return False
+        if token == "--ignore-case":
+            return True
+        if token.startswith("-") and not token.startswith("--"):
+            for ch in token[1:]:
+                if ch in "iy":
+                    return True
+                if ch in _SHORT_OPTIONS_WITH_ARGUMENT:
+                    break
+    return False
+
+
+def _self_vocabulary_hit_lines(text: str, pattern: str, ignore_case: bool, fixed: bool) -> list:
+    """Return the 1-based numbers of the lines of ``text`` that carry
+    ``pattern`` AND are the file's own vocabulary: an ATX heading, a legend
+    line, a table header row (a ``|`` row directly followed by a ``|---|``
+    separator), or a line opening with a bold label. Table data rows and
+    plain prose never count. A pattern that is not a valid regular expression
+    is matched as a literal, casefolded on both sides under ``-i``.
+    """
+    token_re = None
+    if not fixed:
+        try:
+            token_re = re.compile(pattern, re.IGNORECASE if ignore_case else 0)
+        except re.error:
+            token_re = None
+    needle = pattern.casefold() if ignore_case else pattern
+
+    def carries_token(line: str) -> bool:
+        if token_re is not None:
+            return token_re.search(line) is not None
+        return needle in (line.casefold() if ignore_case else line)
+
+    lines = text.splitlines()
+    hits = []
+    for index, line in enumerate(lines):
+        if not carries_token(line):
+            continue
+        is_table_header = (
+            line.lstrip().startswith("|")
+            and index + 1 < len(lines)
+            and "|" in lines[index + 1]
+            and _TABLE_SEPARATOR_RE.match(lines[index + 1]) is not None
+        )
+        if (
+            _ATX_HEADING_RE.match(line)
+            or _LEGEND_LINE_RE.match(line)
+            or _BOLD_LABEL_LINE_RE.match(line)
+            or is_table_header
+        ):
+            hits.append(index + 1)
+    return hits
+
+
 def _check6_substring_over_own_vocabulary(context: LintContext) -> list:
-    """Check 6 -- a gate greping a generated verification report for a bare
-    token, when the report's own legend, column headers, and criterion rows
-    can legitimately contain that token too.
+    """Check 6 -- an expect-0 grep for a bare token over a file whose own
+    legend, table header or heading line carries that token too. The grep
+    counts those lines as well, so it returns a non-zero count over a file
+    with no offending data row.
     """
     findings = []
     for command in context.commands:
         if command.is_placeholder or not command.is_gate:
+            continue
+        expectation = _parse_expectation(_note_for(command))
+        if expectation is None or expectation.value != 0 or expectation.comparator not in (None, "=="):
             continue
         argv = _static_argv(command.command)
         if not argv or argv[0] != "grep":
@@ -1398,7 +1468,10 @@ def _check6_substring_over_own_vocabulary(context: LintContext) -> list:
             text = target.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        if not _VERDICT_MARKER_RE.search(text):
+        hit_lines = _self_vocabulary_hit_lines(
+            text, pattern, _has_ignore_case_flag(argv), _has_fixed_flag(argv)
+        )
+        if not hit_lines:
             continue
         findings.append(
             make_finding(
@@ -1408,11 +1481,12 @@ def _check6_substring_over_own_vocabulary(context: LintContext) -> list:
                 line=command.line,
                 command=command.command,
                 message=(
-                    "This gate searches a generated verification report for "
-                    f"a bare token ({pattern!r}) rather than its "
-                    "machine-readable verdict line or status-cell pattern -- "
-                    "the report's own legend, headers, and criterion rows "
-                    "can legitimately carry that token too"
+                    f"This gate expects a bare token ({pattern!r}) to be "
+                    f"absent from {target.name}, but that file's own legend, "
+                    f"table header or heading line (line {hit_lines[0]}) "
+                    "carries the token too -- the count includes those "
+                    "lines, so the gate returns a non-zero count over a "
+                    "correct file"
                 ),
             )
         )
@@ -2006,6 +2080,7 @@ from lint_gate_checks_verify import CHECKS as _VERIFY_CHECKS
 CHECK_REGISTRY.extend(_VERIFY_CHECKS)
 
 from lint_gate_checks_dispatch import CHECKS as _DISPATCH_CHECKS
+from lint_gate_checks_dispatch import subject_line
 
 CHECK_REGISTRY.extend(_DISPATCH_CHECKS)
 
@@ -2034,6 +2109,10 @@ CHECK_REGISTRY.extend(_MEASURE_CHECKS)
 # That case exits 4, unless a finding at ERROR exists: an ERROR still exits 2,
 # because the caller should halt on it. The same helper feeds the line and the
 # code, so the two cannot disagree.
+#
+# The second line of stdout is always the ``Dispatch subjects`` line. It counts
+# what Checks 42-47 read, and ends ``-- nothing examined`` when they read no task
+# or orchestration file. The findings, or ``No findings.``, follow it.
 # ---------------------------------------------------------------------------
 
 EXIT_NO_FINDINGS = 0
@@ -2096,6 +2175,7 @@ def _run_cli() -> None:
 
     findings, context = _lint(plan_root, execute=not args.no_execute)
     print(coverage_line(context))
+    print(subject_line(context))
 
     if not findings:
         print("No findings.")

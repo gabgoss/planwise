@@ -196,6 +196,8 @@ Exit `1` and exit `2` are the **normal findings-present outcomes**. Neither is a
 
 The first line of the findings file is always a `Coverage:` line. `Coverage: checked N of M gates; K refused.` means N gates ran and K were turned away by the read-only allowlist. A refused gate appears as an `[UNCERTAIN] Refusal` entry, not as a pass. Record the line in the report so a reader sees the denominator. `Coverage: NOT CHECKED` means gates exist and none ran, and the exit code is `4` unless an ERROR finding makes it `2`: treat that case as **unavailable** (step 4).
 
+The second line, `Dispatch subjects (Checks 42-47):`, states how many task files, orchestration files and rows Checks 42-47 read. Record it beside the `Coverage:` line. Treat a line ending `-- nothing examined` as those checks having decided nothing, not as a clean result.
+
 4. If the script could not be run at all, exit `2` produced no findings, the exit code was `4`, or the first line starts `Coverage: NOT CHECKED`, continue the review with `{GateLintPath}` recorded as **unavailable** and say so in the report — the owning reviewer then derives its verification-gate findings by hand and states that it did. When only some gates were refused, the reviewer derives just those by hand.
 
 5. Pass `{GateLintPath}` into the spawn prompt of the reviewer that owns verification gates on the selected path: the No-Team Path's combined content reviewer, or the Team Path's Verification-Gate Reviewer.

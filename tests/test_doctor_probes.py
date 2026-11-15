@@ -132,7 +132,7 @@ def test_stage_16_gh_unauthenticated(tmp_path):
 def test_stage_16_feedback_disabled_prints_the_remedy(tmp_path):
     out = _probe_stage_16(_project(tmp_path, feedback=False), on_path=True)
     assert "feedback.enabled:  false" in out
-    assert "feedback.enabled is false — /planwise feedback drafts locally and posts nothing" in out
+    assert "feedback.enabled is false — /planwise feedback drafts locally and posts nothing, and the next interactive /planwise feedback or /planwise upgrade run offers to turn posting on" in out
     assert "Upstream posting: DRAFT-ONLY" in out
     assert "absent" not in out
     assert "is not set" not in out
@@ -140,7 +140,7 @@ def test_stage_16_feedback_disabled_prints_the_remedy(tmp_path):
 
 _ABSENT_LINE = "feedback.enabled:  absent (not set, read as false)"
 _ABSENT_REMEDY = "feedback.enabled is not set — an interactive /planwise feedback run offers to enable posting"
-_DISABLED_REMEDY = "feedback.enabled is false — /planwise feedback drafts locally and posts nothing"
+_DISABLED_REMEDY = "feedback.enabled is false — /planwise feedback drafts locally and posts nothing, and the next interactive /planwise feedback or /planwise upgrade run offers to turn posting on"
 
 
 def test_stage_16_absent_key_without_a_feedback_block_prints_its_own_line_and_remedy(tmp_path):

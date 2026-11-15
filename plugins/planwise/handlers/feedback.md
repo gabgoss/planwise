@@ -73,7 +73,8 @@ Attempt to resolve `config.yaml` the normal way (`planwise/config.yaml`, or `*/c
 one level down from project root). If found and readable, extract `feedback.repo`,
 `feedback.include_environment`, and `plugin_version`. Read `feedback.enabled` only through the
 engine's gate 1 (`posting-state`), which tells an `absent` key from one set to a value other
-than `true`. This handler does not parse the key itself. The handler passes
+than `true`. This handler does not parse the key itself. Gate 1 re-offers posting while
+feedback.enabled is not true, in the absent and the disabled state. The handler passes
 `feedback.include_environment` to the engine. The engine's Issue Body Spec and its pre-gate-5
 step decide whether the Environment block renders, and this handler does not re-specify that
 rule. If missing or

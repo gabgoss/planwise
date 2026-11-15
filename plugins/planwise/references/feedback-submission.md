@@ -35,7 +35,7 @@ reporting or offer text, which this file does not own.
 ## Table of Contents
 
 - [Gate Chain](#gate-chain)
-  - [The Enable Offer (gate 1, absent state)](#the-enable-offer-gate-1-absent-state)
+  - [The Enable Offer (gate 1, absent and disabled state)](#the-enable-offer-gate-1-absent-and-disabled-state)
   - [Resolving `gh`](#resolving-gh)
 - [Step 4.5 — Duplicate Scan (Non-Fatal)](#step-45--duplicate-scan-non-fatal)
 - [Draft-First, Then Post](#draft-first-then-post)
@@ -61,17 +61,15 @@ Held in [Part 3](feedback-submission-Part-3-FailureBodySpecAndPrivacy.md):
 
 ALL gates below MUST pass, in this order, before a post is attempted:
 
-1. **`feedback.enabled: true`** — config key, default `false` (mirrors the upgrade flow's
-   opt-in precedent). The gate reads the key with
+1. **`feedback.enabled: true`** — config key. A new config writes `true`, and an absent key reads as off.
+   The gate reads the key with
    `python "{plugin_root}/scripts/feedback_drafts.py" posting-state --config "{planwise_root}/config.yaml"`,
    which prints one word and writes nothing:
    - `enabled` — the gate passes.
-   - `disabled` — `config.yaml` sets the key to a value other than `true`. The user made this
-     decision, so the pipeline honours it without a question. It stops at the draft and prints
-     `Posting is off: config.yaml sets feedback.enabled to a value other than true. The draft was saved and nothing was posted.`
-   - `absent` — the `feedback` block or its `enabled` key is missing. The user never saw the
-     key, so this is an unasked question, not a decision. See
-     [The Enable Offer](#the-enable-offer-gate-1-absent-state).
+   - `disabled` — `config.yaml` sets the key to a value other than `true`.
+   - `absent` — the `feedback` block or its `enabled` key is missing.
+   In an interactive session, `disabled` and `absent` both lead to
+   [The Enable Offer](#the-enable-offer-gate-1-absent-and-disabled-state).
    - Exit 1 (config missing or unreadable) — the gate is unmet. The pipeline stops at the draft.
    A model draft's **Review and post** option sets the key to `true` when chosen, and says so in
    its option text first (see Reviewing Model Drafts, in [Part 2](feedback-submission-Part-2-LocalDraftPipelines.md#reviewing-model-drafts)).
@@ -91,7 +89,7 @@ ALL gates below MUST pass, in this order, before a post is attempted:
    NOT be implemented as a second prompt. (The sweep pipeline in Part 2 has its own, separate,
    single consent site; the two are never shared or duplicated.) The gate 1 enable offer is a
    setting selection and not a second consent site: it sends nothing and never replaces this
-   call. See [The Enable Offer](#the-enable-offer-gate-1-absent-state).
+   call. See [The Enable Offer](#the-enable-offer-gate-1-absent-and-disabled-state).
 
 <!-- AUTO-MODE: critical -->
 
@@ -99,7 +97,7 @@ ALL gates below MUST pass, in this order, before a post is attempted:
 
 | # | Gate | On Auto Mode |
 |---|------|---------------|
-| 1 | `feedback.enabled: true` | `disabled` is unaffected. `absent` asks no question and stops at the draft with the Auto Mode message under The Enable Offer. |
+| 1 | `feedback.enabled: true` | An interactive session raises the Enable Offer in the `absent` and the `disabled` state. Auto Mode asks no question and stops at the draft with the Auto Mode message under The Enable Offer. |
 | 2 | Interactive session | Draft-only, unconditionally; gates 3-5 are skipped. |
 | 3 | `gh` resolvable (PATH, then known install locations) | Only evaluated in an interactive session. |
 | 4 | `{gh_path} auth status` exits 0 | Only evaluated in an interactive session. |
@@ -109,36 +107,32 @@ ALL gates below MUST pass, in this order, before a post is attempted:
 Row 4.5 is a **step**, not a gate — the "ALL gates below MUST pass" rule above governs
 gates 1–5 only, and a scan that fails never stops the pipeline.
 
-### The Enable Offer (gate 1, absent state)
+### The Enable Offer (gate 1, absent and disabled state)
 
-A fresh install can have no `feedback.enabled` key at all, so gate 1 would fail on a setting
-the user never saw. In the `absent` state, and only then, the pipeline asks once instead of
-stopping. The offer belongs to gate 1, so it runs before the draft is posted and after the
-user has written the report.
+In the `absent` state or the `disabled` state, an interactive run asks instead of stopping.
+The offer belongs to gate 1, so it runs before the draft is posted and after the user has
+written the report.
 
 <!-- AUTO-MODE: critical -->
 Ask with `AskUserQuestion`, in an interactive session only. Auto Mode skips the question and
-takes the keep branch. The question is: `Posting to GitHub is not set up in this project: config.yaml has no feedback.enabled key. Enable posting and continue to the post, or keep only the draft?` The options are:
+takes the keep branch. The question is: `Posting to GitHub is off in this project: config.yaml does not set feedback.enabled to true. Enable posting and continue to the post, or keep only the draft?` The options are:
 
 | Option | What it does |
 |---|---|
-| **Enable posting** | Option text: `Enable posting (this sets feedback.enabled to true in config.yaml)`. Runs `python "{plugin_root}/scripts/feedback_drafts.py" enable-posting --config "{planwise_root}/config.yaml"` and prints its one line. On exit 0 the pipeline goes on to gate 2. On exit 1 it prints the stderr line, leaves `config.yaml` unchanged and stops at the draft. |
-| **Keep the draft only** (pre-selected) | Stops at the draft and prints `Posting stays off. To stop this question, set feedback.enabled: false in config.yaml.` Any other or unparseable answer is this option. |
+| **Enable posting (Recommended)** | Option text: `Enable posting (Recommended) — this sets feedback.enabled to true in config.yaml`. Runs `python "{plugin_root}/scripts/feedback_drafts.py" enable-posting --config "{planwise_root}/config.yaml"` and prints its one line. The command also overwrites an explicit `false`. On exit 0 the pipeline goes on to gate 2. On exit 1 it prints the stderr line, leaves `config.yaml` unchanged and stops at the draft. |
+| **Keep the draft only** | Stops at the draft and prints `Posting stays off. The draft was saved, and the next feedback flow asks again.` Any other or unparseable answer is this option. |
 
-Three rules bound the offer:
+Two rules bound the offer:
 
 - **It is a selection, not consent to post.** It changes one config key and sends nothing.
   Gate 5 still shows the exact body and asks before anything is published, and enabling
   posting never skips it. This is the same posture as the model-draft **Review and post**
   option under Reviewing Model Drafts (Part 2).
-- **It never overrides a decision.** A key set to `false`, or to any value other than `true`,
-  is the `disabled` state and raises no question. Writing `feedback.enabled: false` is how a
-  user ends the offer for good.
 - **It runs once per invocation.** The pipeline does not ask again after a keep answer or a
   failed enable.
 
-In Auto Mode the `absent` state stops at the draft and prints
-`Posting is not set up: config.yaml has no feedback.enabled key. The draft was saved and nothing was posted.`
+In Auto Mode the `absent` state and the `disabled` state stop at the draft and print
+`Posting is off: config.yaml does not set feedback.enabled to true. The draft was saved and nothing was posted.`
 
 ### Resolving `gh`
 

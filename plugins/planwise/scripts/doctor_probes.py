@@ -51,7 +51,10 @@ _READ_GATE_BANNER = "planwise doctor — bookkeeping index read-gate scan"
 _GH_TIMEOUT_SECONDS = 5
 _ABSENT_GH = {"path": None, "note": "", "version": "", "authenticated": False, "timed_out": False}
 
-_REMEDY_DISABLED = "feedback.enabled is false — /planwise feedback drafts locally and posts nothing"
+_REMEDY_DISABLED = (
+    "feedback.enabled is false — /planwise feedback drafts locally and posts nothing, "
+    "and the next interactive /planwise feedback or /planwise upgrade run offers to turn posting on"
+)
 _REMEDY_ABSENT = (
     "feedback.enabled is not set — an interactive /planwise feedback run offers to enable posting, "
     "or set feedback.enabled: true in config.yaml"

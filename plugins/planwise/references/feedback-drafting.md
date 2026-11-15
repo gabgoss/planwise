@@ -9,6 +9,8 @@ consult-when: Drafting a planwise feedback file silently during `/planwise` work
 
 Claude may draft a feedback file when planwise itself misbehaves during `/planwise` work. The user reviews every draft later with `/planwise feedback --drafts`. Nothing is posted without the user's consent at that review.
 
+A model draft asks no posting question when it is written. The /planwise feedback --drafts review asks it once, while posting is off.
+
 - Draft only about planwise artifacts: its handlers, references, scripts, templates and hooks.
 - A Claude Code or harness defect belongs to the native `SendFeedback` tool, not to a planwise draft.
 - One moment can involve both. Then the planwise draft covers only planwise's handling of the moment. It never restates the other draft.
