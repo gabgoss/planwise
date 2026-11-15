@@ -1,6 +1,6 @@
 ---
-description: Discovery scope rigor (deterministic-bug counts, ID persistence, upstream-normalization scoping) and the shared 13-row plan-review BLOCKING-findings table for the discovery/exit-criteria rule family; cross-layer exit-criteria fidelity lives in exit-criteria-fidelity.md and execution-time binding rules (design-extension traceability, audit-finding triage, bounded-temp-fix, spike-instrument verdict discipline) live in execution-time-binding-rules.md
-consult-when: Checking Discovery scope rigor, or looking up the shared plan-review BLOCKING-findings table (anchor file for this rule family)
+description: Discovery scope rigor (deterministic-bug counts, ID persistence, upstream-normalization scoping, one-row-per-entity output sizing) and the shared 13-row plan-review BLOCKING-findings table for the discovery/exit-criteria rule family; cross-layer exit-criteria fidelity lives in exit-criteria-fidelity.md and execution-time binding rules (design-extension traceability, audit-finding triage, bounded-temp-fix, spike-instrument verdict discipline) live in execution-time-binding-rules.md
+consult-when: Checking Discovery scope rigor, sizing a one-row-per-entity task output, or looking up the shared plan-review BLOCKING-findings table (anchor file for this rule family)
 ---
 
 # Discovery Scope Rigor & Exit-Criteria Fidelity
@@ -15,6 +15,7 @@ This file is the §15 segment of a 3-way split of what was originally referenced
   - [15.1 Deterministic-bug scope MUST be counted by execution, not estimated](#151-deterministic-bug-scope-must-be-counted-by-execution-not-estimated)
   - [15.2 Persist specific IDs, not just counts](#152-persist-specific-ids-not-just-counts)
   - [15.3 Scope an Upstream Normalization Task by Failure Mode, Not by Audit Tier](#153-scope-an-upstream-normalization-task-by-failure-mode-not-by-audit-tier)
+  - [15.4 Price One-Row-per-{Entity} Output From a Count Taken at Scaffold Time](#154-price-one-row-per-entity-output-from-a-count-taken-at-scaffold-time)
 - [16. Cross-Layer Enforcement & Exit-Criteria Fidelity](exit-criteria-fidelity.md#16-cross-layer-enforcement--exit-criteria-fidelity-binding) — `exit-criteria-fidelity.md`
   - [16.1 Binding refinements MUST be echoed as `> [!binding]` callouts across plan layers](exit-criteria-fidelity.md#161-binding-refinements-must-be-echoed-as--binding-callouts-across-plan-layers)
   - [16.2 "Surfaces" is an enforcement claim, not a mention](exit-criteria-fidelity.md#162-surfaces-is-an-enforcement-claim-not-a-mention)
@@ -178,6 +179,48 @@ A triage tier answers "how much attention does this need?" The mechanical batch 
 > ```
 
 The general form: when an upstream task's scope is a *subset* named by an inherited classification, verify at scaffold time that the classification and the blocking property select the same set. If they do not, scope by the property.
+
+### 15.4 Price One-Row-per-{Entity} Output From a Count Taken at Scaffold Time
+
+A task whose Expected Output is "one row per {entity}" has an output size set by the entity count. The count is measurable at scaffold time, so a flat projection hides a cost that one query would show.
+
+> [!constraint] Count the entities at scaffold time and price the output from the count
+> 1. Run the count query against the live source at scaffold time. Write the count, the date and the query beside the addend.
+> 2. Measure bytes per row from a sample of real rows, never from a guess.
+> 3. Write the addend as `{N} {entity} rows × {b} bytes per row measured from {sample rows} ÷ {ratio} + {C} fixed`. Take the ratio from `task-content-fidelity.md` §9.A.3.
+> 4. When the addend crosses ~22,000 tokens, pre-declare the `-Part-{N}-` split in the task file, per `task-content-fidelity.md` §9.A.7. Do not leave the runner to improvise it.
+> 5. Size each consumer's Required Context row from the same figure. Mark the row `projected, re-measure at dispatch`, per `task-content-fidelity.md` §9.A.14, because the producing task has not run yet.
+>
+> WRONG — a flat projection for every Tier 1 output, though the brief asks for one row per deployed index:
+> ```
+> Output: Outputs/{Abbrev}-{artifact}.md   (~40.0 KiB, flat)
+> # live catalog: 701 index rows, about 136 KB. One file fails the 22,000-token warn gate.
+> # The runner halts mid-task, and the downstream consumer budgets ~19.7K for a file that grew past 200K.
+> ```
+> CORRECT — the count, the sample and the split are all in the task file before it runs:
+> ```
+> Output: (projected ~52K tokens — pre-split per §9.A.7)
+> # 701 index rows, counted {YYYY-MM-DD} by {count query}, × 194 bytes per row
+> # measured from 20 sample rows ÷ 2.6 + 1.5K fixed
+> - Outputs/{Abbrev}-{artifact}-Part-1-{Topic}.md  (~26K tokens)
+> - Outputs/{Abbrev}-{artifact}-Part-2-{Topic}.md  (~26K tokens)
+> # consumer row: {artifact} Parts 1-2, projected, re-measure at dispatch | ~52K
+> ```
+
+A consolidation task that copies every row inherits the same count. Price it from the same figure, never from a flat projection of its own.
+
+#### Reviewer Check 134 — One-Row-per-Entity Output Priced Without a Measured Count
+
+- **Severity / Role / Type:** WARNING | Task Reviewer | NEW
+- **What:** A one-row-per-{entity} Expected Output MUST state a measured entity count, its date and its query. Its output addend MUST derive from that count.
+- **Detection:** Find a task whose Expected Output says one row per {entity} (or an equivalent per-record listing) and whose output addend is a flat figure with no count term. Raise the finding. Raise it as ERROR when the corrected addend crosses the ~22,000-token split target and the task declares no `-Part-{N}-` split.
+- **Finding template:**
+```
+[WARNING] One-row-per-entity output priced without a measured count
+File: {task file path} | Location: Expected Output / Context subtotal
+Issue: "one row per {entity}" with a flat {X}K addend and no count, date or query
+Fix: Count the entities at scaffold time and price per references/discovery-and-exit-criteria.md §15.4 | Confidence: HIGH
+```
 
 ---
 

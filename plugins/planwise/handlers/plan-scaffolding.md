@@ -197,7 +197,8 @@ Act on each status block by the field names its agent file defines. Never ask an
 **Scaffolder gate** (fields from `agents/sprint-scaffolder.md`):
 
 - `COMPLETE`: reject any block whose `FILL_REMAINING` or `STRAY_H2` is above 0, and dispatch that sprint again. Then confirm that each `cross_sprint_markers` row appears in every involved Sprint Plan. Record `SPAN_ROWS_REPOINTED` for the Step 7 block.
-- `PARTIAL`: dispatch again for the same sprint.
+- `PARTIAL`: dispatch again for the same sprint. The scaffolder skips its filled files, so the next dispatch continues where this one stopped.
+- A return with no status block: the dispatch returned with no `TASK_STATUS:` line, because the agent hit its turn limit before it reported. Count `FILL` over `sprint_folder` with `Grep` (`output_mode='count'`) and run `scripts/scaffold_plan.py check-headings` over the folder. When both read 0, accept from disk and do not resume. Otherwise resume the same agent with a message that names the files left, per `references/dispatch-boundary-evidence.md` §4. Dispatch fresh only when the agent cannot be resumed. This bullet also covers an `ei-extractor` or `scaffold-harmonizer` dispatch that returns no block: accept from disk when that agent's own output check passes, otherwise resume.
 - `BLOCKED`: restore a missing input, then dispatch again. Write an absent rendered file from its template, because `render` never writes into a non-empty folder. An `ei_section_map` id that does not resolve means re-dispatch that sprint's extractor first. A user-only choice goes to the user, and the answer goes into the next dispatch's prompt.
 
 **Harmonizer gate** (fields from `agents/scaffold-harmonizer.md`). The verdict comes from `scripts/scaffold_deviations.py`, so accept `COMPLETE` only when `DEVIATIONS_AFTER` reads `A=0 B=0 C=0`, `STRAY_H2` is 0 and `FILL_REMAINING` is 0.
@@ -207,7 +208,7 @@ Act on each status block by the field names its agent file defines. Never ask an
 - `BLOCKED`: a missing `plan_root`, an absent gate script or a gate exit 2 means correct the path, the install or the template, then dispatch again. A `CLASS_C` line means create `Scaffold-{Abbrev}/` (Step 2 owns it), then dispatch again.
 - A mixed output-naming scheme in `ISSUES` is yours to decide. The harmonizer renames no file, so make the renames and their citation sweep yourself.
 
-**Stalled re-dispatch.** If a re-dispatch returns `PARTIAL` and its `OUTPUT_FILES` lists no file the previous dispatch did not, stop re-dispatching that agent. Finish its remaining work inline under the inline path's rules, and note it in the Step 7 block.
+**Stalled re-dispatch.** If the on-disk `FILL` count over the sprint folder does not fall across a re-dispatch or a resume, whether or not a block came back, stop re-dispatching that agent. Finish its remaining work inline under the inline path's rules, and note it in the Step 7 block.
 
 ## Scaffolding Step 4.5: Multi-Tier Discovery Extraction
 

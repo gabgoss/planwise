@@ -30,7 +30,10 @@ Rules, by word id:
                           Data Quality Caveats section, an Orchestration success
                           criterion, and a task file's Required Context or
                           Success Criteria. A ``> [!practice]`` callout that
-                          carries the marker fires. BLOCKER.
+                          carries the marker fires. BLOCKER. A table row under a
+                          Source, Citation, Literature or Reference Register
+                          heading is a provenance label, not a claim: one
+                          ADVISORY per register, no BLOCKER.
     hedge-preservation    references/ei-fidelity.md §4.5. A hedged sentence in a
                           cited source whose closest EI line keeps neither the
                           hedge nor a dated measurement. ADVISORY: prints
@@ -135,6 +138,10 @@ MARKER_RE = re.compile(r"\bUNCONFIRMED\b")
 PRACTICE_RE = re.compile(r"[ \t]*>[ \t]*\[!practice\]", re.IGNORECASE)
 CALLOUT_LINE_RE = re.compile(r"[ \t]*>")
 CAVEATS_TITLE_RE = re.compile(r"Data Quality Caveats", re.IGNORECASE)
+# A heading that declares a source register. A table row under it that carries
+# UNCONFIRMED is a verification-status label on a source, not a claim a task acts on.
+REGISTER_TITLE_RE = re.compile(r"\b(?:Source|Citation|Literature|Reference)[ \t]+Register\b", re.IGNORECASE)
+TABLE_ROW_RE = re.compile(r"[ \t]*\|")
 CRITERIA_TITLE_RE = re.compile(r"Criteri", re.IGNORECASE)
 TASK_SITE_TITLE_RE = re.compile(r"Required Context|Success Criteria", re.IGNORECASE)
 CHECKBOX_RE = re.compile(r"[ \t]*[-*][ \t]+\[[ xX]\]")
@@ -589,7 +596,11 @@ def check_four_site_caveat(ctx: Context) -> RuleResult:
     not repeat the marker. A claim with no specific key is reported as
     unkeyable rather than passed. A marker inside a code span or fence, or followed by a word
     such as 'caveat' or 'claim' ('each UNCONFIRMED caveat'), is a mention, not
-    a claim. Cannot see: a claim phrased as such a mention; a site that names
+    a claim. A table row under a heading naming a Source, Citation, Literature
+    or Reference Register is a provenance label, not a claim: it is not keyed,
+    and one ADVISORY per register names the row count. Prose under that
+    heading, and every other table, keep the BLOCKER path.
+    Cannot see: a claim phrased as such a mention; a site that names
     the item with other words than the subject phrase; a subject longer than
     six words, which is cut to its last six; whether an Orchestration criterion
     actually enforces the exclusion.
@@ -602,6 +613,8 @@ def check_four_site_caveat(ctx: Context) -> RuleResult:
         for part, caveat_spans in caveat_docs:
             mask = fenced_mask(part.lines)
             practice = _callout_lines(part.lines)
+            register_spans = ranges_titled(part.lines, REGISTER_TITLE_RE)
+            register_rows = [0] * len(register_spans)
             for index, line in enumerate(part.lines):
                 marker_at = marker_position(line)
                 if mask[index] or marker_at is None:
@@ -617,6 +630,10 @@ def check_four_site_caveat(ctx: Context) -> RuleResult:
                             "a '> [!practice]' callout carries UNCONFIRMED; use '> [!constraint]'",
                         )
                     )
+                    continue
+                register_at = next((n for n, span in enumerate(register_spans) if index in span), None)
+                if register_at is not None and TABLE_ROW_RE.match(line):
+                    register_rows[register_at] += 1  # a source label, reported once per register below
                     continue
                 if in_ranges(index, caveat_spans):
                     continue  # a Data Quality Caveats line is a site, not a claim
@@ -651,6 +668,19 @@ def check_four_site_caveat(ctx: Context) -> RuleResult:
                             part.path,
                             index + 1,
                             f"UNCONFIRMED claim '{key}' is absent from: {', '.join(missing)}",
+                        )
+                    )
+            for span, rows in zip(register_spans, register_rows):
+                if rows:
+                    result.findings.append(
+                        Finding(
+                            "four-site-caveat",
+                            ADVISORY,
+                            part.path,
+                            span.start + 1,
+                            f"{rows} UNCONFIRMED table row(s) under a source register heading are read as "
+                            "provenance labels, not claims, and are not keyed; restate a register fact a "
+                            "task acts on as a claim outside the table",
                         )
                     )
     return result

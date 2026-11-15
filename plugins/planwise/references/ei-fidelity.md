@@ -274,13 +274,15 @@ How to apply during scaffolding:
 
 A source file that says "unverified" while the EI shows the field as normal is a red flag during review: the verification status was dropped.
 
-**Script:** `scripts/lint_execution_input.py` rule `four-site-caveat` runs this check over the four §4 sites. It reads a marker inside a code span or fence, or one followed by a word such as "caveat" or "claim", as a mention. It cannot see a site that names the item in other words, or whether an Orchestration criterion really enforces the exclusion.
+A source or citation register whose rows carry a verification status (VERIFIED, UNCONFIRMED) belongs under a heading that names it: `Source Register`, `Citation Register`, `Literature Register` or `Reference Register`. Its status labels record where a source stands. They are provenance, not four-site claims. When a task acts on a fact the register holds, restate that fact as a claim outside the table, and it takes the four sites like any other claim.
+
+**Script:** `scripts/lint_execution_input.py` rule `four-site-caveat` runs this check over the four §4 sites. It reads a marker inside a code span or fence, or one followed by a word such as "caveat" or "claim", as a mention. It also reads an UNCONFIRMED table row under a register heading as a provenance label: it keys no site for the row and prints one ADVISORY per register with the row count, which never changes the exit code. Prose under a register heading and every other table keep the BLOCKER path. It cannot see a site that names the item in other words, or whether an Orchestration criterion really enforces the exclusion.
 
 #### Reviewer Check 004 — EI UNCONFIRMED Four-Site Enforcement
 
 - **Severity / Role / Type:** BLOCKER | EI Reviewer | NEW
-- **What:** Every UNCONFIRMED claim MUST appear at all four §4 sites: (a) the EI primary section where the item first appears, (b) the EI Data Quality Caveats subsection, (c) a Session Orchestration success criterion, (d) a task file's Required Context or Success Criteria. The callout that carries it is `> [!constraint]` (NOT `> [!practice]`).
-- **Detection:** Grep EI for `UNCONFIRMED`. For each occurrence, verify presence at all four sites: the EI primary section, the EI Data Quality Caveats subsection, an Orchestration success criterion, and a task file's Required Context or Success Criteria. If `> [!practice]` callout used → BLOCKER. If missing from any site → BLOCKER.
+- **What:** Every UNCONFIRMED claim MUST appear at all four §4 sites: (a) the EI primary section where the item first appears, (b) the EI Data Quality Caveats subsection, (c) a Session Orchestration success criterion, (d) a task file's Required Context or Success Criteria. The callout that carries it is `> [!constraint]` (NOT `> [!practice]`). A table row under a `Source Register`, `Citation Register`, `Literature Register` or `Reference Register` heading is a provenance label, not a claim, and is exempt.
+- **Detection:** Grep EI for `UNCONFIRMED`. Skip a table row under a register heading. For each other occurrence, verify presence at all four sites: the EI primary section, the EI Data Quality Caveats subsection, an Orchestration success criterion, and a task file's Required Context or Success Criteria. If `> [!practice]` callout used → BLOCKER. If missing from any site → BLOCKER.
 - **Finding template:**
 ```
 [BLOCKER] UNCONFIRMED claim missing four-site enforcement

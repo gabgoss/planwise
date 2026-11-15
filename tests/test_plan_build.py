@@ -274,6 +274,49 @@ def test_keys_refuses_an_unreadable_spec(tmp_path):
     assert run_script("keys", "--spec", str(tmp_path / "absent.json")).returncode == 2
 
 
+def _keys_blocks(stdout):
+    """{doc id: (markers=<n> figure, sum of its marker count= figures)} from `keys` output."""
+    blocks, doc = {}, None
+    for line in stdout.splitlines():
+        if line.startswith("doc "):
+            doc = line.split()[1]
+            blocks[doc] = [int(line.rsplit("markers=", 1)[1]), 0]
+        elif line.startswith("  marker "):
+            blocks[doc][1] += int(line.rsplit("count=", 1)[1])
+    return blocks
+
+
+def test_keys_session_prints_only_that_sessions_docs_with_a_matching_total(tmp_path):
+    spec_path = str(_write_spec(tmp_path))
+    whole = run_script("keys", "--spec", spec_path)
+    one = run_script("keys", "--spec", spec_path, "--session", "S01-01")
+    assert one.returncode == 0, one.stdout + one.stderr
+    blocks = _keys_blocks(one.stdout)
+    assert sorted(blocks) == ["S01-01-01", "S01-01-02", "S01-01-ORCH", "S01-01-RECOVERY"]
+    assert all(figure == counted for figure, counted in blocks.values())
+    # each shown block is byte-identical to the same block of the whole-plan run
+    whole_blocks = _keys_blocks(whole.stdout)
+    assert all(blocks[doc] == whole_blocks[doc] for doc in blocks)
+    total = sum(figure for figure, _counted in blocks.values())
+    assert total < sum(figure for figure, _counted in whole_blocks.values())
+    assert one.stdout.splitlines()[-1] == f"fill_markers={total} docs=4"
+
+
+def test_keys_session_plan_prints_only_the_plan_documents(tmp_path):
+    result = run_script("keys", "--spec", str(_write_spec(tmp_path)), "--session", pb.PLAN_GROUP)
+    assert result.returncode == 0, result.stdout + result.stderr
+    blocks = _keys_blocks(result.stdout)
+    assert blocks and all(pb.session_of(doc) == pb.PLAN_GROUP for doc in blocks)
+    assert result.stdout.splitlines()[-1] == f"fill_markers={sum(f for f, _c in blocks.values())} docs={len(blocks)}"
+
+
+def test_keys_unknown_session_exits_2_with_a_refused_line(tmp_path):
+    result = run_script("keys", "--spec", str(_write_spec(tmp_path)), "--session", "S09-09")
+    assert result.returncode == 2
+    assert result.stdout.startswith("REFUSED: session S09-09 is not in the spec. Fix: pass a session such as S01-01.")
+    assert not any(ln.startswith("doc ") for ln in result.stdout.splitlines())
+
+
 # A spec that json.loads cannot turn into a value: an integer past the 4,300-digit conversion limit
 # (ValueError), nesting deeper than the recursion limit (RecursionError), and plain malformed text.
 UNPARSEABLE_SPECS = {"huge-int": "1" * 5000, "deep-nesting": "[" * 100000, "bad": "{bad"}

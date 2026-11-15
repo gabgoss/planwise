@@ -313,6 +313,7 @@ This is distinct from the two voice+tree failure modes above: those announce the
 - `git status --short` — confirm the expected file set is dirty and nothing unexpected changed.
 - A collection / parse check where applicable (the produced file parses; the test file collects).
 - Confirm the Recovery step row for the task flipped to its completed state.
+- Re-run the producing task's read-only After-block commands on the final Output bytes. A runner's checks describe the file as it stood when they ran, so a late edit can break a structural gate unseen. The template's Step 2 gives the mandatory and default cases.
 - Recompute the expected member count from the task's own pattern or member table, never from the brief, the Success Criteria or the runner's report. Expand every placeholder in the pattern, count the members it reaches, and compare that figure with the evidence-row count. A pattern over 13 URLs in 2 redirect modes expects 26 rows, so a report of 18 rows fails even when it reads N/N. See `gate-input-set-and-compared-window.md` §16 and Reviewer Check 110.
 - Treat an `ISSUES: out of scope` line about a file the task owns as a request for a ruling, not a note. Run the task's own verify criteria against that file. Then rule before accepting: widen the scope with a Scope-Expansion Decisions row, or narrow the criterion. See [gate-satisfiability.md §6](gate-satisfiability.md#6-an-absence-check-must-match-the-edit-scope-of-its-own-brief).
 

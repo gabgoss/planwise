@@ -707,7 +707,7 @@ Fix: Add a measured row and re-derive the subtotal and Estimated Tokens | use th
 
 ### 9.A.18 Price table-shaped output by column count
 
-A deliverable that lists a table's columns is sized `columns × lines-per-column + fixed`, not `functions × lines-per-function`. It covers an INSERT column list, a `?` placeholder list, a field tuple, a per-field fixture and a `MERGE ... USING (SELECT ? AS ...)` clause. Take N from a recount of the Schema Pin's widest table. Convert lines to tokens by measured bytes (§9.A.3), never by a per-line rate.
+A deliverable that lists a table's columns is sized `columns × lines-per-column + fixed`, not `functions × lines-per-function`. It covers an INSERT column list, a `?` placeholder list, a field tuple, a per-field fixture and a `MERGE ... USING (SELECT ? AS ...)` clause. Take N from a recount of the Schema Pin's widest table. Convert lines to tokens by measured bytes (§9.A.3), never by a per-line rate. Price one-row-per-{entity} output as measured entity count × measured bytes per row (`discovery-and-exit-criteria.md` §15.4).
 
 These figures are an observation from two tasks, not a fitted model: an INSERT string about N + 6 lines, a field tuple N + 3, a per-field fixture N + 10, a per-row test case 15 to 25.
 

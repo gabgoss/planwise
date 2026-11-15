@@ -90,6 +90,8 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 >
 > **Where the output mirrors a table shape**, the output addend declares its column arithmetic, so a reviewer can check N against the Schema Pin: `+ ~{O}K (output: {N} columns × {L} lines + {C} fixed = {lines} lines; {b} bytes per entry measured from {same-shape file}, ÷ {ratio})` per `references/task-content-fidelity.md` §9.A.18.
 >
+> **Where the output is one row per {entity}**, the addend takes its count from a query run at scaffold time: `+ ~{O}K (output: {N} {entity} rows, counted {date} by {query}, × {b} bytes per row measured from {sample} ÷ {ratio} + {C} fixed)` per `references/discovery-and-exit-criteria.md` §15.4.
+>
 > **Budget the ceiling, not the hope.** Where a row's cost is a range, the row carries the ceiling. An under-budget task costs nothing; an over-budget one stalls mid-run.
 >
 > **One formula per task.** If two derivations appear in one file, the file has no single answer and a reader cannot tell which is authoritative. Two derivations can also disagree with each other while landing on the same total — so the totals agreeing is not evidence that either derivation is right.
@@ -226,7 +228,7 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
 
 {What the subagent should produce - be specific about format and content}
 
-<!-- Column-enumerating output: a line figure states its column term, for example `{N} columns × {L} lines + {C}` (references/task-content-fidelity.md §9.A.18). -->
+<!-- Column-enumerating output: a line figure states its column term, for example `{N} columns × {L} lines + {C}` (references/task-content-fidelity.md §9.A.18). A one-row-per-{entity} output states its measured count and pre-declares `-Part-{N}-` files when the addend crosses ~22,000 tokens (references/discovery-and-exit-criteria.md §15.4). -->
 
 <!-- Structure-as-checklist + template pointer: when this task's output is consumed
      structurally by a named downstream task (an aggregator reading a named section, a
@@ -279,6 +281,7 @@ The later stale-reference sweep task lists this slot in its `## Required Context
 > Every After gate reports its Actual beside its `expect`, a plain count-equality gate included.
 > When Actual contradicts `expect` per the operator, the verdict is FAIL or `[UNCERTAIN]`, never PASS.
 > A gate that could not run is `[UNCERTAIN]` with the exact command and error.
+> The reported Actual comes from a run after the last edit to any Output.
 > See `references/gate-verdict-contract-and-adjudication.md` §5, §5.1 and §5.2.
 
 ### Per-File-Type Commands
@@ -380,7 +383,7 @@ The later stale-reference sweep task lists this slot in its `## Required Context
 > ```
 
 > [!constraint] A Live-Tree Figure Is a Census Placeholder
-> A figure a gate or step asserts about the live tree (a file count, a split boundary, a scan-set size, a line number, a line-ending tally) MUST be a `{census:<name>}` placeholder that names a row of the session orchestration file's Session Start Census. A bare literal is a claim about one tree at one moment, and the tree can move between the scaffold and the dispatch. The `# pre-edit:` annotation keeps the scaffold reading with its artifact, commit and date. The runner substitutes the value from its spawn prompt's `Census:` line and never reads it from Recovery. Put the placeholder in the trailing annotation where possible: a `{...}` token inside the command text makes `scripts/lint_verification_gates.py` treat the line as a placeholder and skip its checks.
+> A figure a gate or step asserts about the live tree (a file count, a split boundary, a scan-set size, a line number, a line-ending tally) MUST be a `{census:<name>}` placeholder that names a row of the session orchestration file's Session Start Census. A bare literal is a claim about one tree at one moment, and the tree can move between the scaffold and the dispatch. The `# pre-edit:` annotation keeps the scaffold reading with its artifact, commit and date. The runner substitutes the value from its spawn prompt's `Census:` line and never reads it from Recovery. Put the placeholder in the trailing annotation where possible: a `{...}` token inside the command text makes `scripts/lint_verification_gates.py` treat the line as a placeholder and skip its checks. The dirty-path count of a "writes no path under X" gate is not a live-tree figure for this rule, because another session moves it on a shared tree. Write that After item as an orchestrator return check that names X and the task's possible write set, and point it at `references/verify-before-cite.md` §9.B.24 item 4.
 >
 > WRONG — the scaffold-time count is a literal the gate asserts at dispatch:
 > ```bash

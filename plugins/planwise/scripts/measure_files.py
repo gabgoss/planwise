@@ -37,13 +37,16 @@ Usage:
   --model    haiku | sonnet | opus | fable — use that family's
              gate-conservative bytes-per-token ratio (omit for the overall
              most-restrictive default).
-  --content  dense-md | prose | code | notebook | json — refine the ratio
-             within the model family (without --model, the class's most
+  --content  dense-md | prose | code | notebook | json | table-md — refine the
+             ratio within the model family (without --model, the class's most
              restrictive family cell, i.e. the Claude 5 tokenizer, is used).
              Omitted: each file's class is auto-detected from its extension
              (`.ipynb` → notebook, `.json`/`.jsonl`/`.ndjson` → json, both
-             denser than the text fallback); anything else uses the family's
-             dense-md fallback. An explicit --content overrides detection.
+             denser than the text fallback). Any other file is line-sniffed:
+             markdown table rows that are mostly digits price at the table-md
+             ratio and every other byte at the family's dense-md fallback, so
+             a file of dense numeric tables no longer reads as OK past the
+             Read cap. An explicit --content overrides detection and sniffing.
   --config   a planwise config.yaml whose context.verified_cli_version
              gates the advisory levels (omit for the hard-gate levels).
              A path that names no file prints an error and exits 2.
@@ -81,7 +84,7 @@ from read_limits import (
     allow_large_lifts,
     bytes_per_token,
     content_class_for_path,
-    estimate_tokens,
+    estimate_file_tokens,
     fired_read_gates,
     read_routes_advice,
     read_verified_cli_version,
@@ -91,7 +94,7 @@ from read_limits import (
 _LEVEL_NAMES = {"Green": "OK", "Warn": "WARN", "Critical": "OVER"}
 
 _MODELS = ("haiku", "sonnet", "opus", "fable")
-_CONTENT_CLASSES = ("dense-md", "prose", "code", "notebook", "json")
+_CONTENT_CLASSES = ("dense-md", "prose", "code", "notebook", "json", "table-md")
 
 
 def measure_file(
@@ -115,10 +118,14 @@ def measure_file(
     """
     num_bytes = os.path.getsize(path)
     lines = _count_lines(path)
-    if content is None:
-        content = content_class_for_path(path)
-    ratio = bytes_per_token(model, content)
-    tokens = estimate_tokens(num_bytes, model, content)
+    sniffed = content is None and content_class_for_path(path) is None
+    tokens, content = estimate_file_tokens(path, model, content)
+    if sniffed and content == "table-md":
+        # The sniff priced the table rows apart from the rest, so no single
+        # class ratio describes the file. Report the effective bytes per token.
+        ratio = round(num_bytes / tokens, 2)
+    else:
+        ratio = bytes_per_token(model, content)
     fired = fired_read_gates(num_bytes, tokens, lines)
     lifted = allow_large_lifts(cli_version, fired)
 

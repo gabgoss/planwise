@@ -103,6 +103,7 @@ Add a `FLAG:` bullet to `KEY_FINDINGS` that names the sibling tasks bound by the
 1. Write expected output files to the output directory
 2. Follow the format specified in Expected Output exactly
 3. Do not add extra content beyond what is specified
+4. After any edit to an Output, a one-sentence prose edit included, re-run the whole After block and report only the results of that last run. A result taken before the final edit describes bytes that no longer exist
 
 ## Output Formatting Expectations
 

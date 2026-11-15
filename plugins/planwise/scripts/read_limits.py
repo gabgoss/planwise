@@ -114,13 +114,38 @@ READ_LINE_CAP = 2000
 #       Haiku 4.5         2.717 · 2.809 · 2.842
 #   Cross-family check on every sample: Claude 5 tokens / Haiku tokens landed
 #   1.28-1.40, inside the 1.25-1.45 band the tests pin.
+#
+# One content-sniffed class, added 2026-11-14 (same oracle):
+#
+#   table-md — markdown pipe-table rows whose characters are mostly digits
+#     (see `numeric_table_bytes`). Digits tokenize near one token per one to
+#     two bytes, so a dense numeric table costs far more per byte than the
+#     prose and index rows `dense-md` covers. The class is never reached by
+#     extension, so `estimate_file_tokens` prices a file's table rows at this
+#     cell and every other byte at the fallback. Three generated samples of
+#     45,045, 52,004 and 60,031 bytes (6, 7 and 8 columns of values shaped
+#     like `-0.087 (0.124)`, `n=4,344` and `42.17`, about 60%, 20% and 20% of
+#     cells) read 30,737, 35,496 and 40,977 tokens:
+#       Claude 5 family   1.465 · 1.465 · 1.466
+#       Haiku 4.5         derived, not measured: 1.465 x 1.25 = 1.83
+#     The 1.25 factor is the low edge of the cross-family band above. A report
+#     of two real numeric-table files gave 1.64 and 1.84 bytes per token. Those
+#     counts came from a runner and were not re-measured, and they are lighter
+#     than the generated samples. The cell takes the measured minimum, as every
+#     other cell does, so those two files price about 17% and 31% heavy. A
+#     heavy estimate is the safe side of the gate.
 DEFAULT_BYTES_PER_TOKEN = 2.6  # most restrictive TEXT class: dense markdown, Claude 5 tokenizer
 BYTES_PER_TOKEN = {
-    "opus":   {"dense-md": 2.6, "prose": 2.9, "code": 2.7, "notebook": 2.3, "json": 2.0},
-    "fable":  {"dense-md": 2.6, "prose": 2.9, "code": 2.7, "notebook": 2.3, "json": 2.0},   # same tokenizer as opus (measured)
-    "sonnet": {"dense-md": 2.6, "prose": 2.9, "code": 2.7, "notebook": 2.3, "json": 2.0},   # same tokenizer as opus (measured directly)
-    "haiku":  {"dense-md": 3.5, "prose": 4.0, "code": 3.6, "notebook": 3.3, "json": 2.7},   # Haiku 4.5 — the one lighter family
+    "opus":   {"dense-md": 2.6, "prose": 2.9, "code": 2.7, "notebook": 2.3, "json": 2.0, "table-md": 1.4},
+    "fable":  {"dense-md": 2.6, "prose": 2.9, "code": 2.7, "notebook": 2.3, "json": 2.0, "table-md": 1.4},   # same tokenizer as opus (measured)
+    "sonnet": {"dense-md": 2.6, "prose": 2.9, "code": 2.7, "notebook": 2.3, "json": 2.0, "table-md": 1.4},   # same tokenizer as opus (measured directly)
+    "haiku":  {"dense-md": 3.5, "prose": 4.0, "code": 3.6, "notebook": 3.3, "json": 2.7, "table-md": 1.8},   # Haiku 4.5 — the one lighter family; table-md derived
 }
+
+# A markdown table row is "numeric" when digits are at least this share of its
+# non-space, non-pipe characters. The generated samples sit near 0.60. A
+# backlog-index row and an ordinary prose table sit far below 0.40.
+NUMERIC_TABLE_DIGIT_SHARE = 0.4
 
 # The class `bytes_per_token()` falls back to when no content class is given.
 # It is the densest TEXT class: an extension cannot tell prose from a dense
@@ -237,6 +262,69 @@ def estimate_tokens(
     if num_bytes <= 0:
         return 0
     return math.ceil(num_bytes / bytes_per_token(model, content))
+
+
+def numeric_table_bytes(data: bytes) -> int:
+    """Return the bytes of `data` that sit on numeric markdown table rows.
+
+    A row qualifies when its stripped text starts with `|` and digits are at
+    least NUMERIC_TABLE_DIGIT_SHARE of its non-space, non-pipe bytes. The
+    count includes the row's line terminator, so the qualifying rows and the
+    other lines add back to `len(data)`. A separator row (`|---|---:|`), a
+    header row and a prose line carry no digit share and never qualify.
+    """
+    total = 0
+    for line in data.splitlines(keepends=True):
+        stripped = line.strip()
+        if not stripped.startswith(b"|"):
+            continue
+        body = [b for b in stripped if b not in b" \t|"]
+        if not body:
+            continue
+        digits = sum(1 for b in body if 0x30 <= b <= 0x39)
+        if digits / len(body) >= NUMERIC_TABLE_DIGIT_SHARE:
+            total += len(line)
+    return total
+
+
+def estimate_file_tokens(
+    path: str,
+    model: str | None = None,
+    content: str | None = None,
+    *,
+    extra_bytes: int = 0,
+) -> tuple[int, str | None]:
+    """Estimate a file's token cost and return (tokens, content class used).
+
+    A named `content` class, or the class the extension identifies
+    (`content_class_for_path`), prices the whole file at that one ratio, as
+    `estimate_tokens` does. With neither, the file is read and its numeric
+    table rows (`numeric_table_bytes`) are priced at the `table-md` ratio and
+    every other byte at the family fallback. The class returned is `table-md`
+    only when the blend priced at least one table byte, else None.
+
+    `extra_bytes` is a projected addition. It prices at the fallback, because
+    the caller knows its size and not its shape. An unreadable file prices
+    `extra_bytes` alone.
+    """
+    if content is None:
+        content = content_class_for_path(path)
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        size = 0
+    total = size + max(0, extra_bytes)
+    if content is not None:
+        return estimate_tokens(total, model, content), content
+    try:
+        with open(path, "rb") as handle:
+            table = numeric_table_bytes(handle.read())
+    except OSError:
+        table = 0
+    if table <= 0:
+        return estimate_tokens(total, model, None), None
+    table_tokens = math.ceil(table / bytes_per_token(model, "table-md"))
+    return table_tokens + estimate_tokens(total - table, model, None), "table-md"
 
 
 def _version_parts(version: str) -> tuple[int, ...] | None:
@@ -502,7 +590,10 @@ def classify_file(
     When `content` is None the class is auto-detected from the extension
     (`content_class_for_path`): a `.ipynb` prices at the notebook ratio and a
     `.json` at the json ratio, both denser than the text fallback. An explicit
-    `content` always wins.
+    `content` always wins. With no class named and none identified, the file is
+    line-sniffed (`estimate_file_tokens`): numeric markdown table rows price at
+    the `table-md` ratio, every other byte and the projected addition at the
+    fallback, and `content` reports `table-md` when any table byte was priced.
 
     Returns {"level", "reason", "bytes", "tokens", "lines", "content",
     "advice", "read_gates"} where level is in Green|Notice|Warn|Critical,
@@ -511,15 +602,15 @@ def classify_file(
     and read_gates is a tuple drawn from "token", "byte" and "line" (empty
     when no hard cap is crossed).
     """
-    if content is None:
-        content = content_class_for_path(path)
     try:
         num_bytes = os.path.getsize(path)
     except OSError:
         num_bytes = 0
     line_count = _count_lines(path)
     gated_bytes = num_bytes + max(0, projected_added_bytes)
-    tokens = estimate_tokens(gated_bytes, model, content)
+    tokens, content = estimate_file_tokens(
+        path, model, content, extra_bytes=projected_added_bytes
+    )
 
     cost = _cost_level(tokens, thresholds)
     read = _read_level(gated_bytes, tokens, line_count, cli_version=cli_version)

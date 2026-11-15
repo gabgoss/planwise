@@ -153,6 +153,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 124 — Data-State Literal Used as a Pass or Fail Value → references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md §16.19
 - Check 125 — Equality Filter on a State Column With No Measured Vocabulary → references/schema-pin-requirement.md §5.1
 - Check 126 — Table-Shaped Output Estimate With No Column Term → references/task-content-fidelity.md §9.A.18
+- Check 134 — One-Row-per-Entity Output Priced Without a Measured Count → references/discovery-and-exit-criteria.md §15.4
 - Check 129 — Correction Leaves an Uncorrected Sibling Copy → references/dispatch-edit-surface-sweep.md §14
 - Check 130 — Unmodified-Tests Criterion Beside a Behaviour-Changing Default → references/verify-caller-before-complete.md §7
 - Check 131 — Authorized Omission (an `<!-- OMITTED: … (spec omit_sections) -->` line in place of a CONDITIONAL section is an authorized omission, not a finding. A section removed with no OMITTED line is template drift.) → references/scaffolding-hygiene.md §8

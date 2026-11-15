@@ -4,8 +4,10 @@
 A sprint plan's ``## Carried-Forward Coordination Flags`` section records the
 flags it routes to later sessions. Each consuming session's orchestration file
 should carry every flag addressed to it under ``## Pre-Known Cross-Task
-Coordination Flags``. Flag ids are sender-scoped and collide freely, so an id
-match is not an arrival check. This script compares the subject text instead.
+Coordination Flags``, and each task file should carry the flags that name it
+under its own section of that title. Flag ids are sender-scoped and collide
+freely, so an id match is not an arrival check. This script compares the
+subject text instead, across both hops.
 
 Usage::
 
@@ -22,14 +24,27 @@ Method:
   the id cell.
 * Subjects are compared after case folding and whitespace collapsing. A
   carried row matches when some destination row carries the same subject.
+* Every optional flag section is an empty source when its heading is absent:
+  the script prints a ``note:`` line and the rows of that source count as
+  zero. The templates mark all three sections optional.
+* Second hop: every sibling task file of the orchestration (a file named
+  ``{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{Task}.md``) is checked against the
+  orchestration's own Pre-Known rows. A row names a task when its consuming
+  cell holds the full task id as a whole token, or reads ``Task 3`` or
+  ``Task 03``. The row is routed when its subject appears in the task file's
+  own Pre-Known section, a substring test because the task-file template
+  writes flags as bullets. Rows that name no task are listed for hand routing
+  and never change the exit code.
 
-Exit codes: 0 every carried row matched, 1 unmatched rows listed, 2 an input
-section is missing or a file cannot be read.
+Exit codes: 0 every carried row matched and every named task carries its
+flags, 1 a miss in either hop, 2 a file cannot be read.
 
 What this check cannot see: a destination row whose subject was reworded
 reads as unmatched (the safe direction, a human confirms it). A table whose
 consuming-session column is absent contributes no carried rows, and the
-script prints how many such tables it skipped.
+script prints how many such tables it skipped. A consuming cell that lists
+several tasks as one number run (``Tasks 01, 03``) names only the first, so
+write one ``Task NN`` per task or a full task id.
 """
 
 from __future__ import annotations
@@ -51,6 +66,10 @@ SUBJECT_HEADERS = ("subject", "observation", "topic")
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)")
 _SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?\Z")
 _SPACE_RE = re.compile(r"\s+")
+# {Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md, per templates/task-file.md.
+_TASK_FILE_RE = re.compile(
+    r"^([A-Za-z0-9]+-S\d{2}-\d{2}-(\d{2}))-(?:Haiku|Sonnet|Opus)-[^/\\]+\.md\Z"
+)
 
 
 def normalise(text: str) -> str:
@@ -152,6 +171,59 @@ def unmatched(carried: list[tuple[str, str]], destination: list[str]) -> list[tu
     return [(fid, subj) for fid, subj in carried if normalise(subj) not in present]
 
 
+def _optional_section(text: str, heading: str, title: str, source: Path) -> list[str]:
+    """Lines of an optional section; an absent heading prints a note and is empty."""
+    lines = section_lines(text, heading)
+    if lines is None:
+        print(f"note: no '## {title}' heading in {source}; treated as an empty source")
+        return []
+    return lines
+
+
+def task_files(orchestration: Path) -> list[tuple[str, int, Path]]:
+    """Sibling task files of the orchestration as ``(task id, ordinal, path)``."""
+    found = []
+    for path in sorted(orchestration.parent.iterdir()):
+        m = _TASK_FILE_RE.match(path.name)
+        if m and path.is_file():
+            found.append((m.group(1), int(m.group(2)), path))
+    return found
+
+
+def task_rows(orch_lines: list[str]) -> list[tuple[str, str, str]]:
+    """Every Pre-Known row with a consuming cell, as ``(id, subject, consumer)``."""
+    rows: list[tuple[str, str, str]] = []
+    for header, body in tables(orch_lines):
+        consumer = next((i for i, c in enumerate(header) if "consum" in normalise(c)), None)
+        if consumer is None:
+            continue
+        subj = subject_index(header)
+        for cells in body:
+            if len(cells) > max(consumer, subj):
+                rows.append((cells[0], cells[subj], cells[consumer]))
+    return rows
+
+
+def names_task(cell: str, task_id: str, ordinal: int) -> bool:
+    """True when ``cell`` holds the full task id as a token, or ``Task N``."""
+    if names_session(cell, task_id):
+        return True
+    pattern = rf"(?<!\w)tasks?\s*#?0*{ordinal}(?!\w)"
+    return re.search(pattern, normalise(cell)) is not None
+
+
+def unrouted(
+    rows: list[tuple[str, str, str]], task_text: str, task_id: str, ordinal: int
+) -> list[tuple[str, str]]:
+    """Rows naming the task whose subject its own Pre-Known section lacks."""
+    return [
+        (fid, subj)
+        for fid, subj, consumer in rows
+        if names_task(consumer, task_id, ordinal)
+        and not (normalise(subj) and normalise(subj) in task_text)
+    ]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--sprint-plan", required=True, type=Path)
@@ -167,28 +239,51 @@ def main(argv: list[str] | None = None) -> int:
     except OSError as exc:
         print(f"error: {exc}")
         return 2
-    plan_lines = section_lines(plan_text, CARRIED_HEADING)
-    if plan_lines is None:
-        print(f"error: no '## Carried-Forward Coordination Flags' heading in {args.sprint_plan}")
-        return 2
-    orch_lines = section_lines(orch_text, DESTINATION_HEADING)
-    if orch_lines is None:
-        print(f"error: no '## Pre-Known Cross-Task Coordination Flags' heading in {args.orchestration}")
-        return 2
+    plan_lines = _optional_section(plan_text, CARRIED_HEADING, "Carried-Forward Coordination Flags", args.sprint_plan)
+    orch_lines = _optional_section(orch_text, DESTINATION_HEADING, "Pre-Known Cross-Task Coordination Flags", args.orchestration)
 
     carried, skipped = carried_rows(plan_lines, args.session)
     destination = destination_subjects(orch_lines)
     print(f"carried rows for session {args.session}: {len(carried)}")
     print(f"destination rows: {len(destination)}")
     print(f"carried tables skipped (no consuming-session column): {skipped}")
+    status = 0
     missing = unmatched(carried, destination)
     if not missing:
         print("all carried rows matched by subject")
-        return 0
-    print(f"unmatched carried rows: {len(missing)}")
-    for fid, subj in missing:
+    else:
+        status = 1
+        print(f"unmatched carried rows: {len(missing)}")
+        for fid, subj in missing:
+            print(f"  {fid}: {subj}")
+
+    tasks = task_files(args.orchestration)
+    print(f"task files: {len(tasks)}")
+    if not tasks:
+        return status
+    rows = task_rows(orch_lines)
+    nameless = [
+        (fid, subj)
+        for fid, subj, consumer in rows
+        if not any(names_task(consumer, tid, n) for tid, n, _ in tasks)
+    ]
+    print(f"rows naming no task (route by hand): {len(nameless)}")
+    for fid, subj in nameless:
         print(f"  {fid}: {subj}")
-    return 1
+    misses: list[tuple[str, str, str]] = []
+    for tid, n, path in tasks:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"error: {exc}")
+            return 2
+        lines = _optional_section(text, DESTINATION_HEADING, "Pre-Known Cross-Task Coordination Flags", path)
+        task_text = normalise(" ".join(lines))
+        misses.extend((tid, fid, subj) for fid, subj in unrouted(rows, task_text, tid, n))
+    print(f"unrouted task flags: {len(misses)}")
+    for tid, fid, subj in misses:
+        print(f"  {tid}: {fid}: {subj}")
+    return 1 if misses else status
 
 
 if __name__ == "__main__":

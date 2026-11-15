@@ -14,6 +14,7 @@ Run with:  python -m pytest tests/test_measure_files.py
 import contextlib
 import io
 import json
+import math
 import shutil
 import sys
 import tempfile
@@ -138,6 +139,69 @@ class TestMeasureFiles(unittest.TestCase):
         with contextlib.redirect_stdout(buf):
             self.assertEqual(mf.main([js, "--model", "opus", "--content", "json"]), 0)
         self.assertIn("content=json", buf.getvalue())
+
+    # -- numeric-table markdown: the line-sniffed table-md class -------------
+    def _write_numeric_table(self, name: str, target_bytes: int) -> str:
+        row = "| M{n} | -0.087 (0.124) | n=4,344 | 42.17 | -0.512 (0.301) | n=1,205 | 0.64 |"
+        rows = ["| Model | A | B | C | D | E | F |", "|---|---:|---:|---:|---:|---:|---:|"]
+        size = sum(len(r) + 1 for r in rows)
+        n = 0
+        while size < target_bytes:
+            n += 1
+            rows.append(row.format(n=n))
+            size += len(rows[-1]) + 1
+        path = self.tmp / name
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write("\n".join(rows) + "\n")
+        return str(path)
+
+    def test_dense_numeric_table_markdown_is_not_ok_past_the_read_cap(self):
+        # ~55 KB of decimal pipe tables read 21.2K tokens (OK) at the flat 2.6
+        # ratio, while the Read tool counts such a file near 1.5 bytes per
+        # token (about 37K, over the 25K page cap).
+        path = self._write_numeric_table("dense.md", 55_000)
+        result = mf.measure_file(path, model="opus")
+        self.assertGreaterEqual(result["bytes"], 55_000)
+        self.assertLess(result["bytes"], 56_000)
+        self.assertLess(math.ceil(result["bytes"] / 2.6), 22_000, "the flat ratio calls it OK")
+        self.assertIn(result["level"], ("WARN", "OVER"))
+        self.assertEqual(result["level"], "OVER")
+        self.assertEqual(result["content"], "table-md")
+        self.assertLess(result["ratio"], 2.0)
+        self.assertEqual(result["ratio"], round(result["bytes"] / result["tokens"], 2))
+        self.assertTrue(any(g.startswith("token cap") for g in result["gates"]))
+        report = mf.format_report(mf.measure_files([path], model="opus"))
+        self.assertIn("content=table-md auto-detected", report)
+        self.assertIn(f"ratio {result['ratio']} B/tok", report)
+
+    def test_prose_and_text_index_controls_keep_the_existing_ratio(self):
+        prose = self._write_lines("prose.md", 900, line="word " * 12)
+        index_row = (
+            "| 820 | BUG | Medium | NOT_STARTED | "
+            "[BB-820-01-BUG-MeasureFilesTableMd](BB-820-01-BUG-MeasureFilesTableMd.md) |"
+        )
+        index = self._write_lines("index.md", 700, line=index_row)
+        for path in (prose, index):
+            result = mf.measure_file(path, model="opus")
+            self.assertIsNone(result["content"], path)
+            self.assertEqual(result["ratio"], 2.6, path)
+            self.assertEqual(result["tokens"], math.ceil(result["bytes"] / 2.6), path)
+        report = mf.format_report(mf.measure_files([prose, index], model="opus"))
+        self.assertNotIn("auto-detected", report)
+
+    def test_explicit_content_class_turns_the_table_sniff_off(self):
+        path = self._write_numeric_table("forced.md", 55_000)
+        prose = mf.measure_file(path, model="opus", content="prose")
+        self.assertEqual(prose["content"], "prose")
+        self.assertEqual(prose["ratio"], 2.9)
+        self.assertEqual(prose["tokens"], math.ceil(prose["bytes"] / 2.9))
+        named = mf.measure_file(path, model="opus", content="table-md")
+        self.assertEqual(named["content"], "table-md")
+        self.assertEqual(named["ratio"], 1.4)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(mf.main([path, "--model", "opus", "--content", "table-md"]), 0)
+        self.assertIn("content=table-md", buf.getvalue())
 
     # -- multi-file + errors -------------------------------------------------
     def test_multi_file_summary_and_missing_file(self):

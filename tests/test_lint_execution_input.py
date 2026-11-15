@@ -498,6 +498,68 @@ def test_four_site_caveat_skips_mentions(tmp_path, capsys):
     assert "four-site-caveat: 0 subject(s)" in out
 
 
+# A source register: each row carries a verification status label, not a claim a task acts on.
+REGISTER_ROWS = (
+    "| Source | Status |\n"
+    "|---|---|\n"
+    "| Alpha paper | VERIFIED |\n"
+    "| Beta paper | UNCONFIRMED |\n"
+    "| Gamma paper | UNCONFIRMED — source never opened |\n"
+)
+
+
+def _with_table(heading: str, extra: str = "") -> str:
+    section = f"\n## {heading}\n\n{REGISTER_ROWS}{extra}\n"
+    return PART_1.replace("## Data Quality Caveats", section + "## Data Quality Caveats")
+
+
+def test_four_site_caveat_register_table_yields_one_advisory_and_no_blocker(tmp_path, capsys):
+    """(a) VERIFIED and UNCONFIRMED status rows under a Source Register heading are provenance."""
+    code, out = run(tmp_path, capsys, **{PART_1_KEY: _with_table("Source Register")})
+    assert code == 0, out
+    lines = finding_lines(out, "four-site-caveat")
+    assert len(lines) == 1 and lines[0].startswith("ADVISORY ") and "2 UNCONFIRMED table row(s)" in lines[0]
+    assert not any(line.startswith("BLOCKER ") for line in all_findings(out))
+    assert "four-site-caveat: 2 subject(s), 1 finding(s)" in out
+
+
+@pytest.mark.parametrize("heading", ["Citation Register", "Literature Register", "Reference Register"])
+def test_four_site_caveat_register_heading_names(tmp_path, capsys, heading):
+    code, out = run(tmp_path, capsys, **{PART_1_KEY: _with_table(heading)})
+    assert code == 0, out
+    assert len(finding_lines(out, "four-site-caveat")) == 1
+
+
+def test_four_site_caveat_same_table_under_another_heading_still_blocks(tmp_path, capsys):
+    """(b) The register exclusion is keyed on the heading, not on the table's shape."""
+    code, out = run(tmp_path, capsys, **{PART_1_KEY: _with_table("Contract Inventory")})
+    assert code == 1
+    lines = finding_lines(out, "four-site-caveat")
+    assert len(lines) == 2 and all(line.startswith("BLOCKER ") for line in lines)
+
+
+def test_four_site_caveat_register_prose_claim_is_still_keyed(tmp_path, capsys):
+    """(c) A prose UNCONFIRMED line under the register heading, outside the table, keeps the BLOCKER path."""
+    prose = "\nThe `api_flag` field is UNCONFIRMED — not in the response.\n"
+    code, out = run(tmp_path, capsys, **{PART_1_KEY: _with_table("Source Register", prose)})
+    assert code == 1
+    blockers = [line for line in finding_lines(out, "four-site-caveat") if line.startswith("BLOCKER ")]
+    assert len(blockers) == 1 and "'api_flag'" in blockers[0] and "EI Data Quality Caveats" in blockers[0]
+    assert len(finding_lines(out, "four-site-caveat")) == 2  # the blocker and the register advisory
+
+
+def test_four_site_caveat_register_does_not_hide_a_genuine_claim(tmp_path, capsys):
+    """(d) A register table beside a task-dependent UNCONFIRMED claim with its sites missing still exits 1."""
+    part = PART_1_CLAIM.replace(
+        "## Data Quality Caveats", f"## Source Register\n\n{REGISTER_ROWS}\n## Data Quality Caveats"
+    )
+    code, out = run(tmp_path, capsys, **{PART_1_KEY: part})
+    assert code == 1
+    blockers = [line for line in finding_lines(out, "four-site-caveat") if line.startswith("BLOCKER ")]
+    assert len(blockers) == 1 and "'api_flag'" in blockers[0]
+    assert len(finding_lines(out, "four-site-caveat")) == 2
+
+
 # --------------------------------------------------------------------------- hedge-preservation (advisory, exit 0)
 
 HEDGED_SOURCE = "# Alpha Source\n\nThe cache most likely evicts stale entries after ninety seconds of idle time.\n"

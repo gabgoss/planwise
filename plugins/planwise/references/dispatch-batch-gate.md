@@ -40,7 +40,7 @@ every per-task gate green → batch gate (§2, §3, §4) → dispatch the consol
 
 **So the site is forced.** The orchestrator holds more than one slice, so it is the only party that can compare them. The same argument makes it the right recompute site, applied one level up. Fan-out makes this systematic rather than rare: each agent sees a slice, and wherever two slices overlap or must compose, each can be locally right and jointly wrong.
 
-`scripts/batch_gate.py` runs two of the stage's checks, and `templates/orchestration.md` calls it. Its `labels` command diffs the emitted section-label sets (§4). Its `items --ids` command requires each required id to appear exactly once across the outputs, and names every MISSING and DUPLICATE id.
+`scripts/batch_gate.py` runs two of the stage's checks, and `templates/orchestration.md` calls it. Its `labels` command diffs the emitted section-label sets (§4). Its `items --ids` command requires each required id to have exactly one owner across the outputs, and names every MISSING and DUPLICATE id. A file owns an id when the id leads the first cell of a table row or the text of a heading. Two owning files, two rows in one table, or two headings in one file make a DUPLICATE. A repeat mention in the owning file does not. An id no file owns falls back to file-level mention ownership. Its `labels --expect` mode checks each output against the required headings of its own task file (§4).
 
 The single-runner form of the same blindness — a status block whose every field is accurate and which still cannot see a coverage or uniqueness invariant — is [`verify-verdict-source.md`](verify-verdict-source.md) §4, with the member-naming gate output in its §6.
 
@@ -135,7 +135,7 @@ A pinned literal also makes a deviation cheap to find. A heading bound to a lite
 
 **Batch-time rules.**
 
-- **Add a cross-runner shape check to the batch gate.** Diff the emitted section-label sets across outputs and flag divergence before dispatching the consolidator. `scripts/batch_gate.py labels` runs that diff. It is the backstop for a session that inherits un-pinned task files. **It remains unproven**: in the measured session the pin left no divergence for it to catch. Presenting it as validated alongside the pin would misstate the evidence.
+- **Add a cross-runner shape check to the batch gate.** Diff the emitted section-label sets across outputs and flag divergence before dispatching the consolidator. `scripts/batch_gate.py labels` runs that diff. A layer whose briefs prescribe different `###` sets runs `labels --expect {task file} {output file}` instead, which checks each output against its own brief and still fails on a dropped required heading. The plain diff is the backstop for a session that inherits un-pinned task files. **It remains unproven**: in the measured session the pin left no divergence for it to catch. Presenting it as validated alongside the pin would misstate the evidence.
 - **When divergence has already happened, crosswalk — do not rewrite.** Rewriting outputs to match risks the content loss consolidation exists to prevent. A crosswalk costs a dozen lines and preserves provenance. File the divergence upstream against the scaffold afterwards.
 - **Check the intra-runner variant.** A runner that declares a framework at its own head can still drift across its own sections. Renumbering drift breaks internal `§N` cross-references silently. A shape check inside a single long output is worth the one search it costs.
 

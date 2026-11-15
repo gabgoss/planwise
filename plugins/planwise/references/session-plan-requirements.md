@@ -195,7 +195,7 @@ Fix: Reconcile per references/session-plan-requirements.md §8 | Confidence: HIG
 
 **Scaffolding Session MUST Have:**
 - Orchestration listing which spec parts map to which sprints
-- Two dispatches per sprint to scaffold: one `planwise:ei-extractor` writes that sprint's Execution Input, then one `planwise:sprint-scaffolder` writes all plan files for that sprint
+- Two dispatches per sprint to scaffold: one `planwise:ei-extractor` writes that sprint's Execution Input, then a `planwise:sprint-scaffolder` is dispatched for that sprint until `FILL_REMAINING` is 0, each dispatch filling at most 8 files, so a large sprint takes more than one scaffolder dispatch
 - One `planwise:scaffold-harmonizer` pass after every sprint is scaffolded, which runs `scripts/scaffold_deviations.py` over the `Exec-{Abbrev}/` folder and harmonizes the deviations it reports
 - Recovery file tracking which sprints have been scaffolded
 

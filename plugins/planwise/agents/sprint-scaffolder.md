@@ -190,6 +190,7 @@ Confirm every input before writing any file.
 3. Resolve each `ei_section_map` id. Use `Grep` for the id's heading in the file the map names. An id that does not resolve is a `BLOCKED` return that names it.
 4. Use `Glob` with the pattern `**/Outputs/.gitkeep` under `sprint_folder`. Each session folder keeps one. A missing placeholder goes in `ISSUES` for the orchestrator, which owns the render.
 5. Search the lessons for each artifact class the sprint's tasks touch. Use `Grep` with the class keyword as `pattern`, `path` at `lessons_dir`, `glob='**/LL-*.md'`, `-i=true` and `output_mode='files_with_matches'`. Keep the hits for Step 2.
+6. List the work set. Use `Grep` for `FILL` with `path` at `sprint_folder` and `output_mode='count'`. The work set is the rendered files whose `FILL` count is above 0, plus `Sprint-Signoff.md` when it is absent and the sprint has 2 or more sessions. A dispatch may follow an earlier dispatch or a resume, so skip a rendered file whose `FILL` count is already 0. An earlier dispatch filled it, because every plan file is written whole, in one `Write`.
 
 ## Step 2: FILL
 
@@ -199,6 +200,7 @@ Fill the files in this order: the Sprint Plan, then for each session its Orchest
 2. Fill every FILL marker. Keep the header lines, the Required Context table, the heading text and the section order exactly as rendered. Check each heading against the file kind's list in `## Mandated Headers`.
 3. Write each plan file whole, in one `Write`. Never repair a file with a chain of edits. If a body is wrong, compose it again and write the whole file again.
 4. Use `Grep` for `FILL` in the written file. The count must be 0 before the next file starts.
+5. Fill at most 8 files per dispatch. You cannot see your own turn counter, so the file count is the reporting point. Stop only at a file boundary, after a file's `Write` and its `FILL` check. When work-set files are left, go to Step 3 and report `PARTIAL`. The next dispatch skips every filled file.
 
 The scaffolding rules each file obeys:
 
@@ -273,7 +275,7 @@ ISSUES:               {one line per issue or question, or "none"}
 Each status applies in one case:
 
 - `COMPLETE` — `FILL_REMAINING` is 0, `STRAY_H2` is 0 and `OPEN_QUESTIONS` is 0.
-- `PARTIAL` — the turn budget ran out, or a file could not be finished. `OUTPUT_FILES` lists what is written.
+- `PARTIAL` — the file cap was reached with files left, or a file could not be finished. `OUTPUT_FILES` lists the files written this dispatch, and `ISSUES` names the files left.
 - `BLOCKED` — an input path is missing, an `ei_section_map` id does not resolve, or a choice belongs to the user.
 
 ## Failure Semantics
@@ -285,7 +287,7 @@ Each status applies in one case:
 | An `ei_section_map` id does not resolve | `BLOCKED`, naming the id and the file searched | Corrects the extractor output, then dispatches again |
 | A user-only choice appears while filling | `BLOCKED`, the question in `ISSUES`, the files written so far | Asks the user, then dispatches again with the answer |
 | `STRAY_H2` or `FILL_REMAINING` stays above 0 | `PARTIAL`, the counts, the files written | Dispatches again for the same sprint |
-| The work would exceed `maxTurns` | `PARTIAL`, the files written so far | Dispatches again for the same sprint |
+| The file cap is reached with files left | `PARTIAL`, the files written, the files left in `ISSUES` | Dispatches again for the same sprint. The next dispatch skips every filled file |
 
 The batch gate rejects any block whose `FILL_REMAINING` or `STRAY_H2` is not 0. A re-dispatch re-runs only this sprint.
 
