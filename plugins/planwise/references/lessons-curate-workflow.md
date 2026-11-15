@@ -104,7 +104,7 @@ If the new batch of lessons reinforces an existing observation in `00-Categoriza
 While reading each uncategorised lesson in full (§3.2), set or refine three frontmatter keys: `origin:`, `promotion-target:` and `enforced-by:`. `references/lessons-schema.md` defines each key, in the sections "Resolution Matrix", "Promotion Target — Authoritative Definition" and "Enforcement Answer".
 
 1. Ask the Resolution Matrix rows in order. The first row that matches decides. Record the matched row as `origin:`.
-2. Set `promotion-target:` to the matched row's usual target. Check the value against the Promotion Target definition.
+2. Set `promotion-target:` to the matched row's usual target. Check the value against the Promotion Target definition. For a lesson whose matched row is `planwise`, write `promotion-target: []`, because the Resolution Matrix gives that row no usual target.
 3. Answer "What fires when this failure recurs?" and record the answer as `enforced-by:`. Write the value double-quoted, as `templates/lesson.md` shows, because the value holds a colon.
 
 | Target type | Neutral artifact destination |

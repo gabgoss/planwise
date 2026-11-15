@@ -167,7 +167,7 @@ Two frontmatter fields answer two different questions. This table is the single 
 | `skill` | A reusable multi-step procedure | `rule` |
 | `settings` | A permission or config entry in a settings file | `applied` |
 
-No other value is valid. A reference document is a `rule` target, not a value of its own.
+No other value is valid, with one exception. A lesson with `origin: planwise` has no artifact target in the project, because the fix belongs to the plugin. It carries `promotion-target: []`, the one spelling of "n/a". An absent key and an empty value are not that spelling. `[]` on any other origin is not valid. A reference document is a `rule` target, not a value of its own.
 
 A `code` lesson names its provenance, which is the file that needs the fix, and its regression test.
 

@@ -148,7 +148,7 @@ The script prints this stage (banner: planwise doctor — consumer section-citat
 The script prints this stage (banner: planwise doctor — lesson resolution keys). Pass it through verbatim. It is advisory and never changes the exit status. It scans the open lessons, which are the lessons whose `status:` is `documented` or `orphaned`, in the lessons folder and its `Archive/` folder. It prints how many it scanned, then one line per gap class with the count and up to ten lesson ids. The classes are:
 
 - No `origin:` key, or an `origin:` outside the known origins.
-- No `promotion-target:` key, or a token outside the known targets. An unfilled template value counts as an unknown target.
+- No `promotion-target:` key, or a token outside the known targets. An unfilled template value counts as an unknown target. An explicit `promotion-target: []` on a lesson with `origin: planwise` is the valid "n/a" spelling and is not reported. An empty value, an absent key, or `[]` on any other origin is reported.
 - No `enforced-by:` answer, or one that does not read as `kind: text`.
 - An `enforced-by:` kind that is neither `none` nor one of the configured kinds.
 - A `none:` answer with no reason.

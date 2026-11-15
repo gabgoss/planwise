@@ -9,7 +9,9 @@ resolves the lessons folder and the check kinds from the project's
 `config.yaml`, calls the scan and prints the report.
 
 The gap classes cover a missing or unknown `origin:`, a missing or unknown
-`promotion-target:` token, a missing or malformed `enforced-by:`, a check kind
+`promotion-target:` token (an explicit `[]` on a lesson with `origin: planwise`
+is the valid "n/a" spelling and is not a gap, while an absent key, an empty
+value, or `[]` on any other origin is), a missing or malformed `enforced-by:`, a check kind
 the project does not declare, a `none:` answer with no reason, a code origin
 whose targets name no `code` target, and one `none:` reason shared by three or
 more lessons. A lesson is read with the shared frontmatter parser, not strict
@@ -68,6 +70,9 @@ _MAX_IDS = 10
 _SHARED_REASON_MIN = 3
 _ACTION = "  action: set the keys with /planwise lessons curate or /planwise lessons promote-batch"
 _DECLARES_KINDS_RE = re.compile(r"^lesson_check_kinds[ \t]*:", re.MULTILINE)
+# An explicit empty list is the planwise "n/a" target: the fix belongs to the plugin, so no artifact target exists.
+PLANWISE_ORIGIN = "planwise"
+_EMPTY_LIST_RE = re.compile(r"\[\s*\]")
 
 
 LANDED_STATUSES = frozenset({"rule", "applied"})
@@ -178,9 +183,11 @@ def scan_lesson_keys(lessons_dir, kinds) -> ScanResult:
         elif origin not in LESSON_ORIGINS:
             classes["origin-unknown"].append(ident)
 
-        targets = split_targets(fm.get("promotion-target"))
+        raw_target = fm.get("promotion-target")
+        targets = split_targets(raw_target)
         if not targets:
-            classes["target-missing"].append(ident)
+            if not (origin == PLANWISE_ORIGIN and _EMPTY_LIST_RE.fullmatch(_unquote(raw_target or ""))):
+                classes["target-missing"].append(ident)
         else:
             if any(t not in PROMOTION_TARGETS for t in targets):
                 classes["target-unknown"].append(ident)

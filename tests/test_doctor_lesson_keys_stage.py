@@ -280,6 +280,30 @@ class TestGapClasses:
         out = _run(root, capsys)
         assert "  ~ promotion-target: token outside the known targets: 1 — LL-001\n" in out
 
+    def test_an_explicit_empty_target_on_a_planwise_lesson_is_not_reported(self, tmp_path, capsys):
+        root = _project(tmp_path)
+        _lesson(root, 1, origin="planwise", **{"promotion-target": "[]"})
+        out = _run(root, capsys)
+        assert "promotion-target" not in out
+        assert out.startswith("Lesson resolution keys: 1 open lessons scanned, each carries a valid origin")
+        result = scan_lesson_keys(root / "planwise" / "LessonsLearned", ["test"])
+        assert result.classes["target-missing"] == []
+
+    @pytest.mark.parametrize(
+        "keys",
+        [
+            pytest.param({"origin": "own-code", "promotion-target": "[]"}, id="empty-list-on-own-code"),
+            pytest.param({"origin": "planwise", "promotion-target": ""}, id="empty-value-on-planwise"),
+            pytest.param({"origin": "planwise", "promotion-target": None}, id="absent-key-on-planwise"),
+            pytest.param({"origin": None, "promotion-target": "[]"}, id="empty-list-with-no-origin"),
+        ],
+    )
+    def test_only_an_empty_list_on_a_planwise_lesson_escapes_target_missing(self, tmp_path, capsys, keys):
+        root = _project(tmp_path)
+        _lesson(root, 1, **keys)
+        out = _run(root, capsys)
+        assert "  ~ no promotion-target: key: 1 — LL-001\n" in out
+
 
 class TestEnforcedByForms:
     def test_quoted_and_unquoted_enforced_by_both_parse_and_neither_is_invalid(self, tmp_path, capsys):
