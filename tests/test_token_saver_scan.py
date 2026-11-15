@@ -835,6 +835,17 @@ class TestWriteEstimates(unittest.TestCase):
         (self.session / "DM-S01-01-Orchestration.md").write_text(
             ORCHESTRATION, encoding="utf-8")
         (self.sprint / "DM-S01-Sprint-Plan.md").write_text(SPRINT_PLAN, encoding="utf-8")
+        # Without --config, load_config falls back to a walk up from the script's
+        # own folder. Inside an authoring checkout that walk reaches the author's
+        # real config.yaml, and in a standalone clone it finds nothing. Every
+        # main() call here therefore names this fixture config instead.
+        self.cfg = self.tmp / "planwise" / "config.yaml"
+        self.cfg.parent.mkdir()
+        self.cfg.write_text("project:\n  name: Demo\ncontext:\n  token_saver: true\n",
+                            encoding="utf-8")
+
+    def _with_config(self, extra) -> list:
+        return list(extra) if "--config" in extra else [*extra, "--config", str(self.cfg)]
 
     def _run(self, *tasks, dry_run=False):
         return tsw.write_estimates(list(tasks) or [self.task], self.plan,
@@ -848,7 +859,7 @@ class TestWriteEstimates(unittest.TestCase):
     def _main(self, *extra):
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = tss.main(["--scan", "--plan", str(self.plan), *extra])
+            code = tss.main(["--scan", "--plan", str(self.plan), *self._with_config(extra)])
         return code, out.getvalue(), err.getvalue()
 
     def _loaded_after(self, *extra) -> bool:
@@ -864,7 +875,8 @@ class TestWriteEstimates(unittest.TestCase):
             "print('token_saver_writeback' in sys.modules)\n"
         )
         done = subprocess.run(
-            [sys.executable, "-B", "-c", probe, "--scan", "--plan", str(self.plan), *extra],
+            [sys.executable, "-B", "-c", probe, "--scan", "--plan", str(self.plan),
+             *self._with_config(extra)],
             capture_output=True, text=True, check=True)
         return done.stdout.strip() == "True"
 
@@ -1151,6 +1163,7 @@ class TestWriteBackRealShapes(unittest.TestCase):
     breakdowns, atomic writes, footers, fences, --config, code-span pipes."""
 
     setUp = TestWriteEstimates.setUp
+    _with_config = TestWriteEstimates._with_config
     _run = TestWriteEstimates._run
     _row_cells = TestWriteEstimates._row_cells
     _main = TestWriteEstimates._main
@@ -1457,7 +1470,7 @@ class TestWriteBackRealShapes(unittest.TestCase):
     # -- finding 8: --config is passed to load_config -----------------------
     def test_config_flag_sets_the_project_root(self):
         cfg = self.project / "planwise" / "config.yaml"
-        cfg.parent.mkdir()
+        cfg.parent.mkdir(exist_ok=True)
         cfg.write_text("project:\n  name: Demo\n", encoding="utf-8")
         self.task.write_text(_wb_task("| 1 | `{project_root}/kit/tool.py` | 9.9 | ~9.9K | x |",
                                       SUBTOTAL), encoding="utf-8")

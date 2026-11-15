@@ -803,12 +803,19 @@ class TestFacadeWriteEstimates(unittest.TestCase):
             encoding="utf-8",
         )
         (self.tmp / "doc.md").write_text("x\n" * 50, encoding="utf-8")
+        # Name a fixture config: without --config the loader walks up from the
+        # script's folder and, in an authoring checkout, reads the author's own.
+        cfg_dir = Path(tempfile.mkdtemp(prefix="rso_write_estimates_cfg_"))
+        self.addCleanup(shutil.rmtree, cfg_dir, ignore_errors=True)
+        cfg = cfg_dir / "planwise" / "config.yaml"
+        cfg.parent.mkdir()
+        cfg.write_text("project:\n  name: Demo\n", encoding="utf-8")
         before = task.read_bytes()
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
             code = token_saver.main(
                 ["--scan", "--plan", str(self.tmp), "--write-estimates",
-                 "--task", str(task), "--dry-run"]
+                 "--task", str(task), "--dry-run", "--config", str(cfg)]
             )
         self.assertEqual(code, 0)
         self.assertEqual(task.read_bytes(), before)
