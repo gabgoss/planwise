@@ -6,12 +6,29 @@
 # marketplace distribution — the plugin installer copies the working tree, not
 # the git-tracked set, so .gitignore does not keep it out of the shipped
 # artifact. Disabling bytecode writes closes that regeneration path.
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
 
 sys.dont_write_bytecode = True
+
+# Resolve the temp folder once, before any test builds a path under it.
+#
+# On Windows, TEMP can be an 8.3 short path such as C:\Users\RUNNER~1\... (the
+# GitHub Windows runner sets exactly that, and any account with a long user
+# name gets one). The scripts resolve every path they return, which expands it
+# to C:\Users\runneradmin\.... A test that builds its expected path from the
+# unresolved temp folder then compares two spellings of one folder and fails.
+# Resolving here gives tempfile, pytest's tmp_path and child processes the
+# long form, so expected and actual paths agree.
+_TEMP = str(Path(tempfile.gettempdir()).resolve())
+tempfile.tempdir = _TEMP
+for _var in ("TMPDIR", "TEMP", "TMP"):
+    if _var in os.environ:
+        os.environ[_var] = _TEMP
 
 
 @pytest.fixture(autouse=True)

@@ -633,6 +633,10 @@ def test_step_7_pointer_with_a_fence_is_clean(tmp_path):
     assert "all scanned captures inline their substance" in out
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="step 7 matches drive-letter paths only, so a POSIX tmp_path is never flagged",
+)
 def test_step_7_in_project_absolute_path_is_not_flagged(tmp_path):
     config = _project(tmp_path)
     backlog = Path(config["_backlog_dir"])
