@@ -27,6 +27,7 @@ hand-written feedback draft, a posted-marker sidecar, and anything under
 | `enable-posting --config <path>` | Sets `feedback.enabled: true` by text splice, idempotent, in the block's own indent. The result is parsed before it is written, and a result that would not parse is never written | 0, 1 config problem |
 | `posting-state --config <path>` | Reads `feedback.enabled` and prints one word, writing nothing: `enabled` when it is `true`, `disabled` when the key is set to anything else (an explicit decision), `absent` when the `feedback` block or its `enabled` key is missing or empty. A caller uses the word to tell a user who never saw the key from one who turned posting off | 0, 1 config missing or the feedback key is not a block mapping |
 | `disable-drafts --config <path>` | Sets `feedback.drafts: off` by the same text splice, idempotent, comments kept, in the block's own indent. A comment line never ends the block or sets its indent. The result is parsed before it is written, and a result that would not parse is never written. Prints the old and new value | 0, 1 config problem |
+| `prepare-post --config C --draft D` | Makes the draft file into the exact bytes a post reads, in place: cuts it at the last scan-annotation marker that starts a line and, when `feedback.include_environment` is false, deletes each `### Environment` section outside a code fence. Both settings come from `config_loader.get_feedback_config`. Then scans those bytes for an absolute path, an email address, a git remote URL and an `@handle`, and prints `clean` or `blocked: <class> at line <n>`. Never prints the matched text. A blocked draft stays in its cut state | 0 clean, 1 missing `--config` or `--draft`, or a config or read error, 2 argparse usage error such as an unknown flag, 3 blocked |
 
 The directory comes from `--feedback-dir <abs>` when given, otherwise from
 `--config <path>` through `config_loader.load_config()`. `--feedback-dir` must be an
@@ -823,6 +824,201 @@ def cmd_enable_posting(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- prepare-post
+
+SCAN_ANNOTATION_MARKER = "<!-- planwise:scan-annotation"
+PLUGIN_INSTALL_ID = "planwise@planwise-marketplace"
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_ENVIRONMENT_HEADING_RE = re.compile(r"^ {0,3}###[ \t]+Environment[ \t]*$")
+_ANY_HEADING_RE = re.compile(r"^ {0,3}#{1,6}(?:[ \t]|$)")
+
+ABSOLUTE_PATH_RE = re.compile(
+    r"(?<!\w)[A-Za-z]:[\\/]"
+    r"|\\\\[^\s\\/]+[\\/]"
+    r"|(?<![\w\\])\\[^\s\\/\"'`<>|]{2,}\\[^\s\\/\"'`<>|]+"
+    r"|(?<!\w)~[\\/]"
+    r"|\bfile:/"
+    r"|(?<![\w/}*])/[^\s/\\<>()\[\]\"'`|]+/"
+)
+"""absolute-path: a drive, UNC, rooted-backslash, `~/` or `file:` path, or `/a/b` not after a word character, `/`, `}` or `*`, searched with URLs blanked."""
+
+EMAIL_RE = re.compile(r"[\w.+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
+"""email: `local@domain.tld`."""
+
+GIT_REMOTE_RE = re.compile(r"\bgit@[\w.-]+:|\b(?:ssh|git)://", re.IGNORECASE)
+"""git-remote: `git@host:`, `ssh://` or `git://`; `_url_hit` adds the forge and self-hosted http(s) URL rules."""
+
+HANDLE_RE = re.compile(r"(?:(?<!\w)@[A-Za-z0-9_]|(?<=\w)@[A-Za-z_])[\w-]*")
+"""handle: an `@name`, searched with emails and the install id blanked; `name@1.2` (a version pin) is exempt."""
+
+# Any scheme URL except `file:`, which the absolute-path detector must still see.
+_URL_RE = re.compile(r"\b(?!file:)[A-Za-z][A-Za-z0-9+.-]*://\S*", re.IGNORECASE)
+_HTTP_URL_RE = re.compile(r"\bhttps?://(?P<host>[^\s/?#<>()\"'`]+)(?P<path>[^\s<>()\"'`]*)", re.IGNORECASE)
+_FORGE_HOST = r"(?:[\w-]+\.)*(?:github\.com|gitlab\.com|bitbucket\.org|githubusercontent\.com)"
+_FORGE_HOST_RE = re.compile(_FORGE_HOST + r"$", re.IGNORECASE)
+_BARE_FORGE_RE = re.compile(r"(?<![\w.@/-])(?P<host>" + _FORGE_HOST + r")(?P<path>/[^\s<>()\"'`]*)", re.IGNORECASE)
+_REPO_HOSTS = ("github.com", "www.github.com")
+_PUBLIC_HOSTS = ("docs.anthropic.com", "docs.github.com", "claude.com")
+_OWNER_REPO_PATH_RE = re.compile(r"^/[\w.-]+/[\w.-]+")
+
+
+def _blank(pattern: "re.Pattern[str]", line: str) -> str:
+    return pattern.sub(lambda m: " " * len(m.group(0)), line)
+
+
+def _url_blocks(host: str, path: str, repo: str) -> bool:
+    """Whether one http(s) or scheme-less forge URL is a git remote that is not public."""
+    host = host.lower()
+    if "@" in host:
+        return True
+    host = host.split(":", 1)[0]
+    path = path.rstrip(".,;:!")
+    if host in _PUBLIC_HOSTS or host.endswith(".claude.com"):
+        return False
+    if _FORGE_HOST_RE.match(host):
+        own = re.match(r"^/" + re.escape(repo) + r"(?:\.git)?(?:[/#?]|$)", path, re.IGNORECASE)
+        return not (host in _REPO_HOSTS and own)
+    bare = re.split(r"[?#]", path, maxsplit=1)[0]
+    return bool(_OWNER_REPO_PATH_RE.match(bare)) or bare.lower().endswith(".git")
+
+
+def _url_hit(line: str, repo: str) -> bool:
+    for match in _HTTP_URL_RE.finditer(line):
+        if _url_blocks(match.group("host"), match.group("path"), repo):
+            return True
+    for match in _BARE_FORGE_RE.finditer(_blank(_HTTP_URL_RE, line)):
+        if _url_blocks(match.group("host"), match.group("path"), repo):
+            return True
+    return False
+
+
+def _line_class(line: str, repo: str) -> "str | None":
+    """The first class that `line` holds, in the fixed order git-remote, absolute-path, email, handle.
+
+    git-remote runs first so `git@host:` is not reported as an email. The absolute-path search sees
+    the line with every URL blanked out. email runs before handle, and the handle search sees the
+    line with each email address and the plugin install id blanked out.
+    """
+    if GIT_REMOTE_RE.search(line) or _url_hit(line, repo):
+        return "git-remote"
+    if ABSOLUTE_PATH_RE.search(_blank(_URL_RE, line)):
+        return "absolute-path"
+    if EMAIL_RE.search(line):
+        return "email"
+    if HANDLE_RE.search(_blank(EMAIL_RE, line.replace(PLUGIN_INSTALL_ID, " " * len(PLUGIN_INSTALL_ID)))):
+        return "handle"
+    return None
+
+
+def scan_post_bytes(data: bytes, repo: str) -> "tuple[str, int] | None":
+    """Return `(class, line number)` for the first privacy hit in `data`, or None when it is clean."""
+    text = data.decode("utf-8", errors="surrogateescape")
+    for number, line in enumerate(text.split("\n"), start=1):
+        found = _line_class(line.rstrip("\r"), repo)
+        if found is not None:
+            return found, number
+    return None
+
+
+def _drop_environment(text: str) -> str:
+    """Delete each `### Environment` heading and its lines, up to the next heading or the end.
+
+    A line inside a ``` or ~~~ fence is never a heading, so it neither starts nor ends a section.
+    """
+    kept = []
+    skipping = False
+    fence = None
+    for line in text.splitlines(keepends=True):
+        bare = line.rstrip("\r\n")
+        opener = _FENCE_RE.match(bare)
+        if fence is None and opener is None:
+            if _ENVIRONMENT_HEADING_RE.match(bare):
+                skipping = True
+                continue
+            if skipping and _ANY_HEADING_RE.match(bare):
+                skipping = False
+        elif opener is not None:
+            if fence is None:
+                fence = opener.group(1)[0]
+            elif opener.group(1)[0] == fence:
+                fence = None
+        if not skipping:
+            kept.append(line)
+    return "".join(kept)
+
+
+def _annotation_cut(text: str) -> int:
+    """The offset of the last scan-annotation marker that starts a line, or -1 when there is none."""
+    found = text.rfind("\n" + SCAN_ANNOTATION_MARKER)
+    if found != -1:
+        return found + 1
+    return 0 if text.startswith(SCAN_ANNOTATION_MARKER) else -1
+
+
+def prepare_post(draft: Path, *, include_environment: bool, repo: str) -> "tuple[str, str, int, bytes]":
+    """Make `draft` into the bytes a post reads, then scan exactly those bytes.
+
+    Cuts the file in place at the last scan-annotation marker that starts a line, so a body that
+    quotes the marker mid-report keeps the quote. It also deletes each `### Environment`
+    section when `include_environment` is false, so the shown, on-disk and posted bytes stay
+    identical. A blocked draft keeps that cut state. Returns `("clean", "", 0, data)` or
+    `("blocked", class, line, data)`, where `data` is the file as read back after the write.
+    Raises OSError when the file cannot be read or written.
+    """
+    draft = Path(draft)
+    text = _read(draft)
+    new_text = text
+    cut = _annotation_cut(new_text)
+    if cut != -1:
+        new_text = new_text[:cut]
+    if not include_environment:
+        new_text = _drop_environment(new_text)
+    if new_text != text:
+        _write(draft, new_text)
+    data = draft.read_bytes()
+    hit = scan_post_bytes(data, repo)
+    if hit is None:
+        return "clean", "", 0, data
+    return "blocked", hit[0], hit[1], data
+
+
+def read_post_settings(config_path: Path) -> "tuple[bool, str]":
+    """Return `(include_environment, repo)` for the config file, writing nothing.
+
+    Both values come from `config_loader.get_feedback_config`, so the defaults and the repo shape
+    check are the loader's own. Raises what `config_loader.load_config` raises on a bad file.
+    """
+    import config_loader
+
+    feedback = config_loader.get_feedback_config(config_loader.load_config(config_path=Path(config_path)))
+    return feedback["include_environment"], feedback["repo"]
+
+
+def cmd_prepare_post(args: argparse.Namespace) -> int:
+    if not args.config or not args.draft:
+        print("feedback_drafts: prepare-post needs --config and --draft", file=sys.stderr)
+        return 1
+    config = Path(args.config)
+    draft = Path(args.draft)
+    if not config.is_file():
+        print(f"feedback_drafts: config.yaml not found at {config}", file=sys.stderr)
+        return 1
+    if not draft.is_file():
+        print(f"feedback_drafts: draft not found at {draft}", file=sys.stderr)
+        return 1
+    try:
+        include_environment, repo = read_post_settings(config)
+        verdict, found, line, _data = prepare_post(draft, include_environment=include_environment, repo=repo)
+    except _CONFIG_ERRORS as exc:
+        print(f"feedback_drafts: {exc}", file=sys.stderr)
+        return 1
+    if verdict == "clean":
+        print("clean")
+        return 0
+    print(f"blocked: {found} at line {line}")
+    return 3
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="feedback_drafts", description="Manage model-drafted feedback files.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -873,6 +1069,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_disable = sub.add_parser("disable-drafts", help="set feedback.drafts: off in config.yaml")
     p_disable.add_argument("--config", required=True, help="path to config.yaml")
     p_disable.set_defaults(func=cmd_disable_drafts)
+
+    p_prepare = sub.add_parser("prepare-post", help="cut a draft to the bytes a post reads, then scan them for private text")
+    p_prepare.add_argument("--config", help="path to config.yaml; required")
+    p_prepare.add_argument("--draft", help="path to the draft file the post reads; required")
+    p_prepare.set_defaults(func=cmd_prepare_post)
     return parser
 
 
