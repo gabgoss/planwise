@@ -24,7 +24,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       # ruff.toml pins required-version, so any other ruff version exits 2 instead of linting.
@@ -39,7 +39,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: actions/setup-node@v4
@@ -115,7 +115,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: python -m pip install pytest==9.0.2 pytest-xdist==3.8.0 pyyaml==6.0.3
