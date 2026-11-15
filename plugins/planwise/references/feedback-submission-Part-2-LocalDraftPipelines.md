@@ -358,6 +358,10 @@ prompt. `--drafts` prints the listing, then this line, and exits 0:
 
 `Non-interactive session — model draft {draft_id} was not posted. Re-run /planwise feedback --post {draft_id} interactively to review it.`
 
+`--drafts` and `--post` stay review commands that need an interactive run. An unattended
+context posts a model draft at drafting time instead, as `feedback-drafting.md` § Auto Mode
+describes. Gate 2 routes that post at drafting time, never through these two commands.
+
 This is the deviation shape of the sweep's branch 4. The declined branch has a complete
 outcome, so failing loud would break an unattended run for no gain. Nothing is enabled,
 promoted or discarded.

@@ -34,8 +34,9 @@ TOKEN_SAVER_QUESTION = (
     'lean task." Options: "Yes (Recommended)" | "No"'
 )
 FEEDBACK_DRAFTS_QUESTION = (
-    "Claude may now save local feedback drafts while planwise runs. Nothing is posted without "
-    "`/planwise feedback --drafts` and your approval. How loud should drafting be? "
+    "Claude may now save local feedback drafts while planwise runs. With posting off, nothing posts "
+    "without `/planwise feedback --drafts` and your approval. With posting on, Auto Mode, backlog "
+    "loop and harvest runs post a draft once a privacy check passes. How loud should drafting be? "
     "(notify — one line per draft, recommended / quiet — write silently / off — never draft)"
 )
 FEEDBACK_ENABLED_QUESTION = (

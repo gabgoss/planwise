@@ -150,10 +150,11 @@ enabled. Drafting is not filing. In an interactive session, Planwise posts a mod
 through `--drafts` or `--post <draftId>`, and both ride the engine's gate chain. In an
 unattended context with `feedback.enabled: true`, the engine posts it through its unattended
 post path. Detecting a possible bug, lesson, or idea elsewhere in planwise is **offer-only** —
-surfacing this handler as an option a user can take, never invoking it on their behalf. Every
-interactive post rides the engine's own gate 5 explicit consent — this handler introduces no
-second consent site. Every unattended post rides the engine's privacy gate `prepare-post` on
-the exact file it posts, in place of gate 5. The engine's gate 1 enable offer for an `absent`
+surfacing this handler as an option a user can take, never invoking it on their behalf. The
+unattended contexts are Auto Mode, a backlog loop session, and harvest in any session. Every
+post outside those three contexts rides the engine's own gate 5 explicit consent — this handler
+introduces no second consent site. Every post inside them rides the engine's privacy gate
+`prepare-post` on the exact file it posts, in place of gate 5. The engine's gate 1 enable offer for an `absent`
 key is a setting selection, owned by the engine, and it never replaces gate 5.
 
 ---

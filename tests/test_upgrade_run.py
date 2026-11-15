@@ -16,6 +16,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import config_gen
 import config_loader
 import init_project
 import upgrade_card_project as ucp
@@ -285,8 +286,7 @@ def test_no_feedback_enabled_reaches_writer_argv(tmp_path, capsys, monkeypatch):
     assert json.loads(out.split("writer argv: ", 1)[1]) == argv
 
 
-POSTING_LINE = ("  posting follows feedback.enabled: an interactive run asks first, and Auto Mode, backlog loop "
-                "and harvest runs post once a privacy check passes")
+POSTING_LINE = config_gen._POSTING_LINE
 
 
 def test_summary_passes_feedback_banner_through(capsys):
@@ -306,8 +306,6 @@ def test_summary_passes_feedback_banner_through(capsys):
 
 def test_drafts_banner_states_unattended_posting():
     """Both banner variants state that unattended runs post; the handler template carries the same line."""
-    import config_gen
-
     for value in ("off", "notify"):
         banner = config_gen._drafts_banner(value, True, None, planwise_root="planwise", feedback_dir="Feedback",
                                            plugin_root=Path("."))

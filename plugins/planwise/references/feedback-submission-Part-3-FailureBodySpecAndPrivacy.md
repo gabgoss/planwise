@@ -52,10 +52,13 @@ Mode, a /planwise backlog loop session, and /planwise harvest in any session (Pa
 When gate 1 reads `enabled`, the privacy gate `prepare-post` and the automatic route take the
 place of gate 5, and no question is asked (Part 1,
 [The Unattended Post Path](feedback-submission.md#the-unattended-post-path)). A block or a
-failure keeps the draft and exits 0, as the deviation above does. When gate 1 does not read
-`enabled`, the deviation above applies unchanged.
+failure keeps the draft and exits 0, as the deviation above does. `prepare-post` cuts the file
+in place before it scans. So after the privacy check runs, a kept draft no longer holds the
+possible-duplicates block. It also no longer holds the `### Environment` section when
+`feedback.include_environment` is `false`. The one fallback line names the reason the draft
+was kept. When gate 1 does not read `enabled`, the deviation above applies unchanged.
 
-**The draft carries the scan result.** In Auto Mode the duplicate scan still runs — it is a
+**The draft carries the scan result until a cut removes it.** In Auto Mode the duplicate scan still runs — it is a
 step, not a gate, so the gate 3–5 skip does not govern it, and if `gh` is missing or
 unauthenticated it simply lands on its own UNKNOWN caveat. Its result is appended to the
 draft file, at the end of the draft body:
@@ -183,8 +186,10 @@ removes the block from every issue and comment body, model drafts included.
 it is published, so `prepare-post` scans the exact bytes `--body-file` will send, frontmatter
 included. It blocks on four classes: `absolute-path`, `email`, `git-remote` and `handle`. The
 gate is default-closed. A false positive defers the post to an interactive review, and a block
-never publishes the file. A blocked draft stays on disk in its cut state, and the block line
-names the class and the line number, never the matched text.
+never publishes the file. A draft kept after the scan, blocked or failed, stays on disk in its cut state: the
+possible-duplicates block is gone, and so is the `### Environment` section when
+`feedback.include_environment` is `false`. The one fallback line names the reason, and a block
+line names the class and the line number, never the matched text.
 
 The consent prompt states plainly the body will be **public** on a third-party repo.
 Consumer-side identifiers the user pastes into their own prose are their vocabulary and

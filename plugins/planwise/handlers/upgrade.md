@@ -163,7 +163,7 @@ Read the raw `feedback.drafts` key from `config.yaml`. Ask the drafts question o
 <!-- Default: per references/auto-mode-policy.md § Inference Defaults ("Feedback drafts level" and "Feedback drafts posting opt-in"): ask nothing. Pass `--feedback-enabled` only when the posting state is `absent`, and pass no `--feedback-drafts`. An explicit `feedback.enabled: false` (state `disabled`, or `unreadable`) stays, with no posting flag. Log the inference. -->
 Use `AskUserQuestion` with the questions that apply, in one call:
 
-> "Claude may now save local feedback drafts while planwise runs. Nothing is posted without `/planwise feedback --drafts` and your approval. How loud should drafting be? (notify — one line per draft, recommended / quiet — write silently / off — never draft)"
+> "Claude may now save local feedback drafts while planwise runs. With posting off, nothing posts without `/planwise feedback --drafts` and your approval. With posting on, Auto Mode, backlog loop and harvest runs post a draft once a privacy check passes. How loud should drafting be? (notify — one line per draft, recommended / quiet — write silently / off — never draft)"
 >
 > "Enable upstream posting (`feedback.enabled: true`)? Posting needs `gh` installed and authenticated. An interactive run shows you each issue body and asks first. Auto Mode, backlog loop and harvest runs post without asking, once a privacy check passes. Options: "Yes (Recommended)" — set feedback.enabled: true | "No" — keep drafts local and set feedback.enabled: false"
 

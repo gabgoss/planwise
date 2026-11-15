@@ -402,6 +402,8 @@ Each route scans the exact file it posts, after the last write to that file, and
 same path to `--body-file`. No write touches the file between the scan and the post. A write
 after the scan, such as a re-rendered lead-in, requires a new scan before the post.
 
+A model draft is promoted first, as `feedback-drafting.md` § Auto Mode describes. The routes scan and post the promoted file, never the model draft.
+
 `prepare-post` cuts the scan annotation from the file in place, and deletes the
 `### Environment` section when `feedback.include_environment` is `false`. It then scans the
 file's bytes and prints one line:

@@ -7,7 +7,7 @@ consult-when: Drafting a planwise feedback file silently during `/planwise` work
 
 ## Purpose and scope
 
-Claude may draft a feedback file when planwise itself misbehaves during `/planwise` work. The user reviews every draft later with `/planwise feedback --drafts`. Nothing is posted without the user's consent at that review.
+Claude may draft a feedback file when planwise itself misbehaves during `/planwise` work. The user reviews queued drafts with `/planwise feedback --drafts`. In an interactive session, a draft posts only after the user approves it at that review. In an unattended context with `feedback.enabled: true`, an admitted draft posts once the privacy check passes, as [Auto Mode](#auto-mode) describes.
 
 A model draft asks no posting question when it is written. The /planwise feedback --drafts review asks it once, while posting is off.
 
@@ -148,9 +148,19 @@ status: pending
 
 ## Auto Mode
 
-Drafting behaves the same in Auto Mode. It asks no question, so it adds no consent site and needs no Auto Mode marker. Consent happens later, at the user's review through `/planwise feedback --drafts`.
+Drafting behaves the same in Auto Mode. It asks no question, so it adds no consent site and needs no Auto Mode marker. With posting off, the user's review through `/planwise feedback --drafts` decides whether a draft posts. With posting on in an unattended context, the privacy check below takes the place of that review.
 
-An unattended context is Auto Mode, a /planwise backlog loop session, or /planwise harvest in any session. When `feedback.enabled` is `true` there, an admitted model draft goes through the same post path as any unattended report: `feedback-submission.md`, The Unattended Post Path. The privacy gate `prepare-post` runs on the exact file the route posts, and no question is asked.
+An unattended context is Auto Mode, a /planwise backlog loop session, or /planwise harvest in any session. When `feedback.enabled` is `true` there, an admitted model draft is promoted first, then posted. The model draft itself never posts, because its frontmatter would post with it.
+
+1. Run the promote step with the `draft_id` that `admit` wrote into the frontmatter:
+   ```
+   python -B "{plugin_root}/scripts/feedback_drafts.py" promote {draft_id} --feedback-dir "{abs feedback dir}"
+   ```
+2. Route on the exit code:
+   - `0`: the helper prints the promoted file's path. That file is a standard draft with no frontmatter, and its last line is the provenance line. The model draft's status becomes `promoted`, so a later `--drafts` review cannot post it again.
+   - `3`: the draft was already promoted. Post nothing.
+   - Any other non-zero exit: keep the model draft, post nothing, and print the one saved-draft line, as for any other kept draft.
+3. On exit 0, run the post pipeline from gate 1 on the promoted file, in its unattended branch: `feedback-submission.md`, The Unattended Post Path. `{title}` and `{kind}` come from the model draft's frontmatter. The privacy gate `prepare-post` runs on the exact file the route posts, and no question is asked.
 
 - With `feedback.drafts: notify`, a posted draft prints this one line instead of the saved-draft line:
   ```

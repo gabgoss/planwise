@@ -99,7 +99,7 @@ Use `AskUserQuestion` to collect:
 8. **Enable Token Saver mode?** — Keeps task sessions under ~150K (avoids the linear carrying-cost of big sessions) and warns when a file is too large to fit a lean task. Recommended: `yes`. See `references/token-saver-profile.md` for the two-tier policy and derivation formulas.
 9. **Feedback drafts level** (`feedback.drafts`) — ask exactly this text, the same text `/planwise upgrade` Step 1.6 asks:
 
-   > "Claude may now save local feedback drafts while planwise runs. Nothing is posted without `/planwise feedback --drafts` and your approval. How loud should drafting be? (notify — one line per draft, recommended / quiet — write silently / off — never draft)"
+   > "Claude may now save local feedback drafts while planwise runs. With posting off, nothing posts without `/planwise feedback --drafts` and your approval. With posting on, Auto Mode, backlog loop and harvest runs post a draft once a privacy check passes. How loud should drafting be? (notify — one line per draft, recommended / quiet — write silently / off — never draft)"
 
 10. **Upstream posting** (`feedback.enabled`) — ask exactly this text, the same text `/planwise upgrade` Step 1.6 asks:
 
