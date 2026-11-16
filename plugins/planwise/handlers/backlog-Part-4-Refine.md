@@ -70,7 +70,7 @@ The author has written a close record into the item's `## Resolution`. Ask one `
 On close, run the status update, then regenerate the index:
 
 ```bash
-python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id "{item_id}" --status COMPLETE
+python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id "{item_id}" --status=COMPLETE
 python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --write
 ```
 
