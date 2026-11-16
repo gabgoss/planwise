@@ -126,7 +126,7 @@ jobs:
       # suite.py prints only a summary. The full pytest output stays in its log.
       - name: Upload the suite log
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: suite-log-${{ matrix.os }}
           path: .pytest_cache/planwise-suite/last-full.log
