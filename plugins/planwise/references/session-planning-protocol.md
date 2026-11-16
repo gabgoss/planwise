@@ -362,7 +362,7 @@ After completing a session:
 > - [ ] Orchestration status updated to COMPLETE
 > - [ ] Sprint Plan tracking table updated
 > - [ ] Master Plan tracking table updated
-> - [ ] If this session set the Master Plan to `Status: COMPLETE`, close every backlog item in its `**Resolves:**` header field (`handlers/run.md` Step 4.3, step 6). Add a dated note to each item file. Then run `update_backlog.py --status COMPLETE` per item and `generate_backlog_index.py --write` once. Never hand-edit an item's `status:`. Under an `IN_PROGRESS — awaiting {user action}` hold, the items stay `PLANNING`
+> - [ ] If this session set the Master Plan to `Status: COMPLETE`, close every backlog item in its `**Resolves:**` header field (`handlers/run.md` Step 4.3, step 6). Add a dated note to each item file. Then run `update_backlog.py --status=COMPLETE` per item and `generate_backlog_index.py --write` once. Never hand-edit an item's `status:`. Under an `IN_PROGRESS — awaiting {user action}` hold, the items stay `PLANNING`
 > - [ ] Lessons learned documented in LessonsLearned/LL-{NNN}-{Domain}-{Name}.md (YAML frontmatter + 3 sections)
 > - [ ] 00-Index-LessonsLearned.md regenerated with new entries (`generate_lessons_index.py --write`)
 > - [ ] If any session lesson is HIGH-severity or recurs (2+ instances across sessions), evaluate promotion to `.claude/rules/` per `task-file-and-tracking-requirements.md §9` step 6. Record the promotion decision in the lesson frontmatter (`applied-as:` path) and the Rule Promotion Log.

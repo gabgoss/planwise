@@ -222,7 +222,7 @@ python {plugin_root}/scripts/parse_backlog.py [OPTIONS]
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `--status STATUS` | No | Filter by status (case-insensitive) |
+| `--status=STATUS` | No | Filter by status (case-insensitive) |
 | `--priority PRIORITY` | No | Filter by priority (case-insensitive) |
 | `--abbrev ABBREV` | No | Filter by abbreviation (case-insensitive) |
 | `--id ID` | No | Filter by specific item ID |
@@ -255,33 +255,35 @@ Two modes: **status update** (default) and **create** (`--create`).
 
 ```bash
 # Update an existing item's status
-python {plugin_root}/scripts/update_backlog.py --id ID --status STATUS
+python {plugin_root}/scripts/update_backlog.py --id ID --status=STATUS
 
 # Mark an item as needing a planning session (status unchanged)
 python {plugin_root}/scripts/update_backlog.py --id ID --mark-needs-plan
 
 # Close an item whose criteria are already met, with its proof record
-python {plugin_root}/scripts/update_backlog.py --id ID --status COMPLETE --resolution-file PATH
+python {plugin_root}/scripts/update_backlog.py --id ID --status=COMPLETE --resolution-file PATH
 
 # Create a new backlog item (writes the BLI file from the template only; the
 # caller regenerates the index with generate_backlog_index.py --write)
 python {plugin_root}/scripts/update_backlog.py --create --id ID --feature FEATURE \
-  --priority PRIORITY --abbrev ABBREV --files FILES [--status STATUS]
+  --priority PRIORITY --abbrev ABBREV --files FILES [--status=STATUS]
 ```
+
+Pass a status or outcome value joined to its flag with `=`, as in `--status=COMPLETE`. Inside a git worktree, Claude Code (measured on 2.1.325) refuses a Bash command whose argument is the bare word `complete` or `source`, quoted or not, in any letter case. The main checkout runs either form.
 
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `--id ID` | Yes | Item ID (e.g., 002); in create mode, the new item's ID |
-| `--status STATUS` | Update: Yes — Create: No | New status (NOT_STARTED, PLANNING, IN_PROGRESS, BLOCKED, COMPLETE, CLOSED). In `--create` mode it is optional and defaults to NOT_STARTED |
+| `--status=STATUS` | Update: Yes — Create: No | New status (NOT_STARTED, PLANNING, IN_PROGRESS, BLOCKED, COMPLETE, CLOSED). In `--create` mode it is optional and defaults to NOT_STARTED |
 | `--create` | No | Create a new backlog item instead of updating an existing item's status |
 | `--feature FEATURE` | Create only | Feature / recommendation summary, 120 characters or fewer once escaped for frontmatter storage — `--create` rejects a value that overflows the cap after escaping and writes nothing (required with `--create`) |
 | `--priority PRIORITY` | Create only | Priority — High, Medium, or Low (required with `--create`) |
 | `--abbrev ABBREV` | Create only | Domain abbreviation (required with `--create`) |
 | `--files FILES` | Create only | Semicolon-separated (required with `--create`). The first entry is the new item file, written from `templates/backlog-item.md`. It must sit directly inside the backlog folder: give a bare file name, a path from the project root, or an absolute path. A path to any other folder is refused and nothing is written. The heading and the first Related link use the bare file name. Later entries are affected-file references, given as paths from the project root. Each one renders under Related as a backticked path labelled "affected file", with no link (`` - `src/a/B.cs` - affected file ``) |
 | `--mark-needs-plan` | No | Write `needs_plan: true` into the item's frontmatter without changing its status (the Route C marker-and-skip; regenerate the index afterwards) |
-| `--resolution-file PATH` | No (with `--status COMPLETE` only) | After the status flip and the archive move, append the file's text under `## Resolution`; when `## Resolution` already exists, the file's text is appended below it as a dated `### Closed {date}` block; on an item already COMPLETE the append still runs |
+| `--resolution-file PATH` | No (with `--status=COMPLETE` only) | After the status flip and the archive move, append the file's text under `## Resolution`; when `## Resolution` already exists, the file's text is appended below it as a dated `### Closed {date}` block; on an item already COMPLETE the append still runs |
 
-**Automatic archival (COMPLETE/CLOSED):** Moves the item file to `{backlog_dir}/Archive/`. It never edits the index. The next `generate_backlog_index.py --write` renders the new link from the file's new location. `--mark-needs-plan` writes `needs_plan: true` without changing the status. `--status COMPLETE --resolution-file P` appends the file's text under `## Resolution` after the status flip and the archive move, and, when `## Resolution` already exists, appends the file's text below it as a dated `### Closed {date}` block.
+**Automatic archival (COMPLETE/CLOSED):** Moves the item file to `{backlog_dir}/Archive/`. It never edits the index. The next `generate_backlog_index.py --write` renders the new link from the file's new location. `--mark-needs-plan` writes `needs_plan: true` without changing the status. `--status=COMPLETE --resolution-file P` appends the file's text under `## Resolution` after the status flip and the archive move, and, when `## Resolution` already exists, appends the file's text below it as a dated `### Closed {date}` block.
 
 ### score_backlog.py
 
@@ -326,9 +328,9 @@ Run-state writer for `/planwise backlog` loop mode (see `handlers/backlog-Part-2
 
 | Subcommand | Arguments | Description |
 |------------|-----------|-------------|
-| `--init` | `--mode all\|specific\|n` `[--n N]` `[--refine-max N]` `[--items 004,009]` `[--priority P]` `[--abbrev A]` `[--status S]` `[--no-check]` `[--dry-run]` | Build the loop queue and write the run file. An item with `refined: false` selected by `--refine-max N` (default 0) or `--mode specific` is queued with disposition `refine`; an unrefined Route C item past the cap is excluded with `needs refine`. A `refined: true` Route C item, a `needs_plan: true` item, an item with a legacy `## Loop Decision Needed` section (`decision pending`), an item with the scoped-rule verdict `placement` and an item with unanswered `## Open Questions` go to `excluded` with their reasons (`plans deferred in loop mode` for a strong Route C signal). `--dry-run` prints the same report and writes no run file. An empty queue exits 1, prints an `error` JSON line, and writes no run file |
+| `--init` | `--mode all\|specific\|n` `[--n N]` `[--refine-max N]` `[--items 004,009]` `[--priority P]` `[--abbrev A]` `[--status=S]` `[--no-check]` `[--dry-run]` | Build the loop queue and write the run file. An item with `refined: false` selected by `--refine-max N` (default 0) or `--mode specific` is queued with disposition `refine`; an unrefined Route C item past the cap is excluded with `needs refine`. A `refined: true` Route C item, a `needs_plan: true` item, an item with a legacy `## Loop Decision Needed` section (`decision pending`), an item with the scoped-rule verdict `placement` and an item with unanswered `## Open Questions` go to `excluded` with their reasons (`plans deferred in loop mode` for a strong Route C signal). `--dry-run` prints the same report and writes no run file. An empty queue exits 1, prints an `error` JSON line, and writes no run file |
 | `--next` | `--run <run-id>` | Pop the next still-selectable item into `current`. Prints `{"next": id, "remaining": N, "refined": bool, "disposition": "refine"|..., "run": ..., "state": ...}`, or `"next": null` on an empty queue (an item skipped as no longer selectable becomes `current`, so `--boundary` can still end the run). Exits 1 on an ended run |
-| `--mark` | `--run <run-id> --id X` and `--phase selected\|acting\|verifying`, or `--outcome COMPLETE\|NOT_STARTED\|SKIPPED` `[--resolution-file P]` `[--route A\|B]` `[--note "..."]` `[--decision "..."]` `[--needs-plan]`, or `--lessons "LL-NNN,..."` | Record the item's phase, close it with an outcome, or record the lesson ids Phase 8 filed. A `SKIPPED` outcome restores the item's pre-loop status. `--decision` (SKIPPED only) also writes a `### Q{n}. Loop decision (run …)` block under the item's `## Open Questions` and flags the item `user_input_needed`. `--needs-plan` (SKIPPED only) also writes `needs_plan: true` into the item. `--resolution-file` (COMPLETE only) appends the file's text under `## Resolution` and records an unattended close, unless the run marked the item `acting` or `verifying`; when the section exists, a dated `### Closed {date}` block is appended below it. `--decision` is capped at 1,200 characters, and a repeated call in the same run writes nothing. Without `--route`, `--outcome` records the item's `route_at_init`; an explicit `--route` wins, and `--needs-plan` leaves the route null. Exits 1 on an ended run |
+| `--mark` | `--run <run-id> --id X` and `--phase selected\|acting\|verifying`, or `--outcome=COMPLETE\|NOT_STARTED\|SKIPPED` `[--resolution-file P]` `[--route A\|B]` `[--note "..."]` `[--decision "..."]` `[--needs-plan]`, or `--lessons "LL-NNN,..."` | Record the item's phase, close it with an outcome, or record the lesson ids Phase 8 filed. A `SKIPPED` outcome restores the item's pre-loop status. `--decision` (SKIPPED only) also writes a `### Q{n}. Loop decision (run …)` block under the item's `## Open Questions` and flags the item `user_input_needed`. `--needs-plan` (SKIPPED only) also writes `needs_plan: true` into the item. `--resolution-file` (COMPLETE only) appends the file's text under `## Resolution` and records an unattended close, unless the run marked the item `acting` or `verifying`; when the section exists, a dated `### Closed {date}` block is appended below it. `--decision` is capped at 1,200 characters, and a repeated call in the same run writes nothing. Without `--route`, `--outcome` records the item's `route_at_init`; an explicit `--route` wins, and `--needs-plan` leaves the route null. Exits 1 on an ended run |
 | `--mark --refined` | `--run <run-id> --id X --refined REFINED\|QUESTIONS\|ALREADY_MET\|DECOMPOSE\|NEEDS_PLAN [--sub-items a,b]` | Record the refine outcome and append a `refine` history event. Stands alone: give no other `--mark` option with it |
 | `--mark --check` | `--run <run-id> --id X --check "<command>" --exit <code>` | Record one `build_commands.verify` command's exit code in the item's `checks` list and append a `check` history event. Stands alone: give no other `--mark` option with it |
 | `--boundary` | `--run <run-id>` | Print the end summary (only when remaining is 0), then the marker line, then a final JSON object with a `marker` field. Idempotent |
