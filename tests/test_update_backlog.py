@@ -1117,6 +1117,53 @@ class TestFailedSyncNeverArchives(_UpdateBacklogFixtureBase):
         self.assertIn("status: COMPLETE", updated)
 
 
+class TestStatusEqualsForm(_UpdateBacklogFixtureBase):
+    """Claude Code refuses the separate-word `--status COMPLETE` close command
+    inside a worktree, so the documented close command joins the value with
+    `=`. argparse already accepts that form: these cases pin that it closes
+    and archives an item exactly as the separate-word form does."""
+
+    def _write_open_item(self, item_id: str, filename: str) -> Path:
+        self.write_index(
+            f"| {item_id} | Equals item | Low | NOT_STARTED | DOC | - | [01]({filename}) |\n"
+        )
+        return self.write_item_file(filename, "NOT_STARTED", item_id=item_id)
+
+    def test_status_equals_complete_archives_the_item(self):
+        item = self._write_open_item("073", "equals-item.md")
+
+        out, err, code = self._run_main(
+            ["--config", str(self.config_path), "--id", "073", "--status=COMPLETE"]
+        )
+
+        self.assertIsNone(code, err)
+        self.assertIn("NOT_STARTED → COMPLETE", out)
+        self.assertFalse(item.exists())
+        moved = self.archive_dir / "equals-item.md"
+        self.assertTrue(moved.exists())
+        self.assertIn("status: COMPLETE", moved.read_text(encoding="utf-8"))
+
+    def test_status_equals_complete_with_resolution_file_appends_the_text(self):
+        item = self._write_open_item("074", "equals-resolution.md")
+        resolution = self.tmp / "resolution.md"
+        resolution.write_text("every acceptance criterion was already met\n", encoding="utf-8")
+
+        _out, err, code = self._run_main(
+            [
+                "--config", str(self.config_path),
+                "--id", "074",
+                "--status=COMPLETE",
+                "--resolution-file", str(resolution),
+            ]
+        )
+
+        self.assertIsNone(code, err)
+        self.assertFalse(item.exists())
+        moved = (self.archive_dir / "equals-resolution.md").read_text(encoding="utf-8")
+        self.assertEqual(moved.count(update_backlog.RESOLUTION_HEADING), 1)
+        self.assertIn("every acceptance criterion was already met", moved)
+
+
 class TestArchiveOverwriteGuard(_UpdateBacklogFixtureBase):
     """`archive_item_files` and `restore_item_files` both refuse to
     overwrite an existing destination, rather than letting `shutil.move`

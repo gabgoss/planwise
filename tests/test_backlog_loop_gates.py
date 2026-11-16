@@ -251,6 +251,33 @@ class TestResolutionFile(_GatesFixtureBase):
         self.assertTrue(record["unattended_close"])
         self.assertTrue(record["resolution_written"])
 
+    def test_mark_outcome_equals_complete_matches_the_separate_word_form(self):
+        # Claude Code refuses the separate-word close command in a worktree, so
+        # the documented form is `--outcome=COMPLETE`. argparse accepts both;
+        # this pins that the equals form closes and appends the same record.
+        payload = self.init("--mode", "all")
+        run_id = payload["run"]
+        self.pop_and_select(run_id, "001")
+        _out, err, code = self.update("--id", "001", "--status=COMPLETE")
+        self.assertIsNone(code, err)
+        archived = self.archive_dir / item_filename("001")
+        self.assertTrue(archived.exists())
+
+        code, text, marked = self.loop(
+            "--mark", "--run", run_id, "--id", "001", "--outcome=COMPLETE",
+            "--resolution-file", str(self.write_resolution()),
+        )
+
+        self.assertEqual(code, 0, marked)
+        self.assertTrue(marked["resolution_written"])
+        self.assertIn("Resolution: appended", text)
+        body = archived.read_text(encoding="utf-8")
+        self.assertEqual(body.count(RESOLUTION), 1)
+        self.assertIn("every acceptance criterion was already met", body)
+        record = self.read_run(payload)["items"]["001"]
+        self.assertEqual(record["outcome"], "COMPLETE")
+        self.assertTrue(record["unattended_close"])
+
     def test_resolution_file_on_a_worked_item_is_not_an_unattended_close(self):
         # The run's history decides the label, not the flag: an item marked
         # acting and verifying was fixed, so its record is appended and it
