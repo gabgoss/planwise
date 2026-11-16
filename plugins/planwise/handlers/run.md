@@ -641,7 +641,7 @@ Ask the user: "Were any lessons learned during this session?"
    2. For each item id listed, `Edit` the item file **first**: append a dated line under its `## Notes` section (create the section if absent) — `{today}: resolved by plan {Abbrev}; closed at session {session-id}`. Edit before the status write, because the status write archives the file.
    3. Then, per item:
       ```bash
-      python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id "{item_id}" --status COMPLETE
+      python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id "{item_id}" --status=COMPLETE
       ```
       and once after the last item:
       ```bash

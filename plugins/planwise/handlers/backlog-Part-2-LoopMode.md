@@ -128,7 +128,7 @@ Then map the result to the loop action:
 |---|---|
 | `REFINED` | `--mark --refined REFINED`. Run `--mark --outcome SKIPPED --note "refined; review before run"`. Regenerate the index. Continue to Phase 7. The item now carries `refined: true`, so a later run queues it as `run` once the user has read `## Resolution` or the item's diff |
 | `QUESTIONS` | `--mark --refined QUESTIONS`. Run `--mark --outcome SKIPPED --note "open questions"`. Regenerate the index. Continue to Phase 7 |
-| `ALREADY_MET` | The author writes the close record. Run `update_backlog.py --status COMPLETE`, then regenerate the index. Run `--mark --refined ALREADY_MET`, then `--mark --outcome COMPLETE --note "already met"` |
+| `ALREADY_MET` | The author writes the close record. Run `update_backlog.py --status=COMPLETE`, then regenerate the index. Run `--mark --refined ALREADY_MET`, then `--mark --outcome=COMPLETE --note "already met"` |
 | `DECOMPOSE` | The author files the sub-items with `blocks: [{parent}]` and adds each ordered dependent's id to its prerequisite sibling's `blocks:`. Run `--mark --refined DECOMPOSE --sub-items {ids}`, then `--mark --outcome SKIPPED --note "decomposed: {ids}"`. Regenerate the index |
 | `NEEDS_PLAN` | The author writes `needs_plan: true`. Run `--mark --refined NEEDS_PLAN`, then `--mark --outcome SKIPPED --note "needs plan"`. Regenerate the index |
 | `RESOLVED` or `DUPLICATE` (refine path) | The author writes one `### Q` block that proposes CLOSED, with the evidence. Run `--mark --refined QUESTIONS`, then skip as for `QUESTIONS`. The loop never sets CLOSED unattended |
@@ -232,9 +232,9 @@ Closed {YYYY-MM-DD}: every acceptance criterion was already met.
 Every criterion gets one line with the command that proved it and an excerpt of that command's output. A criterion with no runnable proof is not met, and the item is not closed this way. Then run, in this order:
 
 ```bash
-python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id {item-id} --status COMPLETE --resolution-file {scratch}/{item-id}-resolution.md
+python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id {item-id} --status=COMPLETE --resolution-file {scratch}/{item-id}-resolution.md
 python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --write
-python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yaml --mark --outcome COMPLETE --run {run-id} --id {item-id} --resolution-file {scratch}/{item-id}-resolution.md
+python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yaml --mark --outcome=COMPLETE --run {run-id} --id {item-id} --resolution-file {scratch}/{item-id}-resolution.md
 ```
 
 The first call flips the status, moves the file to the archive and appends the record under `## Resolution`. The third records the unattended close in the run file; its own append is a no-op because the section now holds the record, and the script says so. When the item already carries a `## Resolution` section, the first call appends a dated `### Closed {date}` block holding the record below the section's text, and the third call finds that same record and writes nothing. The end summary lists unattended closes under `Closed unattended`. The script takes that label from the run file, not from the flag: an item this run marked `acting` or `verifying` was fixed, so `--resolution-file` on it appends the record but never counts it as an unattended close. The item is now closed, so skip Phases 4 and 5 for it: regenerate the backlog index, then continue to Phase 7, exactly as after a documented skip. Nothing is committed; the user reviews the archive move and the record in the working tree.
