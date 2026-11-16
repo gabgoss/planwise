@@ -499,6 +499,13 @@ def test_size_band_derivation_repaired_is_clean(tmp_path, capsys):
     assert "size-band-derivation: 2 subject(s), 0 finding(s)" in out  # task 2's band and task 1's range
 
 
+def test_size_band_derivation_ignores_a_date_tail(tmp_path, capsys):
+    # A date followed by ", lines" is not a band: the old pattern read "10-21, lines" out of "2026-10-21, lines".
+    note = "The band is a signal, not a target.\n(2026-10-21, lines 62 and 64)"
+    _code, out = run(tmp_path, capsys, edited(task2=("The band is a signal, not a target.", note)))
+    assert "size-band-derivation: 2 subject(s), 0 finding(s)" in out, out
+
+
 # --------------------------------------------------------------------------- cross-sprint-touch
 
 TOUCH_ROW = "| `tests/test_shared.py` | XYZ-S01-02-04 | `SHARED = {` | prior | XYZ-S02-01-01 removes 1 entry |\n"

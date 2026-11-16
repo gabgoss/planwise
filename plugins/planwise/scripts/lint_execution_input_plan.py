@@ -121,7 +121,9 @@ SECTION_REF_RE = re.compile(r"§[ \t]*(?P<ref>[0-9]+(?:\.[0-9]+)*)")
 VERBATIM_COPY_RE = re.compile(r"\bcopy\b[^\r\n]*?\bverbatim\b[^\r\n]*?\bfrom\b[^\r\n]*?§", re.IGNORECASE)
 BODY_DELIMITER_RE = re.compile(r"Body Content runs from[ \t]*`(?P<start>[^`]+)`[ \t]*through[ \t]*`(?P<end>[^`]+)`")
 VERBATIM_BODY_TITLE_RE = re.compile(r"Verbatim Body", re.IGNORECASE)
-LINE_RANGE_RE = re.compile(r"~?(?P<low>[0-9][0-9,]*)[ \t]*(?:-|–|to)[ \t]*~?(?P<high>[0-9][0-9,]*)[ \t]*lines\b")
+LINE_RANGE_RE = re.compile(
+    r"~?(?<![0-9][-/])(?P<low>[0-9](?:[0-9,]*[0-9])?)[ \t]*(?:-|–|to)[ \t]*~?(?P<high>[0-9](?:[0-9,]*[0-9])?)[ \t]*lines\b"
+)
 EXTRACT_STEP_RE = re.compile(r"\bextract(?:ed)?[ \t]+verbatim\b|\bverbatim[ \t]+from[ \t]+(?:EI[ \t]+)?§", re.IGNORECASE)
 VERIFICATION_AWARE_RE = re.compile(r"pre-extraction|fallback hierarch|§[ \t]*10\.3\b|halt on absence", re.IGNORECASE)
 
