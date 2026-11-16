@@ -436,7 +436,7 @@ A related code-generation discipline applies when the LSP reports a diagnostic t
 
 **After entire Plan completes:**
 1. Update Master Plan status to COMPLETE
-2. Close every backlog item in the Master Plan's `**Resolves:**` header field: a dated resolution note in the item file, then `update_backlog.py --status COMPLETE`, then regenerate the backlog index (run handler Step 4.3)
+2. Close every backlog item in the Master Plan's `**Resolves:**` header field: a dated resolution note in the item file, then `update_backlog.py --status=COMPLETE`, then regenerate the backlog index (run handler Step 4.3)
 3. Final git commit with "Complete {PlanName} project"
 4. *If Meta-Plan was used:* Meta, Scaffold, and Exec Master Plans marked COMPLETE
 
