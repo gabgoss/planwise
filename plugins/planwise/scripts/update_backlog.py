@@ -17,7 +17,7 @@ duplicate-id guard checks both the generated index files (hub, overflow
 leaves, Archive shards) and every on-disk item file's own id, since a
 freshly created or not-yet-regenerated file has no row in the former.
 `--mark-needs-plan` writes `needs_plan: true` into an item's frontmatter,
-and `--resolution-file` (with `--status COMPLETE`) appends the file's text
+and `--resolution-file` (with `--status=COMPLETE`) appends the file's text
 under a `## Resolution` section of the closed item once it has moved.
 """
 
@@ -947,7 +947,7 @@ def main():
         default=None,
         dest="resolution_file",
         help=(
-            f"With --status COMPLETE: a file whose text is appended under {RESOLUTION_HEADING} "
+            f"With --status=COMPLETE: a file whose text is appended under {RESOLUTION_HEADING} "
             "in the item file after the archive move (a no-op when the section exists)."
         ),
     )
@@ -968,7 +968,7 @@ def main():
     if args.resolution_file is not None and (
         args.create or (args.status or "").upper() != "COMPLETE"
     ):
-        print("Error: --resolution-file requires --status COMPLETE.", file=sys.stderr)
+        print("Error: --resolution-file requires --status=COMPLETE.", file=sys.stderr)
         sys.exit(1)
 
     # --create takes a fully separate path: build a new item rather than update one.

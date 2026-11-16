@@ -920,7 +920,7 @@ def cmd_mark(args, config: dict) -> int:
     if args.needs_plan and args.outcome != "SKIPPED":
         raise LoopExit(EXIT_USAGE, "--needs-plan applies to --outcome SKIPPED only")
     if args.resolution_file is not None and args.outcome != "COMPLETE":
-        raise LoopExit(EXIT_USAGE, "--resolution-file applies to --outcome COMPLETE only")
+        raise LoopExit(EXIT_USAGE, "--resolution-file applies to --outcome=COMPLETE only")
     resolution_text = None
     if args.resolution_file is not None:
         # The one shared reader; a missing, unreadable or empty file is a usage error.
@@ -1243,7 +1243,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--resolution-file", type=Path, default=None, dest="resolution_file",
-        help=f"With --mark --outcome COMPLETE: a file whose text is appended under {RESOLUTION_HEADING} "
+        help=f"With --mark --outcome=COMPLETE: a file whose text is appended under {RESOLUTION_HEADING} "
              "in the item file; when the section exists, a dated '### Closed {date}' block is "
              "appended below it. The close counts as unattended only when the run never marked "
              "the item acting or verifying",
