@@ -24,7 +24,7 @@
 // Scope: nothing fires outside a planwise:task-runner. Another plugin's Agent call, a workflow
 // agent() spawn and a Bash call outside a runner pass untouched. Every handler fails open: its
 // .catch logs the failure and passes the call on, as the module's other handlers do.
-import type { On, PluginOptions } from 'claude-code'
+import type { EngineInterface, On, PluginOptions } from 'claude-code'
 
 import { failureText } from './loop/boundary.ts'
 
@@ -193,12 +193,19 @@ export const RESUME_DIRECTIVE =
 
 type Host = { log: (text: string) => void }
 
+/**
+ * The closure table over `$`. It sits at module scope because the engine's validator refuses a `$`
+ * handed to a function nested inside register(), and that refusal unloads the whole module.
+ */
+function hostOf($: EngineInterface): Host {
+  return { log: (text: string) => $.ui.log(text) }
+}
+
 export function register(on: On, options: PluginOptions) {
   const mode = modeOf(options)
   // Agent ids started as planwise:task-runner by the Agent tool. A workflow agent() is never one.
   const runners = new Set<string>()
 
-  const hostOf = ($: { ui: { log: (text: string) => void } }): Host => ({ log: (text: string) => $.ui.log(text) })
   const failed = (host: Host, where: string, why: string): void => {
     host.log(`agent guard: ${where} failed: ${why}`)
   }
