@@ -165,7 +165,8 @@ export async function onSessionStart(host: Host): Promise<void> {
       host.uiLog('draft feedback: feedback.drafts is off; tool not registered', 'debug')
       return
     }
-    await host.registerTool({ name: TOOL_NAME, description: DESCRIPTION, inputSchema: INPUT_SCHEMA })
+    // isDeferred false puts the schema in the prompt's tool list, so the first call needs no search.
+    await host.registerTool({ name: TOOL_NAME, description: DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false })
     host.uiLog(`draft feedback: registered ${FULL_TOOL_NAME}`, 'debug')
   } catch (err) {
     failed(host, 'session.start hook', errText(err))

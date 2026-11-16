@@ -223,8 +223,25 @@ class PlanAuthorContractTests(unittest.TestCase):
     def test_writes_one_bodies_file_per_session(self):
         text = _read(PLAN_AUTHOR)
         self.assertIn("`{Abbrev}-bodies-S{XX}-{YY}.md`", text)
-        self.assertRegex(text, r"Write the whole bodies file in one `Write`")
+        self.assertNotRegex(text, r"in one .Write.")
+        self.assertIn("one block per file", text)
         self.assertIn("`{Abbrev}-bodies-S{XX}-{YY}-part{n}.md`", text)
+        self.assertIn("compose that block again and write its own file whole", text)
+        self.assertRegex(text, r"`partial` after the first write")
+        self.assertRegex(text, r"(?m)^maxTurns: 80$")
+        self.assertNotIn("exceed `maxTurns`", text)
+        self.assertIn("After 5 document blocks written in one dispatch", text)
+        self.assertIn("keys --spec {spec_path} --session S{XX}-{YY}", text)
+
+    def test_handler_routes_a_no_status_block_dispatch(self):
+        """The agent cannot see its turn counter, so the handler routes a dispatch that
+        returns no status block as PARTIAL and resumes it."""
+        handler = _read(PLUGIN / "handlers" / "plan-Part-2-GatherAndGenerate.md")
+        self.assertIn("A return with no `TASK_STATUS:` line", handler)
+        self.assertIn("--bodies-dir {bodies_dir} --session S{XX}-{YY}", handler)
+        self.assertIn("keys --spec {spec_path} --session S{XX}-{YY}", handler)
+        self.assertIn("`keys_missing=0 errors=0`", handler)
+        self.assertIn("references/dispatch-boundary-evidence.md", handler)
 
     def test_runs_the_session_lint_and_reads_its_line(self):
         text = _read(PLAN_AUTHOR)
