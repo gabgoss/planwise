@@ -36,7 +36,12 @@ const harness = (
   opts: { compact?: () => Promise<{ skip?: string }>; runCommand?: () => Promise<unknown>; commands?: typeof COMMANDS } = {},
 ) => {
   const hooks = new Map<string, { run: (...a: unknown[]) => unknown; catcher?: (...a: unknown[]) => unknown }>()
-  const on = (name: string, run: (...a: unknown[]) => unknown) => {
+  const registrations: { name: string; matcher: unknown }[] = []
+  // `on(name, hook)` or `on(name, matcher, hook)`. The loop module registers last, so its hook wins the map.
+  const on = (name: string, a: unknown, b?: unknown) => {
+    const matched = typeof a !== 'function'
+    const run = (matched ? b : a) as (...x: unknown[]) => unknown
+    registrations.push({ name, matcher: matched ? a : undefined })
     const rec: { run: (...a: unknown[]) => unknown; catcher?: (...a: unknown[]) => unknown } = { run }
     hooks.set(name, rec)
     return { catch: (c: (...a: unknown[]) => unknown) => void (rec.catcher = c) }
@@ -72,8 +77,24 @@ const harness = (
     }
     await flush()
   }
-  return { run, caught, complete, fire, logs, channels, calls, timers }
+  return { run, caught, complete, fire, logs, channels, calls, timers, registrations }
 }
+
+test('load: no event has more than one unmatched registration across the composed module', () => {
+  // Claude Code 2.1.325 refuses the whole module when one event is registered twice without a matcher.
+  const h = harness()
+  const unmatched = new Map<string, number>()
+  for (const r of h.registrations) if (r.matcher === undefined) unmatched.set(r.name, (unmatched.get(r.name) ?? 0) + 1)
+  const twice = [...unmatched].filter(([, n]) => n > 1).map(([name]) => name)
+  assert.deepEqual(twice, [])
+  assert.ok(h.registrations.some((r) => r.name === 'tool.call' && r.matcher === undefined), 'agent-guard keeps the unmatched tool.call')
+})
+
+test('load: the loop tracks questions through a tool.call hook matched on AskUserQuestion', () => {
+  const h = harness()
+  const loop = h.registrations.filter((r) => r.name === 'tool.call' && (r.matcher as { tool?: string } | undefined)?.tool === 'AskUserQuestion')
+  assert.equal(loop.length, 1)
+})
 
 test('stepOf: idle goes, busy defers until the cap, then abandons', () => {
   assert.equal(stepOf({ turnRunning: false, pendingQuestion: false, deferrals: 0, max: 20 }), 'go')

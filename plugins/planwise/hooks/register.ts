@@ -151,9 +151,10 @@ export function register(on: On, options: PluginOptions) {
     return next(e)
   })
 
-  on('tool.call', async ($, e, next) => {
-    const toolName: string = e.tool
-    if (e.agentId !== undefined || toolName !== 'AskUserQuestion') return next(e)
+  // The matcher is required: the engine refuses a second unmatched tool.call hook in one module,
+  // and agent-guard.ts already holds the unmatched one. The refusal unloads the whole module.
+  on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
+    if (e.agentId !== undefined) return next(e)
     session.pendingQuestion = true
     try {
       return await next(e)
