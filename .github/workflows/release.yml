@@ -2,7 +2,9 @@ name: Release
 
 # A release is a merged PR that changes the plugin version (tools/bump_version.py).
 # This workflow tags that merge commit planwise--vX.Y.Z and publishes a GitHub
-# Release with notes built from the squashed PR titles since the last release.
+# Release. The notes come from release-notes/X.Y.Z.md when the release PR adds
+# that file. Without it, GitHub builds them from the squashed PR titles since
+# the last release.
 
 on:
   push:
@@ -67,4 +69,13 @@ jobs:
         run: |
           flags=()
           if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
-          gh release create "$TAG" --target "$GITHUB_SHA" --title "Planwise $VERSION" --generate-notes "${flags[@]}"
+          # The release PR may carry hand-written notes. They were reviewed with the bump.
+          notes="release-notes/$VERSION.md"
+          if [ -s "$notes" ]; then
+            echo "::notice::publishing the notes in $notes"
+            flags+=(--notes-file "$notes")
+          else
+            echo "::notice::no $notes, so GitHub builds the notes from the merged PR titles"
+            flags+=(--generate-notes)
+          fi
+          gh release create "$TAG" --target "$GITHUB_SHA" --title "Planwise $VERSION" "${flags[@]}"
