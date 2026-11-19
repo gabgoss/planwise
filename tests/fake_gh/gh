@@ -1,0 +1,2 @@
+#!/bin/sh
+exec "$FAKE_GH_PYTHON" -B "$FAKE_GH_SCRIPT" "$@"
