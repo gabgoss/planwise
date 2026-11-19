@@ -59,6 +59,19 @@ INJECT_CONTENT_MAX_BYTES = 8192
 
 ROLES = ("READ", "EDIT", "CREATE")
 _SPAN_RE = re.compile(r"`([^`\n]+)`")
+# A word that proposes creating a file. A body path absent on disk is a
+# CREATE only when its own sentence or table cell carries one of these words;
+# otherwise the body cites it, and it is a READ. Past tense ("added",
+# "created") is deliberately absent: it reports history, not a proposal.
+_CREATE_CUE_RE = re.compile(
+    r"\b(?:create|creates|creating|add|adds|adding|new|write|writes|writing"
+    r"|author|authors|authoring|introduce|introduces|introducing|put|puts"
+    r"|place|places|placing|move|moves|moving)\b",
+    re.IGNORECASE,
+)
+# A segment boundary inside one line: a table cell bar, or a sentence end
+# (`.`, `!`, `?`, `;`) followed by whitespace or the line end.
+_SEGMENT_BREAK_RE = re.compile(r"\||[.!?;](?=\s|$)")
 _FILES_TOUCHED_RE = re.compile(r"^##\s+Files Touched\s*$")
 _LINE_SUFFIX_RE = re.compile(r":\d+(?:-\d+)?$")
 _WIN_ABS_RE = re.compile(r"^[A-Za-z]:/")
@@ -596,6 +609,26 @@ def _body_candidate(span: str, project_root: Path) -> str | None:
     return _normalize_path(token, project_root)
 
 
+def _proposes_creation(text: str, start: int, end: int) -> bool:
+    """Say whether the segment around `text[start:end]` carries a creation cue.
+
+    The segment is the part of the match's line bounded by the line ends, by
+    `|`, and by `.`, `!`, `?` or `;` followed by whitespace. Every backtick
+    span on the line is blanked first, so a path's own letters never count as
+    a cue and a dot inside a path never ends a sentence.
+    """
+    line_start = text.rfind("\n", 0, start) + 1
+    line_end = text.find("\n", end)
+    if line_end == -1:
+        line_end = len(text)
+    line = _SPAN_RE.sub(lambda m: " " * len(m.group(0)), text[line_start:line_end])
+    s, e = start - line_start, end - line_start
+    breaks = list(_SEGMENT_BREAK_RE.finditer(line))
+    seg_start = max((b.end() for b in breaks if b.end() <= s), default=0)
+    seg_end = min((b.start() for b in breaks if b.start() >= e), default=len(line))
+    return bool(_CREATE_CUE_RE.search(line[seg_start:seg_end]))
+
+
 def extract_destinations(body: str, project_root: Path) -> tuple[list[Destination], str, bool]:
     """Take an item's destinations from its `## Files Touched` table, else from its body.
 
@@ -605,8 +638,11 @@ def extract_destinations(body: str, project_root: Path) -> tuple[list[Destinatio
     absent table falls through to the body: every backtick span that looks
     like a file path (has a `/`, no whitespace, no glob or shell characters,
     not a URL or flag, a dot in its last segment after a `:NNN` suffix is cut)
-    becomes a destination, `EDIT` when it exists under `project_root`, else
-    `CREATE`; source `body`. Absolute paths under the root are relativized and
+    becomes a destination; source `body`. A body path that exists under
+    `project_root` is `EDIT`. A body path that does not exist is `CREATE`
+    only when some occurrence of it sits in a sentence or table cell with a
+    creation cue (`_CREATE_CUE_RE`), else `READ`: the body cites it and
+    proposes nothing. Absolute paths under the root are relativized and
     others dropped. At most `MAX_DESTINATIONS` body paths are kept, and
     `truncated` says the cap cut the list. Nothing found: `([], "none", False)`.
     """
@@ -617,18 +653,23 @@ def extract_destinations(body: str, project_root: Path) -> tuple[list[Destinatio
     if table:
         return table, "files-touched", False
     seen: list[str] = []
-    for span in _SPAN_RE.findall(text):
-        path = _body_candidate(span, project_root)
-        if path and path not in seen:
+    proposed: set[str] = set()
+    for match in _SPAN_RE.finditer(text):
+        path = _body_candidate(match.group(1), project_root)
+        if not path:
+            continue
+        if path not in seen:
             seen.append(path)
+        if path not in proposed and _proposes_creation(text, match.start(), match.end()):
+            proposed.add(path)
     if not seen:
         return [], "none", False
     truncated = len(seen) > MAX_DESTINATIONS
     out = []
     for path in seen[:MAX_DESTINATIONS]:
         exists = (project_root / path).exists()
-        out.append(Destination(path=path, role="EDIT" if exists else "CREATE",
-                               exists=exists, source="body"))
+        role = "EDIT" if exists else ("CREATE" if path in proposed else "READ")
+        out.append(Destination(path=path, role=role, exists=exists, source="body"))
     return out, "body", truncated
 
 

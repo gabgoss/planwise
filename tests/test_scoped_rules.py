@@ -537,14 +537,49 @@ class TestClassify(_ScratchProject):
         self.assertEqual(dest["placement_rules"], [])
         self.assertEqual(block["inject_form"], "none")
 
-    def test_body_cited_missing_content_tree_file_is_placement(self):
+    def test_body_cited_missing_content_tree_file_is_read(self):
         self.write_rule("behaviour-rule.md", 'paths: ".claude/**"')
         body = "# Item\n\nThe old guidance in `.claude/rules/gone.md` says to do it this way.\n"
         block = scoped_rules_block("001", body, self.config())
         self.assertEqual(block["source"], "body")
+        self.assertEqual(block["verdict"], "none")
+        dest = block["destinations"][0]
+        self.assertEqual((dest["path"], dest["role"], dest["exists"]), (".claude/rules/gone.md", "READ", False))
+        self.assertTrue(dest["content_tree"])
+
+    def test_body_dead_rule_path_in_table_cell_is_not_create(self):
+        self.write_rule("behaviour-rule.md", 'paths: ".claude/**"')
+        lines = [
+            "# Item",
+            "",
+            "| Batch | Note |",
+            "|---|---|",
+            (
+                "| Singleton fix batch, added 2026-09-08 | row names "
+                "`.claude/rules/planwise/plugin-distribution-hygiene.md`; the live file it extended "
+                "is the top-level `.claude/rules/plugin-distribution-hygiene.md` |"
+            ),
+            "",
+            "Its row carries one dead-path mention, `.claude/rules/planwise/gate-artifact-authority.md`.",
+        ]
+        block = scoped_rules_block("001", "\n".join(lines) + "\n", self.config())
+        self.assertEqual(block["source"], "body")
+        roles = {d["path"]: d["role"] for d in block["destinations"]}
+        self.assertEqual(roles, {
+            ".claude/rules/planwise/plugin-distribution-hygiene.md": "READ",
+            ".claude/rules/plugin-distribution-hygiene.md": "READ",
+            ".claude/rules/planwise/gate-artifact-authority.md": "READ",
+        })
+        self.assertNotEqual(block["verdict"], "placement")
+
+    def test_body_proposing_new_content_tree_file_is_placement(self):
+        self.write_rule("behaviour-rule.md", 'paths: ".claude/**"')
+        body = "# Item\n\nCreate `.claude/rules/new-rule.md` to hold the guidance.\n"
+        block = scoped_rules_block("001", body, self.config())
+        self.assertEqual(block["source"], "body")
         self.assertEqual(block["verdict"], "placement")
         dest = block["destinations"][0]
-        self.assertEqual((dest["path"], dest["role"], dest["exists"]), (".claude/rules/gone.md", "CREATE", False))
+        self.assertEqual((dest["path"], dest["role"], dest["exists"]), (".claude/rules/new-rule.md", "CREATE", False))
         self.assertTrue(dest["content_tree"])
 
     def test_owning_lesson_exempts_every_destination(self):
