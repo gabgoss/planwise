@@ -259,6 +259,8 @@ The baseline SHA is defined in [`gate-diff-baseline-pinning.md`](gate-diff-basel
 >   Do NOT read this value from any other file — it is authoritative as given here."
 > ```
 
+### 1.6.1 Carry Every Pinned Block a Step Names
+
 > [!constraint] Carry Every Pinned Block a Step Names, Unless the Runner May Read Its File
 > HARD CONSTRAINT 2 bars a runner from reading a file outside its Required Context. A step may name a block that lives in such a file. Examples are a sweep pattern, a census command and a fixture block. The runner cannot open the block. It guesses the content and reports a result built on the guess.
 >
@@ -396,6 +398,8 @@ The spawn prompt owns the scratch namespace. Every runner in a session writes to
 > Scratch prefix:   S01-01-01-      (runner A: writes and reads {scratch}/S01-01-01-rows.txt)
 > Scratch prefix:   S01-01-02-      (runner B: writes and reads {scratch}/S01-01-02-rows.txt)
 > ```
+
+### 1.8.1 HARD CONSTRAINTS Presence
 
 > [!constraint] HARD CONSTRAINTS Presence
 > WRONG — spawn prompt omits HARD CONSTRAINTS; subagent reads adjacent files and expands scope:

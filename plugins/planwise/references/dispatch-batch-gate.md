@@ -100,6 +100,11 @@ Task 1 gate: a collection-only test run, under a second → the same failure, th
 
 **Record the divergence, do not silently reconcile it.** The consolidating agent must be told which source outputs carry superseded claims. It will otherwise copy them forward faithfully, because it has no way to know. Binding the adjudication into the consolidation prompt is what stops a retired marker from reaching the durable artifact.
 
+> [!practice] §2 and §3 are not merge candidates
+> Both are "run a check the per-task gate cannot", and that is where the similarity ends. §2 is about **when** a check may first run — a temporal property of one criterion. §3 is about **what** a check compares — a relational property of two outputs. A merged section states only one of them, and the one it drops is §2, because §3's evidence is more vivid.
+
+### 3.1 One Quoted Source Sentence for a Rule Several Runners Write
+
 > [!constraint] A Rule Several Runners Write Needs One Quoted Source Sentence and a Check on Every Artifact
 > When parallel runners write one rule into several artifacts, each runner derives it from whichever design section its brief names. Two runners can read two sections and ship two different rules. Every per-task gate passes, because each artifact is consistent with its own runner's reading.
 >
@@ -120,9 +125,6 @@ Task 1 gate: a collection-only test run, under a second → the same failure, th
 > ```
 >
 > The contradiction in the measured case surfaced by luck. One runner happened to read a layer-mate's template and flagged it in its status block. This gate makes the same finding systematic.
-
-> [!practice] §2 and §3 are not merge candidates
-> Both are "run a check the per-task gate cannot", and that is where the similarity ends. §2 is about **when** a check may first run — a temporal property of one criterion. §3 is about **what** a check compares — a relational property of two outputs. A merged section states only one of them, and the one it drops is §2, because §3's evidence is more vivid.
 
 ---
 
@@ -160,6 +162,11 @@ A pinned literal also makes a deviation cheap to find. A heading bound to a lite
 - **When divergence has already happened, crosswalk — do not rewrite.** Rewriting outputs to match risks the content loss consolidation exists to prevent. A crosswalk costs a dozen lines and preserves provenance. File the divergence upstream against the scaffold afterwards.
 - **Check the intra-runner variant.** A runner that declares a framework at its own head can still drift across its own sections. Renumbering drift breaks internal `§N` cross-references silently. A shape check inside a single long output is worth the one search it costs.
 
+> [!practice] Keep the pin and the diff in one section
+> §4 is the only section here carrying work on both sides of the dispatch — a scaffold-time pin and a batch-time diff. The pin is motivated only by the divergence the diff would otherwise have to catch. Split into a separate scaffold rule, the pin reads as a style preference.
+
+### 4.1 Verdict Words in a Decision Layer
+
 > [!constraint] One Closed Verdict Vocabulary per Layer
 > A layer of decision runners shares one pasted decision method, and that method defines the verdict words. Every task file in the layer uses those words with those meanings. A task file that reuses a defined word with a new meaning makes the runner follow the task file, and the same claim class then carries two words in one layer.
 >
@@ -178,9 +185,6 @@ A pinned literal also makes a deviation cheap to find. A heading bound to a lite
 > ```
 >
 > The cost of the WRONG form is translation downstream. The orchestrator's recount and the aggregating task must each map the stray word back, and the final record needs a note so a reader does not take held claims as missing.
-
-> [!practice] Keep the pin and the diff in one section
-> §4 is the only section here carrying work on both sides of the dispatch — a scaffold-time pin and a batch-time diff. The pin is motivated only by the divergence the diff would otherwise have to catch. Split into a separate scaffold rule, the pin reads as a style preference.
 
 ---
 
