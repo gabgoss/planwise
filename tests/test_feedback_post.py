@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -27,6 +28,9 @@ FAKE_DIR = HERE / "fake_gh"
 FAKE = FAKE_DIR / "fake_gh.py"
 WRAPPER = "gh.cmd" if os.name == "nt" else "gh"
 REPO = "example-owner/example-repo"
+# The driver skips a `.cmd` or `.bat` shim, so on Windows the fake's wrapper cannot be found on PATH.
+# There the default route passes the fake through FEEDBACK_POST_GH_ARGV instead.
+PATH_ROUTE = "override" if os.name == "nt" else "path"
 
 
 # ---------------------------------------------------------------- harness
@@ -49,7 +53,7 @@ def count_calls(log: Path, *words: str) -> int:
     return total
 
 
-def gh_env(tmp_path: Path, route: str = "path", scenario: str = "empty", **extra: str) -> "tuple[dict, Path]":
+def gh_env(tmp_path: Path, route: str = PATH_ROUTE, scenario: str = "empty", **extra: str) -> "tuple[dict, Path]":
     """An environment for one run, and the fake's log path.
 
     route: `path` puts the copied wrapper first on PATH; `override` passes `[python, -B, fake_gh.py]`
@@ -150,8 +154,9 @@ ERROR_LINE = (
         "  File \"<stdin>\", line 3\nERROR: ModuleNotFoundError raised while importing yaml module\n```\n\n"
         "> cannot open the queue file\n"
     ),
-    # Tier C: the Traceback line's tokens "(most" and "last):" fail the key filter, so the first fenced
-    # line that yields a valid key is the ERROR line, its first 8 words (it has 7). At most one Tier-C
+    # Tier C: the Traceback line loses its parenthesised fragment, and ":" fails the 3-character pattern,
+    # so 1 word survives, under the minimum of 2. The `File` line carries no error signature. The first
+    # fenced line that yields a key is the ERROR line: all 7 words survive. At most one Tier-C
     # key, so the quoted `cannot` line adds nothing. `line 3` has no Tier-A key in its sentence.
     [("ERROR: ModuleNotFoundError raised while importing yaml module", "C")],
     # "when" is a stopword.
@@ -171,7 +176,7 @@ def test_scan_keys_follow_the_tier_table(tmp_path, case):
     assert all(q["status"] == "ok" for q in report["queries"])
     assert count_calls(log, "issue", "list") - before == len(expected_queries)
     assert count_calls(log, "issue", "create") == count_calls(log, "issue", "comment") == 0
-    assert report["gh"]["source"] == "path"
+    assert report["gh"]["source"] == PATH_ROUTE
     first = report["queries"][0]["argv"]
     assert first[len(report["gh"]["argv"]):] == [
         "issue", "list", "-R", REPO, "--state", "all", "--limit", "20",
@@ -274,6 +279,7 @@ def test_gh_not_found_reports_unknown_and_calls_nothing(tmp_path):
     assert count_calls(log) == 0
 
 
+@pytest.mark.skipif(os.name == "nt", reason="the fake's Windows wrapper is a .cmd shim, which the driver skips by design")
 def test_a_known_location_off_path_is_found_and_reported(tmp_path):
     title, body, _keys, _title_query = FILE_NAME
     env, log = gh_env(tmp_path, route="known")
@@ -397,7 +403,7 @@ def test_a_ranked_candidate_is_answered_with_a_comment(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout == f"Feedback posted to {REPO} as a comment on #42: {COMMENT_URL}\n"
     assert posts(log) == (0, 1)
-    [comment_draft] = (tmp_path / "Feedback").glob("*-comment-42-list-skips-a-queued-draft.md")
+    [comment_draft] = (tmp_path / "Feedback").glob("*-comment-42-*-bug-list-skips-a-queued-draft.md")
     [comment] = [argv for argv in read_calls(log) if argv[:2] == ["issue", "comment"]]
     assert comment == ["issue", "comment", "-R", REPO, "42", "--body-file", str(comment_draft)]
     text = comment_draft.read_text(encoding="utf-8")
@@ -529,6 +535,155 @@ def test_a_lesson_posts_with_the_enhancement_label_and_no_url(tmp_path):
     assert create[-2:] == ["--label", "enhancement"]
     [promoted] = promoted_files(tmp_path)
     assert marker(promoted)["url"] == "" and marker(promoted)["route"] == "issue"
+
+
+def today_name(suffix: str) -> str:
+    return f"{time.strftime('%Y-%m-%d', time.gmtime())}-{suffix}"
+
+
+@pytest.mark.parametrize("title,found", [("Crash under C:\\Users\\someone\\project", "absolute-path"),
+                                         ("Mail someone@example.com about it", "email")], ids=["absolute-path", "email"])
+def test_a_title_that_fails_the_privacy_rules_posts_nothing(tmp_path, title, found):
+    config, _draft = post_setup(tmp_path, title=title)
+    env, log = url_env(tmp_path)
+    result = post(config, env)
+    assert result.returncode == 3
+    [promoted] = promoted_files(tmp_path)
+    assert result.stdout == f"Feedback draft kept, not posted: the privacy check blocked its title ({found}). Draft: {promoted.resolve()}\n"
+    assert posts(log) == (0, 0)
+
+
+def test_a_marker_that_cannot_be_written_still_exits_0(tmp_path):
+    config, _draft = post_setup(tmp_path)
+    blocker = tmp_path / "Feedback" / today_name("bug-list-skips-a-queued-draft.md.posted")
+    blocker.mkdir()
+    env, log = url_env(tmp_path)
+    result = post(config, env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == (f"Feedback posted to {REPO} as a new issue: {ISSUE_URL}\n"
+                             f"The draft could not be marked posted: the .posted marker could not be written at {blocker.resolve()}\n")
+    assert posts(log) == (1, 0)
+
+
+def test_the_posted_body_says_no_person_reviewed_it(tmp_path):
+    config, _draft = post_setup(tmp_path)
+    env, _log = url_env(tmp_path)
+    assert post(config, env).returncode == 0
+    [promoted] = promoted_files(tmp_path)
+    text = promoted.read_text(encoding="utf-8")
+    assert "approved by the user" not in text
+    assert text.rstrip("\n").endswith(fp.UNATTENDED_PROVENANCE)
+
+
+@pytest.mark.parametrize("case", ["error", "budget"])
+def test_a_recency_listing_that_did_not_return_makes_the_scan_incomplete(monkeypatch, case):
+    clock = {"t": 0.0}
+
+    def run_query(argv):
+        if "--search" in argv:
+            clock["t"] += 100.0 if case == "budget" else 0.0
+            return "ok", []
+        return "error", []
+
+    monkeypatch.setattr(fp, "_run_query", run_query)
+    monkeypatch.setattr(fp, "_budget", lambda: 30.0)
+    monkeypatch.setattr(fp, "time", SimpleNamespace(monotonic=lambda: clock["t"]))
+    report = fp.run_scan({"argv": ["gh"]}, REPO, "Planwise menu", "It is slow.\n")
+    assert [(q["kind"], q["status"]) for q in report["queries"]] == [("title", "ok"), ("recency", "error" if case == "error" else "not-run")]
+    assert report["budget_stopped"] is (case == "budget")
+    assert report["outcome"] == "INCOMPLETE"
+    assert report["caveat"] == "Duplicate scan was incomplete — 1 of 2 searches returned. Candidates below may be missing entries."
+    assert report["ranked"] == []
+
+
+def test_a_batch_shim_alone_counts_as_gh_not_found(tmp_path):
+    config, _draft = post_setup(tmp_path)
+    env, log = gh_env(tmp_path, route="none")
+    shims = tmp_path / "shims"
+    shims.mkdir()
+    for name in ("gh.cmd", "gh.bat"):
+        shutil.copyfile(FAKE_DIR / "gh.cmd", shims / name)
+    env["PATH"] = str(shims) + os.pathsep + env["PATH"]
+    env["FEEDBACK_POST_GH_CANDIDATES"] = os.pathsep.join(str(shims / name) for name in ("gh.cmd", "gh.bat"))
+    result = post(config, env)
+    assert result.returncode == 3
+    [promoted] = promoted_files(tmp_path)
+    assert result.stdout == f"Feedback draft kept, not posted: gh was not found. Draft: {promoted.resolve()}\n"
+    assert count_calls(log) == 0
+
+
+def test_a_kept_draft_is_posted_by_a_retry(tmp_path):
+    config, draft = post_setup(tmp_path)
+    env, log = url_env(tmp_path, FAKE_GH_EXIT="1", FAKE_GH_MATCH="auth status")
+    first = post(config, env)
+    assert first.returncode == 3 and "gh is not signed in" in first.stdout
+    assert "status: promoted" in draft.read_text(encoding="utf-8")
+    del env["FAKE_GH_EXIT"], env["FAKE_GH_MATCH"]
+    second = post(config, env)
+    assert second.returncode == 0, second.stdout + second.stderr
+    assert posts(log) == (1, 0)
+    [promoted] = promoted_files(tmp_path)
+    assert marker(promoted)["route"] == "issue"
+    # Once the sidecar records the post, the id no longer resolves, and nothing posts twice.
+    third = post(config, env)
+    assert third.returncode == 2 and f"no queued draft with id {DRAFT_ID} (promoted)" in third.stderr
+    assert posts(log) == (1, 0)
+
+
+def test_a_comment_draft_that_cannot_be_written_keeps_the_draft(tmp_path):
+    scenario = tmp_path / "rows.json"
+    scenario.write_text(json.dumps({"responses": [{"match": "feedback_drafts.py in:", "rows": [
+        {"number": 42, "title": "Queue listing", "state": "OPEN", "url": "u42", "age_days": 200}]}]}), encoding="utf-8")
+    config, _draft = post_setup(tmp_path)
+    (tmp_path / "Feedback" / today_name("comment-42-" + today_name("bug-list-skips-a-queued-draft.md"))).mkdir()
+    env, log = url_env(tmp_path, scenario=str(scenario))
+    result = post(config, env)
+    assert result.returncode == 3
+    [promoted] = promoted_files(tmp_path)
+    assert result.stdout == f"Feedback draft kept, not posted: the comment draft could not be written. Draft: {promoted.resolve()}\n"
+    assert posts(log) == (0, 0)
+
+
+def test_a_one_term_title_is_searched_once(tmp_path):
+    env, log = gh_env(tmp_path)
+    _code, report, _elapsed = scan(tmp_path, "Planwise menu", "It is slow.\n", env)
+    assert [(q["query"], q["kind"]) for q in report["queries"]] == [("menu", "title"), ("", "recency")]
+    assert count_calls(log, "issue", "list") == 2
+
+
+@pytest.mark.parametrize("line,expected", [
+    # "No" fails the 3-character minimum, and the quotes come off 'yaml'.
+    ("ModuleNotFoundError: No module named 'yaml'", ["ModuleNotFoundError: module named yaml"]),
+    # The parenthesised fragment goes and ":" fails the pattern, so 1 word survives, under the minimum of 2.
+    ("Traceback (most recent call last):", []),
+    # "a" fails the 3-character minimum.
+    ("fatal: not a git repository", ["fatal: not git repository"]),
+    # "ok" fails the 3-character minimum, so 1 word survives.
+    ("Error: ok", []),
+], ids=["module-not-found", "traceback", "fatal", "one-survivor"])
+def test_tier_c_drops_failing_words_and_needs_two_survivors(line, expected):
+    body = f"The run stopped:\n\n```\n{line}\n```\n"
+    assert [key for key, _score, _at, _tier in fp._tier_c(body, 0)] == expected
+
+
+def test_a_retry_is_matched_to_its_own_draft_not_its_title(tmp_path):
+    scenario = tmp_path / "rows.json"
+    scenario.write_text(json.dumps({"responses": [{"match": "feedback_drafts.py in:", "rows": [
+        {"number": 42, "title": "Queue listing", "state": "OPEN", "url": "u42", "age_days": 200}]}]}), encoding="utf-8")
+    config, first_draft = post_setup(tmp_path)
+    second_draft = first_draft.with_name("2026-01-02-draft-bug-example.md")
+    second_draft.write_bytes(first_draft.read_bytes().replace(f"draft_id: {DRAFT_ID}".encode(), b"draft_id: d-0002"))
+    env, log = url_env(tmp_path, scenario=str(scenario))
+    assert post(config, env).returncode == 0
+    assert posts(log) == (0, 1)
+    # The second draft, with the same title, is kept once and then retried.
+    env["FAKE_GH_EXIT"], env["FAKE_GH_MATCH"] = "1", "auth status"
+    assert post(config, env, draft_id="d-0002").returncode == 3
+    del env["FAKE_GH_EXIT"], env["FAKE_GH_MATCH"]
+    retry = post(config, env, draft_id="d-0002")
+    assert retry.returncode == 0, retry.stdout + retry.stderr
+    assert posts(log) == (0, 2)
+    assert len(list((tmp_path / "Feedback").glob("*-comment-42-*.md.posted"))) == 2
 
 
 def test_a_missing_config_exits_1(tmp_path):

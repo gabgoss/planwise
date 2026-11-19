@@ -10,7 +10,7 @@ that file.
 | Command | Behaviour | Exit |
 |---|---|---|
 | `scan --config C --draft PATH [--title T] [--json]` | Resolves `gh`, builds the search keys of Step 4.5 from the draft's title and body, runs one `gh issue list` per key, merges and ranks the rows, and prints the result. Writes nothing | 0 the scan ran, whatever it found; 1 the config or draft cannot be read; 2 argparse usage error |
-| `post --config C --draft-id ID` | The unattended post path: gate 1, then the queued model draft is promoted, then gates 3 and 4, the scan, Unattended Routing, `prepare_post` on the exact file the route posts, one `gh issue create` or `gh issue comment`, and the `.posted` sidecar. Prints one result line | 0 posted; 3 the draft was kept and nothing was posted, or a timed-out post may have happened; 4 posting is off; 1 the config cannot be read or the promote failed; 2 no queued draft has that id, or an argparse usage error |
+| `post --config C --draft-id ID` | The unattended post path: gate 1, then the queued model draft is promoted (a promoted draft with no `.posted` sidecar is retried as it is), then gates 3 and 4, the scan, Unattended Routing, `prepare_post` on the exact file the route posts, one `gh issue create` or `gh issue comment`, and the `.posted` sidecar. Prints one result line | 0 posted; 3 the draft was kept and nothing was posted, or a timed-out post may have happened; 4 posting is off; 1 the config cannot be read or the promote failed; 2 no queued draft has that id, or an argparse usage error |
 
 Exit 0 and exit 3 are both definite results, and the parent flow continues on either. A post whose outcome
 is uncertain never exits 1 or 2.
@@ -86,10 +86,14 @@ _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n")
 _NUMBER_REF_RE = re.compile(r"(?:§\s*|\b(?:section|step|gate|line)\s+)(?P<num>\d+(?:\.\d+)*)", re.IGNORECASE)
 _KEY_TOKEN_RE = re.compile(r"^[A-Za-z0-9._/:+#-]{3,60}$")
 _BARE_NUMBER_RE = re.compile(r"^\d+(?:\.\d+)*$")
-_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_FENCE_RE = feedback_drafts._FENCE_RE  # one fence rule for the draft helpers and the scan
+ROW_FIELDS = ("number", "title", "state", "createdAt", "url")
 _QUOTE_RE = re.compile(r"^ {0,3}>\s?")
 _ERROR_SIGNATURES = ("error", "exception", "traceback", "failed", "fatal:", "exit code", "not found", "cannot", "denied", "refused")
 _TITLE_STRIP = ".,;:!?()[]{}\"'`"
+_PAREN_RE = re.compile(r"\([^()]*\)")
+_WRAPPERS = "\"'`()[]{}<>"
+TIER_C_MIN_WORDS = 2
 
 
 # ---------------------------------------------------------------- resolving gh
@@ -112,10 +116,16 @@ def _candidates() -> "list[str]":
     return [os.path.expanduser(os.path.expandvars(entry)) for entry in KNOWN_LOCATIONS[platform]]
 
 
+def _is_batch(path: str) -> bool:
+    """A Windows batch shim. cmd.exe re-parses its arguments, so a title or search string could split there."""
+    return os.path.splitext(path)[1].lower() in (".cmd", ".bat")
+
+
 def resolve_gh() -> "dict | None":
     """Return `{"argv": [...], "source": ..., "note": ...}` for the first `gh` that answers `--version`, or None.
 
-    The order is the reference's: the file a bare `gh` runs on PATH, then the known install locations.
+    The order is the reference's: the file a bare `gh` runs on PATH, folder by folder, then the known
+    install locations. A `.cmd` or `.bat` shim is skipped wherever it is found, and the search goes on.
     Nothing is edited or installed.
     """
     # Test hook: a JSON argv prefix read before PATH, so a test can run its fake gh with no cmd.exe layer.
@@ -125,11 +135,12 @@ def resolve_gh() -> "dict | None":
         if isinstance(argv, list) and argv and all(isinstance(part, str) for part in argv) and _version_ok(argv):
             return {"argv": argv, "source": "override", "note": "gh argv taken from FEEDBACK_POST_GH_ARGV"}
         return None
-    on_path = shutil.which("gh")
-    if on_path and _version_ok([on_path]):
-        return {"argv": [on_path], "source": "path", "note": "found on PATH"}
+    for folder in os.environ.get("PATH", "").split(os.pathsep):
+        on_path = shutil.which("gh", path=folder) if folder else None
+        if on_path and not _is_batch(on_path) and _version_ok([on_path]):
+            return {"argv": [on_path], "source": "path", "note": "found on PATH"}
     for candidate in _candidates():
-        if os.path.isfile(candidate) and _version_ok([candidate]):
+        if os.path.isfile(candidate) and not _is_batch(candidate) and _version_ok([candidate]):
             return {"argv": [candidate], "source": "known-location", "note": f"found at {candidate}, not on this session's PATH"}
     return None
 
@@ -223,8 +234,19 @@ def _tier_b(text: str, offset: int) -> "list[tuple[str, int, int, str]]":
     return found
 
 
+def tier_c_key(content: str) -> str:
+    """The Tier-C key of one error line, or "": parenthesised fragments dropped, each word stripped of surrounding
+    quotes and brackets, words that fail the per-token pattern dropped, the first 8 survivors kept, 2 at least."""
+    count = 1
+    while count:  # innermost first, so a nested fragment goes too
+        content, count = _PAREN_RE.subn(" ", content)
+    words = [word.strip(_WRAPPERS) for word in content.split()]
+    kept = [word for word in words if _KEY_TOKEN_RE.match(word)][:8]
+    return " ".join(kept) if len(kept) >= TIER_C_MIN_WORDS else ""
+
+
 def _tier_c(text: str, offset: int) -> "list[tuple[str, int, int, str]]":
-    """At most one key: the first 8 words of the first fenced or quoted error line whose key passes the filter."""
+    """At most one key: the Tier-C key of the first fenced or quoted error line whose key passes the filter."""
     for at, line, fenced in _outside_fences(text):
         if _FENCE_RE.match(line):
             continue
@@ -235,8 +257,8 @@ def _tier_c(text: str, offset: int) -> "list[tuple[str, int, int, str]]":
         lowered = content.lower()
         if not any(signature in lowered for signature in _ERROR_SIGNATURES):
             continue
-        key = " ".join(content.split()[:8])
-        if _key_ok(key):
+        key = tier_c_key(content)
+        if key and _key_ok(key):
             return [(key, SCORE_C, offset + at, "C")]
     return []
 
@@ -283,7 +305,14 @@ def plan_queries(title: str, keys: "list[dict]") -> "list[dict]":
         queries.append({"query": " ".join(terms[:MAX_TITLE_TERMS]), "score": SCORE_D, "kind": "title"})
     if not keys:
         queries.extend({"query": term, "score": SCORE_D, "kind": "title-term"} for term in terms[:MAX_TITLE_TERMS])
-    return queries
+    # One search per distinct string: a one-term title query equals its own term query.
+    seen: set[str] = set()
+    unique = []
+    for query in queries:
+        if query["query"].casefold() not in seen:
+            seen.add(query["query"].casefold())
+            unique.append(query)
+    return unique
 
 
 # ---------------------------------------------------------------- the draft
@@ -348,6 +377,11 @@ def _created(row: dict) -> "datetime | None":
     return feedback_drafts._parse_created(str(row.get("createdAt", "")))
 
 
+def _project(row: dict) -> dict:
+    """The five fields a candidate row keeps: number, title, state, createdAt and url."""
+    return {key: row.get(key) for key in ROW_FIELDS}
+
+
 def merge_rows(results: "list[tuple[dict, list]]", title: str, now: datetime) -> "tuple[list[dict], int | None]":
     """Union rows on `number`, recording matched keys and the best key score. Drops this draft's own earlier post."""
     merged: dict[int, dict] = {}
@@ -358,7 +392,7 @@ def merge_rows(results: "list[tuple[dict, list]]", title: str, now: datetime) ->
             if row.get("title") == title and created is not None and (now - created).total_seconds() <= SELF_DUPLICATE_MINUTES * 60:
                 self_duplicate = row["number"]
                 continue
-            entry = merged.setdefault(row["number"], {**{k: row.get(k) for k in ("number", "title", "state", "createdAt", "url")}, "matched_keys": [], "best_key_score": 0})
+            entry = merged.setdefault(row["number"], {**_project(row), "matched_keys": [], "best_key_score": 0})
             if query["query"] not in entry["matched_keys"]:
                 entry["matched_keys"].append(query["query"])
                 entry.setdefault("_scores", []).append(query["score"])
@@ -475,7 +509,12 @@ def run_scan(gh: "dict | None", repo: str, title: str, body: str) -> dict:
     report["ranked"] = [_public(entry) for entry in shown]
     report["further"] = further
 
-    planned = len(queries)
+    # The recency listing counts as one more search: a listing that failed, timed out or was skipped by
+    # the budget makes the scan incomplete, never WEAK or CLEAR.
+    planned = len(report["queries"])
+    returned = sum(1 for record in report["queries"] if record["status"] == "ok")
+    if recency is not None and report["queries"][-1]["status"] != "ok":
+        recency = None
     if returned == 0:
         return unknown("every search failed or timed out")
     if returned < planned:
@@ -483,7 +522,7 @@ def run_scan(gh: "dict | None", repo: str, title: str, body: str) -> dict:
         report["caveat"] = f"Duplicate scan was incomplete — {returned} of {planned} searches returned. Candidates below may be missing entries."
     elif recency is not None:
         newest = sorted(recency, key=lambda row: (_created(row) or datetime.min.replace(tzinfo=timezone.utc)), reverse=True)[:SHOW_MAX]
-        report["ranked"] = [{k: row.get(k) for k in ("number", "title", "state", "createdAt", "url")} for row in newest]
+        report["ranked"] = [_project(row) for row in newest]
         report["outcome"] = "WEAK"
         report["caveat"] = ("Duplicate scan: nothing matched, but the draft cites no file, command, or error string — only title wording "
                             "was searched, which is a weak signal. The 5 most recent issues are listed for comparison.")
@@ -540,6 +579,8 @@ LABELS = {"bug": "bug", "lesson": "enhancement", "idea": "enhancement"}
 POSTING_OFF_LINE = "Posting is off: config.yaml does not set feedback.enabled to true. The draft was saved and nothing was posted."
 COMMENT_LEAD_IN = ("Filed with `/planwise feedback` as a comment rather than a new issue — this looked like the same "
                    "subject as this thread. **{title}**")
+UNATTENDED_PROVENANCE = ("Drafted by Claude via planwise feedback drafting; filed unattended from a model-written draft, "
+                         "and no person reviewed it before posting.")
 
 
 def _kept(reason: str, path: Path) -> int:
@@ -548,16 +589,51 @@ def _kept(reason: str, path: Path) -> int:
     return EXIT_KEPT
 
 
-def _queued_draft(directory: Path, draft_id: str) -> "tuple[feedback_drafts.Draft | None, str]":
-    """The queued model draft with `draft_id`, or (None, reason). Read-only: an expired draft is not flipped on disk."""
+def _marker_path(posted: Path) -> Path:
+    return posted.with_name(posted.name + ".posted")
+
+
+def _comment_draft_name(number: int, promoted: Path) -> str:
+    """`{date}-comment-{NN}-{promoted stem}.md`. The promoted stem is unique to its source draft, unlike the title slug."""
+    return f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}-comment-{number}-{promoted.stem}.md"
+
+
+def _was_posted(promoted: Path) -> bool:
+    """Whether a `.posted` sidecar records a post of this promoted file, or of a comment draft made from it."""
+    if _marker_path(promoted).exists():
+        return True
+    pattern = re.compile(r"\d{4}-\d{2}-\d{2}-comment-\d+-" + re.escape(promoted.stem) + r"\.md\.posted")
+    return any(pattern.fullmatch(entry.name) for entry in promoted.parent.iterdir())
+
+
+def _resolve_draft(directory: Path, draft_id: str) -> "tuple[feedback_drafts.Draft | None, Path | None, str]":
+    """Return (draft, promoted file, "") for a draft `post` may act on, or (None, None, reason).
+
+    A queued draft returns no promoted file yet. A promoted draft whose promoted file exists and carries no
+    `.posted` sidecar is a kept draft from an earlier run: it returns that file, so a retry promotes nothing.
+    Read-only: an expired draft is not flipped on disk.
+    """
     draft = feedback_drafts._find(directory, draft_id)
     if draft is None:
-        return None, "unknown"
+        return None, None, "unknown"
+    if draft.status == "promoted":
+        promoted = directory / draft.fm.get("promoted_to", "")
+        if draft.fm.get("promoted_to") and promoted.is_file() and not _was_posted(promoted):
+            return draft, promoted, ""
+        return None, None, "promoted"
     if draft.status == "queued" and feedback_drafts.is_expired(draft, feedback_drafts._now()):
-        return None, "expired"
+        return None, None, "expired"
     if draft.status != "queued":
-        return None, draft.status if draft.status in ("expired", "discarded", "promoted") else "unknown"
-    return draft, ""
+        return None, None, draft.status if draft.status in ("expired", "discarded") else "unknown"
+    return draft, None, ""
+
+
+def _mark_unattended(promoted: Path) -> None:
+    """Replace the promote step's provenance sentence, which says a person approved the text, with the unattended one."""
+    text = feedback_drafts._read(promoted)
+    new_text = text.replace(feedback_drafts.PROVENANCE_LINE, UNATTENDED_PROVENANCE)
+    if new_text != text:
+        feedback_drafts._write(promoted, new_text)
 
 
 def _promote(config: Path, draft_id: str) -> "tuple[Path | None, str]":
@@ -596,8 +672,8 @@ def _post_url(stdout: str) -> str:
 
 
 def write_posted_marker(posted: Path, url: str, route: str) -> Path:
-    """Write the `.posted` sidecar beside the posted file. The posted file itself is never touched."""
-    marker = posted.with_name(posted.name + ".posted")
+    """Write the `.posted` sidecar beside the posted file. The posted file itself is never touched. Raises OSError."""
+    marker = _marker_path(posted)
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     with open(marker, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(f"posted: {stamp}\nurl: {url}\nroute: {route}\n")
@@ -630,16 +706,22 @@ def cmd_post(args: argparse.Namespace) -> int:
     if directory is None:
         print(f"feedback_post: {' '.join(err.getvalue().split())}", file=sys.stderr)
         return EXIT_FAILED
-    draft, reason = _queued_draft(directory, args.draft_id)
+    draft, promoted, reason = _resolve_draft(directory, args.draft_id)
     if draft is None:
         print(f"feedback_post: no queued draft with id {args.draft_id} ({reason}); nothing was posted.", file=sys.stderr)
         return EXIT_NO_DRAFT
     title = draft.fm.get("title", "")
     label = LABELS.get(feedback_drafts._name_kind(draft.path.name) or draft.fm.get("kind", ""), "bug")
-    promoted, error = _promote(config, args.draft_id)
     if promoted is None:
-        print(f"feedback_post: the draft could not be promoted: {error}", file=sys.stderr)
-        return EXIT_FAILED
+        promoted, error = _promote(config, args.draft_id)
+        if promoted is None:
+            print(f"feedback_post: the draft could not be promoted: {error}", file=sys.stderr)
+            return EXIT_FAILED
+    # This path has no reviewer, so the posted text must not say a person approved it.
+    try:
+        _mark_unattended(promoted)
+    except OSError:
+        return _kept("the draft file could not be updated", promoted)
 
     # Gates 3 and 4.
     gh = resolve_gh()
@@ -657,11 +739,14 @@ def cmd_post(args: argparse.Namespace) -> int:
         return EXIT_KEPT
     posted = promoted
     if route == "comment":
-        posted = promoted.with_name(f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}-comment-{number}-{feedback_drafts.slugify(title)}.md")
+        # The number comes from gh's JSON; anything but an integer keeps the draft rather than guessing a target.
+        if not isinstance(number, int):
+            return _kept("the top-ranked issue has no usable number", promoted)
+        posted = promoted.with_name(_comment_draft_name(number, promoted))
         try:
             feedback_drafts._write(posted, COMMENT_LEAD_IN.format(title=title) + "\n\n" + feedback_drafts._read(promoted))
         except OSError:
-            return _kept("the privacy check could not run", posted)
+            return _kept("the comment draft could not be written", promoted)
 
     # The privacy gate runs on the exact file the route posts, after the last write to it.
     try:
@@ -670,6 +755,11 @@ def cmd_post(args: argparse.Namespace) -> int:
         return _kept("the privacy check could not run", posted)
     if verdict != "clean":
         return _kept(f"the privacy check blocked it ({found} at line {line})", posted)
+    # The issue route sends the title outside the body file, so the same rules scan it too.
+    if route == "issue":
+        title_hit = feedback_drafts.scan_post_bytes(title.encode("utf-8", errors="surrogateescape"), repo)
+        if title_hit is not None:
+            return _kept(f"the privacy check blocked its title ({title_hit[0]})", posted)
 
     # The post: one argv list, so a title holding quotes reaches gh as one argument.
     if route == "comment":
@@ -687,10 +777,14 @@ def cmd_post(args: argparse.Namespace) -> int:
     if result.returncode != 0:
         return _kept(f"the post to {repo} failed", posted)
 
+    # The post succeeded. Nothing from here on may turn it into a failure exit.
     url = _post_url(result.stdout)
-    write_posted_marker(posted, url, route)
     where = f"as a comment on #{number}" if route == "comment" else "as a new issue"
     print(f"Feedback posted to {repo} {where}: {url or '(gh printed no URL)'}")
+    try:
+        write_posted_marker(posted, url, route)
+    except OSError:
+        print(f"The draft could not be marked posted: the .posted marker could not be written at {_marker_path(posted).resolve()}")
     return EXIT_POSTED
 
 

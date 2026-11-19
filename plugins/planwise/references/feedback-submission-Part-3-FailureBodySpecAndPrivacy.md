@@ -225,7 +225,8 @@ Every placeholder used in the three parts of this engine, for the four call site
 | `{OS/shell, auto-detected}` | The OS and shell the assistant already observes from its own runtime environment. |
 | `{user-supplied}` | Free text the user types or confirms; never auto-filled. |
 | `{NN}` | The target issue number for a comment outcome — digits only, no `#`. Rendered `#{NN}` in prose. |
-| `{comment_draft_path}` | `{planwise_root}/{feedback_dir}/{YYYY-MM-DD}-comment-{NN}-{slug}.md`. |
+| `{comment_draft_path}` | `{planwise_root}/{feedback_dir}/{YYYY-MM-DD}-comment-{NN}-{draft stem}.md`. |
+| `{draft stem}` | The file name of `{draft_path}` without `.md`. It ties a comment draft to the one draft it was made from, so two drafts that share a title never share a comment draft. |
 | `{posted_marker_path}` | The posted-marker sidecar: the draft's own path with `.posted` appended — `{draft_path}.posted` on the issue path, `{comment_draft_path}.posted` on the comment path. |
 | `{posted_date}` | The date the post succeeded. Distinct from the `{YYYY-MM-DD}` in the draft's filename, which is the date the draft was written. |
 | `{post_url}` | The URL `gh` prints on a successful post — the issue's URL after `gh issue create`, the comment's own anchor URL (which carries its parent issue's number) after `gh issue comment`. |
