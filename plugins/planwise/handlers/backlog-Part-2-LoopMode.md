@@ -47,8 +47,8 @@ python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yam
 | Selectable, still carrying a legacy `## Loop Decision Needed` section | No, listed as excluded | `decision pending` |
 | Selectable, with the scoped-rule verdict `placement` | No, listed as excluded | `placement` |
 | Selectable, with an unanswered question under `## Open Questions` | No, listed as excluded | `open questions unanswered` |
-| Blocked by an open dependency | No | not selectable |
-| Held (`BLOCKED`) or closed | No | not selectable |
+| Blocked by an open dependency | No | `blocked by <ids> (open)`, and a `note:` line when a blocker is also named |
+| Held (`BLOCKED`) or closed | No | held: `on hold (status BLOCKED)`. Closed: not selectable |
 
 Queue order is highest score first, then item id. Mode `n` keeps the first N of that order. Mode `specific` keeps the user's order and drops an ineligible id with a warning line.
 
@@ -118,7 +118,7 @@ Make three dispatches, in the foreground and one at a time. `references/backlog-
 
 1. Dispatch `planwise:backlog-preflight` once, in `refine` mode, with the item id. Read the `DISPOSITIONS` field of its status block.
 2. For a `HOLDS` sheet, dispatch `planwise:backlog-planner` under the name `planner-{item-id}`. Read the `DESIGN` field of its status block. An `ALREADY_MET` sheet skips the planner and goes straight to the author.
-3. Dispatch `planwise:backlog-author` once, in `refine` mode, with the sheet and the design file. It edits the item in place and reports `ITEMS_REWRITTEN`, `ITEMS_ALREADY_MET` and `ITEMS_RETIRED`.
+3. Dispatch `planwise:backlog-author` once, in `refine` mode, with the sheet and the design file. It edits the item in place and reports `ITEMS_REWRITTEN`, `ITEMS_ALREADY_MET` and `ITEMS_RETIRED`. After it returns, with or without a status block, run the post-author index check, `generate_backlog_index.py --config {planwise_root}/config.yaml --check`, then `--write` on exit 1, per `references/backlog-creation-process.md` § 7 Constraints.
 
 An item that still holds a legacy `## Loop Decision Needed` section never reaches the refine step. `--init` excludes it as `decision pending`, and `--mode specific` drops it with a warning. Fold its question into `## Open Questions` with `backlog_questions.py --fold`, then answer it with `/planwise backlog --answer`.
 

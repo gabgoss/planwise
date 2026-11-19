@@ -81,7 +81,7 @@ Copy the total line into `DEVIATIONS_BEFORE`. Then run the heading check once an
 python -B "{plugin_root}/scripts/scaffold_plan.py" check-headings {plan_root}
 ```
 
-Use `Grep` over `plan_root` for the literal `FILL` and count the hits for `FILL_REMAINING`.
+Use `Grep` over `plan_root` for the literal `<!-- FILL:` and report the hit count as `FILL_REMAINING`. Never search for the bare word, because template prose such as "Step 1.1e (CONSUMES FILL)" in the Sprint Plan names the word and is not a marker.
 
 > [!constraint] The gate is the verdict, not this agent's reading
 > WRONG — report zero deviations after reading a few files and judging them clean:
@@ -106,7 +106,7 @@ The gate names three deviation classes. Each has its own repair.
 
 Class C is phase-gated. `Exec-{Abbrev}/` present means the plan is past Discovery, so grade the class. `Exec-{Abbrev}/` absent means the plan is still at Discovery and the class does not apply. Do not read the Master Plan's `**Phase:**` field instead, because it keeps its Meta-Plan value after the execution plan exists.
 
-Restore each deviation with one `Edit`:
+Restore each deviation with one `Edit`, applied as soon as the gate names it. The agent cannot see its turn count, so each repair lands on disk before the next one starts. A dispatch after an earlier stop starts from the Step 1 gate run, which reads only the deviations still on disk. It never replays a repair that already landed.
 
 1. Read the file with `Read`, and read the template with `Read` for the exact wording.
 2. Edit the one heading or the one formatting line in place. For a missing line, insert it at the position the template gives it.
@@ -140,7 +140,7 @@ Run the gate again with the same command as Step 1. Copy its total line into `DE
 2. If Class A or Class B remains, read the named lines and restore them. Run the gate again.
 3. Stop after three gate runs after the first edits. A deviation that survives them is one a heading or line restore cannot fix. List each in `ISSUES` and return `PARTIAL`.
 
-Run `check-headings` and the `FILL` search again, and keep the new `STRAY_H2` and `FILL_REMAINING` figures.
+Run `check-headings` and the `<!-- FILL:` search again, and keep the new `STRAY_H2` and `FILL_REMAINING` figures.
 
 ## Step 4: REPORT
 
@@ -172,7 +172,7 @@ DEVIATIONS_BEFORE:  A=<n> B=<n> C=<n>
 DEVIATIONS_AFTER:   A=<n> B=<n> C=<n>
 EDITS_APPLIED:      {count of Edit calls}
 STRAY_H2:           {stray_h2 total from check-headings over plan_root}
-FILL_REMAINING:     {count of FILL markers left under plan_root}
+FILL_REMAINING:     {count of `<!-- FILL:` markers left under plan_root}
 KEY_FINDINGS:       {2 to 5 short bullets}
 ISSUES:             {one line per remaining deviation or issue, or "none"}
 ```
@@ -180,7 +180,7 @@ ISSUES:             {one line per remaining deviation or issue, or "none"}
 Each status applies in one case:
 
 - `COMPLETE` — `DEVIATIONS_AFTER` reads `A=0 B=0 C=0`, `STRAY_H2` is 0 and `FILL_REMAINING` is 0.
-- `PARTIAL` — a deviation remains that a heading or line restore cannot fix, or the turn budget ran out.
+- `PARTIAL` — a deviation remains that a heading or line restore cannot fix.
 - `BLOCKED` — the gate exits 2, `plan_root` is missing, the gate script is absent, or Class C is reported.
 
 ## Failure Semantics
@@ -192,7 +192,6 @@ Each status applies in one case:
 | The gate exits 2 | `BLOCKED`, the gate message in `ISSUES` | Fixes the path, template or plan-file error the message names, then dispatches again |
 | Class C is reported | `BLOCKED`, the `CLASS_C` line in `ISSUES`, Class A and B still repaired | Creates `Scaffold-{Abbrev}/`, then dispatches again |
 | A deviation survives three gate runs | `PARTIAL`, each deviation in `ISSUES` | Repairs the content, or re-dispatches the sprint's scaffolder |
-| The work would exceed `maxTurns` | `PARTIAL`, the files edited so far | Dispatches again for the same pass |
 | A mixed output-naming scheme appears | The scheme finding in `ISSUES`, no rename | Decides the scheme and handles the renames |
 
 ## Constraints

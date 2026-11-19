@@ -1,12 +1,12 @@
 ---
-description: Recorded-figure discipline continued — a recorded delta states both endpoints and says whether it is net or set size, with the figure stated on both sides of any transform (§8.10), and a pinned count names the artifact and version it was read from, with the diff-gate header-line corollary (§8.11), and a byte pin names its instrument because blob bytes and checkout bytes differ by the line count under `core.autocrlf` (§8.12). Split out of measurement-discipline.md when that file crossed the Read-tool token gate.
-consult-when: Writing a spec delta, a test assertion copied from a spec, or a pinned count — record both endpoints beside a "+A/-R" delta and say whether it is net or set size, state the figure on both sides of a transform, write the artifact and version beside a pinned count, and count diff lines with a filter anchored on the sign alone that removes the `---` and `+++` header lines by name; a byte count from a blob and one from the checkout differ by the line count under `core.autocrlf`, so name the instrument beside every byte pin; carries §8.10, §8.11 and §8.12 of `measurement-discipline.md`
+description: Recorded-figure discipline continued — a recorded delta states both endpoints and says whether it is net or set size, with the figure stated on both sides of any transform (§8.10), and a pinned count names the artifact and version it was read from, carries the commit sha, matches a pytest summary with a suffix-tolerant pattern and copies the exact command into a dry-run annotation, with the diff-gate header-line corollary (§8.11), and a byte pin names its instrument because blob bytes and checkout bytes differ by the line count under `core.autocrlf` (§8.12), and a size estimate for a compress, collapse or split has three terms, fixed overhead, keep orders and added pairs, which a flat per-heading figure leaves out (§8.13). Split out of measurement-discipline.md when that file crossed the Read-tool token gate.
+consult-when: Writing a spec delta, a test assertion copied from a spec, or a pinned count — record both endpoints beside a "+A/-R" delta and say whether it is net or set size, state the figure on both sides of a transform, write the artifact and version beside a pinned count, stamp it with the commit sha, match a pytest summary with a suffix-tolerant pattern, copy the exact command into a dry-run annotation, and count diff lines with a filter anchored on the sign alone that removes the `---` and `+++` header lines by name; a byte count from a blob and one from the checkout differ by the line count under `core.autocrlf`, so name the instrument beside every byte pin; sizing a compress, collapse or split of a reference library, or any savings forecast built from heading counts, takes three terms (fixed overhead, keep orders, added pairs) read from the live file; carries §8.10, §8.11, §8.12 and §8.13 of `measurement-discipline.md`
 paths: {planwise_root}/{plans_dir}/**
 ---
 
 # Measurement Discipline, Part 3 — Recorded Delta and Pinned Count
 
-**Purpose:** §8.10, §8.11 and §8.12, split out of [measurement-discipline.md](measurement-discipline.md) when that file crossed the Read-tool token gate. §8.1–§8.7 and §8.9 stay on that anchor, which keeps the original filename, and §8.8 lives in [measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md). All three sections extend §8.9 sub-rule A, which re-measures a recorded figure at execution time.
+**Purpose:** §8.10, §8.11, §8.12 and §8.13, split out of [measurement-discipline.md](measurement-discipline.md) when that file crossed the Read-tool token gate. §8.1–§8.7 and §8.9 stay on that anchor, which keeps the original filename, and §8.8 lives in [measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md). All four sections extend §8.9 sub-rule A, which re-measures a recorded figure at execution time.
 
 ---
 
@@ -62,6 +62,9 @@ A literal count depends on the exact artifact and version it was read from. When
 - **Write the artifact and version beside every pinned count.** A reviewer who sees `== 124` cannot tell what it measures. One who sees the comment can re-derive it in one command. This extends sub-rule A of §8.9, which re-measures a recorded figure at execution time.
 - **Treat every pin against a regenerated artifact as untrusted until re-read.** `Grep` the tests and briefs for the artifact's path before dispatch. Put the re-pin in the regenerating task's write-set. Otherwise the tier goes red in a file the runner is forbidden to touch.
 - **Write a count from a version-dependent source as "N on version V", never as N.** This holds in a backlog item or a spec. The build changes under the item. The item does not.
+- **Stamp a count read from a git-tracked subject with the commit sha, not only the date.** Several commits can land on one day. A preflight runs `git -C <repo> log --oneline <sha>..HEAD -- <test files>`, and empty output means the pin still holds.
+- **Match a pytest summary with `^N passed[ ,]`, never with `^N passed in `.** Pytest inserts text such as `, N subtests passed` or `, N skipped` before ` in`.
+- **Copy the exact command into a dry-run or `pre-edit:` annotation beside a pinned command.** Copy it byte for byte, or name it as a variant. At dispatch, re-run the pinned command, not the annotation's command, and route any mismatch with both figures.
 
 **Diff-gate corollary.** A line count over `git diff` output counts the `---` and `+++` header lines too, so a gate that expects 0 removed lines reads 1 on any non-empty diff. Anchor the filter on the sign alone, and remove the header lines by name. A character class written right after the sign also drops every changed line that starts with that character, such as a removed or added bullet. [`gate-predicate-discrimination.md`](gate-predicate-discrimination.md) §6 holds the general rule and its counter-example. Check 52 of `scripts/lint_gate_checks_measure.py` flags a gate that puts a character class right after the diff sign.
 
@@ -71,6 +74,23 @@ git diff -- <path> | grep -E '^\+' | grep -vE '^\+\+\+' | wc -l      # added lin
 ```
 
 Applies to test assertions that pin the row, line or entry count of a committed report, fixture or snapshot. It also applies to backlog items and design-spec rows that quote a figure from one build.
+
+#### A stamp carries the commit, a summary match tolerates its tail, and an annotation copies its command
+
+A date does not identify a tree, because several commits land on one day. A pytest summary line has a variable tail, so a rigid match breaks when a subtest or skip count appears. A dry-run annotation that records a variant of the pinned command states a figure the pinned command never produced. The re-pin step is in the `scaffolding-hygiene.md` section "Re-Measure Every Gate-Bound Figure at Preflight, Before Dispatch".
+
+> [!constraint] Stamp the commit, match the tail, copy the command
+> WRONG — the date alone, a rigid summary match, and an annotation from a different window:
+> ```
+> 45 passed (re-measured <date>)  -> matches '^45 passed in '
+> pin: git log --since=<d1> ...   # Dry-run (since <d2>): 8 lines
+> ```
+> CORRECT — the sha beside the count, a tolerant match, a preflight line, and the exact command in the annotation:
+> ```
+> 58 passed, 8 subtests passed @ <sha> (<date>)  -> matches '^58 passed[ ,]'
+> preflight: git -C <repo> log --oneline <sha>..HEAD -- <test files>    # empty output: the pin holds
+> pin: git log --since=<d1> ...   # Dry-run <date>, this exact command at <sha>: 31 lines
+> ```
 
 ### 8.12 A byte pin names its instrument: blob bytes and checkout bytes differ under autocrlf
 
@@ -102,3 +122,39 @@ Check 53 of `scripts/lint_gate_checks_measure.py` warns on a gate that compares 
 - **Run a pinned measurement command once beside a second instrument before a gate trusts it.** The two figures must agree, or the disagreement is the finding.
 
 Applies to any byte pin, size gate, or conservation identity on a Windows checkout with `core.autocrlf=true`. It applies whenever one operand comes from `git show`, `git cat-file`, or a diff stat and another comes from the working tree.
+
+### 8.13 A size estimate for a compress, collapse or split has three terms
+
+A plan that compresses, collapses or splits references often forecasts each result from a heading count. A flat per-heading figure leaves out three terms. The forecast then sets expectations wrong by 3 to 6 times, even when no runner pads or cuts to reach it.
+
+> [!constraint] Build the estimate from the live file, one term at a time
+> A plan compressed four dispatch references at the per-rule-section grain. It estimated each result as headings × 700 B ÷ 2.6. The plan called the figure "a signal, not a target", so no runner padded or cut to hit it. Each result was then measured with `measure_files.py --model opus`:
+>
+> | File | Before | After | Estimate | After ÷ estimate |
+> |------|-------:|------:|---------:|-----------------:|
+> | A | 9,864 | 9,585 | 2,962 | 3.2 |
+> | B | 10,548 | 9,200 | 1,615 | 5.7 |
+> | C | 6,296 | 5,768 | 1,615 | 3.6 |
+> | D | 5,685 | 5,507 | 1,346 | 4.1 |
+>
+> The total fell 7.2%. The runners named three causes:
+>
+> - **Fixed overhead.** Frontmatter, the Table of Contents, headings and the footer cost 741 to 1,294 tokens per file before any rule text.
+> - **Keep orders.** Undecided overlaps were carried, so their sections kept every claim. One file was the survivor for a moved rule. One section had to keep a full check spec. One file's two sections alone held 22.8% of its bytes.
+> - **Added pairs.** The grain requires one labelled WRONG/CORRECT pair per rule section. The four files gained 17 new pairs, so a file with no pairs grows before it shrinks.
+>
+> WRONG — one term:
+> ```
+> estimate = headings × 700 B ÷ 2.6
+> ```
+> CORRECT — the three terms the measurement found, each read from the live file:
+> ```
+> estimate = fixed_overhead(file)
+>          + sum(current size of each section under a keep order)
+>          + sum(rule sentence + one pair, for each other rule section)
+> ```
+
+- **Read each term from the live file.** Measure the overhead, the kept sections and a sample pair. Do not take them from the heading count.
+- **Keep the estimate a signal.** A plan that binds itself to the figure as a target invites padding or cutting to reach it.
+
+Applies to sizing a compress, collapse or split of a reference library, and to any savings forecast built from heading counts.

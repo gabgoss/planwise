@@ -1,6 +1,6 @@
 ---
-description: Grade a delegated result or a probe from the record, never from the narration — and know which field of the record discriminates. Covers why a transcript-recovered synthesis is provisional and systematically softer than the delivered report, why a correct verdict is not evidence the attribution was correct, why `is_error` alone cannot separate a denial from a downstream failure, where the field that can separate them actually lives, and why a downstream proxy (token count, wall time) cannot substitute for a harness setting's own recorded value. Consult when a reviewer's reply did not route, when grading a probe's outcome or its cause, when scoring a permission dry-run, and when gating a sweep over a model or CLI setting. Also covers why a summary field whose name rhymes with the measure must be recomputed from the definition and tested against a control session, and why a field is traced to the code that writes it, including any conditional logging, rather than accepted from the first search hit.
-consult-when: Synthesising from a subagent transcript because its reply did not route, recording why a probe produced its result, or scoring a permission probe — the synthesis is provisional, confirm which control fired, and capture `permission_denials` from stdout at invocation time, recompute a headline figure from its definition against a control session, and trace a field to the code that writes it, and a grader that archives "the transcript" enumerates every session id the log names (§7)
+description: Grade a delegated result or a probe from the record, never from the narration — and know which field of the record discriminates. Covers why a transcript-recovered synthesis is provisional and systematically softer than the delivered report, why a correct verdict is not evidence the attribution was correct, why `is_error` alone cannot separate a denial from a downstream failure, where the field that can separate them actually lives, and why a downstream proxy (token count, wall time) cannot substitute for a harness setting's own recorded value. Consult when a reviewer's reply did not route, when grading a probe's outcome or its cause, when scoring a permission dry-run, and when gating a sweep over a model or CLI setting. Also covers why a summary field whose name rhymes with the measure must be recomputed from the definition and tested against a control session, and why a field is traced to the code that writes it, including any conditional logging, rather than accepted from the first search hit. Also covers why a live session is graded from its transcript and not from a pasted terminal, and why a recorded description of a command's output is counted over the full output and not read from its visible tail.
+consult-when: Synthesising from a subagent transcript because its reply did not route, recording why a probe produced its result, or scoring a permission probe — the synthesis is provisional, confirm which control fired, and capture `permission_denials` from stdout at invocation time, recompute a headline figure from its definition against a control session, and trace a field to the code that writes it, and a grader that archives "the transcript" enumerates every session id the log names (§7), count questions, keystrokes and compactions from the session transcript and not a pasted terminal (§8), and describe a command's output only from a count over the full output (§9)
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Grade From the Record — The Narration Got the Outcome Right and the Record Said Something Else
@@ -20,6 +20,8 @@ Three neighbouring rules own adjacent machinery. [`dispatch-boundary-evidence.md
 - [5. A Summary Field Whose Name Matches the Measure Is Not the Measure](#5-a-summary-field-whose-name-matches-the-measure-is-not-the-measure)
 - [6. Trace a Field to the Code That Writes It, Not to the First Search Hit](#6-trace-a-field-to-the-code-that-writes-it-not-to-the-first-search-hit)
 - [7. A Grader That Archives "The Transcript" Must Enumerate Every Session Id the Log Names](#7-a-grader-that-archives-the-transcript-must-enumerate-every-session-id-the-log-names)
+- [8. Count Questions, Keystrokes and Compactions From the Session Transcript, Never From a Pasted Terminal](#8-count-questions-keystrokes-and-compactions-from-the-session-transcript-never-from-a-pasted-terminal)
+- [9. A Recorded Description of a Command's Output Needs a Count Over the Full Output](#9-a-recorded-description-of-a-commands-output-needs-a-count-over-the-full-output)
 
 ---
 
@@ -258,6 +260,55 @@ Three consequences follow.
 > ```
 
 **Applies to** any grader, sidecar writer or cost reporter that archives or reads "the" session transcript. It also applies to arms, probes or hooks that call `/clear`, resume a session, or relaunch a child process mid-run, and to results tables where one row's `Turns` or `Cost` sits beside another row's.
+
+---
+
+## 8. Count Questions, Keystrokes and Compactions From the Session Transcript, Never From a Pasted Terminal
+
+> [!constraint] A paste shows what the screen rendered, not what the session recorded
+> A grader scored a live session from a terminal paste the user supplied. The paste had two defects. It started mid-session, so it dropped the banner, the answers to the first two questions and the init report. It also rendered the same block twice around each compaction, so a question the loop asked once appeared twice.
+>
+> ```
+> WRONG — count from the paste:
+> paste shows the lessons question twice → "the loop asked 2 questions" → score wrong
+> paste starts after Q1/Q2             → "the loop asked 0 setup questions" → score wrong
+>
+> CORRECT — locate the session from the paste, then count in the transcript:
+> paste → session id → ~/.claude/projects/<project>/<session>.jsonl
+> questions    = AskUserQuestion tool calls after Q2
+> keystrokes   = records whose origin marks a human prompt, apart from plugin-origin re-entries
+> compactions  = compact_boundary records
+> record: "graded from the transcript, not the paste"
+> ```
+
+Two rules follow.
+
+1. Name the instrument in the record. Each figure came from the transcript, and the record says which field produced it.
+2. Split human input from plugin input. A `--loop-resume` re-entry is a prompt in the transcript that the user did not type.
+
+The trigger is any grader that scores a live session on question counts, keystrokes, compactions or tool calls when the user supplies a paste.
+
+---
+
+## 9. A Recorded Description of a Command's Output Needs a Count Over the Full Output
+
+> [!constraint] Take the detail of a command's output from a count over everything it printed
+> A baseline row recorded the exit status of a companion drift check as `1, one line: - [missing-row] <id>: no on-disk row`. The exit status was right. The detail was wrong. The plain form printed 223 `missing-row` lines, the same set a second row counted through `--json`.
+>
+> The runner saw only the last line, and routed a flag on that basis. None of the task's gates caught it. They counted rows by name (17 of 17) and checked each row for a value. The orchestrator caught it only because two readings in one file disagreed.
+>
+> ```bash
+> WRONG — the detail comes from the visible tail:
+> python -B <plugin_root>/scripts/<index_script>.py --config <config> --companion --check
+> # last visible line: - [missing-row] <id>: no on-disk row
+> # recorded: "1, one line: <id>"
+>
+> CORRECT — the detail comes from a count over the whole output:
+> python -B <plugin_root>/scripts/<index_script>.py --config <config> --companion --check | grep -c "missing-row"
+> # 223 -> recorded: "1, with 223 missing-row lines (<first id> to <last id>)"
+> ```
+
+When two readings in one baseline measure the same set through different modes, compare them before the baseline is accepted. Here the modes were the plain form and `--json`. A disagreement means one record is wrong.
 
 ---
 

@@ -108,6 +108,7 @@
 | Root Cause Category  | {template gap | rule gap | skill gap | EI extraction gap | protocol gap | one-off} |
 | Description          | {what pattern recurs across findings — be specific} |
 | Suggested Fix Target | {file path + what to change in the planning artifact} |
+| Fix Owner            | {planwise | project} |
 | Other Known Instances | {one confirmed path per line with its disposition (untouched, swept, or tracked in {backlog id}), or "none" when the class has no known sibling} |
 | Status               | {OPEN | CLASS OPEN | CLOSED} |
 

@@ -8,6 +8,8 @@
 
 ## Scaffolding Step 1: Read Consolidated Context Parts
 
+**Empty-set branch:** Glob `{Abbrev}-Consolidated-Context-Part-*.md` in `Meta-{Abbrev}/Outputs/` first. If it finds zero parts, output no Scaffolding block. Return to the **Scaffolding precondition** in `handlers/plan.md` Step 0, which routes to Standard.
+
 **CONFIRM block (per `references/scaffolding-hygiene.md` §1):**
 
 Before reading Consolidated Context parts, output the Scaffolding context confirmation:
@@ -16,6 +18,7 @@ Before reading Consolidated Context parts, output the Scaffolding context confir
 > ```
 > CONTEXT LOADED — SCAFFOLDING MODE
 > Workflow: Scaffolding (Execution Plan from Discovery outputs)
+> Route: Scaffolding ({n} Consolidated Context parts in Meta-{Abbrev}/Outputs/)
 > Source Meta-Plan: Meta-{Abbrev}/
 > Plugin references loaded: {list of loaded conditional refs}
 > Consolidated Context Parts detected: {list of part filenames}
@@ -191,24 +194,26 @@ Act on each status block by the field names its agent file defines. Never ask an
 **Extractor gate** (fields from `agents/ei-extractor.md`):
 
 - `COMPLETE`: diff the `EI_SECTION_MAP` ids against the sprint's `ei_sections`, and dispatch again on a missing or extra id. Record a `RETENTION_PCT` from 80 to 95 as a warning, and each `EMPTY_SECTIONS` id as a gap, for the Step 7 block. Decide for each gap whether its task still needs the section.
-- `PARTIAL`: `RETENTION_PCT` is below 80, or the turn budget ran out. Dispatch again for the same sprint.
+- `PARTIAL`: `RETENTION_PCT` is below 80, or an `EI-PENDING` marker remains. Dispatch again for the same sprint.
+- A return with no status block: the dispatch returned with no `TASK_STATUS:` line, because the agent hit its turn limit before it reported. Count `EI-PENDING` over `sprint_folder` with `Grep` (`output_mode='count'`). At 0, resume the same agent and ask only for Step 3 and Step 4, because `EI_SECTION_MAP` and `RETENTION_PCT` come from them. Above 0, resume it and name the marked section ids, per `references/dispatch-boundary-evidence.md` §4. Dispatch fresh only when the agent cannot be resumed.
 - `BLOCKED`: a missing path or a missing Tier 1 row means restore the input or correct `source_map`, then dispatch again. A revised authority or a scope choice goes to the user through `AskUserQuestion`, and the answer goes into the next dispatch's prompt.
 
 **Scaffolder gate** (fields from `agents/sprint-scaffolder.md`):
 
 - `COMPLETE`: reject any block whose `FILL_REMAINING` or `STRAY_H2` is above 0, and dispatch that sprint again. Then confirm that each `cross_sprint_markers` row appears in every involved Sprint Plan. Record `SPAN_ROWS_REPOINTED` for the Step 7 block.
 - `PARTIAL`: dispatch again for the same sprint. The scaffolder skips its filled files, so the next dispatch continues where this one stopped.
-- A return with no status block: the dispatch returned with no `TASK_STATUS:` line, because the agent hit its turn limit before it reported. Count `FILL` over `sprint_folder` with `Grep` (`output_mode='count'`) and run `scripts/scaffold_plan.py check-headings` over the folder. When both read 0, accept from disk and do not resume. Otherwise resume the same agent with a message that names the files left, per `references/dispatch-boundary-evidence.md` §4. Dispatch fresh only when the agent cannot be resumed. This bullet also covers an `ei-extractor` or `scaffold-harmonizer` dispatch that returns no block: accept from disk when that agent's own output check passes, otherwise resume.
+- A return with no status block: the dispatch returned with no `TASK_STATUS:` line, because the agent hit its turn limit before it reported. Count `<!-- FILL:` over `sprint_folder` with `Grep` (`output_mode='count'`) and run `scripts/scaffold_plan.py check-headings` over the folder. When both read 0, accept from disk and do not resume. Otherwise resume the same agent with a message that names the files left, per `references/dispatch-boundary-evidence.md` §4. Dispatch fresh only when the agent cannot be resumed.
 - `BLOCKED`: restore a missing input, then dispatch again. Write an absent rendered file from its template, because `render` never writes into a non-empty folder. An `ei_section_map` id that does not resolve means re-dispatch that sprint's extractor first. A user-only choice goes to the user, and the answer goes into the next dispatch's prompt.
 
 **Harmonizer gate** (fields from `agents/scaffold-harmonizer.md`). The verdict comes from `scripts/scaffold_deviations.py`, so accept `COMPLETE` only when `DEVIATIONS_AFTER` reads `A=0 B=0 C=0`, `STRAY_H2` is 0 and `FILL_REMAINING` is 0.
 
 - `COMPLETE`: copy `DEVIATIONS_BEFORE`, `DEVIATIONS_AFTER` and `EDITS_APPLIED` into the Step 7 block.
-- `PARTIAL`: a deviation survived three gate runs, or the turn budget ran out. Repair the content or re-dispatch that sprint's scaffolder, then dispatch the harmonizer again.
+- `PARTIAL`: a deviation survived three gate runs. Repair the content or re-dispatch that sprint's scaffolder, then dispatch the harmonizer again.
+- A return with no status block: the dispatch returned with no `TASK_STATUS:` line, because the agent hit its turn limit before it reported. Run `scripts/scaffold_deviations.py`, run `scripts/scaffold_plan.py check-headings`, and count `<!-- FILL:` over `plan_root` with `Grep` (`output_mode='count'`). When they read `A=0 B=0 C=0`, 0 and 0, accept from disk and record `DEVIATIONS_BEFORE` and `EDITS_APPLIED` as `not reported` in the Step 7 block. Otherwise resume the agent, or dispatch fresh. A fresh dispatch restarts from the gate run.
 - `BLOCKED`: a missing `plan_root`, an absent gate script or a gate exit 2 means correct the path, the install or the template, then dispatch again. A `CLASS_C` line means create `Scaffold-{Abbrev}/` (Step 2 owns it), then dispatch again.
 - A mixed output-naming scheme in `ISSUES` is yours to decide. The harmonizer renames no file, so make the renames and their citation sweep yourself.
 
-**Stalled re-dispatch.** If the on-disk `FILL` count over the sprint folder does not fall across a re-dispatch or a resume, whether or not a block came back, stop re-dispatching that agent. Finish its remaining work inline under the inline path's rules, and note it in the Step 7 block.
+**Stalled re-dispatch.** If the on-disk `<!-- FILL:` count over the sprint folder does not fall across a re-dispatch or a resume (for the extractor, the `EI-PENDING` count), whether or not a block came back, stop re-dispatching that agent. Finish its remaining work inline under the inline path's rules, and note it in the Step 7 block.
 
 ## Scaffolding Step 4.5: Multi-Tier Discovery Extraction
 

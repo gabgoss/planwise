@@ -1,17 +1,18 @@
 ---
-description: BLI triage-time verification recipes (motivating-driver still-active recheck, un-tested-axes-first reproducer ordering, cluster-batch driver recheck, cross-cutting audit-candidate coverage at fix-agent delegation time), verifying source edits when the installed plugin is older than the source, and backlog-item citation freshness (pinned sequential identifiers, code anchors, narrative attributions, hand-authored tallies and membership lists, stated stale-side directions, contested counts) at execution time
-consult-when: Triaging a BLI or checking backlog-citation freshness — pinned IDs, code anchors, hand-authored tallies and membership lists, a stated stale-side direction, a contested count, at execution time
+description: BLI triage-time verification recipes (motivating-driver still-active recheck, un-tested-axes-first reproducer ordering, cluster-batch driver recheck, running the probe that a stale disposition names before closing as stale, cross-cutting audit-candidate coverage at fix-agent delegation time), verifying source edits when the installed plugin is older than the source, and backlog-item citation freshness (pinned sequential identifiers, code anchors, narrative attributions, hand-authored tallies and membership lists, stated stale-side directions, contested counts) at execution time
+consult-when: Triaging a BLI or checking backlog-citation freshness — a stale disposition that names a probe, pinned IDs, code anchors, hand-authored tallies and membership lists, a stated stale-side direction, a contested count, at execution time
 ---
 
 # BLI Triage-Time Recipes and Backlog-Item Citation Freshness
 
-Companion to [verify-against-shipped-artifact.md](verify-against-shipped-artifact.md) §1-§5 (the Exec-phase SDK/identifier verification core). This file carries two co-located disciplines that both operate on the backlog-item (BLI) surface: the BLI triage-time recipes peeled from that file's §3 ladder (§3h, §3h.untested-axes, §3h.cluster, §3i) plus its §8 (installed-plugin-version skew) and §9 (.1-.3) (backlog-item citation freshness at execution time) — original §-numbers preserved — plus this file's own §9.4-§9.6 (tallies, stated directions and contested counts as claims to re-derive), §10 (backlog-item claim verification at filing time), §11 (re-alignment verb premise probing), and §12 (verification task tree-state pin), native to this file rather than peeled from the parent.
+Companion to [verify-against-shipped-artifact.md](verify-against-shipped-artifact.md) §1-§5 (the Exec-phase SDK/identifier verification core). This file carries two co-located disciplines that both operate on the backlog-item (BLI) surface: the BLI triage-time recipes peeled from that file's §3 ladder (§3h, §3h.untested-axes, §3h.cluster, §3i) plus its §8 (installed-plugin-version skew) and §9 (.1-.3) (backlog-item citation freshness at execution time) — original §-numbers preserved — plus this file's own §3h.probe (a stale disposition that names a probe) and §9.4-§9.6 (tallies, stated directions and contested counts as claims to re-derive), §10 (backlog-item claim verification at filing time), §11 (re-alignment verb premise probing), and §12 (verification task tree-state pin), native to this file rather than peeled from the parent.
 
 ## Table of Contents
 
 - [3h. BLI Motivating Driver Still Active (Triage Time)](#3h-bli-motivating-driver-still-active-triage-time)
 - [3h.untested-axes Un-Tested Axes — Lead Phase 1 With the BLI's Blind Spots](#3huntested-axes-un-tested-axes--lead-phase-1-with-the-blis-blind-spots)
 - [3h.cluster Cluster Batching](#3hcluster-cluster-batching)
+- [3h.probe A Stale Disposition That Names a Probe Is a Hypothesis](#3hprobe-a-stale-disposition-that-names-a-probe-is-a-hypothesis)
 - [3i. BLI Cross-Cutting Check Coverage at Fix-Agent Delegation Time](#3i-bli-cross-cutting-check-coverage-at-fix-agent-delegation-time)
 - [8. Verifying Source Edits When the Installed Plugin Is Older Than the Source](#8-verifying-source-edits-when-the-installed-plugin-is-older-than-the-source)
 - [9. Backlog-Item Citation Freshness at Execution Time](#9-backlog-item-citation-freshness-at-execution-time)
@@ -143,6 +144,25 @@ The originating session may have fixed a BLI as collateral before its formal clo
 >      pending formal closeout of {session-id}.
 >   B. SCAFFOLD as separate items — only if the user disagrees with the cluster-fix evidence.
 > ```
+
+### 3h.probe A Stale Disposition That Names a Probe Is a Hypothesis
+
+A BLI's "disposition if stale" note, or a triage brief, sometimes names a probe as the fix: "the check now uses a Glob that finds the file, so close the item as stale". The note is a hypothesis about the probe's output. "A tool can see file X" and "this pattern finds file X" are two claims. The second depends on the pattern's shape and on where the call is anchored. For that anchoring cause, see [native-tool-use.md](native-tool-use.md), section "Glob Pattern Anchoring".
+
+> [!constraint] Run the probe the note names before closing the item as stale
+> WRONG — the item says "stale, a Glob would find the file". Nobody runs the Glob, and the item closes:
+> ```
+> note: "the check probes <folder>/*/.gitkeep, which Glob can see"  ->  close the item as stale
+> ```
+> CORRECT — run the named probe on a file known to exist and on one known to be absent. The two results must differ. A Glob that returns nothing for the present case is the finding, and the disposition changes:
+> ```
+> Glob  pattern='<folder>/*/.gitkeep'     path=<plan root>   # No files found (6 exist)
+> Glob  pattern='**/<folder>/*/.gitkeep'  path=<plan root>   # 6 files
+> ->  the shipped probe cannot see its subject: the item is not stale
+> ```
+
+- **Run the named probe before closing as stale.** Use a real tree, with one present case and one absent case.
+- **When the run disagrees with the note, the item stays in scope.** Fix the probe, then dry-run the fixed probe on the same two cases.
 
 ### 3i. BLI Cross-Cutting Check Coverage at Fix-Agent Delegation Time
 

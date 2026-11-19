@@ -1286,14 +1286,22 @@ class TestItemShape(unittest.TestCase):
         self.assertEqual(self._shape(_refined_item_body(questions="None yet.\n"), refined=True)["open_questions"],
                          "unanswered")
 
-    def test_free_text_above_answered_blocks_reads_unanswered(self):
+    def test_free_text_above_answered_blocks_reads_answered(self):
+        # Text above answered blocks is decided context, the reading `backlog_questions --list` takes.
         answered = "### Q1. Which column?\n\nAnswer: B, the second column.\n"
         states = {
             name: self._shape(_refined_item_body(questions=pre + answered), refined=True)["open_questions"]
             for name, pre in (("free_text", "Which file owns the column?\n\n"), ("none", "None.\n\n"),
                               ("blank", "\n"))
         }
-        self.assertEqual(states, {"free_text": "unanswered", "none": "answered", "blank": "answered"})
+        self.assertEqual(states, {"free_text": "answered", "none": "answered", "blank": "answered"})
+        # A text-only section has no block to carry a verdict, so it stays unanswered.
+        text_only = self._shape(_refined_item_body(questions="Which file owns the column?\n"), refined=True)
+        self.assertEqual(text_only["open_questions"], "unanswered")
+        # Text above a block with no answer is still unanswered.
+        unanswered = "Which file owns the column?\n\n### Q1. Which column?\n\nAnswer:\n"
+        self.assertEqual(self._shape(_refined_item_body(questions=unanswered), refined=True)["open_questions"],
+                         "unanswered")
 
     def test_list_nested_fence_counts_as_verification(self):
         nested = (_refined_item_body(verification=False)

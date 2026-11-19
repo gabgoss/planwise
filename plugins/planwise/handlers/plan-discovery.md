@@ -91,6 +91,7 @@ Use standard templates with the following overrides:
 - Success Criteria: Define what each Consolidated Context Part must contain
 - List all source files/documents to be read (by reference, not loaded into the Master Plan)
 - Expected output: Number and topics of Consolidated Context Parts
+- Headings: the metadata spec keeps `Discovery Inputs` in the master plan's `optional_sections`. Its `Source Material`, `Expected Consolidated Context Parts`, `Hypotheses` and `User-Action Gates` H3s then carry the source list, the Parts with their Scope, the hypotheses and the gates. Never add these as `Plan-Specific Sections` H3s
 
 **Sprint Plan overrides:**
 - Objective: "Gather and consolidate context for {domain/topic}" — NOT "implement"
@@ -99,6 +100,7 @@ Use standard templates with the following overrides:
 **Orchestration overrides:**
 - Execution Strategy: **DELEGATED** (mandatory for META sessions — each agent needs fresh context to read sources)
 - Context Boundary: keep the template's `> [!constraint] Mandatory Context Boundary` callout (Reviewer Check 012). It states that the orchestrator reads plan files only, and task agents read the source material
+- User-Action Gate: when a session stops for the user's answer, the metadata spec keeps `User-Action Gate` in that session's Orchestration and Recovery `optional_sections`. The Orchestration section names where the session stops, what it hands the user and the allowed answers. The Recovery section tracks each gate as `OPEN`, `RATIFIED` or `REJECTED`
 
 **Task design rules:**
 - Tasks are **reading and consolidation** tasks, not implementation tasks
@@ -136,8 +138,9 @@ Standard checklist applies, plus:
 [ ] Tasks are reading/consolidation tasks (NOT implementation tasks)
 [ ] Execution Strategy is DELEGATED
 [ ] Final task(s) produce Consolidated Context Parts in Meta-{Abbrev}/Outputs/
-[ ] Expected Consolidated Context Parts are defined with Scope values
-[ ] Source files are listed by reference in Master Plan
+[ ] Expected Consolidated Context Parts are defined with Scope values (the `Expected Consolidated Context Parts` H3 under `Discovery Inputs`)
+[ ] Source files are listed by reference in Master Plan (the `Source Material` H3 under `Discovery Inputs`)
+[ ] A plan with a user gate keeps `User-Action Gates` in the Master Plan and `User-Action Gate` in the gated session's Orchestration and Recovery files
 [ ] Each Consolidated Context Part target is < 22K measured tokens (measure_files.py — OK on all three gates). State the target in bytes beside the token figure, and add a split index when the estimate is within 20% of the ceiling.
 [ ] Plans index regenerated (generate_plans_index.py --write; no hand-written row)
 ```

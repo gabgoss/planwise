@@ -1,6 +1,6 @@
 ---
-description: A scaffold-time declaration is a projection, not a constraint — a task's writable set must span the operation it owns, and the declared dispatch layer is a floor on what can run, never a ceiling. Covers the artifact that absorbs a merge belonging to the merging task's working set, the scaffold-time tell and its three fixes, a "may be absent" flag as a hypothesis to check, dispatching on the dependency graph rather than the layer label, and the two conditions plus three guardrails that gate a cross-layer dispatch. Consult while setting a task's Output set at scaffold time, and at run time whenever a task's dependencies have verified before its declared layer opens.
-consult-when: Setting a task's `Output:` set at scaffold time, especially for a merge/dedupe/reconcile task, or deciding at run time whether a task is dispatchable ahead of its declared layer — the absorbing artifact belongs in the merging task's writable set, a "may be absent" flag is a hypothesis to check, and the declared layer is a floor, never a ceiling
+description: A scaffold-time declaration is a projection, not a constraint — a task's writable set must span the operation it owns, and the declared dispatch layer is a floor on what can run, never a ceiling. Covers the artifact that absorbs a merge belonging to the merging task's working set, the scaffold-time tell and its three fixes, the tally and readiness sections derived from rewritten rows that the rewriting task must own, a "may be absent" flag as a hypothesis to check, dispatching on the dependency graph rather than the layer label, and the two conditions plus three guardrails that gate a cross-layer dispatch. Consult while setting a task's Output set at scaffold time, and at run time whenever a task's dependencies have verified before its declared layer opens.
+consult-when: Setting a task's `Output:` set at scaffold time, especially for a merge/dedupe/reconcile task, or deciding at run time whether a task is dispatchable ahead of its declared layer — the absorbing artifact belongs in the merging task's writable set, a tally or readiness section derived from rewritten rows belongs in that task's `Output:` too, a "may be absent" flag is a hypothesis to check, and the declared layer is a floor, never a ceiling
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Dispatch Decomposition Graph — A Scaffold-Time Declaration Is a Projection, Not a Constraint
@@ -21,6 +21,7 @@ One neighbouring rule points the opposite way on the same lever. [`parallel-laye
 
 - [1. The Artifact That ABSORBS a Merge Is Part of the Merging Task's Working Set](#1-the-artifact-that-absorbs-a-merge-is-part-of-the-merging-tasks-working-set)
 - [2. The Tell at Scaffold Time, and the Three Fixes](#2-the-tell-at-scaffold-time-and-the-three-fixes)
+  - [2.1 A Task That Rewrites a Ledger's Rows Owns Every Section Derived From Them](#21-a-task-that-rewrites-a-ledgers-rows-owns-every-section-derived-from-them)
 - [3. A Flag Phrased as a Possibility Triggers a Check, Not a Plan](#3-a-flag-phrased-as-a-possibility-triggers-a-check-not-a-plan)
 - [4. Dispatch on the Dependency Graph, Not the Declared Layer](#4-dispatch-on-the-dependency-graph-not-the-declared-layer)
 - [5. The Two Conditions That Gate a Cross-Layer Dispatch, and the Three Guardrails](#5-the-two-conditions-that-gate-a-cross-layer-dispatch-and-the-three-guardrails)
@@ -75,6 +76,22 @@ The narrow `Output:` sets were correct contention protection, because two runner
 > **Option (a) is usually right when the tasks are already sequential** — the ownership fence was protecting against a race that the dependency order had already eliminated.
 
 The scaffold-time review question: *check that every task whose steps can **identify** an amendment can also **apply** it, or names who will.* Keep all three fixes. Two fixes leave a reader without the common case. Dropping option (a)'s sequential caveat turns it into blanket advice to widen writable sets. Check 43 in `scripts/lint_gate_checks_dispatch.py` flags the tell in a task file: an Execution Step that names a write (amend, absorb, stamp) to a path the task's `Output:` field does not name.
+
+### 2.1 A Task That Rewrites a Ledger's Rows Owns Every Section Derived From Them
+
+A tally, a readiness section or a summary is computed from a ledger's rows. It is a second claim about the same rows. A task that rewrites the rows leaves that claim stale unless it also owns it. The rewriting task's `Output:` therefore names the rows and every derived section. A gate then recomputes each derived section from the rows. [`gate-absence-and-consistency.md`](gate-absence-and-consistency.md) §8.3 holds the rule that a fact encoded twice is updated in both places. This section applies that rule to the decomposition and does not restate it.
+
+> [!constraint] Name the derived sections in `Output:`, and recompute them in a gate
+> WRONG — the task's `Output:` names the rows only, so the sections derived from them go stale:
+> ```
+> Task  Output: the Outcome rows of the ledger
+>       # "## Outcome Tally" and "## Section Readiness" are computed from those rows and nobody owns them
+> ```
+> CORRECT — the `Output:` names the rows and both derived sections, and a gate recomputes them:
+> ```
+> Task  Output: the Outcome rows, "## Outcome Tally", "## Section Readiness"
+> gate: Counter(outcome per row) == the tally   # and zero readiness rows still say "until ... lands"
+> ```
 
 ---
 

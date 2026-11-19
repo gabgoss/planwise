@@ -11,6 +11,7 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 try:
     import yaml
@@ -21,11 +22,12 @@ except ImportError:
 try:
     from config_gen import (
         InitConfig,
+        get_upgrade_config,
     )
 except ImportError:
     raise ImportError(
-        "config_gen is required for upgrade_io's InitConfig type references; "
-        "the scripts/ directory appears to be partially installed"
+        "config_gen is required for upgrade_io's InitConfig type references and "
+        "upgrade-config gate; the scripts/ directory appears to be partially installed"
     )
 
 try:
@@ -519,4 +521,82 @@ def _transfer_customization(
     except OSError:
         return None
     return target
+
+
+def _relocate_one_agent_mirror(
+    cfg: "InitConfig", finding: dict, from_version: str, to_version: str,
+) -> dict:
+    """Move one PRESERVE agent mirror to `upgrade-transfers/`, or return the
+    finding unchanged when any precondition or step fails.
+
+    Preconditions: the installed copy is readable and a readable shipped
+    `agents/{filename}` exists. Order: verified transfer, then pre-image
+    backup, then unlink, then the disposition row. A failure at any step
+    leaves the installed file in place and the row at PRESERVE, with the
+    failure named in its reason. The shipped counterpart check keeps a
+    mirror with no upstream agent out of the move.
+    """
+    filename = finding["filename"]
+    dst = Path(finding["path"])
+    shipped = cfg.plugin_root / "agents" / filename
+    try:
+        installed_raw = dst.read_text(encoding="utf-8-sig")
+        shipped.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError):
+        return finding
+
+    def _kept(why: str) -> dict:
+        return {**finding, "reason": f"{finding['reason']}; {why}; left in place"}
+
+    # The sweep keeps no verdict object, only its findings. The transfer helper
+    # reads three attributes through getattr, so a plain namespace carries them.
+    verdict = SimpleNamespace(
+        classification="HAS_UNIQUE",
+        unique_blocks=list(finding.get("unique_blocks") or []),
+        notes="",
+    )
+    transfer_path = _transfer_customization(
+        cfg, filename, "agent", installed_raw,
+        verdict,  # pyright: ignore[reportArgumentType]
+        from_version, to_version,
+    )
+    if transfer_path is None:
+        return _kept("automatic transfer failed")
+    if not _write_backup_preimage(cfg, from_version, to_version, dst):
+        return _kept(f"customization transferred to {transfer_path}, but the pre-removal "
+                     "backup failed")
+    try:
+        dst.unlink()
+    except OSError as exc:
+        return _kept(f"customization transferred to {transfer_path} and backed up, but "
+                     f"removal failed ({exc})")
+    _append_disposition_log(
+        cfg, from_version, to_version, dst, "removed (customization transferred)",
+        f"customized agent mirror transferred to {transfer_path}")
+    return {**finding, "verdict": "TRANSFERRED", "transfer_path": str(transfer_path)}
+
+
+def relocate_preserved_agent_mirrors(
+    cfg: "InitConfig", findings: list[dict], from_version: str, to_version: str,
+) -> list[dict]:
+    """Return `findings` with each relocatable PRESERVE agent mirror moved out
+    of `.claude/agents/`.
+
+    An installed agent there registers as a bare-name agent beside the
+    plugin's namespaced ones, so a customized orphan that the sweep keeps
+    still shadows the shipped agent. Under `upgrade.customization_handoff:
+    report+relocate` only, each `PRESERVE` row whose shipped `agents/{filename}`
+    counterpart exists is transferred, as the de-scope migration treats a
+    customization-bearing rule. A moved row becomes `verdict "TRANSFERRED"`
+    with a `transfer_path`. Any other handoff value returns `findings`
+    untouched and writes nothing. Never raises for a per-file failure.
+    """
+    handoff = get_upgrade_config(_load_raw_config(cfg))["customization_handoff"]
+    if handoff != "report+relocate":
+        return findings
+    return [
+        _relocate_one_agent_mirror(cfg, f, from_version, to_version)
+        if f.get("verdict") == "PRESERVE" else f
+        for f in findings
+    ]
 

@@ -479,7 +479,7 @@ Each part MUST:
    1. Run the split tool, `tools/split_reference.py`, with `--apply`. Without `--apply` the run is a dry run and writes nothing.
    2. Run the shipped `scripts/check_section_citations.py`. It must exit 0.
    3. Rerun the reference-library generator, `tools/gen_reference_library.py`.
-   4. Run the reachability test, `tests/test_reviewer_reference_reachability.py`. It must pass.
+   4. Run the reachability test, `tests/test_reviewer_reference_reachability.py`, a development-only file. It must pass.
    5. Run the full test suite. It must pass.
 
    The split tool prints a level for each file it touches: OK, WARN or OVER. `--apply` refuses when the source remainder or the new Part measures WARN or worse. It refuses any other touched file only when that file's level rises. A citer that only gains a repointed citation at an unchanged level is reported, not refused. `--allow-warn` waives the refusal for one run, for a WARN result and an OVER result alike. The report then lists every waived file.

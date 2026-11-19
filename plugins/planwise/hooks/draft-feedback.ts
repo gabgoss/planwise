@@ -173,20 +173,29 @@ export async function onSessionStart(host: Host): Promise<void> {
   }
 }
 
+/** Forward slashes and no trailing separator, so two spellings of one root compare equal. */
+const slashed = (path: string): string => path.replace(/\\/g, '/').replace(/\/+$/, '')
+
 /**
  * Resolves the config into the session record: the mode, the project root and the drafts dir.
- * Both session.start and a tool.call that finds no resolved session call it. It throws on a
- * read failure and leaves `resolved` false, so the next caller tries again.
+ * Both session.start and a tool.call whose root changed (or that finds no resolved session) call
+ * it. The record always follows the root it was just given. A root with no config resets the
+ * mode, the drafts dir and the config path, so a stale value never survives a move. It throws on
+ * a read failure and leaves `resolved` as it was, so the next caller tries again.
  */
 async function resolveSession(host: Host): Promise<void> {
   const root = await host.root()
   const config = await findConfig(host, root)
   session.found = config !== null
+  session.projectRoot = root
   if (config !== null) {
     session.mode = draftsMode(readRawScalar(config.text, ['feedback', 'drafts']))
-    session.projectRoot = root
     session.draftsDir = resolveDraftsDir(config.dir, readScalar(config.text, ['project', 'feedback_dir']))
     session.configPath = config.dir + '/config.yaml'
+  } else {
+    session.mode = 'off'
+    session.draftsDir = ''
+    session.configPath = ''
   }
   session.resolved = true
 }
@@ -213,14 +222,15 @@ export function register(on: On, options: PluginOptions) {
 
   on('tool.call', { tool: FULL_TOOL_NAME }, async ($, e, next) => {
     const host = hostOf($)
-    // A module reload re-runs register() without a new session.start. Resolve the config once
-    // here, never register the tool again, and deny only when it is off or no config exists.
-    if (!session.resolved) {
-      try {
-        await resolveSession(host)
-      } catch (err) {
-        failed(host, 'config resolution', errText(err))
-      }
+    // The session root moves when the session enters a git worktree, and a module reload re-runs
+    // register() without a new session.start. Read the root on every call and re-resolve the
+    // config when it is unresolved or the root changed. Never register the tool again, and deny
+    // only when it is off or no config exists.
+    try {
+      const root = await host.root()
+      if (!session.resolved || slashed(root) !== slashed(session.projectRoot)) await resolveSession(host)
+    } catch (err) {
+      failed(host, 'config resolution', errText(err))
     }
     if (!session.resolved || !session.found || session.mode === 'off') return { deny: 'draft_feedback: the tool is not active in this session' }
     if (session.calls >= MAX_CALLS_PER_SESSION) return { deny: CAP_TEXT }

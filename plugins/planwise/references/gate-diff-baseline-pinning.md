@@ -1,6 +1,6 @@
 ---
-description: A `git diff` gate names a recorded tree state or it measures the whole working tree — record `$..._BASE` before the first edit behind an empty status over the write paths (§8.1), scope every gate to it (§8.2), path-scope with `-- <paths>` and never with an output filter (§8.3), record a series base once at the first sprint (§8.4), give a scope rule a positive test rather than a list of forbidden directories (§8.5), and treat a base as a statement about one moment that a commit inside the gate's paths invalidates (§8.6); Reviewer Check 077. This file is the definition site for `$..._BASE`.
-consult-when: Writing, reviewing or running any gate built on `git diff` — the definition site for `$..._BASE`, record it before the first edit (§8.1), scope every gate to it (§8.2), path-scope with `-- <paths>` (§8.3), a series base once (§8.4), a positive scope test (§8.5), a base is one moment (§8.6), Check 077
+description: A `git diff` gate names a recorded tree state or it measures the whole working tree — record `$..._BASE` before the first edit behind an empty status over the write paths (§8.1), scope every gate to it (§8.2), path-scope with `-- <paths>` and never with an output filter (§8.3), record a series base once at the first sprint (§8.4), give a scope rule a positive test rather than a list of forbidden directories (§8.5), and treat a base as a statement about one moment that a commit inside the gate's paths invalidates (§8.6), covering a peer commit that moves HEAD under the close gates, pinning the session's own commit, a path re-check before a paid step, and a reading time on a peer-touched literal; Reviewer Check 077. This file is the definition site for `$..._BASE`.
+consult-when: Writing, reviewing or running any gate built on `git diff` — the definition site for `$..._BASE`, record it before the first edit (§8.1), scope every gate to it (§8.2), path-scope with `-- <paths>` (§8.3), a series base once (§8.4), a positive scope test (§8.5), a base is one moment (§8.6), a peer commit mid-session moves HEAD, pin the session's own commit, re-check paths before a paid or outward step, a reading time on a peer-touched literal, Check 077
 paths: {planwise_root}/{plans_dir}/**
 ---
 
@@ -175,9 +175,73 @@ git log --oneline <sprint base>..HEAD -- <the gates' pathspecs>
 - Every "does not exist yet" claim gets its own probe. Use `git check-ignore <path>` for an ignored path, or a `Glob` of the files the task creates.
 - `git log --oneline --since=<scaffold date> -- <targets>` MUST print nothing. If it prints a commit, read that commit before dispatch.
 
+A `pre-edit:` value that nobody executed is a prediction. When it predicts "exit 1", the After gate reads "exit 0" as success whether or not the edit happened. Run at least one Before block per distinct command shape at the session base, before CONFIRM. A family of near-identical batch tasks copies one wrong annotation into every brief, and one run for each shape catches it. The pair is under "One Before block for each command shape" below.
+
 **Corpus count check.** At the same preflight, compare the live file count in the gated directory against the figure the plan carries. A mismatch (302 live against 299 recorded) is the early signal that a commit landed after the base.
 
 Cross-references: §8.4 (the series base, which has the same first-to-touch hazard) and §8.1 (the clean-scope precondition, which also requires attribution per [read-confirm-act-protocol.md](read-confirm-act-protocol.md) §1.5).
+
+#### One Before block for each command shape
+
+WRONG — trust the annotation and let the runners discover the error:
+```
+orchestrator -> re-measure census rows only -> dispatch 5 runners
+runner 4     -> <audit> pre-edit: exit 0 (annotation said exit 1) -> reports an ISSUE mid-dispatch
+```
+CORRECT — run one Before block of each shape at the session base, then pin a gate that discriminates:
+```
+orchestrator -> <audit> --from 1 --to 18 -> exit 0, 18 warnings   # annotation says exit 1: structural finding
+orchestrator -> pin the coverage gate on <worksheet> --missing-keys printing rows=0 in every brief -> CONFIRM
+```
+In the incident the ranged form exited 0 with warnings, while the whole-set form exited 1 on the same missing keys. An exit code that only warns cannot gate coverage. Pin the gate on an output that discriminates.
+
+#### A peer commit moves HEAD under the close gates
+
+A peer session that commits during this session moves HEAD under every gate that reads it. Before the first close gate, compare `git rev-parse HEAD` with the recorded base. Read `git status -sb` for upstream divergence.
+
+When HEAD moved, run `git log --stat $BASE..HEAD` and attribute each commit to this session or a peer. Record an auto-commit as an observation with its hash, its time, its paths and whether it was pushed. Assert no cause for it. Never rewrite pushed history. Commit the remainder on top and say that a mid-flight snapshot shipped.
+
+Re-scope each gate by what it asserts. A diff or pattern gate pinned to the base and scoped to the session's write paths still stands. An untracked count, an `add -N` registration and a "staged exactly N" gate are void. Record each as n/a with its reason.
+
+> WRONG: the session starts at `<base>` and a peer commit lands. The close gates still read "staged exactly 3 files" and an untracked count. They pass or fail on the peer's state, and the report says clean.
+>
+> CORRECT: `git rev-parse HEAD` differs from `<base>`, and `git log --stat <base>..HEAD` names the foreign commit. The diff and pattern gates stay pinned to `<base>` and scoped to the session's write paths. The untracked-count and staged-count gates are recorded n/a with the reason.
+
+#### Pin the session's own commit after it exists
+
+Re-pinning a whole-subtree gate to "the latest HEAD" goes stale again while peers commit. Before this session's work is committed, gate against `HEAD` at gate time. Add the attribution check `git diff --name-only $BASE HEAD -- <write paths>`, which must print nothing. Never pre-pin an intermediate SHA into a brief.
+
+Once a commit holds exactly this session's paths, pin the session's own commit. It may be the session's closeout or an auto-commit with a generic message. Accept either. Set `COMMIT` to its hash and run five checks:
+
+1. `git merge-base --is-ancestor $COMMIT HEAD` returns rc 0.
+2. `git diff --name-only $BASE $COMMIT^ -- <write paths>` prints nothing.
+3. `git diff --name-only $COMMIT HEAD -- <write paths>` prints nothing.
+4. `git diff --name-only $COMMIT^ $COMMIT -- <subtree>` lists the expected number of files.
+5. The identifier battery runs over `git diff $COMMIT^ $COMMIT`.
+
+> WRONG: the brief pins `<intermediate-sha>` as "the latest HEAD". A peer commits, and the pin names a commit that is no longer the tip.
+>
+> CORRECT: gate against `HEAD` at gate time with the attribution check empty. After the commit exists, pin `$COMMIT` with the five checks above.
+
+#### Re-check the paths before a paid or outward step
+
+A path check taken at session start describes the tree at session start. Immediately before a paid or outward step, re-run the path-scoped check. A headless matrix and a publish are two such steps. Run `git log --oneline <pinned commit>..HEAD -- <the plan's measured paths>`.
+
+A changed path is a decision for the user, not an automatic HALT. Read the diff and let the user choose. Route the decision into the task, then dispatch.
+
+> WRONG: the start-of-session check passed, so the paid matrix dispatches. A peer changed a measured path in between, and the matrix measures the wrong tree.
+>
+> CORRECT: the path-scoped `git log` runs immediately before dispatch and lists the peer's commit. The user reads the diff and decides. The decision goes into the task, and then the matrix dispatches.
+
+#### Write a peer-touched literal with its reading time
+
+A literal pinned from state another session can change is a reading, not a constant. HEAD, a dirty-path count and a peer's hunk are examples. Write the literal with its reading time and a note that a peer session is active. Put the live-wins clause beside it, as [gate-predicate-discrimination.md](gate-predicate-discrimination.md) §5 describes.
+
+At acceptance, re-read the state that any close-time plan depends on. A peer commit can remove the problem the plan was built for. A planned hunk-only commit of a shared file is one case.
+
+> WRONG: the spawn prompt says "the tree has 14 dirty paths" with no time and no peer note. The runner trusts it after a peer committed.
+>
+> CORRECT: the spawn prompt says "14 dirty paths, read `<time>`, a peer session is active, a live measurement wins". At acceptance, the plan's dependency on that state is re-read.
 
 #### Assert the state, not the delta, when the end state is what matters
 

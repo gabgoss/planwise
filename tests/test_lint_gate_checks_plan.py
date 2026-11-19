@@ -181,6 +181,66 @@ def test_check28_identical_path_matches(tmp_path):
     assert _sibling_count_findings(tmp_path, "plugins/x/tests/foo.py", "plugins/x/tests/foo.py") == [(28, "ERROR")]
 
 
+_UNION_PATHS = "src/a.py src/b.py src/c.py src/d.py"
+
+
+def _union_gate(note: str) -> str:
+    return (
+        "{ git diff --name-only $ABC_S01_BASE -- " + _UNION_PATHS + "; "
+        "git ls-files --others --exclude-standard -- " + _UNION_PATHS + "; } | sort -u | wc -l   # " + note
+    )
+
+
+def test_check28_reads_the_union_form_and_fires_on_a_sibling_owned_path(tmp_path):
+    session = tmp_path / _session(1, "Work")
+    _write(session / "ABC-01-01-Task.md", _task("A", "`src/a.py`", [_union_gate("4")]))
+    _write(session / "ABC-01-02-Task.md", _task("B", "`src/b.py`"))
+    found = _found(tmp_path, 28)
+    assert [(c, s) for c, s, _, _ in found] == [(28, "ERROR")]
+    assert found[0][2].endswith("ABC-01-01-Task.md")
+
+
+# ---------------------------------------------------------------------------
+# Check 55 -- a count expectation above the pathspecs it counts
+# ---------------------------------------------------------------------------
+
+
+def _count_expect_findings(tmp_path: Path, gate: str) -> list:
+    session = tmp_path / _session(1, "Work")
+    _write(session / "ABC-01-01-Task.md", _task("A", "`src/a.py`", [gate]))
+    return [(c, s) for c, s, _, _ in _found(tmp_path, 55)]
+
+
+def test_check55_fires_on_the_union_gate_that_expects_more_than_its_four_paths(tmp_path):
+    assert _count_expect_findings(tmp_path, _union_gate("expect 5")) == [(55, "ERROR")]
+
+
+def test_check55_fires_on_the_plain_name_only_form(tmp_path):
+    gate = "git diff --name-only $ABC_S01_BASE -- src/a.py src/b.py | wc -l   # MUST equal 3"
+    assert _count_expect_findings(tmp_path, gate) == [(55, "ERROR")]
+
+
+def test_check55_silent_when_the_expectation_equals_the_path_count(tmp_path):
+    assert _count_expect_findings(tmp_path, _union_gate("expect 4")) == []
+
+
+def test_check55_silent_when_a_pathspec_has_no_computable_bound(tmp_path):
+    for spec in ("src", "src/", "'src/*.py' src/a.py", "<ABC_FILES> src/a.py", ".", "src/a.py ':(exclude)src/b.py' src"):
+        gate = f"git diff --name-only $ABC_S01_BASE -- {spec} | wc -l   # expect 9"
+        assert _count_expect_findings(tmp_path, gate) == [], spec
+
+
+def test_check55_silent_for_an_inequality_and_a_note_with_no_count(tmp_path):
+    for note in (">= 9", "at least 9", "all changed files"):
+        gate = f"git diff --name-only $ABC_S01_BASE -- src/a.py | wc -l   # {note}"
+        assert _count_expect_findings(tmp_path, gate) == [], note
+
+
+def test_check55_counts_a_repeated_path_once(tmp_path):
+    gate = "git diff --name-only $ABC_S01_BASE -- src/a.py src/a.py | wc -l   # expect 2"
+    assert _count_expect_findings(tmp_path, gate) == [(55, "ERROR")]
+
+
 # ---------------------------------------------------------------------------
 # Check 29 -- the sprint base is pinned
 # ---------------------------------------------------------------------------
@@ -297,6 +357,86 @@ def test_check34_uncertain_when_the_declared_base_is_a_placeholder(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Check 56 -- a plan-level id a task names with no definition it can read
+# ---------------------------------------------------------------------------
+
+_MASTER = (
+    "# ABC Master Plan\n\n"
+    "### Hypotheses\n\n"
+    "| # | Hypothesis | Confirmed By | Status |\n"
+    "|---|------------|--------------|--------|\n"
+    "| H4 | the cache is stale | task 01 | OPEN |\n\n"
+    "## Decisions (Locked)\n\n"
+    "| ID | Decision | Rationale |\n"
+    "|----|----------|-----------|\n"
+    "| D2 | keep the old index | cheaper |\n\n"
+    "## Gates\n\n"
+    "| Gate | Trigger |\n"
+    "|------|---------|\n"
+    "| G1 | on merge |\n"
+)
+_ID_STEP = "1. Confirm hypothesis H4 and apply decision D2 to the new index.\n"
+_RC_NO_MASTER = (
+    "## Required Context\n\n| # | File | Purpose |\n|---|------|---------|\n"
+    "| 1 | `src/a.py` | the module |\n\n"
+)
+_RC_WITH_MASTER = _RC_NO_MASTER + "| 2 | `ABC-Master-Plan.md` | Decisions and Hypotheses |\n\n"
+
+
+def _id_findings(tmp_path: Path, task_body: str, master: str = _MASTER) -> list:
+    if master:
+        _write(tmp_path / "ABC-Master-Plan.md", master)
+    task = _write(
+        tmp_path / _sprint(1, "Demo") / _session(1, "Work") / "ABC-01-01-Task.md",
+        "# Task: A\n\n**Output:** `src/a.py`\n\n" + task_body,
+    )
+    assert task.exists()
+    return [f for f in lint_plan(tmp_path, execute=False) if f["check"] == 56]
+
+
+def test_check56_fires_on_each_id_defined_only_in_the_master_plan(tmp_path):
+    findings = _id_findings(tmp_path, _RC_NO_MASTER + "## Execution Steps\n\n" + _ID_STEP)
+    assert [(f["severity"], f["line"]) for f in findings] == [("WARNING", 13), ("WARNING", 13)]
+    assert [f["message"].split()[6].rstrip(",") for f in findings] == ["H4", "D2"]
+
+
+def test_check56_reports_one_finding_per_id_at_the_first_mention(tmp_path):
+    body = _RC_NO_MASTER + "## Execution Steps\n\n" + _ID_STEP + "2. Re-check H4 once more.\n"
+    assert len(_id_findings(tmp_path, body)) == 2
+
+
+def test_check56_silent_when_the_definitions_are_inlined_in_the_task(tmp_path):
+    inlined = (
+        "| H4 | the cache is stale | task 01 | OPEN |\n"
+        "D2: keep the old index\n\n"
+    )
+    assert _id_findings(tmp_path, _RC_NO_MASTER + "## Execution Steps\n\n" + inlined + _ID_STEP) == []
+
+
+def test_check56_silent_when_required_context_lists_the_master_plan(tmp_path):
+    assert _id_findings(tmp_path, _RC_WITH_MASTER + "## Execution Steps\n\n" + _ID_STEP) == []
+
+
+def test_check56_silent_when_the_id_is_in_no_master_plan_table(tmp_path):
+    body = _RC_NO_MASTER + "## Execution Steps\n\n1. Apply G1 and H9 to the index.\n"
+    assert _id_findings(tmp_path, body) == []
+
+
+def test_check56_silent_when_no_master_plan_exists(tmp_path):
+    assert _id_findings(tmp_path, _RC_NO_MASTER + "## Execution Steps\n\n" + _ID_STEP, master="") == []
+
+
+def test_check56_ignores_a_mention_inside_a_fenced_block(tmp_path):
+    body = _RC_NO_MASTER + "## Execution Steps\n\n```text\n" + _ID_STEP + "```\n"
+    assert _id_findings(tmp_path, body) == []
+
+
+def test_check56_ignores_a_path_that_embeds_the_id(tmp_path):
+    body = _RC_NO_MASTER + "## Execution Steps\n\n1. Read `docs/H4.md` and the D2-notes file.\n"
+    assert _id_findings(tmp_path, body) == []
+
+
+# ---------------------------------------------------------------------------
 # Registration and contract
 # ---------------------------------------------------------------------------
 
@@ -305,7 +445,7 @@ def test_each_plan_check_is_registered_once():
     for check in plan_module.CHECKS:
         assert lint_module.CHECK_REGISTRY.count(check) == 1, check.__name__
     numbers = [int(c.__name__.split("_")[1].removeprefix("check")) for c in plan_module.CHECKS]
-    assert numbers == [26, 27, 28, 29, 34]
+    assert numbers == [26, 27, 28, 29, 34, 55, 56]
 
 
 def test_local_constants_and_finding_keys_match_the_linter():

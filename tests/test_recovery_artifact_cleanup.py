@@ -84,6 +84,19 @@ class _RecoveryArtifactFixtureMixin:
         dst.write_text("{}", encoding="utf-8")
         return dst
 
+    def write_live_cache(self, pair: str) -> Path:
+        dst = self._planwise_root() / "upgrade-conflicts" / pair / "verdicts.json"
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_text('{"x.md": {"verdict": "SUBSET"}}', encoding="utf-8")
+        return dst
+
+    def write_pin(self, version: str) -> Path:
+        """config.yaml pinning plugin_version to `version`."""
+        config_path = self._planwise_root() / "config.yaml"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(f'plugin_version: "{version}"\n', encoding="utf-8")
+        return config_path
+
     def write_gate_ok_config(self) -> Path:
         """config.yaml pinning plugin_version to the fixture cfg's (default)
         0.0.0, with no plugin_root: key, so _doctor_version_gate() resolves
@@ -1308,6 +1321,138 @@ class TestPruneClassifiesEachPairOnce(_RecoveryArtifactFixtureMixin, _MigrationF
         groups["index"].append(pair / "lessons" / "pre.md")
         self.assertFalse(recovery_surfaces.pair_is_clearable(groups))
         self.assertTrue(recovery_surfaces.pair_is_clearable(pair))
+
+
+class TestUnconsumedVerdictCache(_RecoveryArtifactFixtureMixin, _MigrationFixtureBase):
+    """A live `verdicts.json` left under `upgrade-conflicts/{pair}/`.
+
+    Only the pending `{pinned}-to-{shipped}` pair's cache can still be read
+    by an upgrade run. Under any other pair it is inert and prunable. The
+    pending pair's cache, and every cache when the pin cannot be read, is
+    review-then-discard and never pruned.
+    """
+
+    SURFACE = "upgrade-conflicts (unconsumed verdict cache)"
+    PIN = "0.9.0"  # differs from the fixture cfg's shipped version, 0.0.0
+
+    def _live_rows(self):
+        return [f for f in doctor_sweeps.sweep_upgrade_leftovers(self.cfg)
+                if f["surface"] == self.SURFACE]
+
+    def _pending(self) -> str:
+        return f"{self.PIN}-to-{self.cfg.plugin_version}"
+
+    def _prune(self, gate_ok: bool = False) -> int:
+        buf = io.StringIO()
+        gate = mock.patch.object(doctor_cli, "_doctor_version_gate",
+                                 return_value={"state": "ok"}) if gate_ok \
+            else contextlib.nullcontext()
+        with gate, contextlib.redirect_stdout(buf):
+            return ip._run_prune_upgrade_leftovers(self.cfg)
+
+    def _log_dir(self) -> Path:
+        today = datetime.datetime.now().astimezone().date().isoformat()
+        return self._planwise_root() / "upgrade-prune-logs" / f"upgrade-leftovers-{today}"
+
+    def test_stale_pair_cache_is_inert(self):
+        self.write_pin(self.PIN)
+        cache = self.write_live_cache("0.1.0-to-0.2.0")
+        rows = self._live_rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["klass"], "inert")
+        self.assertEqual(rows[0]["path"], str(cache))
+        self.assertEqual((rows[0]["count"], rows[0]["bytes"]), (1, cache.stat().st_size))
+
+    def test_same_version_pair_cache_is_inert(self):
+        shipped = self.cfg.plugin_version
+        self.write_pin(shipped)
+        self.write_live_cache(f"{shipped}-to-{shipped}")
+        rows = self._live_rows()
+        self.assertEqual([r["klass"] for r in rows], ["inert"])
+
+    def test_cache_under_a_pair_that_is_not_pending_is_inert_when_pin_matches_shipped(self):
+        # With the pin equal to the shipped version no pair is pending, so the
+        # pair an earlier upgrade wrote is as dead as any other.
+        self.write_pin(self.cfg.plugin_version)
+        self.write_live_cache(self._pending())
+        self.assertEqual([r["klass"] for r in self._live_rows()], ["inert"])
+
+    def test_pending_pair_cache_is_review_then_discard(self):
+        self.write_pin(self.PIN)
+        self.write_live_cache(self._pending())
+        rows = self._live_rows()
+        self.assertEqual([r["klass"] for r in rows], ["review-then-discard"])
+        self.assertEqual(rows[0]["reason"], doctor_sweeps.PENDING_CACHE_MEANING)
+        self.assertEqual(rows[0]["action"], doctor_sweeps.PENDING_CACHE_ACTION)
+
+    def test_unreadable_pin_holds_every_cache_with_its_own_reason(self):
+        # No config.yaml at all: the pending pair is unknown.
+        self.write_live_cache("0.1.0-to-0.2.0")
+        rows = self._live_rows()
+        self.assertEqual([r["klass"] for r in rows], ["review-then-discard"])
+        self.assertEqual(rows[0]["reason"], doctor_sweeps.UNKNOWN_PIN_CACHE_MEANING)
+        self.assertNotEqual(rows[0]["reason"], doctor_sweeps.PENDING_CACHE_MEANING)
+
+    def test_non_string_pin_counts_as_unreadable(self):
+        config_path = self._planwise_root() / "config.yaml"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text("plugin_version: [1, 2]\n", encoding="utf-8")
+        self.write_live_cache("0.1.0-to-0.2.0")
+        self.assertEqual([r["klass"] for r in self._live_rows()], ["review-then-discard"])
+
+    def test_consumed_marker_keeps_its_own_surface(self):
+        self.write_pin(self.PIN)
+        self.write_consumed_cache("0.1.0-to-0.2.0")
+        self.assertEqual(self._live_rows(), [])
+        surfaces = {f["surface"] for f in doctor_sweeps.sweep_upgrade_leftovers(self.cfg)}
+        self.assertEqual(surfaces, {"upgrade-conflicts (consumed verdict cache)"})
+
+    def test_banner_scan_counts_a_live_cache_as_inert(self):
+        self.write_live_cache("0.1.0-to-0.2.0")
+        self.write_consumed_cache("0.3.0-to-0.4.0")
+        surfaces = artifact_upgrade._scan_recovery_artifacts(self.cfg)
+        self.assertEqual(sorted((p.rsplit("/", 1)[1], k) for p, _c, k in surfaces),
+                         [("verdicts.json", "inert"), ("verdicts.json.consumed", "inert")])
+
+    def test_inert_class_text_names_the_unconsumable_cache(self):
+        self.assertIn("unconsumable", artifact_upgrade.RECOVERY_ARTIFACT_CLASSES["inert"])
+
+    def test_prune_removes_a_stale_cache_and_logs_a_copy(self):
+        self.write_gate_ok_config()
+        pair = "0.1.0-to-0.2.0"
+        cache = self.write_live_cache(pair)
+        original = cache.read_bytes()
+        self.assertEqual(self._prune(), 0)
+        self.assertFalse(cache.exists(), "a stale live cache is inert and must be pruned")
+        copy = self._log_dir() / "upgrade-conflicts" / pair / "verdicts.json"
+        self.assertTrue(copy.is_file(), "the prune logs a pre-removal copy")
+        self.assertEqual(copy.read_bytes(), original)
+
+    def test_prune_never_removes_the_pending_pair_cache(self):
+        # The version gate refuses to prune while the pin differs from the
+        # installed plugin, so lift it: this test isolates the classifier.
+        self.write_pin(self.PIN)
+        pending = self.write_live_cache(self._pending())
+        stale = self.write_live_cache("0.1.0-to-0.2.0")
+        self.assertEqual(self._prune(gate_ok=True), 0)
+        self.assertTrue(pending.exists(), "the next upgrade would consume this cache")
+        self.assertFalse(stale.exists(), "the stale cache beside it is still pruned")
+        log = (self._log_dir() / "PRUNED-LEFTOVERS.md").read_text(encoding="utf-8")
+        self.assertIn("## Removed (1)", log)
+        self.assertIn(doctor_sweeps.PENDING_CACHE_MEANING, log.split("## Preserved", 1)[1])
+
+    def test_prune_with_only_a_pending_cache_changes_nothing(self):
+        self.write_pin(self.PIN)
+        pending = self.write_live_cache(self._pending())
+        self.assertEqual(self._prune(gate_ok=True), 0)
+        self.assertTrue(pending.exists())
+        self.assertFalse((self._planwise_root() / "upgrade-prune-logs").exists(),
+                         "a no-op prune creates no log folder")
+
+    def test_prune_leaves_a_cache_alone_when_the_pin_is_unreadable(self):
+        cache = self.write_live_cache("0.1.0-to-0.2.0")
+        self.assertEqual(self._prune(gate_ok=True), 0)
+        self.assertTrue(cache.exists())
 
 
 if __name__ == "__main__":

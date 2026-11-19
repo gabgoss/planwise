@@ -109,6 +109,7 @@ MIGRATABLE_TOP_LEVEL_KEYS = [
     "plan_statuses",    # Master Plan status vocabulary the plans index generator reads
     "lesson_check_kinds",  # kinds a lesson's enforced-by answer may name; read at run time
     "style",            # global always-on style rules install toggles (plain_language, plain_presentation)
+    "plan_names",       # length caps of generated plan folder, file and path names
 ]
 
 

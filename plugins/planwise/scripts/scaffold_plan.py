@@ -9,8 +9,9 @@ template text of its own, and the spec never names a heading.
 
 Commands (run with `python -B`):
 
-    render --spec SPEC.json --out PLAN_DIR [--templates DIR] [--date YYYY-MM-DD]
-        Lint the spec, then write the plan tree into PLAN_DIR:
+    render --spec SPEC.json --out PLAN_DIR [--templates DIR] [--date YYYY-MM-DD] [--config FILE]
+        Lint the spec, cut every over-cap Name part (see "Name caps" below), then
+        write the plan tree into PLAN_DIR:
           {ABBREV}-Master-Plan.md
           Sprint-{NN}-{Name}/{ABBREV}-S{NN}-Sprint-Plan.md
           Sprint-{NN}-{Name}/Session-{NN}-{Name}/{ABBREV}-S{NN}-{NN}-Orchestration.md
@@ -21,15 +22,33 @@ Commands (run with `python -B`):
         --date sets every date placeholder; it defaults to the spec's `created`.
         Exit 0 rendered, 1 rendered but a placeholder survived outside a FILL
         marker, 2 refused (spec lint errors, unreadable spec, non-empty PLAN_DIR,
-        or a render failure on a lint-clean spec, reported in one line).
+        a generated path over the path cap, or a render failure on a lint-clean
+        spec, reported in one line).
 
-    lint-spec --spec SPEC.json [--templates DIR]
-        Validate the spec. Each error quotes the offending row or key.
+    lint-spec --spec SPEC.json [--templates DIR] [--config FILE]
+        Validate the spec. Each error quotes the offending row or key. A Name part
+        that render would cut prints a NOTE line and does not change the exit code.
         Exit 0 clean, 1 errors found, 2 unreadable spec.
+
+Name caps. The config's `plan_names` block sets three caps, in characters, and --config
+names the config (without it the shipped defaults apply). `folder_max` (default 40) bounds
+a sprint or session folder name, `Sprint-NN-<Name>` or `Session-NN-<Name>`. `file_max`
+(default 80) bounds a task file name, `<ABBR>-SNN-NN-NN-<Agent>-<Name>.md`. Render cuts a
+Name part that would pass its cap on a PascalCase word boundary, and prints one NOTE line
+per cut. A cut Name also prints a NOTE for each spec value that still holds the old
+folder or file text, because the spec's own paths are not rewritten. `path_max` (default
+160) bounds the path of any generated file from the project root, which is the working
+directory. Render refuses the whole plan and prints one PATH-CAP line per path over it,
+with the measured length. An --out folder outside the project root is measured inside the
+plan folder only. The Consolidated Context part names a plan author writes by hand are not
+generated here and stay uncapped.
 
     check-headings PATH... [--templates DIR]
         Heading conformance. PATH is a plan file or a folder (walked for *.md,
-        skipping Outputs/). The file kind comes from the name. Every H2 outside
+        skipping Outputs/). The file kind comes from the name, except that a
+        Master Plan whose `**Type:**` line reads `Execution Plan (scaffolded
+        from Discovery)` is graded as `scaffolding-master` against
+        templates/scaffolding-master-plan.md. Every H2 outside
         the kind's template H2 set is `stray`, and so is every H2 after the
         template's last H2 (the catch-all section, where plan-specific sections
         go as H3s). An H2 inside an open fence is fence content when the
@@ -159,6 +178,10 @@ TEMPLATE_FILES = {
     "recovery": "recovery.md",
     "task": "task-file.md",
 }
+# check-headings grades a scaffolding Master Plan against its own template. The extra key lives in a
+# heading-only map because render, plan_preflight and its test iterate TEMPLATE_FILES and must not see it.
+HEADING_TEMPLATE_FILES = {**TEMPLATE_FILES, "scaffolding-master": "scaffolding-master-plan.md"}
+SCAFFOLDING_MASTER_RE = re.compile(r"^\*\*Type:\*\* Execution Plan \(scaffolded from Discovery\)", re.MULTILINE)
 AGENTS = ("Opus", "Sonnet", "Haiku")
 MODES = ("DIRECT", "DELEGATED")
 KEEP_COMMENT = re.compile(r"<!--\s*(REQUIRED|OPTIONAL|CONDITIONAL)\b")
@@ -1275,6 +1298,132 @@ def prose_reason(path, root):
     return reason if reason.startswith("not a path") else None
 
 
+# ---------------------------------------------------------------- name caps
+
+# A PascalCase word: an acronym run, a capital with its lower-case tail, or a digit run.
+NAME_WORD_RE = re.compile(r"[A-Z]+(?![a-z])[0-9]*|[A-Z][a-z0-9]*|[0-9]+")
+DEFAULT_NAME_CAPS = {"folder_max": 40, "file_max": 80, "path_max": 160}
+
+
+def fit_name(name, room):
+    """`name` cut to at most `room` characters, on a PascalCase word boundary when a whole word fits."""
+    if len(name) <= room:
+        return name
+    words = NAME_WORD_RE.findall(name)
+    if "".join(words) != name:
+        words = []
+    kept = ""
+    for word in words:
+        if len(kept) + len(word) > room:
+            break
+        kept += word
+    return kept or name[:max(room, 0)]
+
+
+def load_name_caps(config_path):
+    """(caps, error): the `plan_names` caps of a config file, or the defaults when no path is given.
+
+    An unreadable config returns the defaults and a one-line reason, so the caller can say so.
+    """
+    if not config_path:
+        return dict(DEFAULT_NAME_CAPS), None
+    import config_loader
+    try:
+        # A config the YAML parser rejects raises its own error type, and load_config exits the
+        # process on some bad shapes. The caps are optional, so every failure reads as "defaults",
+        # and the build's own gates report the broken config.
+        config = config_loader.load_config(config_path=Path(config_path))
+    except (Exception, SystemExit) as exc:  # noqa: BLE001
+        return dict(DEFAULT_NAME_CAPS), f"cannot read plan_names from {config_path} ({type(exc).__name__}); the default caps apply"
+    return config_loader.get_plan_names_config(config), None
+
+
+def _spec_strings(value, skip="name"):
+    """Every string of a spec, leaving out the values of `skip` keys (the Name parts themselves)."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            if key != skip:
+                yield from _spec_strings(item, skip)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _spec_strings(item, skip)
+
+
+def cap_spec_names(spec, caps):
+    """(copy of the spec with every over-cap Name part cut, NOTE lines, error lines).
+
+    The spec must already pass `lint_spec`. A sprint or session Name keeps
+    `Sprint-NN-<Name>` or `Session-NN-<Name>` inside `folder_max`. A task Name keeps
+    `<ABBR>-SNN-NN-NN-<Agent>-<Name>.md` inside `file_max`. Each cut is on a PascalCase word
+    boundary. A cut leaves a spec string that still names the old text, so each such string is
+    reported. A cap with no room for even one character is an error, and nothing is cut then.
+    """
+    out = copy.deepcopy(spec)
+    strings = list(_spec_strings(spec))
+    notes, errors = [], []
+
+    def cut(obj, where, head, tail, limit, label):
+        room = limit - len(head) - len(tail)
+        if room < 1:
+            errors.append(f"{where}: {label}_max {limit} leaves no room for a Name after '{head}'")
+            return
+        old = obj["name"]
+        new = fit_name(old, room)
+        if new == old:
+            return
+        notes.append(f"{where}: name {old} cut to {new} ({len(new)} of {room} characters; {label}_max {limit})")
+        stale = sum(1 for s in strings if f"{head}{old}{tail}" in s)
+        if stale:
+            notes.append(f"{where}: {stale} spec value(s) still name {head}{old}{tail}; change them to {head}{new}{tail}")
+        obj["name"] = new
+
+    for sprint in out["sprints"]:
+        cut(sprint, f"sprint {sprint['number']:02d}", f"Sprint-{sprint['number']:02d}-", "",
+            caps["folder_max"], "folder")
+        for session in sprint["sessions"]:
+            where = f"sprint {sprint['number']:02d} session {session['number']:02d}"
+            cut(session, where, f"Session-{session['number']:02d}-", "", caps["folder_max"], "folder")
+            for task in session["tasks"]:
+                head = f"{task_id(out, sprint, session, task)}-{task['agent']}-"
+                cut(task, f"{where} task {task['number']:02d}", head, ".md", caps["file_max"], "file")
+    return out, notes, errors
+
+
+def repo_prefix(out_dir, root=None):
+    """(the plan folder's path from the project root with forward slashes, whether it could be measured).
+
+    The root is the working directory unless given. An output folder outside it cannot be measured,
+    and the prefix is then empty, so only the path inside the plan folder is counted.
+    """
+    base = Path(root).resolve() if root else Path.cwd().resolve()
+    try:
+        rel = Path(out_dir).resolve().relative_to(base).as_posix()
+    except ValueError:
+        return "", False
+    return ("" if rel == "." else rel), True
+
+
+def over_cap_paths(paths, prefix, cap):
+    """[(path from the project root, its length)] for each path longer than `cap` characters."""
+    base = prefix.strip("/")
+    full = [f"{base}/{p}" if base else p for p in paths]
+    return [(p, len(p)) for p in full if len(p) > cap]
+
+
+def path_cap_lines(paths, out_dir, caps):
+    """PATH-CAP lines for every path over `path_max` once joined to the plan folder, and the summary line."""
+    prefix, measured = repo_prefix(out_dir)
+    hits = over_cap_paths(paths, prefix, caps["path_max"])
+    lines = [f"PATH-CAP: {p} is {n} characters, over the {caps['path_max']} cap" for p, n in hits]
+    if lines:
+        where = "from the project root" if measured else "inside the plan folder only, because --out is outside the project root"
+        lines.append(f"REFUSED: {len(hits)} generated path(s) are over the path cap, measured {where}. "
+                     "Fix: shorten a sprint, session or task Name in the spec, or pass a shorter --out folder.")
+    return lines
+
+
 # ---------------------------------------------------------------- heading conformance
 
 def file_kind(name):
@@ -1302,7 +1451,7 @@ def heading_pattern(heading):
 def template_heading_sets(templates_dir=DEFAULT_TEMPLATES):
     """Per kind: (ordered template H2 patterns, catch-all heading = the template's last H2)."""
     out = {}
-    for kind, fname in TEMPLATE_FILES.items():
+    for kind, fname in HEADING_TEMPLATE_FILES.items():
         _pre, secs = split_sections(extract_body(Path(templates_dir) / fname))
         heads = [norm_heading(s[0]) for s in secs]
         out[kind] = ([heading_pattern(h) for h in heads], heads[-1])
@@ -1366,7 +1515,10 @@ def check_headings(paths, templates_dir=DEFAULT_TEMPLATES):
         if kind is None:
             results.append({"path": str(f), "kind": None, "h2": 0, "stray": []})
             continue
-        count, strays = check_text(read_lf(f), *sets[kind])
+        text = read_lf(f)
+        if kind == "master" and SCAFFOLDING_MASTER_RE.search(text):
+            kind = "scaffolding-master"
+        count, strays = check_text(text, *sets[kind])
         results.append({"path": str(f), "kind": kind, "h2": count, "stray": strays})
     return results
 
@@ -1421,12 +1573,25 @@ def cmd_render(args):
         print(f"REFUSED: {out} exists and is not an empty folder. Fix: pass a new or empty --out folder; "
               "the renderer never overwrites plan files.")
         return 2
+    caps, cap_note = load_name_caps(args.config)
+    spec, notes, cap_errors = cap_spec_names(spec, caps)
+    for line in filter(None, [cap_note, *notes]):
+        print(f"NOTE: {line}")
+    if cap_errors:
+        for e in cap_errors:
+            print(f"LINT: {e}")
+        print(f"REFUSED: {len(cap_errors)} name cap error(s). Fix: raise the cap in the config's plan_names block.")
+        return 2
     try:
         files, _rec = render_all(spec, args.templates, args.date)
     except SPEC_VALUE_ERRORS as exc:  # defence in depth: lint_spec should reject any spec that fails here
         reason = " ".join(f"{type(exc).__name__}: {exc}".split())
         print(f"REFUSED: the render failed on a lint-clean spec ({reason}). Fix: correct the spec; "
               "lint-spec did not catch this case.")
+        return 2
+    over = path_cap_lines(list(files), out, caps)
+    if over:
+        print("\n".join(over))
         return 2
     write_tree(files, out)
     fills = sum(t.count("<!-- FILL: ") for t in files.values())
@@ -1447,6 +1612,14 @@ def cmd_lint(args):
     errors = lint_spec(spec, args.templates)
     for e in errors:
         print(f"LINT: {e}")
+    if not errors:
+        caps, cap_note = load_name_caps(args.config)
+        _capped, notes, cap_errors = cap_spec_names(spec, caps)
+        for line in filter(None, [cap_note, *notes]):
+            print(f"NOTE: {line}")
+        errors = cap_errors
+        for e in errors:
+            print(f"LINT: {e}")
     print("lint=clean" if not errors else f"lint_errors={len(errors)}")
     return 1 if errors else 0
 
@@ -1492,9 +1665,11 @@ def main(argv=None):
     r.add_argument("--out", required=True)
     r.add_argument("--templates", default=str(DEFAULT_TEMPLATES))
     r.add_argument("--date", help="YYYY-MM-DD for every date placeholder (default: the spec's created)")
+    r.add_argument("--config", help="the project config whose plan_names block sets the name caps (default: the shipped caps)")
     s = sub.add_parser("lint-spec", help="validate a spec")
     s.add_argument("--spec", required=True)
     s.add_argument("--templates", default=str(DEFAULT_TEMPLATES))
+    s.add_argument("--config", help="the project config whose plan_names block sets the name caps (default: the shipped caps)")
     c = sub.add_parser("check-headings", help="report H2 headings outside the template set")
     c.add_argument("paths", nargs="+", metavar="PATH")
     c.add_argument("--templates", default=str(DEFAULT_TEMPLATES))

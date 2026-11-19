@@ -146,3 +146,31 @@ def test_runs_under_optimize_two(tmp_path):
         capture_output=True, text=True, check=False,
     )
     assert r.returncode == 0, r.stderr
+
+
+ORCHESTRATION_TEMPLATE = (
+    Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "templates" / "orchestration.md"
+)
+
+
+def test_orchestration_template_names_task_files_per_side():
+    """The post-dispatch checklist line gives each side its own `--tasks` slot."""
+    text = ORCHESTRATION_TEMPLATE.read_text(encoding="utf-8")
+    line = next(ln for ln in text.splitlines() if "outputs_coverage.py" in ln and " named " in ln)
+    spans = line.split("`")[1::2]
+    invocations = [s for s in spans if "outputs_coverage.py" in s]
+    producer = [s for s in invocations if "--side producer" in s]
+    receiver = [s for s in invocations if "--side receiver" in s]
+    assert producer, "no --side producer invocation on the checklist line"
+    assert receiver, "no --side receiver invocation on the checklist line"
+    # (a) producer: this session's Outputs against the downstream consumer task files
+    assert all("--tasks {downstream consumer task files}" in s for s in producer)
+    # (b) receiver: the upstream Outputs against this session's task files
+    assert all("--tasks {this session's task files}" in s for s in receiver)
+    # (c) no producer form takes this session's own task files or the bare placeholder
+    for s in producer:
+        assert "{this session's task files}" not in s
+        assert "{task files}" not in s
+    # (d) the no-consumer-yet skip rule is present
+    assert "no consumer task file exists yet" in line.lower()
+    assert "not applicable" in line.lower()

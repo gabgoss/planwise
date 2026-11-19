@@ -512,7 +512,7 @@ git -C cloned-repos/planwise diff plugins/planwise/ | grep -E '^\+' | grep -E '(
 
 Additional guidance:
 
-- When an auto-commit hook may fire mid-session, a working-tree diff alone under-covers the gate — also sweep the session's committed delta (`git diff HEAD~1 -- plugins/planwise/`) so already-committed edits are leak-checked too.
+- When an auto-commit hook may fire mid-session, a working-tree diff alone under-covers the gate — also sweep the commit that holds this session's paths (`git diff $COMMIT^ $COMMIT -- plugins/planwise/`) so already-committed edits are leak-checked too. Find it with `git log --stat $BASE..HEAD`, per the own-commit pin in [gate-diff-baseline-pinning.md](gate-diff-baseline-pinning.md) §8.6.
 - Reviewers should spot-check one `git -C` depth per scaffolded sprint against the live tree.
 
 Applies to scaffolding that authors Verification Commands into task files, wherever the target lives in a nested or cloned sub-repo.

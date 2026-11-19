@@ -139,6 +139,16 @@ Assigns a global number to each spec output for cross-EI traceability. Execution
 
 ---
 
+## Plan-Specific Sections <!-- OPTIONAL -->
+
+Write any section that no heading above covers here, as an `###` H3. Never add it as a new `##` H2 elsewhere in this file, and draft one `idea` feedback draft for each new H3 heading (see `references/feedback-drafting.md`).
+
+### {Section Heading}
+
+{content}
+
+---
+
 *Scaffolded from: Meta-{ABBREV} Discovery Phase ({N} Consolidated Context parts)*
 *Last Updated: {today's date}*
 <!-- Bump to today's date with a short parenthetical (≤120 characters) naming what changed.

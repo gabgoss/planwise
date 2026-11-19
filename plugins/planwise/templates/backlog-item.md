@@ -91,7 +91,10 @@ The three `route_*` fields are optional: an item without them is valid and score
 ```
 {command}
 # expect: {expected output}
+# user-run: {step} -> {expected}
 ```
+
+The `# user-run:` line is optional. Write it for a step only the user can run, such as a live probe, an interactive slash command or a credentialed install. It carries the step and its expected result on one line, and it takes no `# expect:` line.
 
 ## Open Questions
 
@@ -151,7 +154,7 @@ When an item's scope is understood well enough at filing time, list the files it
 An item is executable when `refined: true` stands in its frontmatter. That value requires four things:
 
 - A `## Resolution` section: an approach paragraph naming the one chosen solution, then column-0 numbered steps. Each step names the file and the edit.
-- A `## Verification` section: fenced commands, each followed by an `# expect:` line.
+- A `## Verification` section: fenced commands, each followed by an `# expect:` line. A step only the user can run is one `# user-run: {step} -> {expected}` line inside the fence, with no `# expect:` line.
 - No `## Open Questions` section, or one that reads `None.` or is blank. An answered `### Q` block still fails the gate (`shape gate: FAIL -- missing: ## Open Questions must be empty`). `backlog-author` folds each answer into `## Resolution` and removes the block before it sets `refined: true`.
 - No other open question anywhere in the item.
 

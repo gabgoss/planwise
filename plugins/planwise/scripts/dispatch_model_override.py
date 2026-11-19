@@ -30,7 +30,10 @@ Inputs:
   marker, written ``1M (cost)`` by the task template (``1M-exception`` is also
   read). ``I`` is the leading ``~N.NK`` figure of the ``**Context
   subtotal:**`` line and ``O`` its ``~N.NK (output`` or ``~N.NK output``
-  figure; ``--input-k`` and ``--output-k`` override them.
+  figure; ``--input-k`` and ``--output-k`` override them. A figure read from
+  the header is an estimate, and measured runs came in at 2.1 to 2.3 times it.
+  The script therefore multiplies each header figure by ``HEADER_DRIFT`` (2).
+  A figure passed with ``--input-k`` or ``--output-k`` is taken as given.
 * ``--surface-tokens N`` (the ``approx_tokens`` sum that
   ``init_project.py --doctor`` reports for flagged rules), or
   ``--doctor-report FILE`` (a saved ``--doctor`` stdout; the script reads its
@@ -59,6 +62,7 @@ sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__py
 OVERHEAD_K = 54.0
 HEADROOM_K = 35.0
 SURFACE_ALONE_K = 110.0
+HEADER_DRIFT = 2.0  # measured runs reported 2.1x to 2.3x the task header estimate
 WINDOW_K = {"haiku 4.5": 200.0, "haiku 5.5": 1000.0, "haiku": 1000.0,
             "sonnet": 1000.0, "opus": 1000.0, "fable": 1000.0}
 RAISED_MODEL = "Opus"
@@ -109,8 +113,13 @@ def fmt(value: float) -> str:
 
 
 def decide(task_id: str, declared: str, i_k: float, o_k: float, r_tokens: int,
-           token_budget: str | None, token_saver: bool) -> tuple[str, list[str]]:
-    """Return (chosen model, log lines) for one task."""
+           token_budget: str | None, token_saver: bool,
+           header_figures: tuple[bool, bool] = (False, False)) -> tuple[str, list[str]]:
+    """Return (chosen model, log lines) for one task.
+
+    ``i_k`` and ``o_k`` are final figures. ``header_figures`` says which of them
+    were already multiplied by ``HEADER_DRIFT``, so the log line can say so.
+    """
     key = re.sub(r"[\s_-]+", " ", declared.strip().lower())
     if key not in WINDOW_K:
         raise UsageError(f"unknown Agent model {declared!r}; expected Haiku, Haiku 4.5, "
@@ -128,8 +137,10 @@ def decide(task_id: str, declared: str, i_k: float, o_k: float, r_tokens: int,
     r_k = r_tokens / 1000.0
     b_k = window - HEADROOM_K
     total = i_k + r_k + OVERHEAD_K + o_k
-    terms = (f"inputs ~{fmt(i_k)}K + plan-path rules ~{fmt(r_k)}K + overhead ~{fmt(OVERHEAD_K)}K"
-             f" + output ~{fmt(o_k)}K = ~{fmt(total)}K")
+    i_note = f" (header x{fmt(HEADER_DRIFT)})" if header_figures[0] else ""
+    o_note = f" (header x{fmt(HEADER_DRIFT)})" if header_figures[1] else ""
+    terms = (f"inputs ~{fmt(i_k)}K{i_note} + plan-path rules ~{fmt(r_k)}K + overhead ~{fmt(OVERHEAD_K)}K"
+             f" + output ~{fmt(o_k)}K{o_note} = ~{fmt(total)}K")
     chosen = declared
     if window <= 200.0 and (total > b_k or r_k >= SURFACE_ALONE_K):
         chosen = RAISED_MODEL
@@ -176,10 +187,16 @@ def main(argv: list[str] | None = None) -> int:
             raise UsageError(f"{args.task}: no **Agent:** field")
         task_id = field(text, "Task ID") or Path(args.task).stem
         i_k, o_k = subtotal_figures(text)
-        i_k = args.input_k if args.input_k is not None else i_k
-        o_k = args.output_k if args.output_k is not None else o_k
+        i_from_header = args.input_k is None
+        o_from_header = args.output_k is None
+        i_k = args.input_k if not i_from_header else i_k
+        o_k = args.output_k if not o_from_header else o_k
         if i_k is None or o_k is None:
             raise UsageError(f"{args.task}: no input or output figure; pass --input-k and --output-k")
+        if i_from_header:
+            i_k *= HEADER_DRIFT
+        if o_from_header:
+            o_k *= HEADER_DRIFT
         if args.surface_tokens is not None:
             if args.surface_tokens < 0:
                 raise UsageError("--surface-tokens must be 0 or more")
@@ -191,7 +208,8 @@ def main(argv: list[str] | None = None) -> int:
                 raise UsageError(f"cannot read doctor report {args.doctor_report}: {exc}") from exc
             r_tokens = surface_from_report(report)
         chosen, lines = decide(task_id, declared, i_k, o_k, r_tokens,
-                               field(text, "Token Budget"), args.token_saver == "on")
+                               field(text, "Token Budget"), args.token_saver == "on",
+                               (i_from_header, o_from_header))
     except UsageError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

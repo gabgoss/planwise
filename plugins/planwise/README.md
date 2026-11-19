@@ -639,6 +639,7 @@ After running `/planwise init`, your settings live in `planwise/config.yaml`. He
 | `build_commands.default` | Command to verify builds after changes | `echo '...'` |
 | `context.token_saver` | Token Saver mode default (see [§9](#9-planwise-token-saver)) | `false` |
 | `context.plan_authoring` | Who writes a plan's task bodies: `inline` (the plan handler itself) or `delegated` (the plan-author agent, one session per dispatch) | `inline` |
+| `plan_names.folder_max`, `plan_names.file_max`, `plan_names.path_max` | Length caps, in characters, for the names `/planwise plan` generates: a sprint or session folder, a task file, and any generated path from the project root. The plan writer cuts an over-cap Name on a word boundary and refuses a plan whose path is still over `path_max` | `40`, `80`, `160` |
 | `upgrade.customization_handoff` | How upgrade hands off files you've customised (see [§10](#10-planwise-upgrade)) | `report+relocate` |
 
 ### Style Rules

@@ -1,6 +1,6 @@
 ---
-description: The Grep is the enumeration — a brief that changes a value bound to many sites instructs a sweep, not a patch, and the half a structure map misses is the half that fails quietly. Covers site-named versus sweep-framed briefs, the zero-site defect, metadata surfaces, spelled-out counts, renumbering at every heading level plus the in-prose pointers, the renumbering gate's true expected count, operative sites versus prose sites when applying an upstream change in place, why a half-applied edit is worse than a notice, why an audit-then-repair inventory is a class query and not a list of named sites, how to seed a stale-reference sweep with what the moving task saw, why moving a source of truth invalidates every reader of the old one, and why retiring a writer does not retire the reader's legacy input. Consult while writing a brief that changes a count, a section number, a selector or an enum member, while renumbering, while reading a flag that says an upstream change was applied, while writing a repair inventory, while briefing a sweep after a text move, while planning a change that makes a stored value derived, before deleting a reader because no producer writes its input any more, and while correcting a state assertion that another file may restate.
-consult-when: Writing a brief that changes a count, section number, selector or enum member bound to many sites, renumbering headings, or checking a flag that says an upstream change was applied in place — instruct a sweep not a patch, map every heading level then hunt the in-prose section pointers, write the gate's true expected count, enumerate operative sites not prose sites, query the defect class in a repair inventory, seed a stale-reference sweep with what the mover saw, and sweep every reader of the old source when a change moves a source of truth, a retired writer does not retire the reader's legacy input, and a correction to a state assertion that another file may restate sweeps the wider tree for the claim's shape
+description: The Grep is the enumeration — a brief that changes a value bound to many sites instructs a sweep, not a patch, and the half a structure map misses is the half that fails quietly. Covers site-named versus sweep-framed briefs, the zero-site defect, metadata surfaces, spelled-out counts, renumbering at every heading level plus the in-prose pointers, the renumbering gate's true expected count, operative sites versus prose sites when applying an upstream change in place, why a half-applied edit is worse than a notice, why an audit-then-repair inventory is a class query and not a list of named sites, how to seed a stale-reference sweep with what the moving task saw, why moving a source of truth invalidates every reader of the old one, why retiring a writer does not retire the reader's legacy input, why retiring one surface of a feature does not retire its setting, and why a prohibition has one text copied byte for byte into every enforcing gate while a rule change sweeps the plan for every other statement of the rule. Consult while writing a brief that changes a count, a section number, a selector or an enum member, while renumbering, while reading a flag that says an upstream change was applied, while writing a repair inventory, while briefing a sweep after a text move, while planning a change that makes a stored value derived, before deleting a reader because no producer writes its input any more, while correcting a state assertion that another file may restate, and while writing a gate that enforces a prohibition quoted from the design or a task that changes or relaxes a rule.
+consult-when: Writing a brief that changes a count, section number, selector or enum member bound to many sites, renumbering headings, or checking a flag that says an upstream change was applied in place — instruct a sweep not a patch, map every heading level then hunt the in-prose section pointers, write the gate's true expected count, enumerate operative sites not prose sites, query the defect class in a repair inventory, seed a stale-reference sweep with what the mover saw, and sweep every reader of the old source when a change moves a source of truth, a retired writer does not retire the reader's legacy input, a retired tool does not retire the setting behind its feature (probe the setting, search its name tree-wide for every writer), a correction to a state assertion that another file may restate sweeps the wider tree for the claim's shape, and a prohibition copied byte for byte into every enforcing gate with its exception written once in the design, where a rule change sweeps the plan for every other statement of the rule
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Edit Surface Sweep — The Grep Is the Enumeration: Instruct a Sweep, Not a Patch
@@ -30,6 +30,10 @@ Three neighbouring rules own machinery this file builds on. [`scaffolding-hygien
 - [13. Retiring a Writer Does Not Retire the Reader's Legacy Input](#13-retiring-a-writer-does-not-retire-the-readers-legacy-input)
 - [14. A Correction to a Duplicated State Assertion Sweeps the Wider Tree](#14-a-correction-to-a-duplicated-state-assertion-sweeps-the-wider-tree)
   - [14.1 Plan-Review Detection](#141-plan-review-detection)
+- [15. Retiring One Surface of a Feature Does Not Retire Its Setting](#15-retiring-one-surface-of-a-feature-does-not-retire-its-setting)
+- [16. A Prohibition Has One Text, and a Rule Change Sweeps Every Other Statement of It](#16-a-prohibition-has-one-text-and-a-rule-change-sweeps-every-other-statement-of-it)
+  - [16.1 One text for the prohibition](#161-one-text-for-the-prohibition)
+  - [16.2 A rule change sweeps the plan](#162-a-rule-change-sweeps-the-plan)
 
 ---
 
@@ -425,9 +429,9 @@ CORRECT — the task searches the wider tree for the claim's shape before it clo
 #### Reviewer Check 129 — Correction Leaves an Uncorrected Sibling Copy
 
 - **Severity / Role / Type:** ERROR when a live copy of the old claim survives outside every task's Output; WARNING when a correcting task has no wider-tree search step | Task Reviewer | NEW
-- **What:** A task that corrects, reconciles or supersedes a state assertion MUST sweep the wider tree for other restatements of it. A surviving copy contradicts the corrected one and reads as current.
+- **What:** A task that corrects, reconciles or supersedes a state assertion, or changes or relaxes a rule (§16), MUST sweep the wider tree for other restatements of it. A surviving copy contradicts the corrected one and reads as current.
 - **Detection:**
-  1. List each task whose steps correct, reconcile or supersede a state assertion.
+  1. List each task whose steps correct, reconcile or supersede a state assertion, or change or relax a rule (§16).
   2. Build the shape key for each assertion from its subject identifiers and predicate noun.
   3. Search the project tree for the key. Skip the exempt classes named above.
   4. A live hit outside every task's Output that states the old value is an ERROR. Name the file and line.
@@ -437,9 +441,85 @@ CORRECT — the task searches the wider tree for the claim's shape before it clo
 [ERROR] Correction leaves an uncorrected sibling copy
 File: {sibling file path} | Location: {line}
 Issue: Task {task id} corrects "{claim}" in {corrected file}, and this file still states the old value
-Fix: Correct this copy or classify it as a dated record, and add a wider-tree search step to the task, per references/dispatch-edit-surface-sweep.md §14 | Confidence: HIGH
+Fix: Correct this copy or classify it as a dated record, and add a wider-tree search step to the task, per references/dispatch-edit-surface-sweep.md §14 or §16 | Confidence: HIGH
 ```
 
 ---
 
-*Cross-reference: [`scaffolding-hygiene.md`](scaffolding-hygiene.md) §12.4 (whole-document count sweep keyed on claim shape; this file's §14 covers the other files in the tree) · [`scaffolding-hygiene-Part-2-DerivationAndParallelism.md`](scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §13.4 (the four-pass roster-change sweep, both registers) · [`gate-positive-and-mutation-controls.md`](gate-positive-and-mutation-controls.md) §3 (the correct-post-state arm) · [`gate-artifact-over-instrument.md`](gate-artifact-over-instrument.md) §11 (an annotation never constrains correct work) · [`gate-anchor-outcome-set.md`](gate-anchor-outcome-set.md) §10.7 · [`measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md`](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md) §8.8 A, D · [`dispatch-boundary-evidence.md`](dispatch-boundary-evidence.md) §5 (a flag the sender says it delivered is a claim — the same re-derive-at-the-receiver rule for arrival rather than content)*
+## 15. Retiring One Surface of a Feature Does Not Retire Its Setting
+
+> [!constraint] A feature has more than one surface: the tools that manage it, the setting that turns it on, and the behaviour the setting changes. Retiring one surface says nothing about the others
+> A design retired a feature's management tools and inferred that the feature was gone. It classed the offer to enable the feature as dead text and planned to strip it. The environment variable that enabled the feature was still live on the executing build. With the variable on, named-agent spawns showed one behaviour. With it off, they showed another. Every probe the design relied on had run with the variable on, so the strip would have removed the precondition of the design's own measurements. A tree-wide search then showed more writers of the variable that the strip never touched. The strip was reverted.
+>
+> WRONG — the tool is retired, so the design strips the code that reads its setting. A second writer of the setting still exists, and the build breaks:
+> ```
+> ToolSearch "select:<ManagementTool>"  ->  no match
+> design: "the feature is retired; strip the offer and the setting write"
+> ```
+> CORRECT — the setting name is searched tree-wide, every writer is listed, the setting is probed on the executing build, and the design records whether its own probes ran with the setting on:
+> ```
+> Grep  pattern='<SETTING_NAME>'  path=<tree>   ->  script, handler, fallback, manifest and tests all write it
+> probe the setting on the executing build       ->  live; the value changes the behaviour
+> design: "the tools are retired; the setting is live, and the design's probes ran with it on; keep the offer"
+> ```
+
+1. **Probe the setting on the executing build.** Read the build's own environment snapshot, or run the behaviour with the setting on and off. A retired tool is not a reading of the setting.
+2. **Check whether the design's own probes ran with the setting on.** A measurement taken under a setting the design never names is conditional on that setting.
+3. **Grep the setting's name tree-wide and list every writer of it before any strip.** Strip all of them or none. A partial strip leaves install paths that configure different environments.
+
+§13 covers the reader side of a retirement. This section covers the setting and its writers. **Applies to** any design or sweep that removes an instruction because a tool, API or flag was retired, above all an environment variable, a settings key or an install step whose effect outlives the tool it was introduced with.
+
+---
+
+## 16. A Prohibition Has One Text, and a Rule Change Sweeps Every Other Statement of It
+
+> [!constraint] One prohibition has one text, and a task that changes a rule finds every other statement of that rule
+> One prohibition appeared in three forms across a Sprint Plan, a Master Plan and two tasks. The gate "0, except one" could neither pass nor fail mechanically. The Sprint Plan counted the exception, the Master Plan forbade it outright, and each task paraphrased the design. A runner could not tell which form enforced the rule. Two rules close the gap: the gate quotes the design's text, and a rule change sweeps the plan.
+
+[§14](#14-a-correction-to-a-duplicated-state-assertion-sweeps-the-wider-tree) covers a corrected state assertion across the wider tree. [`ei-source-promise-integrity.md`](ei-source-promise-integrity.md) §12 covers a brief that quotes a design pin verbatim. This section covers the gates that enforce a prohibition and the tasks that change a rule.
+
+### 16.1 One text for the prohibition
+
+- **Copy the design's prohibition byte for byte into every gate that enforces it.** A paraphrase is a second rule.
+- **Write any exception once, in the design.** The exception names the file that carries it.
+- **Derive each gate's expected value from that one line.** "0, except the named file" gives the gate a number it can check.
+
+WRONG — each gate restates the prohibition in its own words, and the exception lives only in one gate:
+```
+design:       "No task writes to <protected-dir>."
+sprint gate:  "0 writes to <protected-dir>, except one"
+master plan:  "<protected-dir> is read-only"
+task gate:    "no file under <protected-dir> changes"
+# three texts, and "except one" names no file
+```
+CORRECT — the gates copy the design's line, and the design names the one exception:
+```
+design:       "No task writes to <protected-dir>. Exception: <file> in <protected-dir>, written by Task <id>."
+every gate:   "No task writes to <protected-dir>. Exception: <file> in <protected-dir>, written by Task <id>."
+gate value:   exactly 1 write, to <file>
+```
+
+### 16.2 A rule change sweeps the plan
+
+- **When a task changes or relaxes a rule, Grep the plan for every other statement of that rule.** Key the search on the rule's subject and predicate, as §14 keys a claim. Never key it on one phrasing.
+- **Reconcile each hit in the same pass.** Correct it, or classify it as a dated record.
+- **Report "N found, N corrected".** A silent single edit is indistinguishable from a missed second statement.
+- **Exempt dated historical records by class,** as §14 lists them.
+
+WRONG — the task relaxes the rule in the one file it names and stops:
+```
+task: relax "no task writes to <protected-dir>" in design.md
+# the sprint plan and two gates still forbid the write outright
+```
+CORRECT — the task searches the plan for the rule's subject and predicate before it closes:
+```
+Grep  pattern='<protected-dir>.*(write|read-only|change)'  path=<plan tree>  ->  4 statements
+reconcile all four in the same pass
+Report: "4 found, 4 corrected"
+```
+
+Reviewer Check 129 in §14.1 detects a surviving old statement of a relaxed rule. No check detects a gate whose prohibition text differs from the design's.
+
+---
+
+*Cross-reference: [`ei-source-promise-integrity.md`](ei-source-promise-integrity.md) §12 (a brief quotes a design pin verbatim, and §16 here covers the gates) · [`scaffolding-hygiene.md`](scaffolding-hygiene.md) §12.4 (whole-document count sweep keyed on claim shape; this file's §14 covers the other files in the tree) · [`scaffolding-hygiene-Part-2-DerivationAndParallelism.md`](scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §13.4 (the four-pass roster-change sweep, both registers) · [`gate-positive-and-mutation-controls.md`](gate-positive-and-mutation-controls.md) §3 (the correct-post-state arm) · [`gate-artifact-over-instrument.md`](gate-artifact-over-instrument.md) §11 (an annotation never constrains correct work) · [`gate-anchor-outcome-set.md`](gate-anchor-outcome-set.md) §10.7 · [`measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md`](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md) §8.8 A, D · [`dispatch-boundary-evidence.md`](dispatch-boundary-evidence.md) §5 (a flag the sender says it delivered is a claim — the same re-derive-at-the-receiver rule for arrival rather than content)*

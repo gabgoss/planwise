@@ -222,6 +222,29 @@ Worked case. A four-task session shipped three gates that failed against correct
 
 **Applies to** any DELEGATED session where a runner reports a failing verification command, a gate that fails on an artifact it should accept, or a gate that passes on one it should reject.
 
+### 1.16.7 A runner's TASK_STATUS is recomputed from the success criteria and the contract the task cites
+
+A status label summarises only the gates the runner chose to run. Section 1.16.1 recomputes a verdict from finding counts, and 1.16.3 recomputes one dormant case. Neither reads the runner's findings against each success criterion, and neither checks the status in both directions.
+
+> [!constraint] Read every finding against every criterion, then recompute the status from the contract
+> - **Map each KEY_FINDINGS and ISSUES line onto each success criterion.** A finding that contradicts a criterion makes the task PARTIAL, whatever the gates say. The retiring phrases are "out of scope", "not changed", "derived from code" and "the test does not assert". Each one closes a criterion without meeting it.
+> - **Recompute TASK_STATUS from the contract the task cites, in both directions.** A reported PARTIAL can be COMPLETE, and a reported COMPLETE can be PARTIAL. The recompute is not a one-way downgrade.
+> - **Log both values and act on the recomputed one.** Write `Mis-classification: runner {reported}, recomputed {canonical} ({reason})` in Recovery. Dispatch the next task from the recomputed status.
+>
+> WRONG — accept both labels as reported:
+> ```
+> runner A: PARTIAL, "no caller yet". The cited contract allows an owed caller named under a Callers heading, and the task names one.
+> runner B: COMPLETE, but one live-run row read an empty input.
+> orchestrator: accept A as PARTIAL and B as COMPLETE
+> ```
+> CORRECT — recompute each label from the criteria and the contract, and log both values:
+> ```
+> A: Mis-classification: runner PARTIAL, recomputed COMPLETE (the owed caller is named under the Callers heading)
+> B: Mis-classification: runner COMPLETE, recomputed PARTIAL (a live-run row is void: its input was empty)
+> ```
+
+**Applies to** every DELEGATED acceptance, and most of all a task with several success criteria or a live run among its gates.
+
 ## 1.17 Task-Runner Dispatch Failure Modes and Resume Protocol
 
 A dispatched task-runner has five post-return states — four failure modes and one real completion. Before dispatching the next task — or before treating a "completed" notification as done — classify the return by the final-message voice and the working-tree state; and when the return *reads* as complete, gate acceptance on **on-disk deliverable evidence** before believing it — a stall can masquerade as completion (§1.17.4). For every failure state of the unit of work in hand the corrective is the same: **resume the SAME agent** (its context already holds the full task), never dispatch a fresh runner for that same unit of work. A fresh runner re-reads everything and can race or duplicate the first one's partial work. A new round of work is a different case and gets a fresh runner (§1.17.7).
@@ -316,6 +339,7 @@ This is distinct from the two voice+tree failure modes above: those announce the
 - Re-run the producing task's read-only After-block commands on the final Output bytes. A runner's checks describe the file as it stood when they ran, so a late edit can break a structural gate unseen. The template's Step 2 gives the mandatory and default cases.
 - Recompute the expected member count from the task's own pattern or member table, never from the brief, the Success Criteria or the runner's report. Expand every placeholder in the pattern, count the members it reaches, and compare that figure with the evidence-row count. A pattern over 13 URLs in 2 redirect modes expects 26 rows, so a report of 18 rows fails even when it reads N/N. See `gate-input-set-and-compared-window.md` §16 and Reviewer Check 110.
 - Treat an `ISSUES: out of scope` line about a file the task owns as a request for a ruling, not a note. Run the task's own verify criteria against that file. Then rule before accepting: widen the scope with a Scope-Expansion Decisions row, or narrow the criterion. See [gate-satisfiability.md §6](gate-satisfiability.md#6-an-absence-check-must-match-the-edit-scope-of-its-own-brief).
+- Treat an ISSUES line that names an unverified claim as a finding when the claim sits in a file the task owns. The usual phrases are "not checked", "not verified", "outside Required Context" and "could not confirm". Settle it against the source of truth with `Grep` or `Read`. Then resume the SAME runner with file and line findings, or record why the claim holds, before accepting. Section 1.16.7 covers the status consequence.
 
 On any miss, resume the SAME agent to finish (never re-dispatch a fresh one while the runner is inside the §1.17.7 size ceiling), then re-run the checks before accepting. `scripts/accept_runner_return.py` runs the on-disk acceptance checks against a returned task's `**Output:**` paths.
 
@@ -325,7 +349,7 @@ The harness caps a runner by turns, not by tokens. The cap is invisible to the r
 
 > [!constraint] Give the runner the shape of the run, and count the proofs the brief demands
 > - **Every transcript-reading dispatch names a write-by turn.** The number is the harness limit minus the cost of the write phase (for example 50 minus about 15). It goes in the spawn prompt, not the task file, because the limit belongs to the harness the orchestrator chose.
-> - **`unmeasured (reason)` is a licensed value.** A brief that only lists what must be measured leaves the runner no honest way to stop. Naming the fallback turns a stall into a gap the orchestrator can see and route.
+> - **`unmeasured (reason)` and `pending (reason)` are licensed values.** A brief that only lists what must be measured leaves the runner no honest way to stop. Naming the fallback turns a stall into a gap the orchestrator can see and route.
 > - **Count the required per-unit proofs at scaffold time.** A brief that demands N per-unit proofs spends at least N x (mutate + run + restore + verify) turns before any authoring. Above about 5 proofs, either split the proofs into their own task or require one script that runs every mutation in a single call. Have the runner write that script itself.
 > - **Order the spawn prompt for the cap.** Write the output file and the Recovery row as soon as the verification data exists, before any polish. Batch independent calls. Write pre-step evidence to disk before any run-once step.
 > - **Record the measured cost against the estimate.** A figure of 189K against 46.7K is evidence for the next estimate, not noise.
@@ -345,6 +369,8 @@ WRITE the output row in one Write call by turn 30, then the sheet, then Recovery
 A figure not found in budget is written `unmeasured (reason)` — never leave
 the file unwritten to keep hunting.
 ```
+
+**Turns, not tokens, can bind first.** A 95K-token task spent 50 turns on 106 tool calls. Size a brief by tool calls (§1.12) and split it when the runner's estimate exceeds the cap (92 vs 50). In an A/B test (Sonnet, 3 per arm, 70 steps, 50 turns) the old notice delivered 3 of 3 and an added turn-42 hard stop delivered 3 of 3 but stopped about 7 steps earlier. Do not add a hard stop as the fix (unmeasured for Opus and for several tool calls per turn). A runner stopped at the cap stalled mid-action. Resume from its staged Output (§1.17.6).
 
 **Applies to** grade, audit, census, and review dispatches whose Required Context is a transcript, a log, or any file read by paging. It also applies to any DELEGATED brief that pairs authoring with an iterative verify loop, such as test authoring with per-class mutation proofs. Every other dispatch whose estimate trips the §1.12 trigger carries the §1.11 Operational Ceiling Notice with its turn-ceiling and checkpoint lines.
 
@@ -451,13 +477,34 @@ Applies to every DELEGATED task-runner launch, sequential or parallel.
 > 1. **Re-measure projected inputs.** Run `measure_files.py --model {declared}` on every Required Context row marked `projected, re-measure at dispatch`. Those rows cite a file that an earlier task of this session produces. Rewrite a HALT-to-split contingency to "proceed" when the measured total fits the window.
 > 2. **Measure the plan-path rule surface.** Reuse the engine's linter: run `python {plugin_root}/scripts/init_project.py --doctor --project-root {project_root}` and sum the `approx_tokens` of the flagged (over-scoped) rules — those `.claude/rules/**` whose `paths:` target `planwise/Plans/**` (or sibling plan/backlog/lessons paths). If `--doctor` is unavailable, fall back to summing those rule files' byte sizes ÷ the conservative bytes-per-token ratio (2.6) — `measure_files.py` does this per file.
 > 3. **Project the subagent's worst-case load:** `measured input tokens + flagged-rule tokens + ~54K fixed overhead + expected output tokens`. If the **projected total is above ~165K** (it approaches the 200K window, leaving < ~35K of working headroom), the declared model will overflow ("Prompt is too long"). Either term can trip it. A flagged surface ≳ ~110K trips it alone, because the model overflows the instant it reads a plan brief that triggers those path rules. Large measured inputs trip it the same way.
+>    - **Project a header estimate at about twice its figure.** Take the expected output and working terms from a task header only when no measurement exists. The header sums Required Context reads, output and working tokens. It leaves out retries, tool results and re-reads. Three runners self-reported 2.1 to 2.3 times their header estimates:
+>
+>      | Task | Header estimate | Self-reported | Ratio |
+>      |------|----------------:|--------------:|------:|
+>      | template edits (Opus) | ~102K | 239,536 | 2.3x |
+>      | new script plus tests, 3 rounds (Opus) | ~157K | 328,570 | 2.1x |
+>      | lab gates plus census re-run (raised to Opus) | ~119K | 246,930 | 2.1x |
+>
+>    - **The rule-surface trigger alone is not the tier decision.** A task declared for a 200K-window model had a header estimate of ~119K, a fixed overhead of ~54K and a plan-path rule surface of ~48K. The projection was about 221K before any drift, so it already exceeded the window. The ~110K surface trigger did not fire. The task was raised to the 1M tier and used about 247K. On the 200K tier it would have overflowed mid-task and left partial files on disk.
+>
+>      ```
+>      WRONG — the tier follows the declared model and the surface trigger only:
+>      task 3: Agent Haiku 4.5, header estimate 119K, rule surface 48K < 110K  ->  dispatch Haiku 4.5
+>      actual ~247K  ->  "Prompt is too long" mid-task, partial lab files on disk
+>
+>      CORRECT — project the real load first, then decide the tier:
+>      projection = 119K + 54K overhead + 48K rules = 221K  (> 165K before any drift)
+>      observed drift 2.1x-2.3x on the header estimate  ->  raise to the 1M tier and log the raise
+>      ```
+>
+>    - **Carry a turn budget in the spawn prompt of every edit-heavy or code task.** The first runner hit the 50-turn harness limit with its edits on disk and no Output written. The next two runners had a TURN BUDGET block in their spawn prompts. It said to read by turn ~12, write by turn ~25 and write the Output as soon as verification data exists. Neither hit the limit. §1.17.5 above carries the write-by-turn rule.
 > 4. **Raise and log.** In that case, raise the dispatch `model` to the **1M tier** (Opus, or any 1M-window model) for THIS dispatch only, and emit a one-line log — never silent:
 >    ```
 >    MODEL FLOOR: raised {task-id} {declared}→1M (inputs ~{I}K + plan-path rules ~{R}K + overhead ~54K + output ~{O}K = ~{T}K > {declared} safe budget ~{B}K)
 >    ```
 > 5. **Otherwise dispatch verbatim.** If the threshold is NOT tripped, pass the declared `Agent:` model through unchanged — the floor is inert for a small surface.
 
-`scripts/dispatch_model_override.py` decides steps 3 to 5 from the measured terms.
+`scripts/dispatch_model_override.py` decides steps 3 to 5 from the measured terms. It multiplies each figure it reads from the task header by 2. It takes a figure passed with `--input-k` or `--output-k` as measured and leaves it alone.
 
 > [!practice] Self-Deactivating Bridge — Not Permanent
 > This floor exists only to keep runners on a 200K-window model (Haiku 4.5; every other current model has 1M) alive while a project still carries a large author-time rule surface scoped to plan paths. Once the project is de-scoped — plugin author-time rules handler-loaded from `references/` (not installed), and any project-local domain rules re-scoped to code paths per `/planwise doctor` — the flagged surface shrinks toward ~0 and the rule-surface term stops tripping step 3. Retiring the bridge removes only that term. The input-size trigger stays, because large measured inputs can still overflow a 200K window. When `--doctor` reports no over-scoped rules, the rule-surface term is already inert.
@@ -527,6 +574,13 @@ Governs whether a DELEGATED task-runner launches in foreground or background. Th
 | File output (Write, Edit) | **Foreground** | Permissions resolved interactively |
 | Shell commands (Bash) | **Foreground** | Bash permission needs interactive approval |
 | Read-only research (Explore) | Background OK | No write permissions needed |
+
+**Read the launch mode from the Agent tool result, not from the call.** An omitted `run_in_background` flag ran in the background on 15 of 15 measured spawns (`is_backgrounded: true`), as `agent-orchestration.md` records. The call shape therefore does not fix the mode. The launch result does. A result that reads "Async agent launched" or carries `is_backgrounded: true` means the runner is in the background, whatever the call said.
+
+- Record the mode in a Recovery Change Log row at launch.
+- Never describe the launch mode in the spawn prompt. The prompt cannot know it, and a wrong claim misroutes the runner.
+- Keep `SendMessage` to the main session as the one return channel. It works in both modes, and [Part 4](agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md) §1.29.1 binds it.
+- Gate on disk before reading the status block: the Output headings, the Recovery rows, and `git status` on the write-set.
 
 A runner that backgrounds its own long command stalls too; see the foreground-suite subsection in Part 3 (§1.27.1).
 

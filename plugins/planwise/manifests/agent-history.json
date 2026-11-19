@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_on": "2026-11-14",
+  "generated_on": "2026-11-19",
   "normalization": "read as utf-8-sig (BOM stripped), CRLF -> LF, sha256 hex (doctor_sweeps.history_digest)",
   "purpose": "Every body each formerly-mirrored agent has ever shipped with. doctor's orphaned-agent-mirror sweep marks an installed mirror matching any listed digest REMOVABLE (historical-exact). Regenerate with tools/gen_agent_history.py after editing a listed agent; tests/test_agent_history.py enforces it.",
   "agents": {
@@ -42,6 +42,7 @@
       "930f85bcc7d5a3437fbbf66847fc37487c6de28c88d8d77f448796e1d368e728",
       "9662a0b673cc57771cb67aac0ec79c49df67c89b77a59dc424af4d9a414c37cf",
       "9794360c2daab00d186f438ee154f674c25b569aa7ea1f021a5c17775d844f32",
+      "98806e692c73635fb6f1e818be91a95f5a8f07b170d90bad4e9a4186d66cb583",
       "9efab6f502db912243fe3011fb4240935f9a7ec9da252cdc5584c945dc80ab0f",
       "a128b62bf12778e5c8a3372d8cc76a68f78c431d756f8230c218a2628089094d",
       "a37d2d29bb87548e4c1170cd43d16e64b7285bee23efad13b74f05baee59a716",
@@ -115,6 +116,7 @@
       "b88589fc8593a76de55c6987c410c1fd572da4efeafb902a9782b26e0bd1263b",
       "c0ca1ad30c519d2b31dbe6287745aa6c30515f481d920ba80757db2eb61905fa",
       "c31abcf25a92cedf0ec141a24b2751c1e4528abd344421f2b28ad1e8175cdcdd",
+      "c5f8fca88b796ceb8f00f05412754fe247fc762e286294f013016b601f8c7deb",
       "c6436e6e71cf5ee7ca6d93a6bf22efd921d08811dac11fe868771f0a475023bb",
       "c859141bc38a235b2b4edf6df31da8f2630e11c869b8604c26bd8880fd4e16d6",
       "e1b43e5c6b2267f8c8f813106c296be269587c39943df7eb5bd15a874a3cfff7",
@@ -126,6 +128,7 @@
     "rule-comparator.md": [
       "0e9de8eeaae994a4323e4399ffb9b3640c7075abcbb06e312d65db0744b7366c",
       "17f08a72fa0e198b5330e961cb4b6fa980ca32c1de3b36fb98a4396d10bf4669",
+      "4dca44bf5be1abed50628902bf0d978bf86bc76278e8f720fc40513a4ed61cb4",
       "6145f467ba51ea089e7436349e25e6800a5550b8f376f2955f1bd37774804329",
       "6e097726a2fdd939217535f294c44f183bbc6fe0ed9f7fd22071107063e7a16a",
       "7d668554ae038d8314c3c6e5077c1947f641859d42364ce2919ab9d524fe7011",

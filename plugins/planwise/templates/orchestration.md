@@ -140,7 +140,13 @@ In `Allocates from`, name each shared next-free namespace a member takes a value
      both members read the same live maximum and allocate the same value. The
      `Allocates from` column above records it. Either resolve each member's number
      pre-dispatch and inject it as a literal (§1.6), or serialize the allocating
-     tasks. -->
+     tasks.
+
+     A summary or report file that several tasks feed takes the main session as
+     its writer, named here at planning. Runners return rows as text or as a
+     small Outputs file, and the orchestrator applies one Edit. Claude Code may
+     refuse a subagent's Write of a report-shaped file, and the cause is not
+     established (references/agent-orchestration-delegated.md §1.13). -->
 
 > [!constraint] Per-task gates are scoped to that task's own outputs
 > The working tree accumulates every layer member's edits with no commit between dispatches. A count asserted repo-wide by a task that edited some of them false-fails — and inside a parallel layer the reading depends on completion order, so it false-fails non-deterministically, which reads as flakiness rather than as a defect.
@@ -192,7 +198,7 @@ Write each list with the union form below, LF-only, so an untracked path is coun
 > python -B "{plugin_root}/scripts/path_set_gate.py" {after list} {before list} {peer-owned list}   # expect exit 0
 > ```
 
-Before each dispatch the orchestrator runs the preflight set checks, each exiting 0 when clean and 1 with the difference listed: `python -B "{plugin_root}/scripts/dispatch_preflight.py" overlap --candidate {task file} --running {running task files}` (Output paths shared with a running task), `prereq --sprint-plan {Sprint Plan} --sprint-folder {sprint folder}` (enumerated prerequisites against the derived member set), `siblings --since {scaffold date} --recoveries {closed sibling Recovery files} --edit-set {file naming the edit and sweep paths}` (sibling Files Modified that meet the edit set), and `decomposition --matrix {surface matrix} --output {consolidated output}` (matrix rows against output sections, both ways).
+Before each dispatch the orchestrator runs the preflight set checks, each exiting 0 when clean and 1 with the difference listed: `python -B "{plugin_root}/scripts/dispatch_preflight.py" overlap --candidate {task file} --running {running task files, or none}` (Output paths shared with a running task; `none` is the empty set for this slot and for `--recoveries`, and the check then exits 0), `prereq --sprint-plan {Sprint Plan} --sprint-folder {sprint folder}` (enumerated prerequisites against the derived member set), `siblings --since {scaffold date} --recoveries {closed sibling Recovery files, or none} --edit-set {file naming the edit and sweep paths}` (sibling Files Modified that meet the edit set), and `decomposition --matrix {surface matrix} --output {consolidated output}` (matrix rows against output sections, both ways).
 
 ---
 
@@ -224,6 +230,8 @@ Project root:     {project root absolute path, resolved at dispatch}
 Output directory: {output-dir-absolute-path}
 Base commit:      {ABBREV}_S{NN}_BASE={resolved SHA literal}  (omit when no task gate runs git diff)
 Census:           {name}={session-base value}, ...  (omit when no task gate names a census row)
+Pinned blocks:    {block name}: {block text, verbatim}, ...  (omit when no step names a block outside Required Context)
+Scratch prefix:   {task-id}-  (start every scratch file name with this prefix; never read a scratch file you did not write in this run)
 
 ## HARD CONSTRAINTS (non-negotiable)
 Execute ONLY {task-id}. Do not start any other task in the session even if the
@@ -231,14 +239,22 @@ Recovery file lists it as PENDING. Files you may write: {explicit list from the
 task file's Output}.
 
 1. Modify ONLY the files named on this task's Output line. Every other Required Context file is read-only.
-2. Do NOT read files not listed in Required Context. The `Base commit:` and `Census:`
-   values above are authoritative as given: never read them from Recovery or any other file
+2. Do NOT read files not listed in Required Context. The `Base commit:`, `Census:` and
+   `Pinned blocks:` values above are authoritative as given: never read them from Recovery or any other file
 3. Do NOT spawn sub-agents or create teams
 4. If you encounter an ambiguity requiring a file not in Required Context, STOP
-   and report it; do NOT expand scope
-5. Permitted per Execution Step (no constraint above forbids these): Step {n}:
+   and report it; do NOT expand scope. Finish every item that does not depend on it,
+   write no placeholder for the held item, and return PARTIAL with one `QUESTION:` line
+   in ISSUES. Never ask by SendMessage and keep working
+5. Never run a git verb that rewrites the shared tree or index. The forbidden verbs:
+   git stash, checkout, switch, reset, restore, clean, add and commit (exempt: stash
+   list and show, clean -n, and a -N add that a Verification Command runs). To read a
+   base revision, run `git show "{rev}:{path}" > {copy}`, with `-C {repo}` after `git`.
+   A step that needs a forbidden verb returns BRIEF COLLISION. Staging and commits
+   belong to the orchestrator
+6. Permitted per Execution Step (no constraint above forbids these): Step {n}:
    launches {commands}, writes {paths}, fetches {URLs or "none"}; one entry per step
-6. Deferral: a shared identifier you defer (a check number, a catalog row, a
+7. Deferral: a shared identifier you defer (a check number, a catalog row, a
    section number) is returned as draft text with no number assigned. Parallel
    runners read the same live maximum, so a self-assigned number collides
 
@@ -264,7 +280,10 @@ finding. An Output path alone is not a finding list.
 
 Where a Verification Command in the task file holds the literal `{plugin_root}`, substitute the `Plugin root:` value above. Never copy a plugin path out of the task file. Where a gate holds `{census:<name>}`, substitute that name's value from the `Census:` line above.
 
-<!-- Add when the project declares an isolated environment (§1.27): an
+<!-- Add when the task trips the §1.12 trigger: the §1.11 Operational Ceiling Notice
+     with its turn-ceiling line, plus the write-by turn for a transcript-reading or
+     proof-loop task (Part 2 §1.17.5).
+     Add when the project declares an isolated environment (§1.27): an
      ENVIRONMENT DISCIPLINE block naming interpreter/linter/runner paths in the
      platform-matched form, plus a first-spawn interpreter diagnostic on the
      session's first dispatch only. A runner given the `Project root:` line and no
@@ -309,10 +328,13 @@ A harness `completed` status means the agent stopped with no live children. It i
 - [ ] If the Expected Output declared required headings or table-column headers, Grep the produced file for every one of them
 - [ ] If a later task also edits a file this dispatch edited, run `{lint-cmd}` on that file before the next dispatch. On a failure, halt and record it in Recovery (`references/agent-orchestration-delegated.md` §1.4)
 - [ ] Recompute the runner's verdict label from its reported counts with the producing task's rule. On a mismatch, log it in Recovery and act on the recomputed label (`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.16.1)
+- [ ] Read every KEY_FINDINGS and ISSUES line against every success criterion. Recompute TASK_STATUS from the criteria and the contract the task cites, in both directions. On a mismatch, log both values in Recovery and act on the recomputed status (`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.16.7)
+- [ ] Settle every ISSUES line that names an unverified claim inside the task's Output files before acceptance (`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17.4)
 - [ ] If a runner reported a defective gate: the defect is reproduced from the runner's verbatim output, and the same command shape is swept across the undispatched briefs before the next dispatch (§1.16.6)
 - [ ] Once every member of a parallel layer has returned, run `python -B "{plugin_root}/scripts/batch_gate.py" labels {the layer's output files}`: exit 0 means one section-label set, exit 1 lists the labels per file. When the layer's task files carry `**Required headings:**`, run `python -B "{plugin_root}/scripts/batch_gate.py" labels --expect {task file} {output file}` once per member instead: exit 0 means each output carries its own task's required headings, exit 1 lists the dropped ones, and an extra heading is ignored. Where the outputs must cover a required id list, run `python -B "{plugin_root}/scripts/batch_gate.py" items --ids {file of one id per line} {output files}`: each required id has exactly one owner, a first-cell table row or a heading in one file, and a repeat mention in the owning file is not a duplicate. Exit 1 prints the `MISSING` and `DUPLICATE` ids
+- [ ] Once every member of a layer has returned, run `{test-cmd}` over the whole suite or in the project's affected-tests form. Do this before the next layer dispatches. That run reaches the repo-wide guard tests that scan the layer's write directories. On a failure, resume the SAME runner that wrote the file, and dispatch nothing until the run passes (`references/agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md` §1.31.2)
 - [ ] If a status block is lost or disputed, run `python -B "{plugin_root}/scripts/extract_status_block.py" --pattern '{field regex}' {agent-*.jsonl transcript}`: exit 0 prints the last status-block match, exit 1 means no line matched
-- [ ] Run `python -B "{plugin_root}/scripts/outputs_coverage.py" named --side {producer|receiver} --outputs {Outputs folder} --tasks {task files}`: exit 0 means a Required Context row names every listed file, exit 1 lists the unnamed files (`producer` checks this session's Outputs against the consumer task files; `receiver` checks the upstream Outputs against this session's task files, advisory). `count` with the same `--outputs` and `--tasks` exits 1 when a count claim differs from the file count
+- [ ] Run `python -B "{plugin_root}/scripts/outputs_coverage.py" named --side producer --outputs {this session's Outputs folder} --tasks {downstream consumer task files}` and `python -B "{plugin_root}/scripts/outputs_coverage.py" named --side receiver --outputs {upstream session's Outputs folder} --tasks {this session's task files}`: exit 0 means a Required Context row names every listed file, exit 1 lists the unnamed files (`producer` checks this session's Outputs against the consumer task files; `receiver` checks the upstream Outputs against this session's task files, advisory). When no consumer task file exists yet, skip the producer run and record it as not applicable in Recovery; never pass this session's own task files to `--side producer`. `count` with `--outputs {this session's Outputs folder} --tasks {downstream consumer task files}` exits 1 when a count claim differs from the file count
 
 ### Step 3 — Scan the return for a stalled tail
 
@@ -384,6 +406,19 @@ See `agents/task-runner.md` §5.B for the runnable schema.
 - [ ] **Capture lessons** — ask "Were any lessons learned?" If yes, create lesson file and run the generator
 - [ ] **Update plan status** — mark this orchestration COMPLETE; update sprint plan and master plan status fields
 - [ ] **Git commit and push** — stage specific files (`git add` by name, never `git add .`), commit, push
+
+---
+
+## User-Action Gate <!-- OPTIONAL — a session of a Discovery (meta) plan that stops for the user's answer -->
+
+<!-- Include only when this session ends at a gate the user answers. Omit the section otherwise.
+     The master plan's User-Action Gates table names the gate. This section holds the session's
+     side of it. -->
+
+- **Stops after:** {task-id, or the step where the session halts}
+- **Hands the user:** {document or summary the user reads, with its path}
+- **Allowed answers:** {answer 1, answer 2}
+- **After the answer:** {what the next session or the Recovery file does with each answer}
 
 ---
 

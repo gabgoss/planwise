@@ -33,7 +33,8 @@ def test_positive_small_total_and_surface_keep_declared_model(tmp_path):
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines()[0] == "model: Sonnet"
     assert "MODEL FLOOR: inert for ABC-T01 Sonnet" in result.stdout
-    assert "inputs ~25.1K" in result.stdout and "output ~12K" in result.stdout
+    # Header figures are multiplied by HEADER_DRIFT (2): 25.1K reads and 12.0K output.
+    assert "inputs ~50.2K (header x2)" in result.stdout and "output ~24K (header x2)" in result.stdout
     # Sonnet has a 1M window: 1000K window minus 35K headroom.
     assert "safe budget ~965K" in result.stdout
 
@@ -43,18 +44,61 @@ BIG_SUBTOTAL = "~90.0K (reads: 90.0) + ~12.0K (output) + ~14.9K (working) = **~1
 
 def test_mutation_total_above_165k_raises(tmp_path):
     # §1.19 trip point: the --doctor figure measured 2026-11-12 is ~16202 tokens.
-    # Inputs 90.0K + 16.2K + 54K + 12.0K = 172.2K > 165K, so the floor fires on a
-    # 200K-window model (Haiku 4.5).
+    # Header figures 90.0K and 12.0K become 180K and 24K. 180K + 16.2K + 54K + 24K = 274.2K > 165K,
+    # so the floor fires on a 200K-window model (Haiku 4.5).
     result = run(str(task_file(tmp_path, agent="Haiku 4.5", subtotal=BIG_SUBTOTAL)),
                  "--surface-tokens", "16202", "--token-saver", "off")
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines()[0] == "model: Opus"
     assert "MODEL FLOOR: raised ABC-T01 Haiku 4.5→1M" in result.stdout
+    assert "= ~274.2K > Haiku 4.5 safe budget ~165K" in result.stdout
+
+
+def test_measured_figures_keep_the_old_172k_trip_point(tmp_path):
+    # --input-k and --output-k are measured figures, so no factor applies:
+    # 90.0K + 16.2K + 54K + 12.0K = 172.2K > 165K.
+    result = run(str(task_file(tmp_path, agent="Haiku 4.5", subtotal=BIG_SUBTOTAL)),
+                 "--surface-tokens", "16202", "--token-saver", "off",
+                 "--input-k", "90", "--output-k", "12")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[0] == "model: Opus"
     assert "= ~172.2K > Haiku 4.5 safe budget ~165K" in result.stdout
+    assert "(header" not in result.stdout
 
 
-def test_sonnet_at_172k_keeps_its_1m_window(tmp_path):
-    # The same 172.2K load fits Sonnet's 1M window, so the floor stays inert.
+SMALL_HEADER = "~40.0K (reads: 40.0) + ~20.0K (output) + ~5.0K (working) = **~65K total**"
+
+
+def test_header_estimate_doubling_raises_where_the_raw_figure_does_not(tmp_path):
+    # The failing example. A 60K header estimate (40K reads, 20K output) with a 10K rule surface
+    # projects 40 + 10 + 54 + 20 = 124K raw, which fits Haiku 4.5's 165K budget and keeps the model.
+    # Measured runs came in at 2.1x to 2.3x the header, so the doubled figures project
+    # 80 + 10 + 54 + 40 = 184K, above the budget, and the floor raises the model.
+    raw = run(str(task_file(tmp_path, agent="Haiku 4.5", subtotal=SMALL_HEADER)),
+              "--surface-tokens", "10000", "--token-saver", "off", "--input-k", "40", "--output-k", "20")
+    assert raw.stdout.splitlines()[0] == "model: Haiku 4.5"
+    assert "= ~124K <= Haiku 4.5 safe budget ~165K" in raw.stdout
+    doubled = run(str(task_file(tmp_path, agent="Haiku 4.5", subtotal=SMALL_HEADER)),
+                  "--surface-tokens", "10000", "--token-saver", "off")
+    assert doubled.returncode == 0, doubled.stderr
+    assert doubled.stdout.splitlines()[0] == "model: Opus"
+    assert "= ~184K > Haiku 4.5 safe budget ~165K" in doubled.stdout
+
+
+def test_measured_task_row_projects_above_the_200k_window(tmp_path):
+    # A task declared for a 200K-window model: header estimate 119K (80K reads, 39K output) and a
+    # 48K path-scoped rule surface. The 110K surface trigger does not fire. The doubled header
+    # projects 160 + 48 + 54 + 78 = 340K, well above the 200K window, so the model is raised.
+    subtotal = "~80.0K (reads: 80.0) + ~39.0K (output) = **~119K total**"
+    result = run(str(task_file(tmp_path, agent="Haiku 4.5", subtotal=subtotal)),
+                 "--surface-tokens", "48000", "--token-saver", "off")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[0] == "model: Opus"
+    assert "= ~340K > Haiku 4.5 safe budget ~165K" in result.stdout
+
+
+def test_sonnet_at_274k_keeps_its_1m_window(tmp_path):
+    # The same 274.2K load fits Sonnet's 1M window, so the floor stays inert.
     result = run(str(task_file(tmp_path, subtotal=BIG_SUBTOTAL)), "--surface-tokens", "16202",
                  "--token-saver", "off")
     assert result.returncode == 0, result.stderr
@@ -146,7 +190,7 @@ def test_bare_output_figure_parses_both_figures(tmp_path):
     result = run(str(task_file(tmp_path, subtotal=subtotal)), "--surface-tokens", "16202",
                  "--token-saver", "off")
     assert result.returncode == 0, result.stderr
-    assert "inputs ~33.3K" in result.stdout and "output ~5.9K" in result.stdout
+    assert "inputs ~66.6K" in result.stdout and "output ~11.8K" in result.stdout
 
 
 def test_mutation_bare_output_word_without_a_figure_exits_2(tmp_path):

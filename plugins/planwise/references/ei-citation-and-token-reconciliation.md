@@ -55,7 +55,7 @@ Fix: Re-extract verbatim per references/ei-citation-and-token-reconciliation.md 
 ## 6. Cross-Tier Citation Propagation to Implementation Surface
 
 > [!constraint] Cross-tier citations preserved in the EI MUST propagate into algorithm/code docstrings, lint gates, test fixtures, and signoff checklists
-> Cross-tier citation preservation is a refactor-drift firewall: a refactor that silently changes a cited weight or threshold passes unit tests and lint unless those gates check the citation text itself. For every cross-tier duplicate an EI Note records (§5), the task scaffolder produces all four surfaces:
+> Cross-tier citation preservation is a refactor-drift firewall: a refactor that silently changes a cited weight or threshold passes unit tests and lint unless those gates check the citation text itself. For every cross-tier duplicate an EI Note records (§5) whose cited value code consumes, the task scaffolder produces all four surfaces:
 >
 > 1. **Algorithm/helper docstring** — the consuming code's task file requires a docstring citing BOTH (or all N) source locations verbatim.
 >    Example: "per EI §X.Y Note: `{citation_author}` `{value}` from
@@ -72,7 +72,9 @@ Fix: Re-extract verbatim per references/ei-citation-and-token-reconciliation.md 
 >
 > CORRECT — the task files propagate the dual citation into all four surfaces. Drift then fails a docstring lint, a citation-token grep, a test-fixture comment audit or the signoff grep.
 
-**Partial check.** `scripts/lint_execution_input_plan.py` rule `cross-tier-propagation`, loaded by `scripts/lint_execution_input.py`, reports a Note whose task files lack a surface. It is partial: it cannot see a surface that names the sources by filename only, a Note with under two `Spec #N` tokens (printed as a note), or whether code consumes the cited value at all. The four-surface rule above governs.
+**Declare the consumer.** A Note whose cited value code consumes ends with a clause of the form "Consumed by: `path`". That clause makes the Note a subject of the four-surface check. A Note whose value no code consumes says "no code consumer". A provenance-only Note with neither clause is not a subject. The signoff surface is a line in the sprint's signoff task file. The Note's bold lead line does not change.
+
+**Partial check.** `scripts/lint_execution_input_plan.py` rule `cross-tier-propagation`, loaded by `scripts/lint_execution_input.py`, reports a Note that declares "Consumed by:" and whose task files lack a surface. That is a BLOCKER per missing surface. A Note with no consumer clause and no "no code consumer" statement gets one ADVISORY when a task file that the Sprint Plan Write-Set assigns a code path cites the Note's enclosing EI section. The check is partial: it cannot see a surface that names the sources by filename only, a Note with under two `Spec #N` tokens, declared or not (printed as a note), a consumer clause that names the wrong path, or a code task that reaches the section without a `§N` citation. The four-surface rule above governs.
 
 ---
 
@@ -113,13 +115,13 @@ Count-claim reconciliation grep — hunt for drift risk in scaffolded plans:
 #### Reviewer Check 006 — EI §-Citation Format Discipline
 
 - **Severity / Role / Type:** BLOCKER | EI Reviewer | NEW
-- **What:** Every `Extracted from:` header entry and every Cross-References row MUST use canonical format `Spec #{N} ({filename.md})` with global numbering matching Master Plan Global Source Map.
-- **Detection:** Run over every `*-Execution-Input*.md` in the plan, Parts included. Enumerate every `Spec #\d+` token on the `Extracted from:` line and in every Cross-References row's Source cell. A token not immediately followed by ` ({filename.md})` is a format violation → BLOCKER. Verify each `{N}` **and its paired filename together** against Master Plan Global Source Map — a number matching the wrong filename, or the right filename carrying the wrong number, is a Mismatch → BLOCKER. Report one finding per EI file per mismatch. `scripts/lint_execution_input.py` rule `spec-citation-pair` runs this check.
+- **What:** Every `Extracted from:` header entry and every Cross-References row MUST use canonical format `Spec #{N} ({filename})` with global numbering matching Master Plan Global Source Map. The filename carries whatever extension its Global Source Map row holds.
+- **Detection:** Run over every `*-Execution-Input*.md` in the plan, Parts included. Enumerate every `Spec #\d+` token on the `Extracted from:` line and in every Cross-References row's Source cell. A token not immediately followed by ` ({filename})` is a format violation → BLOCKER. Verify each `{N}` **and its paired filename together** against Master Plan Global Source Map — a number matching the wrong filename, or the right filename carrying the wrong number, is a Mismatch → BLOCKER. Report one finding per EI file per mismatch. `scripts/lint_execution_input.py` rule `spec-citation-pair` runs this check.
 - **Finding template:**
 ```
 [BLOCKER] EI Cross-Reference §-citation format violated
 File: {EI file path} | Location: {Extracted from: entry {k} | Cross-References row {N}}
-Issue: Citation "{quoted_citation}" does not match Spec #{N} ({filename.md}) format
+Issue: Citation "{quoted_citation}" does not match Spec #{N} ({filename}) format
 Fix: Reformat per references/ei-citation-and-token-reconciliation.md §7 + verify against Global Source Map | Confidence: HIGH
 ```
 

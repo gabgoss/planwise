@@ -1,6 +1,6 @@
 ---
-description: Every artifact a Sprint Plan Deliverable, an Orchestration Post-Session Checklist or a Signoff anchor names resolves to exactly one declared producer, and that producer states the artifact's record format and its merge rule (§1, Reviewer Check 111).
-consult-when: Scaffolding or reviewing a sprint where several documents read one assembled artifact (a rollup built at signoff from many tasks' outputs) — the artifact resolves to exactly one producer that states its record format and merge rule (§1, Check 111)
+description: Every artifact a Sprint Plan Deliverable, an Orchestration Post-Session Checklist or a Signoff anchor names resolves to exactly one declared producer, and that producer states the artifact's record format and its merge rule (§1, Reviewer Check 111). A question's option payload is a literal fragment of the file its consumer reads, with one question per pair, so no session owes a translation (§2).
+consult-when: Scaffolding or reviewing a sprint where several documents read one assembled artifact (a rollup built at signoff from many tasks' outputs) — the artifact resolves to exactly one producer that states its record format and merge rule (§1, Check 111) — or where one session emits a question, another writes its answer and a third reads it — the answer payload is a fragment of the consumer's input file (§2)
 paths: {planwise_root}/{plans_dir}/**
 ---
 
@@ -8,11 +8,12 @@ paths: {planwise_root}/{plans_dir}/**
 
 **Purpose:** A sprint-level rollup is assembled at signoff from many tasks' outputs. Several documents name it and several anchors read it. This reference requires a producer for it. Without a producer, each consumer guesses the artifact's shape, and a correct sprint fails an anchor that guessed wrong.
 
-**Read this when** you scaffold a sprint whose Deliverables, Orchestration checklists or Signoff anchors name an artifact that no single task writes. Read it also when you review such a sprint.
+**Read this when** you scaffold a sprint whose Deliverables, Orchestration checklists or Signoff anchors name an artifact that no single task writes. Read it also when you review such a sprint. Read §2 when one session emits a question and a later session persists the answer for a third to read.
 
 ## Table of Contents
 
 - [1. Every Artifact a Deliverable or Signoff Anchor Names Resolves to Exactly One Producer](#1-every-artifact-a-deliverable-or-signoff-anchor-names-resolves-to-exactly-one-producer)
+- [2. A Question's Answer Payload Is a Fragment of the File Its Consumer Reads](#2-a-questions-answer-payload-is-a-fragment-of-the-file-its-consumer-reads)
 
 ---
 
@@ -67,6 +68,34 @@ File: {Sprint Plan / Orchestration / Signoff} | Location: {Deliverables row | ch
 Issue: `{artifact path}` is read by {N} documents ({list}) and {no task Output line or checklist step builds it} | {two producers build it: {list}} | {the producer step omits the {record format | merge rule}}
 Fix: Name exactly one producer for the artifact, and have it state the record format and the merge rule, per references/artifact-producer-resolution.md §1 | Confidence: HIGH
 ```
+
+---
+
+## 2. A Question's Answer Payload Is a Fragment of the File Its Consumer Reads
+
+A read-only preflight asks a question. A second session writes the answer into a file. A third session reads that file. The payload format is a contract between all three, and each session can be internally consistent while the contract has no owner.
+
+> [!constraint] An option payload is a literal fragment of the consumer's input, and one question covers one pair
+> Write each option's payload in the consumer's own input format. Then the answer writer merges fragments without knowing what they mean, and the producer and the consumer can be tested against each other directly. A payload in the producer's private vocabulary needs a translator, and no plan names one. The translator can also lose information the consumer needs.
+>
+> Two defects came from one measured payload set. The producer offered `{"drop": "both"}` for a pair of reciprocal edges. The consumer reads an `edge_drops` list of pair strings. First, nobody owned the translation from `drop` to `edge_drops`. Second, `"both"` named no pair, so it could not be translated at all. A third defect rode along: the question covered only the first reciprocal pair, so a project with two pairs answered once and was refused again.
+>
+> WRONG — the payload speaks the producer's vocabulary, and one question covers every pair:
+> ```json
+> {"label": "Drop both", "answer": {"drop": "both"}}
+> ```
+> CORRECT — the payload is a fragment of the answers file, and one question covers one pair:
+> ```json
+> {"label": "Drop both", "answer": {"edge_drops": ["001<->002:both"]}}
+> ```
+
+Three obligations follow.
+
+1. **Name the consumer's input key in the producing task.** The task that emits the question states the key and the value shape its payloads fill, and quotes one consumer-side example.
+2. **Emit one question per pair, not one per class.** A payload that must name a pair names exactly one. A question that spans several pairs forces a vocabulary word that names none of them.
+3. **Test the producer against the consumer.** Feed each emitted payload, unchanged, into the consumer's reader. A payload the reader rejects is a defect in the producer, found before the third session starts.
+
+**Boundary with §1.** §1 asks who builds an artifact and in what record format. This section asks what shape an answer takes on its way into one. A sprint can pass §1 with a single declared producer and still fail here, because the producer's input was assembled from payloads that needed translating.
 
 ---
 

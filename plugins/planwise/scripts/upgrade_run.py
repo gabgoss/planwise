@@ -448,7 +448,15 @@ def read_document(args) -> tuple[str, str, str]:
         except (OSError, UnicodeDecodeError) as exc:
             return "--verdicts-file", "", f"cannot read {args.verdicts_file} ({exc})"
     if args.verdicts_stdin or args.answers_json:
-        return "--verdicts-stdin", sys.stdin.read(), ""
+        # On Windows sys.stdin decodes a pipe as the console code page (cp1252), which turns a UTF-8 "§" into "Â§".
+        # Read the raw bytes and decode them as UTF-8. A stdin without a buffer (a StringIO) already holds text.
+        raw = getattr(sys.stdin, "buffer", None)
+        if raw is None:
+            return "--verdicts-stdin", sys.stdin.read(), ""
+        try:
+            return "--verdicts-stdin", raw.read().decode("utf-8-sig"), ""
+        except UnicodeDecodeError as exc:
+            return "--verdicts-stdin", "", f"cannot decode stdin as UTF-8 ({exc})"
     return "", "", ""
 
 

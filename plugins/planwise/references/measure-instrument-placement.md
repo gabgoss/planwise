@@ -1,6 +1,6 @@
 ---
-description: Bind an instrument to the event it measures, not to the plan's shape. Covers why a re-measure scheduled as "the last sprint, after the install" opens an empty window by construction, why n = 0 is a data gap that licenses nothing in either direction, why a cumulative "stop when spend approaches N" guard runs only between calls and cannot catch an overrun inside the first one, and why a failed probe must never be priced at zero on an agentic harness. Consult when scheduling a did-the-figure-fall re-measure, writing a plan's success criteria for one, or dispatching a probe under a budget guard.
-consult-when: Scheduling a did-the-figure-fall re-measure, writing its success criteria, reporting an empty sample, or dispatching a probe under a budget guard — bind the window to a traffic precondition, treat n = 0 as a data gap, put the ceiling on the single call, never price a failed probe at zero
+description: Bind an instrument to the event it measures, not to the plan's shape. Covers why a re-measure scheduled as "the last sprint, after the install" opens an empty window by construction, why n = 0 is a data gap that licenses nothing in either direction, why a cumulative "stop when spend approaches N" guard runs only between calls and cannot catch an overrun inside the first one, and why a failed probe must never be priced at zero on an agentic harness. It also covers the ceiling of a spend-cap proof, which sits below the cost of one request. It covers pricing a load proof as one first request in its own fixture. Consult when scheduling a did-the-figure-fall re-measure, writing its success criteria, dispatching a probe under a budget guard, or proving that a cap binds.
+consult-when: Scheduling a did-the-figure-fall re-measure, writing its success criteria, reporting an empty sample, or dispatching a probe under a budget guard — bind the window to a traffic precondition, treat n = 0 as a data gap, put the ceiling on the single call, never price a failed probe at zero, set a cap proof's ceiling below one request and price a load proof as one first request in its own fixture
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Instrument Placement — The Control Was Well-Designed, Correctly Worded, and Structurally Incapable of Firing
@@ -19,6 +19,8 @@ Two neighbouring rules own adjacent halves. [`dispatch-preflight-claim-expiry.md
 - [2. n = 0 Is a Data Gap, Not a Null Result](#2-n--0-is-a-data-gap-not-a-null-result)
 - [3. Bound the Single Call, Not the Running Total](#3-bound-the-single-call-not-the-running-total)
 - [4. Never Assume a Failed Probe Was a Cheap Probe](#4-never-assume-a-failed-probe-was-a-cheap-probe)
+- [5. A Spend-Cap Proof's Ceiling Sits Below the Cost of One Request](#5-a-spend-cap-proofs-ceiling-sits-below-the-cost-of-one-request)
+- [6. Price a Load Proof as One First Request in the Fixture It Will Run In](#6-price-a-load-proof-as-one-first-request-in-the-fixture-it-will-run-in)
 
 ---
 
@@ -127,6 +129,70 @@ The same shape one layer down — a guard placed where the work is *represented*
 > ```
 
 §3 and §4 stay separate because §3 corrects a *placement* and §4 corrects an *inherited belief*. A reader who fixes the placement and keeps pricing failed probes at zero will set the per-call ceiling from the wrong cost model.
+
+---
+
+## 5. A Spend-Cap Proof's Ceiling Sits Below the Cost of One Request
+
+> [!constraint] Prove that a cap binds with a ceiling below one request, and grade the stop, not the cost
+> A task had to prove that `claude -p --max-budget-usd` binds before any paid child ran. The proof child read one file with Haiku and replied, so it needed two requests. The task set `ceiling_usd=0.01` and expected the cap to stop it after request 1.
+>
+> The child finished normally. It made 2 requests, `subtype` was `success`, `is_error` was false and the cost was 0.00606513 USD. The whole run cost less than the ceiling, so the cap had no chance to fire. The grader read DOES-NOT-BIND and held the paid probe.
+>
+> The re-proof set `ceiling_usd=0.001`. The child stopped after 1 request with `subtype` `error_max_budget_usd`, `is_error` true and cost 0.0041381 USD. The CLI checks the cap after a request completes. The reported cost therefore overshoots the ceiling by the cost of that one request.
+>
+> WRONG — the ceiling is a guess, and it sits above the child's whole cost:
+> ```
+> run_stream(..., ceiling_usd=0.01, extra_args=["--model", "haiku", ...])
+> # 2 requests, subtype success, cost 0.00607 -> the cap never fired -> DOES-NOT-BIND
+> ```
+> CORRECT — the ceiling sits below one request, and the grade reads the stop:
+> ```
+> run_stream(..., ceiling_usd=0.001, extra_args=["--model", "haiku", ...])
+> # 1 request, subtype error_max_budget_usd, is_error true, cost 0.00414 -> BINDS
+> ```
+>
+> Three rules follow:
+>
+> 1. Choose the ceiling from a measured per-request cost.
+> 2. Expect the recorded cost to exceed the ceiling by the cost of one request.
+> 3. Grade the proof on the stop: one request, a budget-naming `subtype` and `is_error` true. Do not grade on a cost at or below the ceiling.
+
+A DOES-NOT-BIND with `subtype` `success` and a cost under the ceiling is the signature of this flaw. It is not evidence that the cap fails.
+
+This applies to any proof that a spend, token, turn or request cap stops a child. It applies most to a cap that the harness checks after a unit of work completes. §3 bounds the call. This section sets the ceiling of the proof that shows the bound works.
+
+---
+
+## 6. Price a Load Proof as One First Request in the Fixture It Will Run In
+
+> [!constraint] A ceiling below one request bounds the number of requests, not the cost
+> Two load-proof children ran with `--max-budget-usd 0.001` in a consumer-sized fixture. The fixture held one `CLAUDE.md` and 22 files under `.claude/`. It totalled 262,505 B, of which 28,349 B load on every turn.
+>
+> The plan budgeted each proof at about 0.005 USD. That figure came from an earlier observation that the CLI cap overshot a tiny ceiling about 4x on the small arm fixture. The two proofs cost 0.2494996 and 0.294282 USD, about 250x and 290x the ceiling.
+>
+> The first request already carried the fixture's whole instruction volume plus the plugin. On the arm fixture the same proof cost 0.004 to 0.006 USD. That fixture had no `CLAUDE.md` and 91,669 B under `.claude/`.
+>
+> The headroom was enough here. The cap was 20.25 USD and the reserves were 20.001 USD. A tighter cap would have pushed the worst-case reserve over it.
+>
+> WRONG — carry an overshoot ratio across fixture sizes:
+> ```
+> ceiling 0.001, overshoot ~4x (arm fixture)  ->  proof ~0.005 USD
+> cap = graded reserves + 0.25 headroom
+> ```
+> CORRECT — price the proof as one first request in the fixture it will run in:
+> ```
+> fixture: 262,505 B under .claude/, always-on 28,349 B  ->  first request ~0.25-0.30 USD (Opus)
+> proof budget 0.30 USD per proof; cap = graded reserves + 0.30 x planned proofs (+ one re-proof)
+> ```
+>
+> Three rules follow:
+>
+> 1. A proof costs roughly one first request. That cost scales with the instruction volume the child loads.
+> 2. An overshoot ratio measured on one fixture does not carry to a fixture of a different size.
+> 3. A re-proof after a failed gate costs a second first request. Budget it.
+
+This applies to any paid lab task that opens with a cheap load or guard proof before graded runs. It also applies to any spend cap computed from ceilings, when the fixture's instruction volume differs from the fixture the ceiling was measured on. §5 sets the ceiling. This section prices what the proof then costs.
 
 ---
 

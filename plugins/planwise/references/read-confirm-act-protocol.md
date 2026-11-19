@@ -620,9 +620,9 @@ Three operative rules follow.
 
 1. **Read every repo at Phase 1.** The Phase 1 READ includes `git status --porcelain` on every repo the session touches, nested repos included.
 2. **Attribute before you remedy.** A dirty path is foreign until this session's Files Modified list claims it. HALT, revert, and override are remedies for this session's own changes only.
-3. **Committing a peer's finished work is the user's decision.** Surface it in the CONFIRM block as a structural finding (§1.2) with explicit options: commit the peer's work here after verification, the owner commits it, or dispatch literally and HALT. Record the approval reference and name the peer's item in the commit message.
+3. **Committing a peer's finished work is the user's decision.** Surface it in the CONFIRM block as a structural finding (§1.2) with explicit options: commit the peer's work here after verification, the owner commits it, dispatch literally and HALT, or split around a live peer or hunk-stage beside a dormant draft ([session-execution-protocol.md](session-execution-protocol.md) §7.1). Record the approval reference and name the peer's item in the commit message.
 
-**Closeout counterpart.** The session-end form of the same hazard is a bare commit that sweeps another session's staged entries, and a prior-sprint guard finding that accuses the closing session of a change a peer made. [session-execution-protocol.md](session-execution-protocol.md) §7 carries the commit-by-pathspec rule, and the run handler's Step 4.0 carries the foreign-mutation disposition.
+**Closeout counterpart.** The session-end form of the same hazard is a bare commit that sweeps another session's staged entries, and a prior-sprint guard finding that accuses the closing session of a change a peer made. [session-execution-protocol.md](session-execution-protocol.md) §7 carries the commit-by-pathspec rule, §7.1 carries the shared-file exception, and the run handler's Step 4.0 carries the foreign-mutation disposition.
 
 ### 1.6 A Commit-Shaped Criterion Is Probed at CONFIRM and Satisfied by History, Not by Re-Committing
 

@@ -194,6 +194,18 @@ style:
   # Costs about 680 tokens in every session, subagents included.
   plain_presentation: on
 
+plan_names:
+  # Length caps, in characters, for the file and folder names that /planwise plan
+  # generates. The plan writer cuts each free-text Name part on a word boundary to
+  # fit, prints one NOTE line per cut, and refuses a plan whose generated path is
+  # still over path_max. An absent block or key means the default shown.
+  # folder_max: a sprint or session folder name, such as Session-NN-<Name>.
+  folder_max: 40
+  # file_max: a task file name, such as <ABBR>-SNN-NN-NN-Sonnet-<Name>.md.
+  file_max: 80
+  # path_max: the path of any generated file, from the project root.
+  path_max: 160
+
 scoring:
   priority_high: 30
   priority_medium: 20

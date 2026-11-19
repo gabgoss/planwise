@@ -42,9 +42,9 @@ Use this path for candidates from a source document.
 1. Write one candidate block per candidate: label, claim, cited paths, acceptance criteria and source document.
 2. Dispatch `backlog-preflight` once in `file` mode with every candidate block.
 3. Read the fact sheet. A `HOLDS` block goes on to a planner. Every other disposition skips the planner (see section 6).
-4. Dispatch `backlog-planner` once per `HOLDS` block. Independent planners may run in parallel, each under its own dispatch name.
+4. Dispatch `backlog-planner` once per `HOLDS` block. Independent planners may run in parallel, each under its own dispatch name. A dispatch that returns no status block follows section 5.
 5. On a `QUESTIONS` return, run the round-trip of section 5.
-6. Dispatch `backlog-author` once in `file` mode, after every planner has returned its final design.
+6. Dispatch `backlog-author` once in `file` mode, after every planner has returned its final design and no design file reads `DESIGN: PENDING`. The author's mapping table has no row for `PENDING`, so such a file makes it return `BLOCKED`. Then run the post-author index check (section 7).
 7. Render the summary. Name each retirement in `ITEMS_RETIRED` with its evidence. Reconcile each source document in `SOURCE_RECONCILE`. Re-read a source whose `SOURCE_PINS` differ from your own read.
 
 A short count is valid: `ITEMS_FILED` below `CANDIDATES_IN` is a `COMPLETE` return when `ITEMS_RETIRED` accounts for the difference.
@@ -57,8 +57,8 @@ Use this path for existing items that are not yet refined.
 
 1. Pass the item ids. Dispatch `backlog-preflight` once in `refine` mode.
 2. A `HOLDS` block goes on to a planner. An `ALREADY_MET` block goes straight to the author. Other dispositions follow section 6.
-3. Dispatch `backlog-planner` once per `HOLDS` item, and run the round-trip of section 5 for any `QUESTIONS` return.
-4. Dispatch `backlog-author` once in `refine` mode. It edits each item in place and keeps the item's `id`, `title`, `created` and `blocks`.
+3. Dispatch `backlog-planner` once per `HOLDS` item, and run the round-trip of section 5 for any `QUESTIONS` return. A dispatch that returns no status block follows section 5.
+4. Dispatch `backlog-author` once in `refine` mode, only when no design file reads `DESIGN: PENDING`. It edits each item in place and keeps the item's `id`, `title`, `created` and `blocks`. Then run the post-author index check (section 7).
 
 The shape gate reads an item as executable by this predicate, quoted from `references/backlog-schema.md`: `shape_ok`: true when `refined` is true, `## Resolution` has at least one numbered step, `## Verification` exists with a fence, and `open_questions` is `absent` or `empty`.
 
@@ -74,6 +74,12 @@ Spawn the planner in the foreground with a `name:` of the form `planner-{id-or-l
 
 - **Interactive run:** read the questions from the design file. Ask the user one `AskUserQuestion` per question, per the Question briefing below. Then send all the answers with `SendMessage` to that dispatch name. The planner resumes from its own transcript, re-decides, overwrites the design file and returns a new status block. A second `QUESTIONS` return names only questions the answers did not cover. When the earlier dispatch cannot be reached, start a fresh planner dispatch with the same item and an `answers:` line holding the answers keyed by question number. The planner re-reads the design file on disk, re-decides, overwrites it and returns a new status block.
 - **Unattended run (a loop or Auto Mode):** ask nothing. Pass the design file to the author. The author writes each question into the item as an unanswered `### Q{n}.` block under `## Open Questions`, and the item stays `refined: false` until a user answers it.
+
+**A planner dispatch with no status block.** A final message with no `TASK_STATUS:` line is `PARTIAL`. Read `{handover_dir}/{id-or-label}-design.md` and act on its `DESIGN:` line:
+
+- `REFINED`, `QUESTIONS`, `DECOMPOSE` or `NEEDS_PLAN`: accept the design from disk. The caller recomputes the outcome from the fact sheet and the design file, so the missing block costs nothing.
+- `PENDING`, or no file: resume with `SendMessage` to `planner-{id-or-label}`. Ask the planner to finish sections 3 and 4 and return its status block.
+- The dispatch cannot be reached, or the resume also returns no block: start a fresh planner dispatch with the same item. The planner reads a `DESIGN: PENDING` file as a starting point, not an answer.
 
 **Question briefing.** The user answers from what the dialog shows, so every question carries its item's context. The context comes from a different source on each path:
 
@@ -134,11 +140,13 @@ A design file's `DESIGN` value maps to the item as the author's mapping table st
 ## 7. Constraints
 
 - Dispatch every agent in the foreground. A background dispatch loses its Write, Edit and Bash calls silently.
-- Dispatch one author at a time, and batch every candidate into that one dispatch. Two concurrent authors can read the same next free id.
+- Dispatch one author at a time, with at most 8 candidates (file mode) or items (refine mode) per dispatch. Two concurrent authors can read the same next free id.
+- A set over 8 runs as sequential batches of at most 8. Each batch goes through the whole process with its own `handover_dir`, one after another. Run the post-author index check between batches, so the next `--next-id` sees the last batch's ids.
 - Dispatch the preflight once per batch, never once per candidate.
 - No spawned agent has a question tool. A user decision is a returned disposition or a `QUESTIONS` return, and the orchestrator asks.
 - The orchestrator owns every status flip and every source-document reconciliation. The author sets neither.
 - The author regenerates the index once per dispatch. Do not write index rows by hand.
+- Post-author index check: after every author dispatch, with or without a status block, run `python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --check`. Exit 0 ends the check. Exit 1 means run the same command with `--write`. A `--write` exit 2 means fix the input it names, and never file the items again.
 - Keep shipped text project-agnostic: a spawn prompt names paths and modes, never a plan, a session or a tracker identifier.
 
 ### Spawn prompt: preflight

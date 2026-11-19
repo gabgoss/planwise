@@ -28,6 +28,7 @@ from pathlib import Path
 
 from lint_gate_checks_commands import (
     _diff_parts,
+    _git_subcommand,
     _is_task_file,
     _norm,
     _pipelines,
@@ -404,31 +405,73 @@ def _anchored_forms(spec: str, repo_dir) -> tuple:
 _EXCLUDE_PATHSPEC_RE = re.compile(r"^:(?:\(exclude\)|!|\^)(.+)$")
 
 
+def _counts_lines(stages) -> bool:
+    """True when any stage is ``wc -l`` (or ``wc --lines``)."""
+    return any(stage[0] == "wc" and ("-l" in stage or "--lines" in stage) for stage in stages)
+
+
+def _listing_pathspecs(stage, allow_ls_files: bool):
+    """For a ``git diff --name-only`` stage, and for a ``git ls-files`` stage
+    when ``allow_ls_files`` is set, return ``(repo_dir, pathspecs)`` with the
+    pathspecs written after ``--``. None for any other stage."""
+    repo_dir, at = _git_subcommand(stage)
+    if at is None:
+        return None
+    if stage[at] == "diff" and "--name-only" in stage:
+        return repo_dir, _diff_parts(stage)[2]
+    if stage[at] == "ls-files" and allow_ls_files:
+        rest = stage[at + 1:]
+        return repo_dir, (rest[rest.index("--") + 1:] if "--" in rest else [])
+    return None
+
+
+def _count_sources(command) -> list:
+    """Return one list per ``wc -l`` count over listed file names in the
+    command. Each list holds ``(repo_dir, pathspecs)`` for every listing stage
+    that feeds the count: the one ``git diff --name-only`` of a plain pipeline,
+    or the ``git diff --name-only`` and ``git ls-files`` stages of a
+    ``{ ...; ...; } | sort -u | wc -l`` group. ``_pipelines`` splits the brace
+    group on ``;``, so the group is read across consecutive pipelines up to
+    the one that starts with ``}``."""
+    counts: list = []
+    group = None
+    for stages in _pipelines(_tokens(command.command) or []):
+        if group is None and stages[0][0] == "{":
+            group = []
+        if group is not None:
+            listing = _listing_pathspecs(stages[0], allow_ls_files=True)
+            if listing is not None:
+                group.append(listing)
+            if stages[0] == ["}"]:
+                if group and _counts_lines(stages[1:]):
+                    counts.append(group)
+                group = None
+            continue
+        for index, stage in enumerate(stages):
+            listing = _listing_pathspecs(stage, allow_ls_files=False)
+            if listing is not None and _counts_lines(stages[index + 1:]):
+                counts.append([listing])
+    return counts
+
+
 def _name_only_count_paths(command):
     """Return ``(paths, excludes)`` of every ``git diff --name-only -- <paths>
-    | wc -l`` pipeline in the command, each entry a tuple of anchored forms
-    (see ``_anchored_forms``). An exclude pathspec (``:(exclude)X``, ``:!X``,
-    ``:^X``) removes files from the count; other magic is skipped."""
+    | wc -l`` count in the command, including the ``{ git diff --name-only
+    ...; git ls-files --others ...; } | sort -u | wc -l`` union form, each
+    entry a tuple of anchored forms (see ``_anchored_forms``). An exclude
+    pathspec (``:(exclude)X``, ``:!X``, ``:^X``) removes files from the count;
+    other magic is skipped."""
     paths, excludes = [], []
-    for stages in _pipelines(_tokens(command.command) or []):
-        for index, stage in enumerate(stages):
-            parts = _diff_parts(stage)
-            if parts is None or "--name-only" not in stage:
-                continue
-            counted = any(
-                later[0] == "wc" and ("-l" in later or "--lines" in later)
-                for later in stages[index + 1:]
-            )
-            if not counted:
-                continue
-            for spec in parts[2]:
+    for sources in _count_sources(command):
+        for repo_dir, specs in sources:
+            for spec in specs:
                 if _has_placeholder(spec):
                     continue
                 exclude = _EXCLUDE_PATHSPEC_RE.match(spec)
                 if exclude:
-                    excludes.append(_anchored_forms(exclude.group(1), parts[0]))
+                    excludes.append(_anchored_forms(exclude.group(1), repo_dir))
                 elif not spec.startswith(":"):
-                    paths.append(_anchored_forms(spec, parts[0]))
+                    paths.append(_anchored_forms(spec, repo_dir))
     return paths, excludes
 
 
@@ -478,6 +521,87 @@ def _check28_count_over_sibling_output(context) -> list:
                 "passes with this task's work missing. Prove each file's content separately"
             ),
         ))
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Count expectation above the pathspecs it counts (Check 55)
+# ---------------------------------------------------------------------------
+
+_COUNT_EXPECT_RE = re.compile(r"\b(?:expects?|must\s+(?:equal|be|print)|equals?)\s*[:=]?\s*(\d+)\b", re.IGNORECASE)
+_BARE_COUNT_RE = re.compile(r"#?\s*(\d+)")
+
+
+def _stated_count(command):
+    """The one count a gate's comment or annotation states (``expect N``,
+    ``MUST equal N`` or a bare ``# N``), or None when it states none or states
+    two different values."""
+    note = f"{command.comment} {command.annotation}"
+    values = {int(value) for value in _COUNT_EXPECT_RE.findall(note)}
+    if not values:
+        bare = _BARE_COUNT_RE.fullmatch(command.comment.strip())
+        values = {int(bare.group(1))} if bare else set()
+    return values.pop() if len(values) == 1 else None
+
+
+def _literal_bound(sources):
+    """The most file names a count over these listing stages can print: the
+    number of distinct literal file pathspecs they name. None when no bound is
+    computable: a stage with no positive pathspec, or a pathspec that is a
+    placeholder, a glob, other magic, ``.``, or has no extension (possibly a
+    directory). An exclude pathspec only removes files, so it is ignored."""
+    names = set()
+    for repo_dir, specs in sources:
+        positives = [spec for spec in specs if not _EXCLUDE_PATHSPEC_RE.match(spec)]
+        if not positives:
+            return None
+        for spec in positives:
+            norm = _norm(spec)
+            last = norm.rsplit("/", 1)[-1]
+            if (
+                spec.startswith(":") or _has_placeholder(spec) or "[" in spec
+                or norm.endswith("/") or last in ("", ".", "..") or "." not in last
+            ):
+                return None
+            names.add((repo_dir or "", norm))
+    return len(names)
+
+
+def _check55_count_expect_exceeds_pathspecs(context) -> list:
+    """Check 55 -- a gate pipes ``git diff --name-only`` (or the ``{ diff;
+    ls-files; } | sort -u`` union form) into ``wc -l`` and states an expected
+    count above the number of distinct literal file pathspecs the command
+    names (gate-denominator-integrity.md §2). ``wc -l`` prints at most one
+    line per listed file, so the gate can never reach the stated count and
+    fails correct work. A command with a placeholder, glob, ``.``, other
+    magic or extension-less (possibly a directory) pathspec has no computable
+    bound and is skipped, and so is a gate whose note states an inequality.
+    ERROR.
+    """
+    findings = []
+    for command in context.commands:
+        if not command.is_gate:
+            continue
+        if _INEQUALITY_RE.search(f"{command.comment} {command.annotation}"):
+            continue
+        stated = _stated_count(command)
+        if stated is None:
+            continue
+        for sources in _count_sources(command):
+            bound = _literal_bound(sources)
+            if bound is None or stated <= bound:
+                continue
+            findings.append(_finding(
+                check=55, severity=SEVERITY_ERROR, file=command.file, line=command.line,
+                command=command.command,
+                message=(
+                    f"This gate expects {stated} from a `wc -l` over file names, but its command "
+                    f"names only {bound} distinct file pathspec(s), so the count cannot reach "
+                    f"{stated} and the gate fails correct work. Update the expected value, or add "
+                    "the missing path to the command in the same edit"
+                ),
+            ))
+            break
     return findings
 
 
@@ -766,10 +890,155 @@ def _check34_verification_path_outside_working_directory(context) -> list:
     return findings
 
 
+# ---------------------------------------------------------------------------
+# A plan-level id a task names with no definition it can read (Check 56)
+# ---------------------------------------------------------------------------
+
+_MASTER_PLAN_NAME_RE = re.compile(r"Master-Plan\.md$")
+_PLAN_ID_RE = re.compile(r"^[A-Z]\d+$")
+_PLAN_ID_MENTION_RE = re.compile(r"(?<![\w.-])([A-Z]\d+)(?![\w-]|\.\w)")
+_REQUIRED_CONTEXT_HEADING_RE = re.compile(r"^##\s+Required Context\b", re.IGNORECASE)
+_ID_TABLE_HEADERS = frozenset({"id", "#"})
+
+
+def _outside_fences(lines: list):
+    """``(line number, text)`` for each line outside a fenced block. A fence closes
+    only on a bare marker of its own character, at least as long as the opener."""
+    fence = None
+    for number, raw in enumerate(lines, 1):
+        stripped = _unquote(raw).strip()
+        marker = _FENCE_RE.match(stripped)
+        if marker:
+            token = marker.group(1)
+            if fence is None:
+                fence = token
+            elif token[0] == fence[0] and len(token) >= len(fence) and stripped == token:
+                fence = None
+            continue
+        if fence is None:
+            yield number, stripped
+
+
+def _master_plan_ids(lines: list) -> set:
+    """The ids a Master Plan defines: the first cell of each row, when it reads
+    ``^[A-Z]\\d+$``, in a table whose header's first cell is ``ID`` or ``#``."""
+    defined, in_id_table, previous_was_row = set(), False, False
+    for _number, text in _outside_fences(lines):
+        if not text.startswith("|"):
+            previous_was_row = False
+            continue
+        cells = _cells(text)
+        first = cells[0].strip("*_` ") if cells else ""
+        if not previous_was_row:
+            in_id_table = first.lower() in _ID_TABLE_HEADERS
+        elif in_id_table and _PLAN_ID_RE.match(first):
+            defined.add(first)
+        previous_was_row = True
+    return defined
+
+
+def _nearest_master_plan(path: Path, root: Path, known: dict):
+    """The ``*Master-Plan.md`` file in the nearest folder above ``path``, stopping at
+    ``root``, as ``(path, ids)``; None when no folder up to ``root`` holds one. A
+    folder that holds two uses the first by name. ``known`` caches each folder."""
+    for folder in [path.parent, *path.parent.parents]:
+        if folder not in known:
+            try:
+                names = sorted(item for item in folder.iterdir() if _MASTER_PLAN_NAME_RE.search(item.name))
+            except OSError:
+                names = []
+            known[folder] = (names[0], _master_plan_ids(_lines(names[0]))) if names else None
+        if known[folder] is not None:
+            return known[folder]
+        if folder == root:
+            break
+    return None
+
+
+def _required_context_names(lines: list, name: str) -> bool:
+    """True when the task's Required Context section names the file ``name``."""
+    inside = False
+    for raw in lines:
+        if _H2_RE.match(raw):
+            inside = bool(_REQUIRED_CONTEXT_HEADING_RE.match(raw))
+        elif inside and name in raw:
+            return True
+    return False
+
+
+def _defines_id(lines: list, ident: str) -> bool:
+    """True when the task file itself defines ``ident``: a table row whose first cell
+    is the id, or a line where the id is followed by ``:`` or a dash."""
+    spelled = re.compile(rf"(?<![\w.-]){ident}\s*(?::|[—–]|-(?=\s))")
+    for _number, text in _outside_fences(lines):
+        if text.startswith("|"):
+            cells = _cells(text)
+            if cells and cells[0].strip("*_` ") == ident:
+                return True
+        elif spelled.search(text):
+            return True
+    return False
+
+
+def _check56_plan_level_id_without_definition(context) -> list:
+    """Check 56 -- a task file names a plan-level id (a hypothesis ``H4`` or a decision
+    ``D2``) that only the Master Plan defines (task-content-fidelity.md §9.A.19,
+    Reviewer Check 136). A runner under a DELEGATED context boundary cannot read the
+    Master Plan, so it must guess what the id means. Input: the task files under
+    ``plan_root`` and the nearest ``*Master-Plan.md`` above each. The Master Plan's
+    defined ids are the first cells matching ``^[A-Z]\\d+$`` in tables whose header's
+    first cell is ``ID`` or ``#``. For each task file, an id is flagged when it is
+    named as a whole word outside fenced blocks, the task's Required Context has no
+    row naming the Master Plan file, and the task does not define the id itself (a
+    table row whose first cell is the id, or a line where the id is followed by ``:``
+    or a dash). One finding per task and id, at the first mention. WARNING, because
+    the name may be a coincidence, such as an ``H2`` that means a heading. Silent when
+    no Master Plan is found. It cannot see an id the Master Plan defines only in prose,
+    or an id spelled with a prefix of two or more letters.
+    """
+    root = Path(context.plan_root)
+    known: dict = {}
+    findings = []
+    for path in context.markdown_files():
+        if not _is_task_file(path):
+            continue
+        master = _nearest_master_plan(path, root, known)
+        if master is None or not master[1]:
+            continue
+        master_path, defined = master
+        lines = _lines(path)
+        if _required_context_names(lines, master_path.name):
+            continue
+        rel = _rel(path, root)
+        reported = set()
+        for number, text in _outside_fences(lines):
+            for match in _PLAN_ID_MENTION_RE.finditer(text):
+                ident = match.group(1)
+                if ident not in defined or ident in reported:
+                    continue
+                reported.add(ident)
+                if _defines_id(lines, ident):
+                    continue
+                findings.append(_finding(
+                    check=56, severity=SEVERITY_WARNING, file=rel, line=number, command=text,
+                    message=(
+                        f"This task names the plan-level id {ident}, which {master_path.name} defines, "
+                        "and the task neither defines it nor lists that file in Required Context. A "
+                        "runner under a DELEGATED context boundary cannot read the Master Plan, so it "
+                        "must guess the meaning. Inline the id's definition row in the task, or add a "
+                        "measured Required Context row for the Master Plan section that defines it "
+                        "(task-content-fidelity.md §9.A.19, Reviewer Check 136)"
+                    ),
+                ))
+    return findings
+
+
 CHECKS = [
     _check26_anchor_branch_count,
     _check27_anchor_path_outside_declared_cwd,
     _check28_count_over_sibling_output,
     _check29_sprint_base_not_pinned,
     _check34_verification_path_outside_working_directory,
+    _check55_count_expect_exceeds_pathspecs,
+    _check56_plan_level_id_without_definition,
 ]

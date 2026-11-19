@@ -139,10 +139,12 @@ def _review_one(cfg, pair: str, path: Path) -> dict:
     header, body = split
     source = header.get("source_filename") or path.name
     recorded = header.get("unique_blocks", [])
-    # Reject a header value that would leave the references folder.
+    # Reject a header value that would leave the shipped folder.
     if Path(source).name != source:
         return _row(pair, path, STATUS_NOT_A_TRANSFER, filename=source)
-    shipped = cfg.plugin_root / "references" / source
+    # An agent transfer compares against agents/, every other kind against references/.
+    shipped_dir = "agents" if header.get("source_kind") == "agent" else "references"
+    shipped = cfg.plugin_root / shipped_dir / source
     try:
         shipped_raw = shipped.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):

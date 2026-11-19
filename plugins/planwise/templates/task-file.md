@@ -33,6 +33,10 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 | 4 | Grep {family} over {scope} — {N} lines / {B} bytes returned | {K} | ~{X}K | {why needed} — command-corpus row, priced from the dry-run below |
 | 5 | {this task file's name} | {K} | ~{X}K | this task file — self row, measured by the write-back after the last edit |
 
+**Measured:** {YYYY-MM-DD} by {command} · {model} · {ratio} B/tok
+
+<!-- The footer above names when, how and at what bytes-per-token ratio the rows were priced, so any row can be re-checked. The build write-back (`token_saver.py --scan --write-estimates`) writes it directly under the table and moves its date only when a row cell or the ratio changes. A hand measurement fills it from the `measure_files.py --model {Agent}` output, which prints the ratio. Keep exactly one footer, directly under the table. -->
+
 <!-- Every row needs numbers, not only the Context subtotal (references/task-content-fidelity.md §9.A.2). An em-dash,
      `~?` or blank in a row's KiB or ~Tokens cell fails review, even when the subtotal below is correct.
      The only exception is §9.A.6: input that a generator produces by walking ≥100 files, or a tree of ≥10K lines,
@@ -43,6 +47,9 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
        last cited section runs to EOF, the span runs to EOF — not to an assumed next heading. Record the
        resolution:   Span resolved {YYYY-MM-DD}: §{X} at :{start} → §{Y} runs to EOF = {N} lines / {B} bytes
        A span covering most of its file is a full read: say `full read` and budget it as one.
+       A section row cites `§X–§Y` headings, never a bare `lines N-M` span. The runner locates `§X` with Grep and
+       Reads a window bounded by the next heading. The `:{start}` in the record is a cost hint, never an address
+       (`references/scaffolding-hygiene.md` §12.1).
      - Command-corpus row: a command's OUTPUT is not a file and no file measurement prices it. Dry-run it once
        at its declared scope and price the returned volume; price each command family as its own row. Record it:
        Dry-run {YYYY-MM-DD}: {family} over {scope} → {N} matched lines / {B} bytes
@@ -266,7 +273,7 @@ The later stale-reference sweep task lists this slot in its `## Required Context
 > ```
 > {cmd_after_1}    # e.g., {lint-cmd} on files from { git diff --name-only $..._BASE -- <paths>; git ls-files --others --exclude-standard -- <paths>; } | sort -u (expect: pass)
 > # pre-edit: {measured value} → expect {post-edit expectation}
-> {cmd_after_2}    # e.g., {test-cmd} on this task's own test files — never the whole suite per task
+> {cmd_after_2}    # e.g., {test-cmd} on this task's own test files plus the repo-wide guard tests that scan its write directory (Grep the test folder for the directory name) — never the whole suite per task
 > # pre-edit: {measured value} → expect {post-edit expectation}
 > {cmd_after_3}    # e.g., {test-cmd} on the touched module, or wc -l on {plan_path}/{Session}/Outputs/{Report}.md
 > # pre-edit: {measured value} → invariant: {value}   (mark invariant only if this gate must NOT move)
@@ -459,7 +466,9 @@ EI-section-length estimates for verbatim-copy tasks (instead of body-block estim
 <!-- Include when an upstream session, or this session's flag preflight, routed a coordination
      flag to this task. Omit the section when no flag was routed. A flag that contradicts an
      Execution Step, a Success Criterion or the Output line above is a structural finding for
-     the orchestrator to raise before dispatch, not an instruction for the runner to follow. -->
+     the orchestrator to raise before dispatch, not an instruction for the runner to follow.
+     Keep the `Flag {n} from {source-task-id}` lead of each bullet verbatim, because the flag
+     preflight script matches it when the observation is reworded. -->
 
 - **Flag {n} from {source-task-id}** (routed {YYYY-MM-DD}): {observation} → {recommended action}
 

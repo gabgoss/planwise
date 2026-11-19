@@ -154,6 +154,30 @@ class BacklogAuthoringAgentContractTests(unittest.TestCase):
             with self.subTest(planner_denied=name):
                 self.assertIn(name, planner_denied)
 
+    def test_planner_writes_a_provisional_design_and_the_process_routes_no_status_block(self):
+        planner = _read(PLANNER)
+        self.assertNotIn("exceed `maxTurns`", planner)
+        self.assertNotIn("maxTurns", _section(planner, "## Failure Semantics"))
+        expected = {
+            "## 2. EVALUATE": "DESIGN: PENDING",
+            "## 4. WRITE": "overwrites the `DESIGN: PENDING` file",
+            "## 5. RESUME": "a starting point, not an answer",
+            "## Status Block": "references/backlog-creation-process.md` section 5",
+        }
+        for heading, literal in expected.items():
+            with self.subTest(planner_section=heading):
+                self.assertIn(literal, _section(planner, heading))
+        reference = _read(PLUGIN / PROCESS_REFERENCE)
+        route = _section(reference, "## 5.")
+        for literal in ("no status block", "DESIGN: PENDING", "`TASK_STATUS:`", "SendMessage"):
+            with self.subTest(route_literal=literal):
+                self.assertIn(literal, route)
+        for heading in ("## 3.", "## 4."):
+            body = _section(reference, heading)
+            for literal in ("no status block", "section 5", "DESIGN: PENDING"):
+                with self.subTest(path=heading, literal=literal):
+                    self.assertIn(literal, body)
+
 
 if __name__ == "__main__":
     unittest.main()

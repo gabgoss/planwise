@@ -33,8 +33,16 @@ Public surface: `LESSON_ROW_RE`, `LESSON_FILE_RE`, `format_id`,
 `duplicate_ids`, `detect_index_shape`,
 `parse_legacy_master_table`, `parse_generated_table`, `Row`,
 `generated_index_files`, `parse_index`, `ParsedIndex`,
-`collect_all_known_ids`, `compute_next_id`, and a CLI
-(`--config`, `--next-id`, `--json`).
+`collect_all_known_ids`, `compute_next_id`, `list_lessons_by_status`,
+`resolve_owners`, and a CLI (`--config`, `--next-id`, `--json`, `--status`,
+`--owners`).
+
+The two read views answer the curate workflow's questions without a one-off
+script. `--status VALUE` lists each lesson whose frontmatter status equals
+VALUE. `--owners` resolves each lesson's `promoted-to:` ids to the backlog
+item file (by id prefix, in the backlog and its `Archive/`) and prints that
+item's status, or `MISSING` when no file matches. Both read the lesson files
+through the CRLF-safe `lessons_index_scan` reader.
 """
 
 import argparse
@@ -523,6 +531,129 @@ def compute_next_id(config: dict) -> dict:
     }
 
 
+# A backlog owner id as a lesson's `promoted-to:` value spells it. The value is
+# one id (`BB-NNN`) or several joined by commas (`BB-NNN, BB-NNN`), and a bare
+# comma-joined value is not a flow or block list, so `_parse_list_field` reads
+# it as empty. One findall covers every shape.
+_OWNER_ID_RE = re.compile(r"(?:BB|BLI)-\d+")
+
+
+def list_lessons_by_status(config: dict, status: str | None) -> list:
+    """Every lesson whose frontmatter `status:` equals `status`, id-sorted, from
+    the working directory and `Archive/`. `status=None` returns every lesson.
+
+    Each record is `{"id", "status", "path", "promoted_to"}`. The scan is the
+    CRLF-safe `scan_lessons` reader, and `promoted_to` is the list of owner ids
+    read from the same file's `promoted-to:` value. Raises
+    `LessonsGeneratorError` naming every lesson file whose frontmatter cannot be
+    read, the same refusal the index generator gives.
+
+    The three imports are function-local: `lessons_index_scan` imports this
+    module at its top level, so a top-level import here would be circular.
+    """
+    from lessons_index_scan import (
+        _read_frontmatter_map,
+        _strip_inline_comment,
+        scan_lessons,
+    )
+    from lessons_index_schema import _resolve_valid_statuses
+
+    lessons_dir = config["_lessons_dir"]
+    scanned = scan_lessons(
+        lessons_dir, lessons_dir / "Archive", config["_lessons_index"], _resolve_valid_statuses(config)
+    )
+    records = []
+    for item in scanned.items:
+        if status is not None and item["status"] != status:
+            continue
+        raw_map = _read_frontmatter_map(item["_path"])
+        promoted = _strip_inline_comment(raw_map.get("promoted-to", ""))
+        records.append(
+            {
+                "id": item["id"],
+                "status": item["status"],
+                "path": item["_path"],
+                "promoted_to": _OWNER_ID_RE.findall(promoted),
+            }
+        )
+    return records
+
+
+def resolve_owners(config: dict, records: list) -> list:
+    """One entry per lesson in `records`: `{"id", "owners": [...]}`. Each owner is
+    `{"id", "status", "path"}`, resolved by id prefix through
+    `parse_backlog.find_item_file` (it matches `BB-<NNN>-*.md` in the backlog and
+    its `Archive/`). A missing file gives `status "MISSING"` and `path None`. An
+    existing file whose frontmatter carries no `status:` gives `"UNKNOWN"`.
+    """
+    from item_frontmatter import read_item_frontmatter
+    from parse_backlog import find_item_file
+
+    resolved = []
+    for record in records:
+        owners = []
+        for owner_id in record["promoted_to"]:
+            path = find_item_file(owner_id, config)
+            if path is None:
+                owners.append({"id": owner_id, "status": "MISSING", "path": None})
+                continue
+            status = str(read_item_frontmatter(path).get("status") or "UNKNOWN")
+            owners.append({"id": owner_id, "status": status, "path": path})
+        resolved.append({"id": record["id"], "owners": owners})
+    return resolved
+
+
+def _format_status_lines(records: list) -> list:
+    return [f"{format_id(r['id'])}\t{r['status']}\t{Path(r['path']).as_posix()}" for r in records]
+
+
+def _format_owner_lines(resolved: list) -> list:
+    lines = []
+    for entry in resolved:
+        label = format_id(entry["id"])
+        if not entry["owners"]:
+            lines.append(f"{label}\t(none)")
+            continue
+        for owner in entry["owners"]:
+            path = Path(owner["path"]).as_posix() if owner["path"] is not None else "-"
+            lines.append(f"{label}\t{owner['id']}\t{owner['status']}\t{path}")
+    return lines
+
+
+def _run_lesson_view(config: dict, status: str | None, owners: bool, write_json: bool) -> int:
+    """The `--status` and `--owners` read views. Exit 0 on a clean read, 2 for an
+    undeclared status, 1 when a lesson file's frontmatter cannot be read."""
+    from lessons_index_schema import LessonsGeneratorError, _resolve_valid_statuses
+
+    valid = _resolve_valid_statuses(config)
+    if status is not None and status not in valid:
+        print(
+            f"Error: --status={status!r} is not a declared lesson status ({', '.join(sorted(valid))}).",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        records = list_lessons_by_status(config, status)
+    except LessonsGeneratorError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    resolved = resolve_owners(config, records) if owners else None
+    if not records:
+        print(f"No lessons with status {status}." if status is not None else "No lessons found.")
+    elif resolved is not None:
+        print("\n".join(_format_owner_lines(resolved)))
+    else:
+        print("\n".join(_format_status_lines(records)))
+
+    if write_json:
+        payload = {"status": status, "lessons": records}
+        if resolved is not None:
+            payload["owners"] = resolved
+        print(f"JSON: {_write_json(payload)}")
+    return 0
+
+
 def _format_duplicates_report(known: dict) -> str:
     lines = []
     if known["duplicates_on_disk"]:
@@ -563,6 +694,20 @@ def main() -> int:
     parser.add_argument("--config", type=str, required=True, help="Path to config.yaml.")
     parser.add_argument("--next-id", action="store_true", help="Print the true next lesson id and exit.")
     parser.add_argument("--json", action="store_true", help="Additionally write a JSON report and print its path.")
+    parser.add_argument(
+        "--status",
+        type=str,
+        default=None,
+        metavar="VALUE",
+        help="List every lesson whose frontmatter status equals VALUE (exit 2 for an undeclared status). "
+        "One `LL-NNN<TAB>status<TAB>path` line each.",
+    )
+    parser.add_argument(
+        "--owners",
+        action="store_true",
+        help="Resolve each lesson's promoted-to ids to their backlog files and print each owner's status "
+        "(`MISSING` when no file matches). Combine with --status to limit the lessons.",
+    )
     args = parser.parse_args()
 
     config = load_config(Path(__file__))
@@ -573,6 +718,9 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+
+    if args.status is not None or args.owners:
+        return _run_lesson_view(config, args.status, args.owners, args.json)
 
     known = collect_all_known_ids(config)
     has_duplicates = bool(known["duplicates_on_disk"] or known["duplicates_in_index"])

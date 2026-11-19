@@ -13,6 +13,7 @@ This file owns the **denominator and the aggregate**. [`gate-predicate-discrimin
 
 - [1. Ask What Invariant You Actually Wanted](#1-ask-what-invariant-you-actually-wanted)
 - [2. Never Assert an Aggregate Count Over a Shared File](#2-never-assert-an-aggregate-count-over-a-shared-file)
+  - [2.1 A Count Gate's Expected Value Is Bounded by Its Own Input Set](#21-a-count-gates-expected-value-is-bounded-by-its-own-input-set)
 - [3. Take the Denominator From Outside the Artifact](#3-take-the-denominator-from-outside-the-artifact)
 - [4. A Balance Gate Is a Statement About Provenance, Not About Rows](#4-a-balance-gate-is-a-statement-about-provenance-not-about-rows)
 - [5. Detection at Plan-Review Time](#5-detection-at-plan-review-time)
@@ -77,6 +78,24 @@ All four are per-hunk or per-content assertions. None is an aggregate over a fil
 A new stage that says "this is distinct from X" must mention X, so it always moves X's count. **The better the prose, the more reliably the gate false-fails.**
 
 Check 28 of `scripts/lint_gate_checks_plan.py` lints a plan's gates against this section.
+
+### 2.1 A Count Gate's Expected Value Is Bounded by Its Own Input Set
+
+A gate that pipes a file-name listing into `wc -l` prints at most one line for each file the command lists. A command that names N literal file paths therefore prints at most N. An expected value above N fails correct work, and no correct work can satisfy it.
+
+The usual cause is a write-set change. The edit adds or drops a path and updates only one of the two numbers, the path list or the expected literal. The bound is checkable from the command text alone, with no run.
+
+> [!constraint] The expected literal never exceeds the paths the command names
+> WRONG — the gate expects 5 and names 4 paths:
+> ```
+> { git diff --name-only <base> -- a.py b.py c.py d.py; git ls-files --others --exclude-standard -- a.py b.py c.py d.py; } | sort -u | wc -l   # expect 5
+> ```
+> CORRECT — add the fifth path to both listings, or lower the literal, in the same edit:
+> ```
+> { git diff --name-only <base> -- a.py b.py c.py d.py e.py; git ls-files --others --exclude-standard -- a.py b.py c.py d.py e.py; } | sort -u | wc -l   # expect 5
+> ```
+
+Check 55 of `scripts/lint_gate_checks_plan.py` lints this. It reports an ERROR when the stated count exceeds the distinct literal file pathspecs the command names. It skips a command whose pathspec is a placeholder, a glob, `.`, other pathspec magic, or a name with no extension, because those have no computable bound. It also skips a note that states an inequality.
 
 ---
 

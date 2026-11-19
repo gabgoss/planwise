@@ -116,7 +116,10 @@ from backlog_index_scan import (
     _scan_one_file,
     _strip_quotes,
     build_blocks_index,
+    detect_blocks_cycles,
+    detect_inverted_edges,
     detect_reciprocal_edges,
+    extract_waiting_ids,
     scan_backlog,
     validate_blocks_resolve,
 )
@@ -185,6 +188,7 @@ __all__ = [
     "_cmd_check",
     "_cmd_write",
     "_continuation_wrapper",
+    "_direction_summary",
     "_escape_cell",
     "_extract_fields",
     "_file_summary",
@@ -192,6 +196,7 @@ __all__ = [
     "_format_check_report",
     "_generated_index_file_pattern",
     "_generated_line",
+    "_graph_anomalies",
     "_hub_filename",
     "_hub_leaf_entries",
     "_id_range",
@@ -221,10 +226,13 @@ __all__ = [
     "build_index_files",
     "build_shard_files",
     "compute_scores_for_items",
+    "detect_blocks_cycles",
+    "detect_inverted_edges",
     "detect_line_ending",
     "detect_reciprocal_edges",
     "estimate_tokens",
     "exit_code_for",
+    "extract_waiting_ids",
     "get_scoring_weights",
     "hub_wrapper_tokens",
     "is_generated_index_file",
@@ -258,10 +266,13 @@ class Disposition:
     from `blocks:` resolution (a dangling id), or from budget enforcement (a
     single row that cannot fit) -- in EVERY mode, `--check`/`--dry-run`
     included, because there is nothing valid to compare or measure. The
-    reciprocal `blocks:` edge is the one pinned exception: it is not a
-    `GeneratorError` (detection always succeeds and reports it), so a report
-    mode still reaches measurement and exits `DRIFT_OR_ANOMALY` (1) naming
-    it; only `--write` treats it as `REFUSED` (2) and writes nothing.
+    reciprocal `blocks:` edge, and a `blocks:` cycle of three or more ids, are the
+    pinned exceptions: neither is a `GeneratorError` (detection always succeeds
+    and reports it), so a report mode still reaches measurement and exits
+    `DRIFT_OR_ANOMALY` (1) naming it; only `--write` treats it as `REFUSED` (2)
+    and writes nothing. An inverted edge (prose waits on an id the item's own
+    `blocks:` lists) is a plain anomaly: it exits 1 in a report mode, and
+    `--write` reports it and still writes.
     Ordinary drift or a row/file anomaly found by `--check` is 1.
     `stale-score` alone never fails the exit code -- see the module
     docstring's carve-outs.
@@ -361,6 +372,50 @@ def _reciprocal_anomalies(items: list, reciprocal: list) -> list:
     ]
 
 
+def _graph_anomalies(items: list) -> dict:
+    """The two `blocks:` graph defects beyond a reciprocal pair, as anomaly entries.
+
+    `cycles` holds each cycle of three or more ids. A cycle refuses `--write` just as a reciprocal
+    pair does. `inverted` holds each item whose prose waits on an id that its own `blocks:` lists.
+    It only reports, because prose can be stale. `scanned` is the number of item bodies the
+    direction check read.
+    """
+    paths_by_id = {item["id"]: item["_path"] for item in items}
+    cycles = detect_blocks_cycles(build_blocks_index(items))
+    inverted, scanned = detect_inverted_edges(items)
+    return {
+        "cycles": [
+            {
+                "id": ",".join(cycle),
+                "reason": (
+                    f"blocks cycle -- {' -> '.join(cycle + [cycle[0]])} "
+                    f"({', '.join(str(paths_by_id[i]) for i in cycle)}); each waits on the next forever"
+                ),
+            }
+            for cycle in cycles
+        ],
+        "inverted": [
+            {
+                "id": f"{a},{b}",
+                "reason": (
+                    f"inverted blocks edge -- {a} ({paths_by_id[a]}) says in its prose that it waits on {b} "
+                    f"({paths_by_id[b]}), yet its own blocks: lists {b}. Move {b} out of {a}'s blocks: "
+                    f"and add {a} to {b}'s blocks:, unless the prose is the stale side"
+                ),
+            }
+            for a, b in inverted
+        ],
+        "scanned": scanned,
+    }
+
+
+def _direction_summary(graph: dict) -> str:
+    return (
+        f"Direction check: scanned {graph['scanned']} items, {len(graph['inverted'])} inverted edge(s), "
+        f"{len(graph['cycles'])} blocks cycle(s) of 3 or more."
+    )
+
+
 def _dropped_edges(index_path: Path, naming: IndexNaming) -> set:
     """The (src, dst) edges the migrator's ledger records as dropped by an answer. A missing or unreadable
     ledger records none."""
@@ -434,6 +489,15 @@ def _cmd_write(
         for entry in _reciprocal_anomalies(items, reciprocal):
             print(f"Anomaly: {entry['reason']}. Refusing to write.", file=sys.stderr)
         return Disposition.REFUSED
+
+    graph = _graph_anomalies(items)
+    if graph["cycles"]:
+        for entry in graph["cycles"]:
+            print(f"Anomaly: {entry['reason']}. Refusing to write.", file=sys.stderr)
+        return Disposition.REFUSED
+    # An inverted edge may be stale prose, so `--write` reports it and still writes.
+    for entry in graph["inverted"]:
+        print(f"Anomaly: {entry['reason']}.", file=sys.stderr)
 
     compute_scores_for_items(items, archive_dir, config)
 
@@ -517,15 +581,17 @@ def _cmd_check(
 
     _print_truncation_warning(report["truncated_ids"])
 
-    reciprocal_anomalies = _reciprocal_anomalies(items, reciprocal)
-    for entry in reciprocal_anomalies:
+    graph = _graph_anomalies(items)
+    reciprocal_anomalies = _reciprocal_anomalies(items, reciprocal) + graph["cycles"]
+    graph_anomalies = reciprocal_anomalies + graph["inverted"]
+    for entry in graph_anomalies:
         print(f"Anomaly: {entry['reason']}.", file=sys.stderr)
 
     result = _check_drift(items, report, backlog_dir, archive_dir, naming)
-    result["anomaly"] = reciprocal_anomalies + result["anomaly"]
+    result["anomaly"] = graph_anomalies + result["anomaly"]
     drift_or_anomaly = bool(result["drift"]) or bool(result["anomaly"])
     code = exit_code_for(
-        write_mode=False, reciprocal_edge=bool(reciprocal), drift_or_anomaly=drift_or_anomaly
+        write_mode=False, reciprocal_edge=bool(reciprocal_anomalies), drift_or_anomaly=drift_or_anomaly
     )
     if json_out:
         payload = {
@@ -533,11 +599,13 @@ def _cmd_check(
             "drift": result["drift"],
             "anomaly": result["anomaly"],
             "stale_score": result["stale_score"],
+            "direction_scanned": graph["scanned"],
         }
         print(json.dumps(payload, indent=2))
     else:
         _print_file_report(report)
         print()
+        print(_direction_summary(graph))
         print(_format_check_report(result))
     return code
 
@@ -626,16 +694,22 @@ def main() -> int:
 
     _print_truncation_warning(report["truncated_ids"])
 
-    reciprocal_anomalies = _reciprocal_anomalies(items, reciprocal)
-    for entry in reciprocal_anomalies:
+    graph = _graph_anomalies(items)
+    reciprocal_anomalies = _reciprocal_anomalies(items, reciprocal) + graph["cycles"]
+    for entry in reciprocal_anomalies + graph["inverted"]:
         print(f"Anomaly: {entry['reason']}.", file=sys.stderr)
 
-    code = exit_code_for(write_mode=False, reciprocal_edge=bool(reciprocal), drift_or_anomaly=False)
+    code = exit_code_for(
+        write_mode=False,
+        reciprocal_edge=bool(reciprocal_anomalies),
+        drift_or_anomaly=bool(graph["inverted"]),
+    )
     if args.json:
         print(json.dumps(_file_summary(report), indent=2))
         return code
 
     _print_file_report(report)
+    print(_direction_summary(graph))
     return code
 
 

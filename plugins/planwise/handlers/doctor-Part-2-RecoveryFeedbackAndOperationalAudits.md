@@ -26,7 +26,7 @@ Always-on (independent of Token Saver). The sweep walks every version-pair
 directory a completed `/planwise upgrade` may have left behind — these
 accumulate per upgrade COUNT, not version distance, since nothing purges
 them on its own — and classifies each one (or, for
-`upgrade-conflicts/{pair}/`, each of its three separately-tracked content
+`upgrade-conflicts/{pair}/`, each of its four separately-tracked content
 kinds — they never share one class) into one of the four disposition
 classes the `Recovery artifacts:` banner (`/planwise upgrade` Step 3)
 already reports at upgrade time:
@@ -41,10 +41,18 @@ already reports at upgrade time:
   line that compares each transfer file with the current shipped file and
   counts the files now upstream, still unique, and other. Resolve them per
   `handlers/upgrade-Part-3-BannerAndConflictResolution.md` Step 4.1 case C.
+  A live comparator verdict cache (`verdicts.json`) also lands here in two
+  cases. One is the pending pair, `{pinned}-to-{shipped}` with the two
+  versions different, because the next `/planwise upgrade` reads that
+  cache. The other is any pair when `config.yaml`'s `plugin_version` cannot
+  be read, because the pending pair is then unknown. The report gives each
+  case its own meaning and action. *Never offered for deletion here.*
 - **safe-to-discard** — pre-change backups under `upgrade-backups/{pair}/`,
   once the user is satisfied with the upgrade. *Prunable.*
 - **inert** — a consumed verdict cache (`verdicts.json.consumed`) under
-  `upgrade-conflicts/{pair}/`. *Prunable.*
+  `upgrade-conflicts/{pair}/`, or a live verdict cache (`verdicts.json`)
+  under a pair no later upgrade will read: a stale pair, or a pair whose
+  two versions are equal. *Prunable.*
 
 Print verbatim:
 
@@ -127,7 +135,7 @@ the only surviving record of whatever was already deleted; the log names
 its path so the user restores from it rather than re-running.
 
 Pass `--prune-classes` to narrow the run to the classes the user actually
-confirmed (e.g. `--prune-classes inert` to drop consumed verdict caches
+confirmed (e.g. `--prune-classes inert` to drop spent verdict caches
 while keeping backups). It can only narrow: *action-required* and
 *review-then-discard* stay undeletable whatever is passed.
 

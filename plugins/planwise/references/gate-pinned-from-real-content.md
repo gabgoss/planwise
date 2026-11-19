@@ -1,6 +1,6 @@
 ---
-description: A gate is pinned from a run over real content, never from a mental image — a gate over a verification report reads the machine-readable verdict line, never a bare substring the report's own vocabulary emits (§10.5); a pattern pinned before its subject exists is a prediction, run at the first reconciliation with the row read on zero matches (§11.1); a count gate pinned beside a content block runs over that block before the task file ships, and when they disagree the content is the deliverable and the gate is the defect (§11.2); a count method matches the command's real output shape, with a zero count a FAIL (§11.3); a verdict-line gate copies the skeleton's bytes including the emphasis between label and value, dry-run on a passing and a failing copy (§11.4); and a section is counted by a line-anchored heading test, never by substring (§11.5).
-consult-when: The thing a gate measures does not exist yet, sits in a content block you wrote, or comes from a tool whose output you have not seen — a verdict line is read by its machine-readable form (§10.5) and its skeleton bytes (§11.4), a pattern pinned before its subject exists is re-run when the producer lands (§11.1), a count beside a content block is run over that block (§11.2), a count method matches the real output shape (§11.3), a heading is counted by a line-anchored test (§11.5)
+description: A gate is pinned from a run over real content, never from a mental image — a gate over a verification report reads the machine-readable verdict line, never a bare substring the report's own vocabulary emits (§10.5); a pattern pinned before its subject exists is a prediction, run at the first reconciliation with the row read on zero matches (§11.1); a count gate pinned beside a content block runs over that block before the task file ships, and when they disagree the content is the deliverable and the gate is the defect (§11.2); a count method matches the command's real output shape, with a zero count a FAIL (§11.3); a verdict-line gate copies the skeleton's bytes including the emphasis between label and value, dry-run on a passing and a failing copy (§11.4); a section is counted by a line-anchored heading test, never by substring (§11.5); and a gate pinned for the post-edit state runs over the file every step of the task writes (§11.6).
+consult-when: The thing a gate measures does not exist yet, sits in a content block you wrote, or comes from a tool whose output you have not seen — a verdict line is read by its machine-readable form (§10.5) and its skeleton bytes (§11.4), a pattern pinned before its subject exists is re-run when the producer lands (§11.1), a count beside a content block is run over that block (§11.2), a count method matches the real output shape (§11.3), a heading is counted by a line-anchored test (§11.5), a gate pinned for the post-edit state runs over the file every step of the task writes (§11.6)
 paths: {planwise_root}/{plans_dir}/**
 ---
 
@@ -8,7 +8,7 @@ paths: {planwise_root}/{plans_dir}/**
 
 **Purpose:** A pinned gate is a claim about the shape of something. The something may not exist yet, or it may exist in a form the author never looked at. The instrument then returns the wrong value on correct work, or cannot return its passing value at all. Each section covers one way the claim fails. Split from `verification-task-authoring.md` on 2026-10-08. Section numbers are kept from that reference, so an existing `verification-task-authoring.md §N` citation translates by filename alone. The family index is `verification-task-authoring.md`.
 
-**Read this when** you pin a regex, a count, a count method or a reproduction command in a task file and the thing it measures does not exist yet, sits in a content block you wrote, or comes from a tool whose output you have not looked at. Read §10.5 and §11.4 when a gate greps a Markdown verdict line, and §11.5 when a gate counts a section by its heading.
+**Read this when** you pin a regex, a count, a count method or a reproduction command in a task file and the thing it measures does not exist yet, sits in a content block you wrote, or comes from a tool whose output you have not looked at. Read §10.5 and §11.4 when a gate greps a Markdown verdict line, and §11.5 when a gate counts a section by its heading. Read §11.6 when the gate measures a file the same task edits.
 
 ## Table of Contents
 
@@ -19,6 +19,7 @@ paths: {planwise_root}/{plans_dir}/**
   - [11.3 A pinned count method matches the command's real output shape](#113-a-pinned-count-method-matches-the-commands-real-output-shape)
   - [11.4 A verdict-line gate copies the skeleton's bytes, emphasis included](#114-a-verdict-line-gate-copies-the-skeletons-bytes-emphasis-included)
   - [11.5 Count a section by a line-anchored heading test, never by substring](#115-count-a-section-by-a-line-anchored-heading-test-never-by-substring)
+  - [11.6 A post-edit gate is pinned from the file the task's own edits produce](#116-a-post-edit-gate-is-pinned-from-the-file-the-tasks-own-edits-produce)
 
 ---
 
@@ -166,6 +167,82 @@ A substring pattern answers "does this text occur", not "does this file contain 
 
 `scripts/lint_verification_gates.py` Check 12 fires on a pattern that starts with the heading marker and no `^`. Its Check 9 fires on the companion trap in the rule: a `$` anchor with no `\r?` guard, ERROR when the target carries CRLF line endings and WARNING when the target does not exist yet.
 
+### 11.6 A post-edit gate is pinned from the file the task's own edits produce
+
+A gate pinned for the post-edit state runs over the whole post-edit file. That file holds every edit the task makes. It includes edits the gate's criterion is not about, and the untouched text beside them. A value read from the pre-edit file, from the one target line, or from a description of the edit misses those edits. The gate then fails correct work, or passes wrong work.
+
+> [!constraint] Before pinning a post-edit gate, run it over the content the task will write
+> **Rule.** A count, absence or literal gate on a file the same task edits is pinned from the post-edit content, with every step applied. The pre-edit run proves only the before half.
+>
+> 1. **An absence gate on a literal is paired with a behavioural check.** Rewording the literal satisfies "is this string gone?" and not "is this behaviour gone?". A runner that keeps part of a removed behaviour keeps its original text. It records the gate UNCERTAIN with the kept kinds named, and pins each kept kind with a test. A count of 1 with a reason is honest. A count of 0 after a rename is not.
+> 2. **A line-ending gate compares the CRLF count to the file's own line count**, never to the pre-edit line count. An edit that changes the line count makes the pre-edit number unreachable on correct bytes.
+> 3. **A hit count over a file that several steps edit is anchored to the target line, or counted across all steps.** Apply every step to a scratch copy, run the predicate, and pin the observed count.
+> 4. **A sweep with an expected after-count first runs over every literal the task adds**, fenced examples and the example blocks of a rule included. When an added line self-matches, class the hits in the gate. Or write the example so that it cannot match. Never let an "edit any extra hit" clause reach the lines the task itself adds.
+> 5. **A literal-count gate takes its operand from the edited file**, never from a cell that describes the edit. Pair "present now" with "absent at the base", because presence alone passes on text that was there before. A ledger column that feeds a literal gate is named `exact new text` and holds a quote. A column that holds instructions is named `edit description`, and the gate takes a different operand. Run the operand against one real row first ([`gate-predicate-discrimination.md`](gate-predicate-discrimination.md) §9.1).
+
+WRONG — an absence gate on the literal alone passes a reworded refusal:
+```
+Grep  pattern='<old refusal text>'  path=<module>  output_mode=count   # pre-edit 1, expect 0 -> 0 after a reword: PASS
+```
+CORRECT — the absence count is paired with the behaviour it stands for:
+```
+Grep  pattern='<old refusal text>'  path=<module>  output_mode=count   # 0, or >= 1 with each kept input kind named
+pytest -k <now_succeeds_case>      # each input the task covers now succeeds (exit 0)
+pytest -k <kept_refusal_case>      # each kind that still refuses is pinned by a case
+```
+
+#### A line-ending gate compares the file's own line count
+
+WRONG — the pre-edit line count stands in for the line-ending property:
+```
+<byte tally> <file>   # expect mixed 0 and crlf equal to the pre-edit 261 -> the edited file has 298 lines: false red
+```
+CORRECT — the property, measured against the file as it now stands:
+```
+<byte tally> <file>   # expect bare_lf 0, mixed 0, and crlf equal to this file's line count
+```
+A whole-file rewrite to LF still fails the CORRECT form, because `crlf 0` differs from any non-zero line count.
+
+#### A hit count over several steps is anchored to the target line
+
+WRONG — the expected count comes from the target line only:
+```
+Grep  pattern='<token-a>.*<token-b>'   -> "exactly one hit, on the target bullet"
+# two sibling steps also write both tokens -> 3 hits on correct work
+```
+CORRECT — anchor the predicate to the target line, or count across all steps:
+```
+Grep  pattern='<phrase only the target line holds>.*<token-b>'   -> exactly 1
+# or: apply every step to a scratch copy, run the predicate, pin the observed count
+```
+
+#### A sweep's after-count runs over the task's own new literals
+
+WRONG — the after-count is taken from the pre-edit tree:
+```
+pre-edit sweep: 2 lines in 2 files
+after pin: "still 2 lines in 2 files"   # a later step adds the worked example `blocks: [{parent}]`
+```
+CORRECT — the pattern runs over the new literals first, and the gate classes the hits:
+```
+python -c "import re; print(re.search(r'\[\{parent\}\]', 'blocks: [{parent}]'))"   # match -> the example self-matches
+after pin: "4 lines in 4 files: 2 restating lines that name the prerequisite, 2 worked-example lines (exempt)"
+```
+
+#### A literal-count gate takes its operand from the edited file
+
+WRONG — the gate counts a cell that describes the edit:
+```
+ledger cell:  "Retitle the callout to the new name, then replace X with Y"
+gate:         count(<file>, cell[:40])   -> 0 on correct work: the file holds the new text, not the instruction
+```
+CORRECT — a literal phrase read from the edited line, checked now and at the base:
+```
+phrase = '<literal phrase read from the edited line>'
+count(<file>, phrase)                   >= 1
+count(git show <base>:<file>, phrase)   == 0   # proves this edit put it there
+```
+
 ---
 
-*Cross-references: [gate-heuristic-verifier-patterns.md](gate-heuristic-verifier-patterns.md) §3 (the sibling extraction formats a pattern must accept) · [gate-command-semantics.md](gate-command-semantics.md) §10.9 (reading a command as a program) · [gate-absence-and-consistency.md](gate-absence-and-consistency.md) §8.1-§8.2 (scrubbing a token from every surface, asserting against the right population) · [gate-predicate-discrimination.md](gate-predicate-discrimination.md) §9 (the real expected-hit line as a fixture, and a passing branch that is reachable) and §10 (a "count unchanged" gate beside an addition that shares its vocabulary) · [gate-instrument-proof-obligations.md](gate-instrument-proof-obligations.md) §10 obligation A (the reproduction recipe is run before it is pinned) · [templates/verification-report.md](../templates/verification-report.md) (the verdict-line convention §10.5 and §11.4 read) · [verification-task-authoring.md](verification-task-authoring.md) (the family index).*
+*Cross-references: [gate-heuristic-verifier-patterns.md](gate-heuristic-verifier-patterns.md) §3 (the sibling extraction formats a pattern must accept) · [gate-command-semantics.md](gate-command-semantics.md) §10.9 (reading a command as a program) · [gate-absence-and-consistency.md](gate-absence-and-consistency.md) §8.1-§8.2 (scrubbing a token from every surface, asserting against the right population) · [gate-predicate-discrimination.md](gate-predicate-discrimination.md) §9 (the real expected-hit line as a fixture, and a passing branch that is reachable) and §10 (a "count unchanged" gate beside an addition that shares its vocabulary) · [gate-instrument-proof-obligations.md](gate-instrument-proof-obligations.md) §10 obligation A (the reproduction recipe is run before it is pinned) · [templates/verification-report.md](../templates/verification-report.md) (the verdict-line convention §10.5 and §11.4 read) · this file's §11.6 (the post-edit file includes the task's own edits) · [verification-task-authoring.md](verification-task-authoring.md) (the family index).*

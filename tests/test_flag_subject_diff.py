@@ -104,6 +104,42 @@ def test_session_matches_as_whole_token_only():
     assert fsd.names_session("ABC-S04-1", "s04-1")
 
 
+def test_short_session_form_selects_the_full_id_and_nothing_longer():
+    """Case a: S06-02 names RFH-S06-02, while a longer or foreign form does not."""
+    assert fsd.names_session("S06-02", "RFH-S06-02")
+    assert fsd.names_session("RFH-S06-02", "RFH-S06-02")
+    assert not fsd.names_session("XYZ-S06-02", "RFH-S06-02")
+    assert not fsd.names_session("S06-020", "RFH-S06-02")
+    assert not fsd.names_session("S06-02-01", "RFH-S06-02")
+
+
+def test_short_session_cells_are_selected_by_the_full_id(tmp_path, capsys):
+    """Case b: a table that writes the short form is no longer read as empty."""
+    plan = PLAN.replace("| ABC-02 |", "| S01-02 |").replace("| abc-02 |", "| s01-02 |")
+    args = _write(tmp_path, plan, ORCH_ID_COLLISION)
+    args[-1] = "ABC-S01-02"
+    fsd.main(args)
+    assert "carried rows for session ABC-S01-02: 2" in capsys.readouterr().out
+
+
+def test_zero_selected_beside_a_non_empty_table_warns(tmp_path, capsys):
+    """Case c: a blind zero prints a warning, not the all-matched line, and exits 0."""
+    args = _write(tmp_path, PLAN, ORCH_REPAIRED)
+    args[-1] = "XYZ-09"
+    assert fsd.main(args) == 0
+    out = capsys.readouterr().out
+    assert "warning: 0 of 3 carried rows name session XYZ-09" in out
+    assert "all carried rows matched by subject" not in out
+
+
+def test_no_carried_section_prints_no_warning(tmp_path, capsys):
+    """Case d: an absent section holds no rows, so there is nothing to warn about."""
+    assert fsd.main(_write(tmp_path, "# Plan\n\n## Other\n", ORCH_REPAIRED)) == 0
+    out = capsys.readouterr().out
+    assert "warning:" not in out
+    assert "all carried rows matched by subject" in out
+
+
 def test_session_prefix_selects_no_longer_ids(tmp_path, capsys):
     plan = PLAN.replace("| ABC-02 |", "| ABC-020 |").replace("| abc-02 |", "| ABC-021 |")
     assert fsd.main(_write(tmp_path, plan, ORCH_ID_COLLISION)) == 0
@@ -214,3 +250,91 @@ def test_no_task_files_skips_the_second_hop(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "task files: 0" in out
     assert "unrouted task flags" not in out
+
+
+# -- reworded hits: the sender is named, the subject text is not ----------------
+
+REWORDED_TEXT = "the split segment exceeds its page limit -> read the parts"
+
+
+def _reworded_task(lead):
+    return TASK_WITHOUT_FLAGS + "\n## Pre-Known Cross-Task Coordination Flags\n\n- " + lead + REWORDED_TEXT + "\n"
+
+
+def test_reworded_task_flag_with_the_reference_lead_counts_as_routed(tmp_path, capsys):
+    task = _reworded_task("**Flag 1 from up-01** (routed 2026-11-14): ")
+    args = _task_run(tmp_path, ORCH_TASK_ROWS, {TASK_NAME_01: task})
+    assert fsd.main(args) == 0
+    out = capsys.readouterr().out
+    assert "unrouted task flags: 0" in out
+    assert "task flags routed by reference, subject reworded (confirm by hand): 1" in out
+    assert "  ABC-S01-02-01: 1: The split part is OVER the page cap" in out
+
+
+def test_reworded_task_flag_without_the_lead_is_no_hit(tmp_path, capsys):
+    task = _reworded_task("Scaffold (Orchestration flag 1): ")
+    args = _task_run(tmp_path, ORCH_TASK_ROWS, {TASK_NAME_01: task})
+    assert fsd.main(args) == 1
+    out = capsys.readouterr().out
+    assert "unrouted task flags: 1" in out
+    assert "task flags routed by reference, subject reworded (confirm by hand): 0" in out
+
+
+def test_reworded_task_flag_with_the_wrong_source_is_no_hit(tmp_path, capsys):
+    task = _reworded_task("**Flag 1 from up-02** (routed 2026-11-14): ")
+    args = _task_run(tmp_path, ORCH_TASK_ROWS, {TASK_NAME_01: task})
+    assert fsd.main(args) == 1
+    out = capsys.readouterr().out
+    assert "unrouted task flags: 1" in out
+    assert "task flags routed by reference, subject reworded (confirm by hand): 0" in out
+
+
+def test_reference_matches_whole_tokens_only():
+    text = fsd.normalise("- **Flag 11 from up-010** (routed): x")
+    assert not fsd.names_reference(text, "1", "up-01")
+    assert not fsd.names_reference(text, "11", "up-01")
+    assert fsd.names_reference(text, "11", "up-010")
+
+
+PLAN_WITH_SOURCE = """# Plan
+
+## Carried-Forward Coordination Flags
+
+| Flag # | Source | Observation | Consuming session | Action |
+|---|---|---|---|---|
+| 4 | up-01 | The Lint module is OVER the page cap | ABC-02 | split it |
+"""
+
+ORCH_REWORDED_SUBJECT = """# Orchestration
+
+## Pre-Known Cross-Task Coordination Flags
+
+| Flag # | Source | Observation | Action |
+|---|---|---|---|
+| 4 | up-01 | Lint module exceeds the page limit | split it |
+"""
+
+
+def test_reworded_carried_row_with_the_same_id_and_source_counts_as_routed(tmp_path, capsys):
+    assert fsd.main(_write(tmp_path, PLAN_WITH_SOURCE, ORCH_REWORDED_SUBJECT)) == 0
+    out = capsys.readouterr().out
+    assert "unmatched carried rows" not in out
+    assert "all carried rows matched\n" in out
+    assert "carried rows matched by reference, subject reworded (confirm by hand): 1" in out
+    assert "  4: The Lint module is OVER the page cap" in out
+
+
+def test_reworded_carried_row_with_a_different_source_is_no_hit(tmp_path, capsys):
+    orch = ORCH_REWORDED_SUBJECT.replace("| 4 | up-01 |", "| 4 | up-09 |")
+    assert fsd.main(_write(tmp_path, PLAN_WITH_SOURCE, orch)) == 1
+    out = capsys.readouterr().out
+    assert "unmatched carried rows: 1" in out
+    assert "carried rows matched by reference, subject reworded (confirm by hand): 0" in out
+
+
+def test_subject_hit_stays_a_plain_match_beside_a_source_column(tmp_path, capsys):
+    orch = ORCH_REWORDED_SUBJECT.replace("Lint module exceeds the page limit", "the lint module is over the page cap")
+    assert fsd.main(_write(tmp_path, PLAN_WITH_SOURCE, orch)) == 0
+    out = capsys.readouterr().out
+    assert "all carried rows matched by subject" in out
+    assert "subject reworded (confirm by hand): 0" in out

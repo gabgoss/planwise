@@ -178,6 +178,26 @@ def _reads_true(value) -> bool:
     return isinstance(value, str) and value.strip().lower() in _TRUE_TEXT
 
 
+def question_blocks(section: str) -> tuple[list[str], list[bool], list[tuple[int, int]]]:
+    """The section's lines, their fence flags, and each `### Q` block's line range.
+
+    `section` is LF text. A `### Q` heading inside a fenced block opens no
+    block. Each range is `(start, end)`: the heading's line index and the
+    index of the next heading, or the line count for the last block. This is
+    the one block reader: the shape check and `backlog_questions` both call it.
+    """
+    lines = section.split("\n")
+    flags = fence_flags_any_indent(section)
+    starts = [i for i, line in enumerate(lines) if not flags[i] and _QUESTION_HEADING_RE.match(line)]
+    ranges = [(s, starts[n + 1] if n + 1 < len(starts) else len(lines)) for n, s in enumerate(starts)]
+    return lines, flags, ranges
+
+
+def block_answered(lines: list[str], flags: list[bool], start: int, end: int) -> bool:
+    """True when an unfenced `Answer:` line with text stands in the block `(start, end)`."""
+    return any(not flags[i] and _ANSWER_LINE_RE.match(lines[i]) for i in range(start + 1, end))
+
+
 def _open_questions_state(section: str | None) -> str:
     """`absent`, `empty`, `unanswered` or `answered` for a `## Open Questions` section.
 
@@ -187,10 +207,10 @@ def _open_questions_state(section: str | None) -> str:
     section is ignored. `empty` is a section with no `### Q` block whose
     first non-blank line is `None` or `None.` (any case), or which has no
     non-blank line at all. A section with `### Q` blocks is `answered` when
-    every block carries an answer line and every non-blank line above the
-    first block is `None` or `None.`, else `unanswered`: free text above the
-    blocks is an open question with no block shape. Any other text opening
-    a section with no block reads `unanswered` for the same reason.
+    every block carries an answer line, else `unanswered`. Text above the
+    first block is decided context and never changes that reading, the same
+    way `backlog_questions --list` reads it. Any text opening a section with
+    no block reads `unanswered`: it is an open question with no block shape.
     """
     if section is None:
         return "absent"
@@ -199,21 +219,18 @@ def _open_questions_state(section: str | None) -> str:
         if _THEMATIC_BREAK_RE.match(line):
             break
         lines.append(line)
-    blocks: list[bool] = []
-    preamble_open = False
-    for line in lines:
-        if _QUESTION_HEADING_RE.match(line):
-            blocks.append(False)
-        elif blocks and _ANSWER_LINE_RE.match(line):
-            blocks[-1] = True
-        elif not blocks and line.strip() and line.strip().lower() not in _EMPTY_QUESTIONS:
-            preamble_open = True
-    if blocks:
-        return "answered" if all(blocks) and not preamble_open else "unanswered"
+    block_lines, flags, ranges = question_blocks("\n".join(["", *lines]))
+    if ranges:
+        return "answered" if all(block_answered(block_lines, flags, s, e) for s, e in ranges) else "unanswered"
     rest = [line.strip() for line in lines if line.strip()]
     if not rest or rest[0].lower() in _EMPTY_QUESTIONS:
         return "empty"
     return "unanswered"
+
+
+def open_questions_state(section: str | None) -> str:
+    """`_open_questions_state` for a section of raw text: fenced blocks are blanked first."""
+    return _open_questions_state(None if section is None else _blank_fenced_blocks(section))
 
 
 def compute_item_shape(frontmatter: dict, *, body: str | None = None, blanked: str | None = None) -> dict:

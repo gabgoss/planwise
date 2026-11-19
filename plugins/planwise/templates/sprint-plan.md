@@ -142,6 +142,22 @@ here — a sweep reads this line to know how many rows to expect.
 
 ---
 
+## Guardrails <!-- REQUIRED -->
+
+A guardrail is a safety promise this plan makes. Take each one from the Master Plan's `## Decisions (Locked)` and `## Risk Mitigation` rows, from the Execution Input, and from this plan's own prose ("never", "must not", "preserve", "no ... is lost or touched"). Write one row per promise.
+
+| # | Guardrail | Source | Implementing Step | Failing Gate |
+|---|-----------|--------|-------------------|--------------|
+| 1 | {The safety promise, in one sentence} | {Decision ID, Risk Mitigation row, or the plan sentence} | {Abbrev}-S{XX}-{YY}-{##} Step {n} | {task-id} Success Criterion {n}, or a command and its failing output |
+
+A row that names no step or no gate is a defect. Add the missing step or gate. Or drop the promise and record why in the Change Log. A promise with no step has no control, and a promise with no gate fails silently. See `references/rule-authoring.md` section 7.6 (Reviewer Check 135).
+
+When this sprint states no safety promise, keep the heading and write this one line, so an absent section never reads as clean:
+
+None — this sprint states no safety promise.
+
+---
+
 ## Session Details
 
 ### Session 01: {SessionName} ({ABBREV}-S{XX}-01)

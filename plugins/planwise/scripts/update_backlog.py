@@ -19,6 +19,12 @@ freshly created or not-yet-regenerated file has no row in the former.
 `--mark-needs-plan` writes `needs_plan: true` into an item's frontmatter,
 and `--resolution-file` (with `--status=COMPLETE`) appends the file's text
 under a `## Resolution` section of the closed item once it has moved.
+`--fixed-in SHA` (repeatable) appends one dated `Fixed in: SHA` line per
+fixing commit under the item's `## Notes`, and `--completes SHA` marks the
+commit that completes the fix. It runs alone on an item that is already
+COMPLETE, archived or not, because the squash-merge commit exists only after
+the close, or together with `--status=COMPLETE`. A sha already recorded is
+skipped, and every refusal writes nothing.
 """
 
 import argparse
@@ -327,8 +333,8 @@ def set_frontmatter_key(path: Path, key: str, value: str) -> SyncStatusResult:
 RESOLUTION_HEADING = "## Resolution"
 
 
-def _resolution_section_span(text: str) -> tuple[int, int] | None:
-    """`(first line, end line)` of the unfenced `## Resolution` section, or None.
+def _section_span(text: str, heading: str) -> tuple[int, int] | None:
+    """`(first line, end line)` of the unfenced section under `heading`, or None.
 
     The section runs from its heading line to the next unfenced heading of
     level 1 or 2, or to the end of the text. The fence rules are the shared
@@ -339,7 +345,7 @@ def _resolution_section_span(text: str) -> tuple[int, int] | None:
     flags = fence_flags(text)
     start = next(
         (n for n, (line, fenced) in enumerate(zip(lines, flags))
-         if not fenced and line.rstrip() == RESOLUTION_HEADING),
+         if not fenced and line.rstrip() == heading),
         None,
     )
     if start is None:
@@ -348,6 +354,11 @@ def _resolution_section_span(text: str) -> tuple[int, int] | None:
         if not flags[n] and re.match(r"#{1,2}(\s|$)", lines[n]):
             return start, n
     return start, len(lines)
+
+
+def _resolution_section_span(text: str) -> tuple[int, int] | None:
+    """`(first line, end line)` of the unfenced `## Resolution` section, or None."""
+    return _section_span(text, RESOLUTION_HEADING)
 
 
 def _resolution_bodies(lines: list[str], flags: list[bool], span: tuple[int, int]) -> list[str]:
@@ -893,6 +904,181 @@ def append_resolution_after_close(
         print("Resolution: section already present, left unchanged")
 
 
+NOTES_HEADING = "## Notes"
+COMPLETES_SUFFIX = " (completes the fix)"
+_SHA_RE = re.compile(r"[0-9a-f]{7,64}")
+_FIXED_IN_RE = re.compile(r"Fixed in:[ \t]*([0-9a-fA-F]{7,64})\b")
+
+
+def _normalize_sha(raw: str) -> str | None:
+    """A commit sha as lower-case hex of 7 to 64 characters, or None.
+
+    A short sha under 7 characters is ambiguous in any real repository, and a
+    ref name such as `HEAD` is not a commit, so both return None.
+    """
+    candidate = raw.strip().lower()
+    return candidate if _SHA_RE.fullmatch(candidate) else None
+
+
+def _validate_fixed_in(args) -> list[tuple[str, bool]]:
+    """Check the `--fixed-in` and `--completes` arguments before anything is written.
+
+    Returns the ordered `(sha, completes)` entries, one per distinct sha.
+    Exits 1 with nothing written on any of these: a sha that is not 7 to 64
+    hex characters, a `--completes` value absent from `--fixed-in`, a
+    `--completes` without a `--fixed-in`, a `--status` other than COMPLETE,
+    and a combination with `--create`.
+    """
+    refusal = None
+    shas: list[str] = []
+    for raw in args.fixed_in or []:
+        sha = _normalize_sha(raw)
+        if sha is None:
+            refusal = (
+                f"--fixed-in '{raw}' is not a commit sha (7 to 64 hex characters)."
+            )
+            break
+        if sha not in shas:
+            shas.append(sha)
+    completes: set[str] = set()
+    if refusal is None:
+        for raw in args.completes or []:
+            sha = _normalize_sha(raw)
+            if sha is None:
+                refusal = (
+                    f"--completes '{raw}' is not a commit sha (7 to 64 hex characters)."
+                )
+                break
+            if sha not in shas:
+                refusal = f"--completes '{raw}' is not one of the --fixed-in shas."
+                break
+            completes.add(sha)
+    if refusal is None and args.create:
+        refusal = "--fixed-in and --completes cannot be combined with --create."
+    if refusal is None and args.status and args.status.upper() != "COMPLETE":
+        refusal = "--fixed-in and --completes need an item that is COMPLETE."
+    if refusal is not None:
+        print(f"Error: {refusal} Nothing was written.", file=sys.stderr)
+        sys.exit(1)
+    return [(sha, sha in completes) for sha in shas]
+
+
+def append_fixed_in_notes(
+    path: Path, entries: list[tuple[str, bool]]
+) -> tuple[SyncStatusResult, list[str], list[str]]:
+    """Append one dated `Fixed in:` bullet per sha under the item's `## Notes`.
+
+    Returns `(result, recorded, skipped)`. The result outcome is:
+      - "appended": at least one new bullet was written.
+      - "exists": every sha was already recorded under `## Notes`, so
+        nothing was written and a retry never stacks a copy.
+      - "absent_file": path does not exist.
+    A recorded sha matches a new one when either is a prefix of the other, so
+    a short and a full sha of one commit do not both land. A completing sha
+    carries the suffix ` (completes the fix)`. A `## Notes` section that is
+    absent is created before `## Related`, else before the footer's thematic
+    break, else at the end of the file. The writes use the file's own line
+    endings.
+    """
+    if not path.exists():
+        return SyncStatusResult("absent_file", path), [], []
+    raw = read_text_preserving_newlines(path)
+    eol = "\r\n" if "\r\n" in raw else "\n"
+    lf_raw = raw.replace("\r\n", "\n")
+    lines = lf_raw.split("\n")
+    span = _section_span(lf_raw, NOTES_HEADING)
+    section_text = "\n".join(lines[span[0]:span[1]]) if span else ""
+    seen = [m.group(1).lower() for m in _FIXED_IN_RE.finditer(section_text)]
+    date = datetime.now().astimezone().date().isoformat()
+    recorded: list[str] = []
+    skipped: list[str] = []
+    bullets: list[str] = []
+    for sha, completes in entries:
+        if any(old.startswith(sha) or sha.startswith(old) for old in seen):
+            skipped.append(sha)
+            continue
+        recorded.append(sha)
+        bullets.append(
+            f"- {date}: Fixed in: {sha}" + (COMPLETES_SUFFIX if completes else "")
+        )
+    if not recorded:
+        return SyncStatusResult("exists", path), recorded, skipped
+
+    if span is not None:
+        # After the section's last text line, before the blank lines that
+        # separate it from the next heading.
+        at = span[1]
+        while at > span[0] + 1 and not lines[at - 1].strip():
+            at -= 1
+        added = ([""] if at == span[0] + 1 else []) + bullets
+        new_lines = lines[:at] + added + lines[at:]
+    else:
+        flags = fence_flags(lf_raw)
+        related = next(
+            (n for n, (line, fenced) in enumerate(zip(lines, flags))
+             if not fenced and line.rstrip() == "## Related"),
+            None,
+        )
+        footer = next(
+            (n for n in range(len(lines) - 1, 0, -1)
+             if not flags[n] and lines[n].rstrip() == "---"
+             and all(not tail.strip() or tail.lstrip().startswith(("*", "_"))
+                     for tail in lines[n + 1:])),
+            None,
+        )
+        at = related if related is not None else footer
+        block = [NOTES_HEADING, "", *bullets, ""]
+        if at is None:
+            body = lines[:-1] if lines and lines[-1] == "" else lines
+            new_lines = body + ([""] if body and body[-1].strip() else []) + block
+        else:
+            lead = [""] if at > 0 and lines[at - 1].strip() else []
+            new_lines = lines[:at] + lead + block + lines[at:]
+    write_text_preserving_newlines(path, "\n".join(new_lines).replace("\n", eol))
+    return SyncStatusResult("appended", path), recorded, skipped
+
+
+def record_fixed_in(
+    backlog_dir: Path,
+    archive_dir: Path,
+    index_path: Path,
+    item_id: str,
+    entries: list[tuple[str, bool]],
+    *,
+    require_complete: bool,
+) -> None:
+    """Locate the item by id and record its fixing commits under `## Notes`.
+
+    With `require_complete`, an item whose status is not COMPLETE is refused
+    and nothing is written. A fresh lookup, because a close that ran first
+    has moved the file into `Archive/`.
+    """
+    matches = _find_items_by_id(backlog_dir, archive_dir, index_path, item_id)
+    if len(matches) != 1:
+        print(
+            f"Error: Fixed in NOT written: expected one item file for ID "
+            f"'{item_id}' under {backlog_dir} or {archive_dir}, found {len(matches)}.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    path, status = matches[0]
+    if require_complete and status.upper() != "COMPLETE":
+        print(
+            f"Error: item {item_id} is {status or 'without a status'}, not COMPLETE. "
+            f"--fixed-in records a fix on a completed item. Nothing was written.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    result, recorded, skipped = append_fixed_in_notes(path, entries)
+    if result.outcome == "absent_file":
+        print(f"Error: Fixed in NOT written: {result.path} is missing.", file=sys.stderr)
+        sys.exit(1)
+    for sha in recorded:
+        print(f"Fixed in: recorded {sha}")
+    for sha in skipped:
+        print(f"Fixed in: {sha} already recorded, left unchanged")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Update a backlog item's status in the index markdown."
@@ -952,18 +1138,53 @@ def main():
         ),
     )
 
+    parser.add_argument(
+        "--fixed-in",
+        action="append",
+        default=None,
+        dest="fixed_in",
+        metavar="SHA",
+        help=(
+            f"Repeatable. Append a dated `Fixed in: SHA` line under {NOTES_HEADING} of a "
+            "COMPLETE item, archived or not, and skip a sha already recorded. Give it "
+            "alone on an item that is already closed, or with --status=COMPLETE. The sha "
+            "is 7 to 64 hex characters."
+        ),
+    )
+    parser.add_argument(
+        "--completes",
+        action="append",
+        default=None,
+        dest="completes",
+        metavar="SHA",
+        help=(
+            f"Repeatable. Mark a --fixed-in sha with `{COMPLETES_SUFFIX.strip()}`. "
+            "Each value must also be given to --fixed-in."
+        ),
+    )
+
     args = parser.parse_args()
 
     if args.mark_needs_plan:
-        if args.status or args.create or args.resolution_file is not None:
+        if (
+            args.status
+            or args.create
+            or args.resolution_file is not None
+            or args.fixed_in
+            or args.completes
+        ):
             print(
-                "Error: --mark-needs-plan stands alone: give no --status, --create "
-                "or --resolution-file.",
+                "Error: --mark-needs-plan stands alone: give no --status, --create, "
+                "--resolution-file, --fixed-in or --completes.",
                 file=sys.stderr,
             )
             sys.exit(1)
         mark_needs_plan(args.id)
         return
+
+    fixed_in_entries: list[tuple[str, bool]] = []
+    if args.fixed_in or args.completes:
+        fixed_in_entries = _validate_fixed_in(args)
 
     if args.resolution_file is not None and (
         args.create or (args.status or "").upper() != "COMPLETE"
@@ -974,6 +1195,20 @@ def main():
     # --create takes a fully separate path: build a new item rather than update one.
     if args.create:
         create_backlog_item(args)
+        return
+
+    if fixed_in_entries and not args.status:
+        # Stand-alone: the squash-merge commit exists only after the close,
+        # so this runs on an item that is already COMPLETE (archived or not).
+        config = load_config(Path(__file__))
+        record_fixed_in(
+            config["_backlog_dir"],
+            config["_archive_dir"],
+            config["_index_path"],
+            args.id,
+            fixed_in_entries,
+            require_complete=True,
+        )
         return
 
     if not args.status:
@@ -1082,6 +1317,11 @@ def main():
             append_resolution_after_close(
                 backlog_dir, archive_dir, index_path, args.id, resolution_text
             )
+        if fixed_in_entries:
+            record_fixed_in(
+                backlog_dir, archive_dir, index_path, args.id, fixed_in_entries,
+                require_complete=True,
+            )
         return
 
     # Sync every matched file's frontmatter BEFORE reporting success or
@@ -1117,6 +1357,11 @@ def main():
     if resolution_text is not None:
         append_resolution_after_close(
             backlog_dir, archive_dir, index_path, args.id, resolution_text
+        )
+    if fixed_in_entries:
+        record_fixed_in(
+            backlog_dir, archive_dir, index_path, args.id, fixed_in_entries,
+            require_complete=True,
         )
 
 

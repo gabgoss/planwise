@@ -1,13 +1,13 @@
 ---
-description: Every statement crossing the orchestrator/runner boundary is a hypothesis authored inside one window about a world visible only from the other. Covers withholding the figures a dispatched task exists to re-derive, resolving an inbound flag's named consumer against the partition key, why diff attribution belongs to the orchestrator and not the runner, what a silent resume actually means, and why a findings relay carries the findings and not only the path of an output file. Consult while composing a spawn prompt, while routing an inherited artifact into task files, and while reading what comes back.
-consult-when: Writing a spawn prompt, routing an inherited flag into task files (did it arrive, and does it name the right consumer), or reading a runner's return — what crosses the orchestrator/runner boundary is a hypothesis, and a findings relay to a resumed runner carries the findings in the message, with an output-file path only as a supplement
+description: Every statement crossing the orchestrator/runner boundary is a hypothesis authored inside one window about a world visible only from the other. Covers withholding the figures a dispatched task exists to re-derive, resolving an inbound flag's named consumer against the partition key, why diff attribution belongs to the orchestrator and not the runner, what a silent resume actually means, why a findings relay carries the findings and not only the path of an output file, and why an upstream edit to a survivor is routed to every later task before it dispatches. Consult while composing a spawn prompt, while routing an inherited artifact into task files, and while reading what comes back.
+consult-when: Writing a spawn prompt, routing an inherited flag into task files (did it arrive, and does it name the right consumer), or reading a runner's return — what crosses the orchestrator/runner boundary is a hypothesis, a findings relay to a resumed runner carries the findings in the message, with an output-file path only as a supplement, and an upstream task that edited a survivor (an index, a section map, a canonical range) gets its new value routed into every later task before dispatch
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Dispatch Boundary — What Crosses It Is a Hypothesis, Not Evidence
 
 **Purpose:** An orchestrator and a runner cannot see each other's context. Every statement that crosses between them — a figure in a spawn prompt, a routing assignment in a coordination flag, a causal claim in a status block, the absence of a status block entirely — is authored inside one window about a world visible only from the other. The failures are symmetric, and every one of them is silent.
 
-**Read this when** you are composing a spawn prompt, routing an inherited artifact into task files, or reading a runner's return.
+**Read this when** you compose a spawn prompt, route an inherited artifact, read a runner's return, or accept a task that edited a survivor.
 
 Outbound, what the orchestrator writes into a prompt determines what comes back. Injecting the answer converts an independent instrument into a dependent one. Injecting an upstream routing guess sends work to a task that does not own it. Inbound, a runner's report is scoped to a window that often cannot answer the question the report is answering, and the report's non-arrival carries no information at all.
 
@@ -21,6 +21,7 @@ Three neighbouring rules own machinery this file builds on. [`agent-orchestratio
 - [4. A Silent Resume Means the Reply Exists and Did Not Route](#4-a-silent-resume-means-the-reply-exists-and-did-not-route)
 - [5. A Flag the Sender Says It Delivered Is a Claim; Only the Destination File Is Evidence](#5-a-flag-the-sender-says-it-delivered-is-a-claim-only-the-destination-file-is-evidence)
 - [6. A Findings Relay Carries the Findings, Not Only the Path of the File That Holds Them](#6-a-findings-relay-carries-the-findings-not-only-the-path-of-the-file-that-holds-them)
+- [7. An Upstream Task That Edits a Survivor Changes a Later Task's Inputs — Route the New Value Before the Next Dispatch](#7-an-upstream-task-that-edits-a-survivor-changes-a-later-tasks-inputs--route-the-new-value-before-the-next-dispatch)
 
 ---
 
@@ -245,6 +246,31 @@ A background task's output-file path is not a reliable carrier across agents. Th
 The spawn-prompt skeleton in `templates/orchestration.md` carries a `Findings to fix:` line for this list.
 
 **Applies to** any DELEGATED session where the orchestrator runs a skill or a background agent (a code review, a reviewer fan-out) and resumes a task-runner with the result. It also applies to any hand-off that points at a temp-directory output file rather than a session `Outputs/` file.
+
+---
+
+## 7. An Upstream Task That Edits a Survivor Changes a Later Task's Inputs — Route the New Value Before the Next Dispatch
+
+A scaffolded step that names a survivor carries the survivor's value as of scaffold time. A survivor is an index, a section map or a canonical range that outlives the task that wrote it. When an earlier task of the same run edits the survivor, neither runner sees the change. The upstream runner has finished. The downstream runner reads only its own task file. Only the orchestrator sees both the upstream Output and the downstream step.
+
+> [!constraint] Read the upstream Output for a changed survivor, and route the new value before the next dispatch
+> - **Read the upstream Output after acceptance.** Look for any survivor it changed.
+> - **Route the new value as a flag into each later task** before that task dispatches.
+> - **A routed flag delivers a new value, not a new rule.** Diff the flag against the step, and raise a structural finding when the two truly conflict.
+>
+> WRONG — dispatch straight after acceptance, and the downstream string match says "keep" on a stale repeat:
+> ```
+> upstream task edits the survivor: its range now covers the downstream task's range
+> orchestrator: accept -> dispatch the next task
+> downstream: compares strings -> "keep" on the stale repeat
+> ```
+> CORRECT — read the Output, route the changed range, then dispatch:
+> ```
+> flag: "the survivor's range covers yours. The set difference compares claims, not strings"
+> downstream: cuts the repeat and records the stale range
+> ```
+
+**Applies to** any DELEGATED session where one task edits an index, a section map or a canonical range that a later task's steps name.
 
 ---
 

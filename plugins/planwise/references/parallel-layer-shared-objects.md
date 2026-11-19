@@ -40,7 +40,9 @@ Two neighbouring rules own machinery this file builds on and does not restate. [
 >   runners return draft text with numbers explicitly VOID
 > ```
 
-**The namespaces, enumerated, so the check is concrete.** Reviewer-check numbers. Backlog and lesson identifiers. `§N` section numbers. Appended table row numbers. Migration indices. Every one of them is shared state that each allocator reads and no allocator owns.
+**The namespaces, enumerated, so the check is concrete.** Reviewer-check numbers. Backlog and lesson identifiers. `§N` section numbers. Appended table row numbers. Migration indices. Scratch file names. Every one of them is shared state that each allocator reads and no allocator owns.
+
+Scratch file names belong on the list because every runner in a session writes to one scratch folder. Two runners that each write one generic name collide, and one can read back the other's rows. A per-task prefix taken from the task id is immutable state, so the exemption below applies and no serialization is needed. The spawn prompt carries the prefix. See `agent-orchestration-delegated.md` section 1.8.
 
 **The collision is deterministic, not a race.** Concurrent runners each read the same pre-dispatch value, and each computes the same "next" value from it. So the collision does not depend on timing. It reproduces on every run. It cannot be tuned away by ordering or by retries. State this plainly wherever the hazard is recorded, because a hazard a reader classifies as a race gets retried instead of designed out.
 

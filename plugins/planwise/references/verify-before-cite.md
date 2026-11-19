@@ -1,6 +1,6 @@
 ---
-description: Verify-before-cite discipline (lesson IDs, schema files, field names, facade re-exports, upsert helper design, examples-repo version pinning, helper enumeration, field-mapping tables, tiered-fetch tactics, splitting an exemplar comparison into shape rows judged against the exemplar and data rows judged against the live source, tracing each hazard a guard names to a mechanism in code before the guard is retired, stating the signature outcome when a documentation check shows an inherited parameter is unsupported, checking a brief's claim about an external source's coverage against the probe document it cites, and measuring each numeric literal, count anchor and justifying inequality in Execution Steps and Notes on its quoted command) for planwise task files and DELEGATED dispatch prompts
-consult-when: A task brief cites a lesson ID, schema file, or field name — open and skim it before citing, split an exemplar comparison into shape rows and data rows, trace each hazard before retiring a guard, state the signature outcome when a documentation check shows an inherited parameter is unsupported, check a brief's claim about an external source's coverage against the probe document it cites
+description: Verify-before-cite discipline (lesson IDs, schema files, field names, facade re-exports, upsert helper design, examples-repo version pinning, helper enumeration, field-mapping tables, tiered-fetch tactics, splitting an exemplar comparison into shape rows judged against the exemplar and data rows judged against the live source, tracing each hazard a guard names to a mechanism in code before the guard is retired, briefing a runner to prove a case the design says cannot arise, stating the signature outcome when a documentation check shows an inherited parameter is unsupported, checking a brief's claim about an external source's coverage against the probe document it cites, and measuring each numeric literal, count anchor and justifying inequality in Execution Steps and Notes on its quoted command) for planwise task files and DELEGATED dispatch prompts
+consult-when: A task brief cites a lesson ID, schema file, or field name — open and skim it before citing, split an exemplar comparison into shape rows and data rows, trace each hazard before retiring a guard, brief a runner to prove a case the design says cannot arise, state the signature outcome when a documentation check shows an inherited parameter is unsupported, check a brief's claim about an external source's coverage against the probe document it cites
 ---
 
 # Verify-Before-Cite
@@ -627,6 +627,25 @@ File: {task file path} | Location: {Execution Step, Verification Command or Note
 Issue: The brief states {literal} for `{command}`, but the review discovery fact sheet executed that command and measured {value}
 Fix: Replace the literal with the measured value and its date, or tag it UNVERIFIED with source and date, per references/verify-before-cite.md §9.B.28 | Confidence: HIGH
 ```
+
+### 9.B.29 "Cannot arise" is a claim about the code, so brief the runner to prove it
+
+> [!constraint] A design that dismisses a case as "cannot arise" has made a claim about reachability. Brief the runner to prove it, not to assume it
+> This is the sibling of §9.B.23. There, retiring a guard names a mechanism to open in code. Here, dismissing a case names an impossibility to prove. A belief about ordering, timing or reachability is as fallible as any count, and a branch dropped on belief ships its defect.
+>
+> WRONG — the design says "this state cannot arise", and the runner takes it as given:
+> ```
+> design: "cleanup only runs after the write is planned, so the interleaving cannot arise"  ->  filed as a residual, no test
+> ```
+> CORRECT — the brief hands the runner both outcomes, and each outcome is evidence:
+> ```
+> brief:  "build the case red-first. If it cannot arise, PROVE it with the code path that blocks it and a test, and report instead of building a speculative fix."
+> result: the case arises and the code handles it, or the code path and a test show the block
+> ```
+
+1. **Hand the runner both outcomes.** Build the failing case first, or prove the impossibility.
+2. **Accept a proof only as a code path plus a test.** A restated belief is not a proof.
+3. **Never file the case as a residual on the claim alone.**
 
 ---
 

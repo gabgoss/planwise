@@ -49,7 +49,7 @@ The spawn prompt may carry one optional field, `answers`: the user's answers to 
 
 Enumerate the candidate solutions before choosing one. A design that names one option has not evaluated anything.
 
-1. List every solution that would satisfy the UNMET criteria. Include the complete treatment even when a narrower patch looks cheaper.
+1. List every solution that would satisfy the UNMET criteria. Include the complete treatment even when a narrower patch looks cheaper. Once the candidates are listed, `Write` the design file `{handover_dir}/{id}-design.md` with `DESIGN: PENDING` and the candidates under `APPROACH`. The agent cannot see its turn count, so this file puts a provisional record on disk before any measuring starts. §4 overwrites it.
 2. For each solution, list the files it edits. Read a target file with `Read` and locate a symbol with `Grep`, so each named edit points at a real line.
 3. Measure each solution's edit scope with the plugin's measuring script, a shell call:
    ```
@@ -57,6 +57,12 @@ Enumerate the candidate solutions before choosing one. A design that names one o
    ```
 4. Apply `references/do-the-hard-things.md`. Scope the solution to what the defect needs. Effort, diff size and ripple are never by themselves a reason to prefer the partial path. The partial path is legitimate only under a real constraint that reference names: an external interface, an irreversible boundary, or a deadline the user confirmed. When one applies, name it in `APPROACH` and record the residual defect.
 5. Count the steps of the surviving solution. One step is one file and one edit.
+
+The agent cannot count its turns, so these read rules hold the count down without a counter:
+
+- Read each target file once.
+- Batch independent reads into parallel calls.
+- Measure every candidate's files in one `measure_files.py` call.
 
 > [!constraint] Cost the coherent fix, and never recommend the partial one for its size
 > WRONG — the partial fix wins because it is small, and the incoherence it leaves is unstated:
@@ -93,7 +99,7 @@ Landing a lesson is not a resolution step. When the item came from a lesson prom
 
 ## 4. WRITE
 
-Write one design file, `{handover_dir}/{id}-design.md`, where `{id}` is the item id or the candidate label. Use `Write`. The file holds this block, with the fields that do not apply to the outcome left out:
+Write one design file, `{handover_dir}/{id}-design.md`, where `{id}` is the item id or the candidate label. Use `Write`. This final `Write` overwrites the `DESIGN: PENDING` file that §2 wrote. The file holds this block, with the fields that do not apply to the outcome left out:
 
 ```
 DESIGN:            REFINED | QUESTIONS | DECOMPOSE | NEEDS_PLAN
@@ -109,7 +115,10 @@ Rules for the fields:
 
 - `APPROACH` names the chosen solution and, where §2 found one, the constraint that forced a narrower path.
 - Each `STEPS` line names one file and one edit, and cites an anchor from the sheet's `ANCHORS` where one exists.
+- Write every path in `STEPS` relative to the project root, the root the rule `paths:` globs use. A sentence that rebases the paths onto a nested tree is invisible to the scoped-rule gate, which then labels every existing file `CREATE` and finds no rule.
 - Each `VERIFICATION` line is a command the author can copy and its expected output. One line covers each UNMET criterion.
+- A `VERIFICATION` line that pins a count, an absence or a literal over a file the `STEPS` edit is pinned from the post-edit file. Anchor the pattern to the target line, or apply every step to a scratch copy and pin the observed value. Run the pattern over each literal the steps add, fenced examples included. Take a literal operand from the edited line, never from a description of the edit. `references/gate-pinned-from-real-content.md` §11.6 holds the five failure shapes.
+- A step only the user can run, such as a live probe, an interactive slash command or a credentialed install, is not a command the author can copy. Write it as `user-run: {step} -> {expected}`, with no backticks and no other prefix.
 - Each `SUB_ITEMS` line must itself fit the step cap. A sub-item over the cap means the outcome is `NEEDS_PLAN`, not `DECOMPOSE`.
 - The planner fills `{after}` for every sub-item that waits on a sibling, and writes `-` only for a sub-item that waits on none. `{after}` is the 1-based position, among this design file's `SUB_ITEMS` lines, of the one sibling this sub-item must land after. It is `-` when the sub-item waits on none. A position names an earlier `SUB_ITEMS` line only. A line never names itself or a later line. A sub-item waits on at most one sibling. Write a chain A, B, C as B after A and C after B. Sibling ids do not exist when this agent writes the line, so a position is the only reference the author can resolve. The author writes the dependent's id into the prerequisite's `blocks:`. Example: the second line ends in `| 1` when it must land after the first line, and the first line ends in `| -`.
 
@@ -117,13 +126,15 @@ Rules for the fields:
 
 A `QUESTIONS` return ends the dispatch, but not the agent. The caller asks the user, then sends the answers as a message addressed to this agent's dispatch name. This agent resumes from its own transcript.
 
+A dispatch that stopped before its final message can be resumed the same way. The caller then sends a message that holds no answers and asks this agent to finish. Run §3 and §4 over the candidates in the `DESIGN: PENDING` file, overwrite the file and return the status block.
+
 1. Read the answers. Treat each one as a decided input, not as a new question.
 2. Re-enter §3 with the answers, and test the outcomes again in order.
 3. Overwrite the design file with the new block.
 4. If some questions are still open, return `QUESTIONS` again, naming only what the answers did not cover. Never repeat an answered question.
 5. The final message is again the status block.
 
-**Fallback: a fresh dispatch.** When the caller cannot reach the earlier dispatch, it starts a fresh planner dispatch with the same item and the `answers` field (§1). This agent then has no transcript to resume from. It re-reads the fact sheet and the design file already on disk at `{handover_dir}/{id}-design.md`, and runs steps 1 to 5 above with the answers. It overwrites the design file and returns a new status block. A second `QUESTIONS` return names only what the answers did not cover.
+**Fallback: a fresh dispatch.** When the caller cannot reach the earlier dispatch, it starts a fresh planner dispatch with the same item and the `answers` field (§1). This agent then has no transcript to resume from. It re-reads the fact sheet and the design file already on disk at `{handover_dir}/{id}-design.md`, and runs steps 1 to 5 above with the answers. It overwrites the design file and returns a new status block. A second `QUESTIONS` return names only what the answers did not cover. A design file that reads `DESIGN: PENDING` is a starting point, not an answer. Take its `APPROACH` as the candidate list and finish §2 to §4 from it.
 
 ## Stop Conditions
 
@@ -150,6 +161,8 @@ ISSUES:           {one line per issue, or "none"}
 
 A `BLOCKED` return writes `none` for `OUTPUT_FILES` and leaves `DESIGN` out.
 
+A dispatch that ends with no status block reaches the caller as `PARTIAL`. The caller routes it per `references/backlog-creation-process.md` section 5.
+
 ## Failure Semantics
 
 | Situation | This agent returns |
@@ -157,7 +170,6 @@ A `BLOCKED` return writes `none` for `OUTPUT_FILES` and leaves `DESIGN` out.
 | The sheet's `DISPOSITION` is not `HOLDS` | `BLOCKED`, the disposition in `ISSUES`, no design file |
 | The sheet has no block for this item or label | `BLOCKED`, naming the missing block |
 | An anchor in the sheet no longer resolves | Re-locate it once by symbol with `Grep`. If that fails, `BLOCKED`, naming the anchor |
-| The design would exceed `maxTurns` | `PARTIAL`, with the design file written so far and the unfinished outcome in `ISSUES` |
 | No candidate solution satisfies the UNMET criteria | `QUESTIONS`, asking the user to choose between re-scoping the item and retiring it |
 
 ## Constraints

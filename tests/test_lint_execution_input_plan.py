@@ -67,7 +67,7 @@ PART_1 = """# XYZ Sprint 02 Execution Input — Part 1: Header
 The cache rule applies to every reader.
 
 **Note (cross-tier duplicate preserved):** This rule is cited in Spec #1 (XYZ-Consolidated-Context-Part-1-Alpha.md)
-and in Spec #2 (XYZ-META-S01-01-Family.md). All citations retained.
+and in Spec #2 (XYZ-META-S01-01-Family.md). All citations retained. Consumed by: `scripts/cache.py`.
 
 ## Section 3: Verbatim Block
 
@@ -403,6 +403,47 @@ def test_cross_tier_propagation_fires_on_each_missing_surface(tmp_path, capsys, 
 def test_cross_tier_propagation_repaired_is_clean(tmp_path, capsys):
     _code, out = run(tmp_path, capsys, edited())
     assert "cross-tier-propagation: 1 subject(s), 0 finding(s)" in out
+
+
+# The real Note shape: the bold lead opens the paragraph and the sources wrap across lines, as in a
+# shipped EI Part. The fixture Note's clause is dropped, so the Note declares no consumer.
+UNDECLARED = ("All citations retained. Consumed by: `scripts/cache.py`.", "All citations retained.")
+CODE_TASK_CITES_SECTION = ("5. The test fixture comment", "6. Read EI §2 before the first edit.\n5. The test fixture comment")
+
+
+def advisories(out: str) -> list[str]:
+    return [line for line in out.splitlines() if line.startswith("ADVISORY cross-tier-propagation ")]
+
+
+def test_cross_tier_propagation_provenance_only_note_is_not_a_subject(tmp_path, capsys):
+    code, out = run(tmp_path, capsys, edited(part1=UNDECLARED))
+    assert code == 0, out
+    assert "cross-tier-propagation: 0 subject(s), 0 finding(s)" in out
+    assert advisories(out) == []
+
+
+def test_cross_tier_propagation_undeclared_note_cited_by_a_code_task_gives_one_advisory(tmp_path, capsys):
+    code, out = run(tmp_path, capsys, edited(part1=UNDECLARED, task1=CODE_TASK_CITES_SECTION))
+    assert code == 0, out
+    lines = advisories(out)
+    assert len(lines) == 1 and "code-writing task XYZ-S02-01-01" in lines[0], out
+    assert "cross-tier-propagation: 1 subject(s), 1 finding(s)" in out
+    assert findings(out, "cross-tier-propagation") == []
+
+
+def test_cross_tier_propagation_no_code_consumer_statement_clears_the_advisory(tmp_path, capsys):
+    stated = ("All citations retained. Consumed by: `scripts/cache.py`.", "All citations retained. No code consumer.")
+    _code, out = run(tmp_path, capsys, edited(part1=stated, task1=CODE_TASK_CITES_SECTION))
+    assert "cross-tier-propagation: 0 subject(s), 0 finding(s)" in out
+    assert advisories(out) == []
+
+
+def test_cross_tier_propagation_documentation_task_citation_gives_no_advisory(tmp_path, capsys):
+    # the task cites the Note's section, but the Write-Set assigns it a markdown path, not code
+    doc_only = ("| `tests/test_shared.py` | XYZ-S02-01-01 |", "| `notes/shared.md` | XYZ-S02-01-01 |")
+    _code, out = run(tmp_path, capsys, edited(part1=UNDECLARED, task1=CODE_TASK_CITES_SECTION, plan=doc_only))
+    assert advisories(out) == []
+    assert "cross-tier-propagation: 0 subject(s), 0 finding(s)" in out
 
 
 # --------------------------------------------------------------------------- token-reconciliation

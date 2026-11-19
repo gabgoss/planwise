@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 from unittest import mock
 
@@ -583,7 +584,7 @@ class TestOverCeilingTask(unittest.TestCase):
         return cfg
 
     def _task(self, estimate: str, budget: str = "", agent: str = "Sonnet",
-              name: str = "T-01.md"):
+              name: str = "T-01.md", folder: str = "Session-01"):
         text = _task(
             TEMPLATE_COLUMNS, "| 1 | `docs/small.md` | 2 | ~1K | why |", agent,
         ).replace("**Estimated Tokens:** ~10K", f"**Estimated Tokens:** {estimate}")
@@ -592,7 +593,39 @@ class TestOverCeilingTask(unittest.TestCase):
                 "**Estimated Tokens:**",
                 f"**Token Budget:** {budget}\n**Estimated Tokens:**",
             )
-        (self.plan / "Session-01" / name).write_text(text, encoding="utf-8")
+        target = self.plan / folder
+        target.mkdir(parents=True, exist_ok=True)
+        (target / name).write_text(text, encoding="utf-8")
+
+    COMPLETE_FOLDER = "Sprint-01-Build/Session-01-Setup"
+    PENDING_FOLDER = "Sprint-01-Build/Session-02-Ship"
+
+    def _master_plan(self, tracking_rows: str | None):
+        """Write the Master Plan. `None` writes no Session Completion Tracking table."""
+        text = "# Probe Master Plan\n\n## Overview\n\nNo table here.\n"
+        if tracking_rows is not None:
+            text += (
+                "\n## Session Completion Tracking\n\n"
+                "| Sprint | Session | Status | Summary File |\n"
+                "|--------|---------|--------|--------------|\n"
+                f"{tracking_rows}\n"
+            )
+        (self.plan / "Probe-Master-Plan.md").write_text(text, encoding="utf-8")
+
+    def _two_sessions(self, tracking_rows: str | None):
+        """One over-ceiling task in each of two sessions under one Master Plan."""
+        self._master_plan(tracking_rows)
+        self._task("~182K", name="T-01.md", folder=self.COMPLETE_FOLDER)
+        self._task("~182K", name="T-02.md", folder=self.PENDING_FOLDER)
+
+    TRACKING_ONE_DONE = (
+        "| Sprint-01 | Session-01 | COMPLETE | - |\n"
+        "| Sprint-01 | Session-02 | NOT STARTED | - |"
+    )
+    TRACKING_ALL_DONE = (
+        "| Sprint-01 | Session-01 | COMPLETE | - |\n"
+        "| Sprint-01 | Session-02 | COMPLETE | - |"
+    )
 
     def _main(self, token_saver: bool = True):
         cfg = self._write_cfg(token_saver)
@@ -665,6 +698,87 @@ class TestOverCeilingTask(unittest.TestCase):
         self.assertIsNone(tss.parse_estimated_tokens("**Estimated Tokens:** ~?K\n"))
         self.assertEqual(tss.parse_estimated_tokens("**Estimated Tokens:** ~34K\n"), 34_000)
         self.assertEqual(tss.parse_estimated_tokens("**Estimated Tokens:** ~1.5K\n"), 1_500)
+
+    def _cfg_dict(self) -> dict:
+        return {"context": {"token_saver": True,
+                            "token_saver_session_target": self.TARGET,
+                            "token_saver_runner_overhead": self.OVERHEAD}}
+
+    def test_complete_session_task_is_listed_as_no_action_and_pending_stays_flagged(self):
+        self._two_sessions(self.TRACKING_ONE_DONE)
+        code, out = self._main()
+        self.assertEqual(code, 1)
+        # The worklist line names only the pending task.
+        self.assertRegex(out, r"(?m)^  - .*T-02\.md")
+        self.assertNotRegex(out, r"(?m)^  - .*T-01\.md")
+        # The no-action block names the completed task, four-space indented.
+        self.assertIn("Already run, no action", out)
+        self.assertRegex(out, r"(?m)^    - .*T-01\.md")
+        self.assertNotRegex(out, r"(?m)^    - .*T-02\.md")
+
+    def test_only_complete_session_tasks_exit_zero(self):
+        self._two_sessions(self.TRACKING_ALL_DONE)
+        code, out = self._main()
+        self.assertEqual(code, 0)
+        self.assertNotIn("Over-ceiling tasks without a 1M flag", out)
+        self.assertIn("Already run, no action", out)
+        result = tss.scan_plan(self.plan, self._cfg_dict(), self.tmp)
+        self.assertEqual(result["summary"]["over_ceiling_unflagged"], 0)
+        self.assertEqual(result["summary"]["over_ceiling_complete"], 2)
+        self.assertEqual(len(result["over_ceiling_complete"]), 2)
+        self.assertEqual(result["over_ceiling"], [])
+
+    def test_one_complete_one_pending_summary_counts(self):
+        self._two_sessions(self.TRACKING_ONE_DONE)
+        result = tss.scan_plan(self.plan, self._cfg_dict(), self.tmp)
+        self.assertEqual(result["summary"]["over_ceiling_unflagged"], 1)
+        self.assertEqual(result["summary"]["over_ceiling_complete"], 1)
+        self.assertTrue(result["over_ceiling"][0]["task"].endswith("T-02.md"))
+        self.assertTrue(result["over_ceiling_complete"][0]["task"].endswith("T-01.md"))
+
+    def test_no_tracking_table_flags_both_tasks(self):
+        self._two_sessions(None)
+        code, out = self._main()
+        self.assertEqual(code, 1)
+        self.assertRegex(out, r"(?m)^  - .*T-01\.md")
+        self.assertRegex(out, r"(?m)^  - .*T-02\.md")
+        self.assertNotIn("Already run, no action", out)
+
+    def test_no_master_plan_flags_the_task(self):
+        self._task("~182K", name="T-01.md", folder=self.COMPLETE_FOLDER)
+        code, out = self._main()
+        self.assertEqual(code, 1)
+        self.assertRegex(out, r"(?m)^  - .*T-01\.md")
+
+    def test_task_outside_a_sprint_session_folder_fails_safe(self):
+        # The Master Plan marks every session COMPLETE, but this task sits in a
+        # folder with no Sprint-NN ancestor, so it cannot be mapped to a row.
+        self._master_plan(self.TRACKING_ALL_DONE)
+        self._task("~182K", name="T-01.md")
+        code, out = self._main()
+        self.assertEqual(code, 1)
+        self.assertRegex(out, r"(?m)^  - .*T-01\.md")
+        self.assertNotIn("Already run, no action", out)
+
+    def test_complete_row_is_read_from_the_status_cell_only(self):
+        # "INCOMPLETE" and "NOT COMPLETE" must not clear a task.
+        self._two_sessions(
+            "| Sprint-01 | Session-01 | INCOMPLETE | - |\n"
+            "| Sprint-01 | Session-02 | NOT COMPLETE | - |"
+        )
+        code, out = self._main()
+        self.assertEqual(code, 1)
+        self.assertNotIn("Already run, no action", out)
+
+    def test_no_action_lines_stay_out_of_the_plan_build_worklist(self):
+        self._two_sessions(self.TRACKING_ALL_DONE)
+        _, out = self._main()
+        import plan_build
+        hits = [ln for ln in out.splitlines() if plan_build.WORKLIST_ITEM_RE.match(ln)]
+        self.assertEqual(hits, [])
+        # Control: the pattern does match a worklist line, so an empty result
+        # above means the no-action lines stayed out, not that the regex is blind.
+        self.assertTrue(plan_build.WORKLIST_ITEM_RE.match("  - docs/x.md  (Warn/cost)"))
 
 
 class TestCli(unittest.TestCase):
@@ -847,9 +961,9 @@ class TestWriteEstimates(unittest.TestCase):
     def _with_config(self, extra) -> list:
         return list(extra) if "--config" in extra else [*extra, "--config", str(self.cfg)]
 
-    def _run(self, *tasks, dry_run=False):
+    def _run(self, *tasks, dry_run=False, today=None):
         return tsw.write_estimates(list(tasks) or [self.task], self.plan,
-                                   self.project, dry_run=dry_run)
+                                   self.project, dry_run=dry_run, today=today)
 
     def _row_cells(self, n: int) -> list[str]:
         text = self.task.read_text(encoding="utf-8")
@@ -1076,6 +1190,61 @@ class TestWriteEstimates(unittest.TestCase):
         self.assertEqual(second["written"], [])
         self.assertEqual({p: p.read_bytes() for p in self.plan.rglob("*.md")}, snapshot)
 
+    # -- the Measured footer ------------------------------------------------
+    DAY_ONE = date(2026, 11, 18)
+    DAY_TWO = date(2026, 12, 25)
+
+    def _footers(self) -> list[str]:
+        text = self.task.read_text(encoding="utf-8")
+        return [ln for ln in text.splitlines() if ln.startswith("**Measured:**")]
+
+    def _priced_ratios(self) -> str:
+        """The ratio text the footer must carry: the distinct ratios of the priced rows."""
+        cells = ("`kit/tool.py`", "`kit/guide.md`")
+        ratios = {tsw.price_row(c, self.task, self.plan, self.project, "sonnet")["ratio"]
+                  for c in cells}
+        return " / ".join(f"{r:g}" for r in sorted(ratios))
+
+    def test_footer_is_inserted_with_the_pinned_date_command_and_ratio(self):
+        report = self._run(today=self.DAY_ONE)
+        footers = self._footers()
+        expected = ("**Measured:** 2026-11-18 by token_saver.py --scan --write-estimates"
+                    f" · sonnet · {self._priced_ratios()} B/tok")
+        self.assertEqual(footers, [expected])
+        # The footer sits after a blank line, so a renderer does not read it as a table row.
+        lines = self.task.read_text(encoding="utf-8").splitlines()
+        at = lines.index(footers[0])
+        self.assertEqual(lines[at - 1], "")
+        self.assertTrue(lines[at - 2].startswith("| 5 |"))
+        self.assertEqual(lines[at + 1], "")
+        self.assertEqual([c["what"] for c in report["changes"]].count("Measured footer"), 1)
+
+    def test_a_footer_already_present_is_replaced_never_duplicated(self):
+        hand = "**Measured:** 2020-01-01 by hand · sonnet · 3 B/tok"
+        self.task.write_text(_wb_task(TASK_ROWS + "\n\n" + hand, SUBTOTAL), encoding="utf-8")
+        self._run(today=self.DAY_ONE)
+        footers = self._footers()
+        self.assertEqual(len(footers), 1)
+        self.assertIn("2026-11-18 by token_saver.py --scan --write-estimates", footers[0])
+        self.assertNotIn("by hand", self.task.read_text(encoding="utf-8"))
+
+    def test_second_run_with_no_cell_change_keeps_the_date_and_the_bytes(self):
+        self._run(today=self.DAY_ONE)
+        snapshot = self.task.read_bytes()
+        second = self._run(today=self.DAY_TWO)
+        self.assertEqual(second["changes"], [])
+        self.assertEqual(second["written"], [])
+        self.assertEqual(self.task.read_bytes(), snapshot)
+        self.assertIn("2026-11-18", self._footers()[0])
+
+    def test_a_changed_source_file_refreshes_the_date(self):
+        self._run(today=self.DAY_ONE)
+        (self.project / "kit" / "tool.py").write_bytes(b"def f():\n    return 1\n" * 900)
+        second = self._run(today=self.DAY_TWO)
+        self.assertTrue(any(c["what"] == "row 1 KiB" for c in second["changes"]))
+        self.assertIn("2026-12-25", self._footers()[0])
+        self.assertEqual(len(self._footers()), 1)
+
     def test_dry_run_writes_nothing(self):
         snapshot = {p: p.read_bytes() for p in self.plan.rglob("*.md")}
         report = self._run(dry_run=True)
@@ -1094,8 +1263,11 @@ class TestWriteEstimates(unittest.TestCase):
     SELF_CELL = "`DM-S01-01-01-Sonnet-Probe.md`"
 
     def _write_self_row_task(self) -> None:
-        """A task whose rewrite shrinks it by more than 0.1 KiB, so the disk size is stale after pass one."""
-        junk = "9" * 60 + ".9"  # rows 1-3 are priced and lose this padding
+        """A task whose rewrite shrinks it by more than 0.1 KiB, so the disk size is stale after pass one.
+
+        The shrink is net of the `**Measured:**` footer the write adds (about 92 bytes).
+        """
+        junk = "9" * 100 + ".9"  # rows 1-3 are priced and lose this padding
         rows = TASK_ROWS.replace("| 9.9 |", f"| {junk} |")
         rows += f"\n| 6 | {self.SELF_CELL} | 0.1 | ~0.1K | this task file |"
         self.task.write_text(_wb_task(rows, SUBTOTAL), encoding="utf-8")
@@ -1219,7 +1391,11 @@ class TestWriteBackRealShapes(unittest.TestCase):
         total = reads + tsw.Decimal("4.5")
         sub = (f"**Context subtotal:** ~{reads}K (reads: {reads}) + ~4.5K (output)"
                f" = **~{total}K total**")
-        self.task.write_text(_wb_task(row, sub, estimated=f"~{total}K"), encoding="utf-8")
+        ratio = tsw.price_row("`kit/tool.py`", self.task, self.plan, self.project,
+                              "sonnet")["ratio"]
+        footer = (f"**Measured:** 2020-01-01 by {tsw._FOOTER_COMMAND} · sonnet · {ratio:g} B/tok")
+        self.task.write_text(_wb_task(row + "\n\n" + footer, sub, estimated=f"~{total}K"),
+                             encoding="utf-8")
         self._orch().write_text(ORCHESTRATION.replace("~10K | cross", f"~{total}K | cross")
                                 .replace("~30K tokens (10 + 20)",
                                          f"~{total + 20}K tokens ({total} + 20)"),

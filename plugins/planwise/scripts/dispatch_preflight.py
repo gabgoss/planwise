@@ -6,8 +6,9 @@ it saw before its verdict. Every subcommand exits 0 when its sets agree, 1
 when it lists a difference, and 2 on unreadable or missing input.
 
 ``overlap --candidate <task file> [--running <task file>...]``
-    Omit ``--running`` when no other task is running, and the check reports
-    ``disjoint``. A candidate task's ``**Output:**`` paths intersect a running task's
+    Pass ``--running none``, or omit ``--running``, when no other task is
+    running, and the check reports ``disjoint``. ``none`` is the empty-set token.
+    It is accepted only as the sole value, and ``none`` beside a path exits 2. A candidate task's ``**Output:**`` paths intersect a running task's
     ``**Output:**`` paths. Shared paths are listed per running task.
     ``output_paths`` is a plain function so a scaffold-time layer check can
     import it. Cannot see: two spellings of one path (a relative
@@ -25,7 +26,8 @@ when it lists a difference, and 2 on unreadable or missing input.
 ``siblings --since <YYYY-MM-DD> --recoveries <file>... --edit-set <list file>``
     A sibling Recovery whose latest recorded date is on or after ``--since``
     lists, under ``## Files Modified``, a path that the edit or sweep set also
-    names. The list file holds one path per line. Paths match when equal or
+    names. ``--recoveries none`` is the empty set, for a session with no closed
+    sibling yet. The list file holds one path per line. Paths match when equal or
     when one ends with the other on a path-component boundary. Cannot see: a
     Recovery that records no date is skipped and counted, never read as clean.
 
@@ -171,9 +173,26 @@ def overlap(candidate: set[str], running: dict[str, set[str]]) -> dict[str, set[
     return {name: candidate & paths for name, paths in running.items() if candidate & paths}
 
 
+def empty_set_token(paths: list[Path], flag: str) -> tuple[list[Path], str | None]:
+    """Map a sole ``none`` (any case) to the empty list.
+
+    Returns the paths and ``None``, or the paths and an error line when ``none``
+    sits beside other paths, because the caller cannot tell which was meant.
+    """
+    if not any(str(p).lower() == "none" for p in paths):
+        return paths, None
+    if len(paths) == 1:
+        return [], None
+    return paths, f"error: {flag} none is the empty set and cannot be combined with other paths"
+
+
 def _cmd_overlap(args: argparse.Namespace) -> int:
+    running, problem = empty_set_token(args.running, "--running")
+    if problem:
+        print(problem)
+        return 2
     texts = {}
-    for path in [args.candidate, *args.running]:
+    for path in [args.candidate, *running]:
         try:
             texts[str(path)] = path.read_text(encoding="utf-8")
         except OSError as exc:
@@ -334,9 +353,13 @@ def _cmd_siblings(args: argparse.Namespace) -> int:
     except ValueError:
         print(f"error: --since is not YYYY-MM-DD: {args.since}")
         return 2
+    recoveries, problem = empty_set_token(args.recoveries, "--recoveries")
+    if problem:
+        print(problem)
+        return 2
     try:
         edit_set = read_list(args.edit_set)
-        texts = {str(p): p.read_text(encoding="utf-8") for p in args.recoveries}
+        texts = {str(p): p.read_text(encoding="utf-8") for p in recoveries}
     except OSError as exc:
         print(f"error: {exc}")
         return 2

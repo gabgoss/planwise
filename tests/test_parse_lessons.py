@@ -16,6 +16,7 @@ Run with:  python -m pytest tests/test_parse_lessons.py -q
 
 import contextlib
 import io
+import json
 import shutil
 import sys
 import tempfile
@@ -447,6 +448,144 @@ class TestNextIdSourceIsolation(_ParseLessonsFixtureBase):
 
         self.assertEqual(result["next_id"], "LL-231")
         self.assertIn("generated index", result["found_in"])
+
+
+class TestStatusAndOwnersViews(_ParseLessonsFixtureBase):
+    """`--status VALUE` and `--owners`: the two read views the curate workflow
+    names. Each lesson is a full-frontmatter file, because the views read through
+    the same scanner the index generator uses."""
+
+    def _lesson(self, number: int, status: str, promoted=None, directory=None, newline: str = "\n") -> Path:
+        target_dir = directory if directory is not None else self.lessons_dir
+        target_dir.mkdir(parents=True, exist_ok=True)
+        lines = [
+            "---",
+            f"id: LL-{number:03d}",
+            "title: Fixture lesson",
+            "category: process",
+            "severity: medium",
+            "language: [python]",
+            "technology: []",
+            "domain: []",
+            "source: fixture",
+            f"status: {status}",
+        ]
+        if promoted is not None:
+            lines.append(f"promoted-to: {promoted}")
+        lines += ["---", "", f"# LL-{number:03d}-PROC: Fixture lesson", ""]
+        path = target_dir / f"LL-{number:03d}-PROC-Fixture{number}.md"
+        path.write_bytes(newline.join(lines).encode())
+        return path
+
+    def _item(self, number: int, status: str, directory=None) -> Path:
+        target_dir = directory if directory is not None else self.config["_backlog_dir"]
+        target_dir.mkdir(parents=True, exist_ok=True)
+        path = target_dir / f"BB-{number:03d}-01-Fixture.md"
+        path.write_bytes(f'---\nid: {number}\ntitle: "Fixture item"\nstatus: {status}\n---\n\n# Item\n'.encode())
+        return path
+
+    def _run(self, *flags: str) -> tuple[int, str, str]:
+        out, err = io.StringIO(), io.StringIO()
+        with (
+            unittest.mock.patch.object(sys, "argv", [*sys.argv[:3], *flags]),
+            contextlib.redirect_stdout(out),
+            contextlib.redirect_stderr(err),
+        ):
+            code = parse_lessons.main()
+        return code, out.getvalue(), err.getvalue()
+
+    def test_status_lists_exactly_the_matching_lessons_across_working_dir_and_archive(self):
+        self._lesson(1, "promoted", "BB-153")
+        self._lesson(2, "documented")
+        self._lesson(3, "promoted", "BB-020", directory=self.archive_dir)
+        self._lesson(4, "applied", directory=self.archive_dir)
+        code, out, _ = self._run("--status", "promoted")
+        self.assertEqual(code, 0)
+        lines = out.strip().split("\n")
+        self.assertEqual([line.split("\t")[0] for line in lines], ["LL-001", "LL-003"])
+        self.assertTrue(all(line.split("\t")[1] == "promoted" for line in lines))
+        self.assertTrue(lines[1].split("\t")[2].endswith("Archive/LL-003-PROC-Fixture3.md"))
+
+    def test_status_lists_a_lesson_whose_file_has_crlf_line_endings(self):
+        self._lesson(1, "promoted", "BB-153", newline="\r\n")
+        self._lesson(2, "promoted", "BB-154")
+        self.assertIn(b"\r\n", (self.lessons_dir / "LL-001-PROC-Fixture1.md").read_bytes())
+        code, out, _ = self._run("--status", "promoted")
+        self.assertEqual(code, 0)
+        self.assertEqual([line.split("\t")[0] for line in out.strip().split("\n")], ["LL-001", "LL-002"])
+
+    def test_status_with_no_match_prints_one_line_and_exits_zero(self):
+        self._lesson(1, "documented")
+        code, out, _ = self._run("--status", "orphaned")
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "No lessons with status orphaned.")
+
+    def test_undeclared_status_exits_two_and_names_the_value(self):
+        self._lesson(1, "documented")
+        code, out, err = self._run("--status", "nonsense")
+        self.assertEqual(code, 2)
+        self.assertEqual(out, "")
+        self.assertIn("'nonsense'", err)
+
+    def test_unreadable_lesson_frontmatter_exits_one_and_names_the_file(self):
+        self.write_lesson(7)  # frontmatter holds only id and status
+        code, _, err = self._run("--status", "documented")
+        self.assertEqual(code, 1)
+        self.assertIn("LL-007-PROC-Fixture7.md", err)
+
+    def test_owners_resolves_by_id_prefix_in_backlog_and_archive_and_reports_missing(self):
+        self._lesson(1, "promoted", "BB-153")
+        self._lesson(2, "promoted", "BB-020", directory=self.archive_dir)
+        self._lesson(3, "promoted", "BB-999")
+        self._item(153, "NOT_STARTED")
+        self._item(20, "COMPLETE", directory=self.config["_archive_dir"])
+        code, out, _ = self._run("--status", "promoted", "--owners")
+        self.assertEqual(code, 0)
+        rows = [line.split("\t") for line in out.strip().split("\n")]
+        self.assertEqual([row[:3] for row in rows], [
+            ["LL-001", "BB-153", "NOT_STARTED"],
+            ["LL-002", "BB-020", "COMPLETE"],
+            ["LL-003", "BB-999", "MISSING"],
+        ])
+        self.assertTrue(rows[0][3].endswith("BB-153-01-Fixture.md"))
+        self.assertTrue(rows[1][3].endswith("Archive/BB-020-01-Fixture.md"))
+        self.assertEqual(rows[2][3], "-")
+
+    def test_owners_reads_a_comma_joined_value_and_an_empty_value(self):
+        self._lesson(1, "promoted", "BB-153, BB-154")
+        self._lesson(2, "promoted")
+        self._item(153, "NOT_STARTED")
+        self._item(154, "IN_PROGRESS")
+        code, out, _ = self._run("--status", "promoted", "--owners")
+        self.assertEqual(code, 0)
+        rows = [line.split("\t") for line in out.strip().split("\n")]
+        self.assertEqual([row[:3] for row in rows], [
+            ["LL-001", "BB-153", "NOT_STARTED"],
+            ["LL-001", "BB-154", "IN_PROGRESS"],
+            ["LL-002", "(none)"],
+        ])
+
+    def test_owners_alone_covers_every_status(self):
+        self._lesson(1, "promoted", "BB-153")
+        self._lesson(2, "documented")
+        self._item(153, "NOT_STARTED")
+        code, out, _ = self._run("--owners")
+        self.assertEqual(code, 0)
+        self.assertEqual([line.split("\t")[0] for line in out.strip().split("\n")], ["LL-001", "LL-002"])
+
+    def test_json_writes_the_records_with_their_owners(self):
+        self._lesson(1, "promoted", "BB-153")
+        self._item(153, "NOT_STARTED")
+        code, out, _ = self._run("--status", "promoted", "--owners", "--json")
+        self.assertEqual(code, 0)
+        json_line = [line for line in out.split("\n") if line.startswith("JSON: ")]
+        self.assertEqual(len(json_line), 1)
+        report_path = Path(json_line[0][len("JSON: "):])
+        self.addCleanup(shutil.rmtree, report_path.parent, ignore_errors=True)
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        self.assertEqual(report["status"], "promoted")
+        self.assertEqual(report["lessons"][0]["promoted_to"], ["BB-153"])
+        self.assertEqual(report["owners"][0]["owners"][0]["status"], "NOT_STARTED")
 
 
 if __name__ == "__main__":

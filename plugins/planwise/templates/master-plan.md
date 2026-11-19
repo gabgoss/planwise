@@ -61,6 +61,41 @@ Assigns a global number to each spec output. Execution Inputs cite a source as `
 
 ---
 
+## Discovery Inputs <!-- OPTIONAL — a Discovery (meta) plan that gathers sources and hands the user a gate -->
+
+<!-- Include only in a Discovery plan, which reads a set of sources, writes Consolidated Context
+     Parts and stops at a gate the user answers. Omit the section, with its four H3s, in every
+     other plan. Keep this section at plan level, and keep a gate's detail in the gated session's
+     Orchestration and Recovery files under `User-Action Gate`. -->
+
+### Source Material
+
+Sources the Discovery plan reads. The table names each one by reference and never copies its content.
+
+| # | Source | Location | Used By |
+|---|--------|----------|---------|
+| {N} | {source name} | `{path or URL}` | S{XX} |
+
+### Expected Consolidated Context Parts
+
+| Part | Topic | Scope | Target Bytes | Target Tokens |
+|------|-------|-------|--------------|---------------|
+| {N} | {topic} | {what the Part covers, and what it leaves out} | {N} | {N} |
+
+### Hypotheses
+
+| # | Hypothesis | Confirmed By | Status |
+|---|------------|--------------|--------|
+| {N} | {claim the Discovery plan tests} | {source or task-id} | OPEN |
+
+### User-Action Gates
+
+| Gate | Trigger | What the User Receives | Allowed Answers |
+|------|---------|------------------------|-----------------|
+| {gate name} | {condition that stops the session} | {document or summary handed to the user} | {answer 1, answer 2} |
+
+---
+
 ## Sprint Overview <!-- REQUIRED -->
 
 | Sprint | Name | Purpose | Sessions | Status |
@@ -166,6 +201,7 @@ recomputed: {today's date}.
 - [ ] All sprints complete — Owner: {sprint signoff or closeout task-id}
 - [ ] {Final deliverable criterion} — Owner: {task-id}
 - [ ] Every item in **Resolves:** is COMPLETE with a dated resolution note (or Resolves is "none") — Owner: {closeout task-id}
+- [ ] {Every row of User-Action Gates is resolved, or delete this line when the plan has no gate} — Owner: {task-id}
 
 ---
 

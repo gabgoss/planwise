@@ -128,36 +128,32 @@ Report the count of `none:` answers in the chat summary (§6), with the reason o
 
 ### 4.1 Find promoted lessons awaiting landing
 
-Grep all `LL-NNN-*.md` files in `{lessons_dir}/` for `status: promoted` in their YAML frontmatter using the `Grep` tool:
+List every promoted lesson, with each owner's backlog status, using the shipped script:
 
-```
-pattern: ^status: promoted$
-path: {lessons_dir}
-glob: **/LL-*.md
-output_mode: files_with_matches
+```bash
+python {plugin_root}/scripts/parse_lessons.py --config {config_path} --status promoted --owners
 ```
 
-Read each match and capture: `id`, `title`, `date`, `status`, `applied-as`, `promoted-to`, and the deprecated `rule-as` (a lesson written under the older scheme carries its artifact pointer there — see the Pointer Fields definition in `references/lessons-schema.md`).
+The output is one tab-separated line per lesson and owner: `LL-NNN`, the owner id, the owner's status (`MISSING` when no backlog file matches the id), and the owner file path. A lesson with an empty `promoted-to:` prints `LL-NNN` and `(none)`. To list the lessons without their owners, drop `--owners`. The script reads each file through the CRLF-safe frontmatter scanner, so a lesson with CRLF line endings is listed. A frontmatter-reading `Grep` pattern ending in a bare `$` would miss it.
+
+Read each listed lesson file and capture: `id`, `title`, `date`, `status`, `applied-as`, `promoted-to`, and the deprecated `rule-as` (a lesson written under the older scheme carries its artifact pointer there — see the Pointer Fields definition in `references/lessons-schema.md`).
 
 ### 4.1b Heal fully-owned documented lessons
 
-Some lessons remain `status: documented` even though every fragment of their content is already owned by a drafted backlog item — for example, ownership was recorded after the lesson was captured, rather than through `promote-batch`. Grep for candidates:
+Some lessons remain `status: documented` even though every fragment of their content is already owned by a drafted backlog item — for example, ownership was recorded after the lesson was captured, rather than through `promote-batch`. List the candidates:
 
-```
-pattern: ^status: documented$
-path: {lessons_dir}
-glob: **/LL-*.md
-output_mode: files_with_matches
+```bash
+python {plugin_root}/scripts/parse_lessons.py --config {config_path} --status documented
 ```
 
-For each match, check whether a backlog item now owns the lesson's ENTIRE content (not just a fragment of it). If so, it is a heal candidate: `documented` → `promoted`, with `promoted-to:` set to the owning item id(s).
+For each listed lesson, check whether a backlog item now owns the lesson's ENTIRE content (not just a fragment of it). A backlog item that mentions the lesson proves a mention, not full ownership, so this check stays a judgment about content. If so, it is a heal candidate: `documented` → `promoted`, with `promoted-to:` set to the owning item id(s).
 
 > [!gate] Heal Is User-Gated
 > Do NOT flip `documented` → `promoted` silently. Surface each heal candidate (lesson id, owning item id, evidence of full ownership) to the user and wait for approval before writing the frontmatter change. A lesson that is only PARTIALLY owned (some content still unowned) is NOT a heal candidate — leave it `documented`.
 
 ### 4.2 Resolve ownership and verify landing readiness
 
-For each lesson found in §4.1 (`status: promoted`), resolve every id in its `promoted-to:` field to that backlog item's current status. That resolution tells you whether a lesson may still be *waiting*; it is not the landing test. **Land per lesson, by content — never per item, by status.** What lands a lesson is its own content being present in a destination artifact; an owner's closure is neither that test nor a substitute for it.
+For each lesson found in §4.1 (`status: promoted`), take the status of every id in its `promoted-to:` field from the `--owners` lines §4.1 already printed. Do not resolve the ids by hand: the script matches each id to its `BB-NNN-*.md` file by id prefix, in the backlog and its `Archive/`. A `MISSING` owner is an anomaly. Report it in the chat summary, because the lesson names a backlog item that no file carries. The owner status tells you whether a lesson may still be *waiting*; it is not the landing test. **Land per lesson, by content — never per item, by status.** What lands a lesson is its own content being present in a destination artifact; an owner's closure is neither that test nor a substitute for it.
 
 1. **The lesson's content is present in a destination artifact.** The lesson is ready to land, whatever its owning item's status. Verify the destination artifact exists — the expected destination patterns (illustrative, not exhaustive) are:
 
