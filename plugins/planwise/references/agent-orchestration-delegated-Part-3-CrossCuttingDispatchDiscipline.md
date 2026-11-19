@@ -1,5 +1,5 @@
 ---
-description: DELEGATED dispatch discipline, Part 3 of 4. This file holds §1.23–§1.28, the cross-cutting dispatch-prompt and orchestrator discipline, including pinning foreground execution and a long timeout for a long suite (§1.27.1), polling a background command's independent progress signal and halting after two stalled polls (§1.27.2), and the status-block return contract (§1.28). Part 1 of 4 is agent-orchestration-delegated.md.
+description: DELEGATED dispatch discipline, Part 3 of 4. This file holds §1.23–§1.28, the cross-cutting dispatch-prompt and orchestrator discipline, including pinning foreground execution and a long timeout for a long suite (§1.27.1), polling a background command's independent progress signal and halting after two stalled polls, or polling in the foreground for a run-end completion artifact (§1.27.2), and the status-block return contract (§1.28). Part 1 of 4 is agent-orchestration-delegated.md.
 consult-when: Writing any DELEGATED spawn prompt or checking the orchestrator's own conduct — triple-scoping a single-task dispatch, giving a structure contract a literal template, adjudicating a runner-surfaced decision, keeping verification read-only inside a runner's ownership window, pinning the interpreter, foreground execution and a long timeout for a long suite, and the status-block return contract
 ---
 
@@ -272,9 +272,11 @@ A backgrounded child does not outlive the session that launched it. A stall insi
 > | Run length | Pattern |
 > |---|---|
 > | Fits the foreground ceiling (600000 ms) | Run in the foreground. A stall surfaces as a timeout. |
-> | Longer | Run in the background. Poll a progress signal that does not depend on the job every 60-90 s. Halt and report when it fails to advance across two consecutive polls. |
+> | Longer, and the job writes a completion artifact at run end | Launch with `run_in_background: true`. Poll in the foreground in bounded wait calls until the artifact exists. Never end the turn while the child runs. Launch one child at a time. The job's own pinned timeout is the halt bound. |
+> | Longer, and the job writes no completion artifact | Run in the background. Poll a progress signal that does not depend on the job every 60-90 s. Halt and report when it fails to advance across two consecutive polls. |
 > | Either | Make the work resumable. Assert the landed delta, never the exit code. |
 >
+> - **A completion artifact exists only when the run ends.** Each wait call lasts at most about 540 s and runs with a 600000 ms shell timeout. A streaming file, one the job writes during the run, cannot signal completion, because it exists from the first write. A run-end artifact answers "done" and cannot detect a stall. Pair it with the pinned timeout or an independent progress signal.
 > - **The progress signal does not depend on the job.** A row count and a latest-timestamp query over a per-fetch audit table qualify. A line the job writes to its own log does not, because a stalled job writes nothing.
 > - **Resumability has three parts.** Use a natural key with a UNIQUE constraint, an idempotent merge, and a resume filter that reads what is already stored.
 > - **Assert the landed delta.** The exit code of a piped command is the status of its last stage, so a pipe into `tail` always exits 0.
@@ -297,6 +299,8 @@ A backgrounded child does not outlive the session that launched it. A stall insi
 > ```
 
 Measured case. A 1,393-item run forecast at about 13 minutes was launched in the background. After 976 items persisted, 50 minutes passed with no fetch, error or log line, and the session ended with `[killed]` in the job log. The next day the database held 39,159 rows against a recorded baseline of 120. Recovery took a forensic pass over two transcripts, the job log and a live re-measure. When the orchestrator briefly ordered a re-run during diagnosis, the runner refused and cited the live process id, which was right.
+
+Measured case, run-end artifact. Two control runs took 452.2 s and 293.5 s against a pinned child timeout of 1800 s. Four children then ran with the background launch and the foreground poll in 916 s, with no stall and no lost child.
 
 **Applies to** DELEGATED task-runner spawn prompts and to any task whose verification includes a command expected to exceed the 600000 ms foreground ceiling.
 

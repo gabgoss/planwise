@@ -46,7 +46,7 @@ Use this template when generating the session summary at session closeout, writt
 | Build | Pass | No errors |
 | Tests (if applicable) | Pass / N/A | {notes} |
 | Manual verification | Pass | {what was tested} |
-| Destructive-diff adversarial review | Pass / N/A | If the diff adds/widens a delete/overwrite/migrate/prune/sweep disposition: pre-commit adversarial review run as a gate distinct from script verification, findings fixed, regression tests added. N/A if no destructive disposition. |
+| Destructive-diff adversarial review | Pass / N/A | If the diff adds/widens a delete/overwrite/migrate/prune/sweep disposition: pre-commit adversarial review run as a gate distinct from script verification, findings fixed, regression tests added, and each fix round's diff reviewed again until a round confirmed no destructive finding. N/A if no destructive disposition. |
 
 ---
 

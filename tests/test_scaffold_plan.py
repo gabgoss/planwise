@@ -268,6 +268,38 @@ def test_check_headings_plan_specific_h3_accepted_and_later_h2_stray(tmp_path):
     assert sp.check_text(bad, *sp.template_heading_sets(TEMPLATES)["master"])[1] == ["## References"]
 
 
+def _scaffolding_master_text():
+    """A Master Plan body filled from the scaffolding template's own fenced body."""
+    return sp.read_lf(TEMPLATES / "scaffolding-master-plan.md").split("```markdown\n", 1)[1].split("\n```\n", 1)[0] + "\n"
+
+
+def test_check_headings_grades_a_scaffolding_master_against_its_own_template(tmp_path, capsys):
+    target = tmp_path / "QZX-Master-Plan.md"
+    target.write_text(_scaffolding_master_text(), encoding="utf-8", newline="\n")
+    results = sp.check_headings([target], TEMPLATES)
+    assert (results[0]["kind"], results[0]["stray"]) == ("scaffolding-master", [])
+    assert results[0]["h2"] == 12
+    assert sp.main(["check-headings", str(target)]) == 0
+    out = capsys.readouterr().out
+    assert "kind=scaffolding-master" in out and "stray=0" in out and "stray_h2=0 files=1" in out
+
+
+def test_check_headings_keeps_grading_a_standard_master_as_master(tmp_path, rendered):
+    out = _write(tmp_path, rendered)
+    target = out / "QZX-Master-Plan.md"
+    target.write_bytes(target.read_bytes().replace(
+        b"## Dependencies", b"## Sprint-to-Part Mapping\n\nx\n\n## Dependencies"))
+    results = sp.check_headings([target], TEMPLATES)
+    assert (results[0]["kind"], results[0]["stray"]) == ("master", ["## Sprint-to-Part Mapping"])
+
+
+def test_check_headings_flags_an_h2_after_the_scaffolding_catch_all(tmp_path):
+    target = tmp_path / "QZX-Master-Plan.md"
+    target.write_text(_scaffolding_master_text() + "\n## Unknown Notes\n\nx\n", encoding="utf-8", newline="\n")
+    results = sp.check_headings([target], TEMPLATES)
+    assert (results[0]["kind"], results[0]["stray"]) == ("scaffolding-master", ["## Unknown Notes"])
+
+
 def test_check_headings_ignores_h2_inside_a_fence():
     patterns, catch = sp.template_heading_sets(TEMPLATES)["task"]
     text = "## Objective\n\n```markdown\n## Not A Section\n```\n\n## Notes for Agent\n"
@@ -360,6 +392,35 @@ def test_optional_section_omitted_unless_opted_in():
     files, _ = sp.render_all(opted, TEMPLATES)
     assert "## Out of Scope" in files["QZX-Master-Plan.md"]
     assert sp.unmasked_braces(files["QZX-Master-Plan.md"]) == []
+
+
+META_H3S = ["Source Material", "Expected Consolidated Context Parts", "Hypotheses", "User-Action Gates"]
+GATED_SESSION = "Sprint-01-LedgerCore/Session-01-ReadPath/QZX-S01-01-"
+OTHER_SESSION = "Sprint-01-LedgerCore/Session-02-WritePath/QZX-S01-02-"
+
+
+def test_meta_plan_sections_render_only_when_opted_in():
+    plain, _ = sp.render_all(make_spec(), TEMPLATES)
+    assert "## Discovery Inputs" not in plain["QZX-Master-Plan.md"]
+    assert "## User-Action Gate" not in plain[GATED_SESSION + "Orchestration.md"]
+    assert "## User-Action Gate" not in plain[GATED_SESSION + "Recovery.md"]
+
+    opted = make_spec()
+    opted["optional_sections"] = ["Discovery Inputs"]
+    opted["sprints"][0]["sessions"][0]["optional_sections"] = ["User-Action Gate"]
+    files, _ = sp.render_all(opted, TEMPLATES)
+
+    master = files["QZX-Master-Plan.md"]
+    assert master.count("\n## Discovery Inputs") == 1
+    for heading in META_H3S:
+        assert master.count(f"\n### {heading}\n") == 1, heading
+    assert sp.check_text(master, *sp.template_heading_sets(TEMPLATES)["master"])[1] == []
+
+    for kind in ("Orchestration", "Recovery"):
+        gated = files[GATED_SESSION + kind + ".md"]
+        assert gated.count("\n## User-Action Gate") == 1, kind
+        assert "## User-Action Gate" not in files[OTHER_SESSION + kind + ".md"], kind
+        assert sp.check_text(gated, *sp.template_heading_sets(TEMPLATES)[kind.lower()])[1] == [], kind
 
 
 def test_schema_pin_fence_parity_is_bounded(rendered):

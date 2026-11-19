@@ -205,8 +205,7 @@ was either never posted, or was filed by hand outside this tool. Post it with
 
 **Model drafts are not unmarked drafts.** Queued and expired model drafts get their own group,
 headed `Model drafts, not yet reviewed ({n})`, with `—` in every cell after Draft. `--status`
-reads each one's `status:` frontmatter directly, never through the helper, whose expiry pass
-writes. The group ends with `Review them with /planwise feedback --drafts.`
+reads each one's `status:` frontmatter directly. The group ends with `Review them with /planwise feedback --drafts.`
 
 ### Degradation
 
@@ -246,7 +245,7 @@ pipeline in Part 1, from gate 1, on the promoted file.
 
 A `{model draft}` is a `*.md` file directly in `{planwise_root}/{feedback_dir}`
 (non-recursive) whose name matches `{model_draft_name}` and whose frontmatter carries
-`drafted_by: model`. Resolve the set with the helper, which applies expiry first:
+`drafted_by: model`. Resolve the set with the helper. `list` reports a queued draft past the expiry limit as `expired` and writes nothing. Only the helper's `expire` and `admit` commands write `status: expired`:
 
 ```
 python "{plugin_root}/scripts/feedback_drafts.py" list --json --config "{planwise_root}/config.yaml"

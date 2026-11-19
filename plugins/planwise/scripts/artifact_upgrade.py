@@ -43,6 +43,7 @@ try:
         _load_verdicts_cache,
         _transfer_customization,
         _write_backup_preimage,
+        relocate_preserved_agent_mirrors,
         verdicts_cache_path,
     )
 except ImportError:
@@ -606,7 +607,7 @@ RECOVERY_ARTIFACT_CLASSES: dict[str, str] = {
     "action-required": "unresolved conflict sidecars",
     "review-then-discard": "transferred customizations awaiting re-homing",
     "safe-to-discard": "pre-change backups, once you are satisfied with the upgrade",
-    "inert": "a consumed verdict cache",
+    "inert": "a consumed or unconsumable verdict cache",
 }
 
 
@@ -657,10 +658,14 @@ def _scan_recovery_artifacts(cfg: "InitConfig") -> list[tuple[str, int, str]]:
     # — an unfiled draft still needs the user's review), and the retired
     # verdict cache (inert) — each reported as its own surface line rather
     # than one rolled-up "conflicts" count that could not carry one class.
+    # A live verdicts.json also counts as inert here: this banner runs after
+    # the upgrade's cache retirement step, so a cache still on disk is one
+    # no later run can consume.
     conflicts_root = root / "upgrade-conflicts"
     sidecar_count = 0
     issue_draft_count = 0
     consumed_cache_count = 0
+    live_cache_count = 0
     for pair_dir in conflicts_root.glob("*-to-*"):
         if not pair_dir.is_dir():
             continue
@@ -670,6 +675,8 @@ def _scan_recovery_artifacts(cfg: "InitConfig") -> list[tuple[str, int, str]]:
             issue_draft_count += sum(1 for f in issue_drafts_dir.rglob("*") if f.is_file())
         if (pair_dir / "verdicts.json.consumed").exists():
             consumed_cache_count += 1
+        if (pair_dir / "verdicts.json").is_file():
+            live_cache_count += 1
 
     if sidecar_count:
         surfaces.append((f"{conflicts_root}/*/", sidecar_count, "action-required"))
@@ -680,6 +687,10 @@ def _scan_recovery_artifacts(cfg: "InitConfig") -> list[tuple[str, int, str]]:
     if consumed_cache_count:
         surfaces.append(
             (f"{conflicts_root}/*/verdicts.json.consumed", consumed_cache_count, "inert")
+        )
+    if live_cache_count:
+        surfaces.append(
+            (f"{conflicts_root}/*/verdicts.json", live_cache_count, "inert")
         )
 
     return surfaces
@@ -1018,7 +1029,10 @@ def _run_upgrade(
                 print(line)
         except Exception as exc:  # noqa: BLE001 -- never change the exit code
             print(f"  Warning: style rule step raised unexpectedly: {exc}", file=sys.stderr)
-        emit_mirror_sweep(cfg, sweep_orphaned_agent_mirrors)
+        emit_mirror_sweep(
+            cfg, sweep_orphaned_agent_mirrors,
+            lambda c, findings: relocate_preserved_agent_mirrors(
+                c, findings, pinned_version, target_version))
         if needs_repoint:
             _repoint_plugin_root(config_path, cfg.plugin_root)
             print(f"Plugin version: {pinned_version}")
@@ -1263,15 +1277,22 @@ def _run_upgrade(
                     file=sys.stderr,
                 )
 
-        # 4c. Recovery-artifact aggregation: report every leftover surface
+        # 4c. Orphaned agent mirrors still under .claude/agents/. Under
+        # `report+relocate` this moves each customized mirror that has a
+        # shipped counterpart into upgrade-transfers/. It runs BEFORE the
+        # recovery aggregation below, so that banner counts the transfer files
+        # and backups this step writes.
+        emit_mirror_sweep(
+            cfg, sweep_orphaned_agent_mirrors,
+            lambda c, findings: relocate_preserved_agent_mirrors(
+                c, findings, pinned_version, target_version))
+
+        # 4d. Recovery-artifact aggregation: report every leftover surface
         # still on disk across every upgrade pair found (not just this
         # run's), each with its disposition class. Placed AFTER the
         # verdict-cache retirement above so a cache this run just consumed is
         # picked up as inert rather than missed as still-active.
         _emit_recovery_artifacts_banner(_scan_recovery_artifacts(cfg))
-
-        # 4d. Orphaned agent mirrors still under .claude/agents/ (read-only).
-        emit_mirror_sweep(cfg, sweep_orphaned_agent_mirrors)
 
         # 5. Post-upgrade advisory: flag any installed rule still scoped to
         # plan/backlog/lessons globs (read-only — never mutates).

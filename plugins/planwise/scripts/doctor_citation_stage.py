@@ -14,7 +14,9 @@ section. A target is a plugin file when it resolves under the plugin root, or,
 when it does not resolve, when its path starts with a plugin directory such as
 `references/`. Findings that cite project files are counted, not printed. A
 rule that is not UTF-8 prints as `unreadable` with the bad byte and its
-offset, plus a second remedy line; the other rules' findings still print. The
+offset, plus a second remedy line; the other rules' findings still print. One
+row prints per distinct finding. A line that cites the same dead section more
+than once prints one row ending in `(N mentions)`, and the header counts rows. The
 plugin's own citations are not scanned, and `.claude/rules/planwise/` is
 excluded from the check: it holds machine-managed installed copies that
 `/planwise upgrade` owns. Nothing here asks a question or writes a file. The
@@ -76,9 +78,18 @@ def run_section_citation_stage(cfg) -> None:
             continue
         leftovers.append((path.relative_to(project_root).as_posix(), f))
     leftovers.sort(key=lambda item: (item[0], item[1].line))
+    # One row per distinct finding. A line that cites the same dead section twice
+    # yields two identical findings, so they collapse into one row with a count.
+    rows: dict[tuple, list] = {}
+    for shown, f in leftovers:
+        key = (shown, f.line, f.citation, f.verdict, f.target, f.section, f.note)
+        if key in rows:
+            rows[key][2] += 1
+        else:
+            rows[key] = [shown, f, 1]
     skip_note = f"{skipped} citation(s) to project files skipped" if skipped else ""
 
-    if not leftovers:
+    if not rows:
         print(
             "No dangling section citation in .claude/rules/ "
             "(installed copies under .claude/rules/planwise/ skipped)."
@@ -87,10 +98,11 @@ def run_section_citation_stage(cfg) -> None:
         return
 
     suffix = f" ({skip_note})" if skip_note else ""
-    print(f"{len(leftovers)} dangling section citation(s), likely upgrade leftovers{suffix}:")
-    for shown, f in leftovers:
+    print(f"{len(rows)} dangling section citation(s), likely upgrade leftovers{suffix}:")
+    for shown, f, count in rows.values():
+        mentions = f" ({count} mentions)" if count > 1 else ""
         if f.verdict == "unreadable":
-            print(f"  {shown}:{f.line}: unreadable — {f.note}")
+            print(f"  {shown}:{f.line}: unreadable — {f.note}{mentions}")
             continue
         if f.verdict == "dangling":
             missing = f"section §{f.section} is not in {f.target}"
@@ -98,7 +110,7 @@ def run_section_citation_stage(cfg) -> None:
             missing = f"section §{f.section} now lives in {f.target} ({f.note})"
         else:
             missing = f"file {f.target} does not resolve ({f.note})" if f.note else f"file {f.target} does not resolve"
-        print(f"  {shown}:{f.line}: {f.citation} — {missing}")
+        print(f"  {shown}:{f.line}: {f.citation} — {missing}{mentions}")
     print(_REMEDY)
-    if any(f.verdict == "unreadable" for _, f in leftovers):
+    if any(f.verdict == "unreadable" for _, f, _ in rows.values()):
         print(_UNREADABLE_REMEDY)

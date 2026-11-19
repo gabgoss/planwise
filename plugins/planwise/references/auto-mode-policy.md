@@ -91,6 +91,32 @@ Place the comment on the line immediately BEFORE the `AskUserQuestion` call, or 
 call line itself. A `<!-- Default: … -->` comment may sit between the marker and the call —
 that is the house style, and the compliance check allows for it.
 
+> [!pitfall] Keep the marker, the `Default:` comment and the question together
+> The marker, the optional `<!-- Default: … -->` comment and the question line form one
+> unit of at most three lines. The compliance check looks at the question's own line and
+> the two lines above it. A paragraph inserted between the marker and the question pushes
+> the marker to the third line up, and the check then reports the question as untagged.
+> New prose goes above the marker, never inside the unit.
+>
+> WRONG — a mode paragraph inserted after the two comments. The marker is now three lines
+> above the question:
+> ```markdown
+> <!-- AUTO-MODE: convenience -->
+> <!-- Default: per references/auto-mode-policy.md ... -->
+> **In loop mode:** ask nothing.
+> Use `AskUserQuestion`: "Create backlog item from this candidate?"
+> ```
+> CORRECT — the new paragraph first, then the intact unit:
+> ```markdown
+> **In loop mode:** ask nothing.
+>
+> <!-- AUTO-MODE: convenience -->
+> <!-- Default: per references/auto-mode-policy.md ... -->
+> Use `AskUserQuestion`: "Create backlog item from this candidate?"
+> ```
+> After any edit near a tagged site, run the check below before and after the edit and
+> compare the two outputs. A line that appears only in the second output is the regression.
+
 This placement lets a reviewer agent check compliance mechanically. Run from the plugin
 root:
 

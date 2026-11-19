@@ -53,7 +53,7 @@ The orchestrator fixes the decomposition, every task id, every Output path, `wri
 
 Copy these headings byte for byte, in this order, with their markers. Each list was taken from the live template; the line count beside it shows when the template last moved. A heading marked OPTIONAL or CONDITIONAL is kept only when its condition holds, and then in this position. A file never gains a `##` H2 that its list does not hold.
 
-### Sprint Plan — `templates/sprint-plan.md` (239 lines)
+### Sprint Plan — `templates/sprint-plan.md` (255 lines)
 
 ```
 ## Sprint Objective <!-- REQUIRED -->
@@ -62,6 +62,7 @@ Copy these headings byte for byte, in this order, with their markers. Each list 
 ## Write-Set <!-- REQUIRED -->
 ## Success Criteria <!-- REQUIRED -->
 ## Deliverables <!-- REQUIRED -->
+## Guardrails <!-- REQUIRED -->
 ## Session Details
 ### Session 01: {SessionName} ({ABBREV}-S{XX}-01)
 ## Cross-Sprint File Touches <!-- OPTIONAL — include when this sprint edits a file ANY other sprint of the same plan also edits, ordered or not -->
@@ -96,6 +97,7 @@ Formatting lines: `**Sprint ID:** {ABBREV}-S{XX}`, `**Status:** PLANNED`, `**Est
 ## Task Files <!-- REQUIRED -->
 ## Pre-Known Cross-Task Coordination Flags <!-- OPTIONAL -->
 ## Post-Session Checklist <!-- REQUIRED -->
+## User-Action Gate <!-- OPTIONAL — a session that stops for the user's answer -->
 ## Plan-Specific Sections <!-- OPTIONAL -->
 ```
 
@@ -107,7 +109,7 @@ The Spawn-Prompt Skeleton's fenced block holds three `##` lines. They are body t
 ## Status Block delivery (REQUIRED)
 ```
 
-Formatting lines: `**Mode:** {DIRECT | DELEGATED}` as the first line of `## Execution Strategy`, followed by `**Reason:**`. `**Total Estimated:** ~{XX}K tokens` directly after the Session Task List table, equal to that table's sum and to the session's row in the Sprint Plan Sessions table. `**Declared layers:**` opens `## Dispatch Layers`. The two OPTIONAL positions: `## Pre-Known Cross-Task Coordination Flags` sits after `## Task Files`, and `## Plan-Specific Sections` is the last H2.
+Formatting lines: `**Mode:** {DIRECT | DELEGATED}` as the first line of `## Execution Strategy`, followed by `**Reason:**`. `**Total Estimated:** ~{XX}K tokens` directly after the Session Task List table, equal to that table's sum and to the session's row in the Sprint Plan Sessions table. `**Declared layers:**` opens `## Dispatch Layers`. The three OPTIONAL positions: `## Pre-Known Cross-Task Coordination Flags` sits after `## Task Files`, `## User-Action Gate` sits after `## Post-Session Checklist`, and `## Plan-Specific Sections` is the last H2.
 
 Columns and slots the headings above do not show. The `### Computed Write-Target Intersection` table carries an `Allocates from` column. The flag table under `## Pre-Known Cross-Task Coordination Flags` carries a `Routed` column, `pending` until the stamp `✅ ROUTED {YYYY-MM-DD} into {task file}` replaces it. The skeleton's `## HARD CONSTRAINTS` holds a `Permitted per Execution Step` line and a deferral line that says `no number assigned`. Its `## SCOPE BOUNDARY` holds a `Decision branches` line. A `Resume clause` with `Findings to fix:` closes the fence. `## Session Start Census` and Step 2 of the checklist carry the `{plugin_root}` caller lines of `dispatch_preflight.py`, `batch_gate.py`, `extract_status_block.py` and `outputs_coverage.py`.
 
@@ -136,6 +138,7 @@ Columns and slots the headings above do not show. The `### Computed Write-Target
 ## Session Commit Pin
 ## Change Log
 ## Task List Map
+## User-Action Gate <!-- OPTIONAL — a session that stops for the user's answer -->
 ## Plan-Specific Sections <!-- OPTIONAL -->
 ```
 
@@ -149,7 +152,7 @@ The template document also carries three sections after its fenced body. They de
 ## Change Log Status Values
 ```
 
-### Task file — `templates/task-file.md` (499 lines)
+### Task file — `templates/task-file.md` (511 lines)
 
 ```
 ## Objective <!-- REQUIRED -->
@@ -190,7 +193,7 @@ Confirm every input before writing any file.
 3. Resolve each `ei_section_map` id. Use `Grep` for the id's heading in the file the map names. An id that does not resolve is a `BLOCKED` return that names it.
 4. Use `Glob` with the pattern `**/Outputs/.gitkeep` under `sprint_folder`. Each session folder keeps one. A missing placeholder goes in `ISSUES` for the orchestrator, which owns the render.
 5. Search the lessons for each artifact class the sprint's tasks touch. Use `Grep` with the class keyword as `pattern`, `path` at `lessons_dir`, `glob='**/LL-*.md'`, `-i=true` and `output_mode='files_with_matches'`. Keep the hits for Step 2.
-6. List the work set. Use `Grep` for `FILL` with `path` at `sprint_folder` and `output_mode='count'`. The work set is the rendered files whose `FILL` count is above 0, plus `Sprint-Signoff.md` when it is absent and the sprint has 2 or more sessions. A dispatch may follow an earlier dispatch or a resume, so skip a rendered file whose `FILL` count is already 0. An earlier dispatch filled it, because every plan file is written whole, in one `Write`.
+6. List the work set. Use `Grep` for `<!-- FILL:` with `path` at `sprint_folder` and `output_mode='count'`. The work set is the rendered files whose `<!-- FILL:` count is above 0, plus `Sprint-Signoff.md` when it is absent and the sprint has 2 or more sessions. A dispatch may follow an earlier dispatch or a resume, so skip a rendered file whose `<!-- FILL:` count is already 0. An earlier dispatch filled it, because every plan file is written whole, in one `Write`.
 
 ## Step 2: FILL
 
@@ -199,17 +202,19 @@ Fill the files in this order: the Sprint Plan, then for each session its Orchest
 1. Read the file's spec entry, the Execution Input sections it cites, and the rendered file.
 2. Fill every FILL marker. Keep the header lines, the Required Context table, the heading text and the section order exactly as rendered. Check each heading against the file kind's list in `## Mandated Headers`.
 3. Write each plan file whole, in one `Write`. Never repair a file with a chain of edits. If a body is wrong, compose it again and write the whole file again.
-4. Use `Grep` for `FILL` in the written file. The count must be 0 before the next file starts.
-5. Fill at most 8 files per dispatch. You cannot see your own turn counter, so the file count is the reporting point. Stop only at a file boundary, after a file's `Write` and its `FILL` check. When work-set files are left, go to Step 3 and report `PARTIAL`. The next dispatch skips every filled file.
+4. Use `Grep` for `<!-- FILL:` in the written file. The count must be 0 before the next file starts.
+5. Fill at most 8 files per dispatch. You cannot see your own turn counter, so the file count is the reporting point. Stop only at a file boundary, after a file's `Write` and its `<!-- FILL:` check. When work-set files are left, go to Step 3 and report `PARTIAL`. The next dispatch skips every filled file.
 
 The scaffolding rules each file obeys:
 
 - **Execution Input citations.** Every task file's Required Context cites the sprint's Execution Input by section id, never a Consolidated Context part. It enumerates single sections, each with its purpose, and never a range.
+- **Plan-level identifiers.** When a task names an id the Master Plan defines (a `D{n}` row of `## Decisions (Locked)`, or a plan-specific table id such as `H{n}`), inline that id's definition row in the task file. Or add a measured Required Context row for the Master Plan section that defines it. A runner under a DELEGATED context boundary cannot read the Master Plan, so it must never resolve the id by guessing. See `references/task-content-fidelity.md` §9.A.19.
 - **Span repoint.** When `ei_section_map` places a section in an Execution Input part, repoint that span row's path to the part file. Count each repointed row.
 - **Measure once.** Measure each Execution Input file once with `python "{plugin_root}/scripts/measure_files.py" {files...}`. Write the identical `KiB` and `~Tokens` into every row that cites it. Write a figure you cannot measure as `unmeasured ({reason})`.
 - **Sprint Plan status.** Set `**Status:** PLANNED`. Only the Master Plan is `READY_TO_EXECUTE`. Never copy the Master Plan's status.
 - **Write-Set.** The Sprint Plan's `## Write-Set` table holds one `| Path | Task |` row per `write_set` row, and only the paths the sprint edits. Never add a path.
 - **Cross-sprint markers.** Copy each `cross_sprint_markers` row into the Sprint Plan's `## Cross-Sprint File Touches` section. Write its Step-1 prerequisite gate into the first task that writes the file. Delete the section when no row involves this sprint.
+- **Guardrails.** Fill one `## Guardrails` row per safety promise in the Master Plan Decisions, the Risk Mitigation rows and the Execution Input. Name the implementing step and the failing gate from this sprint's own task files. Write the `None` line when the sprint has no promise. Never delete the heading.
 - **Unanticipated sections.** A section no template heading covers goes under `## Plan-Specific Sections` as an `###` H3. Never add a new `##` H2.
 - **Output folders.** Every session folder keeps `Outputs/.gitkeep`. Never delete it.
 - **Verification Commands.** Populate every task file's Verification Commands with runnable commands. Each command names its owner, runner or orchestrator, and carries its `# pre-edit:` annotation. A diff-derived command is scoped to the recorded base and to the task's own paths. Write `<!-- NEEDS-COMMAND -->` for a command type that does not apply. Never leave a `{cmd_after_N}` placeholder.
@@ -226,7 +231,7 @@ Take the counts the status block reports, after the last file is written.
    python -B "{plugin_root}/scripts/scaffold_plan.py" check-headings {sprint_folder}
    ```
 2. For each stray H2 it lists, move the section under `## Plan-Specific Sections` as an H3. Write that file whole again, then run the check once more. Its `stray_h2` total is `STRAY_H2`.
-3. Use `Grep` for `FILL` with `path` at `sprint_folder` and `output_mode='count'`. The sum is `FILL_REMAINING`.
+3. Use `Grep` for `<!-- FILL:` with `path` at `sprint_folder` and `output_mode='count'`. The sum is `FILL_REMAINING`.
 4. Count the span rows repointed in Step 2. The count is `SPAN_ROWS_REPOINTED`.
 
 ## Step 4: REPORT
@@ -264,7 +269,7 @@ TASK_STATUS:          COMPLETE | PARTIAL | BLOCKED
 TASK_ID:              {Abbrev}-S{XX}
 OUTPUT_FILES:         {absolute paths, comma-separated, or none}
 LINES_PRODUCED:       {sum across OUTPUT_FILES}
-FILL_REMAINING:       {count of FILL markers left in sprint_folder}
+FILL_REMAINING:       {count of `<!-- FILL:` markers left in sprint_folder}
 STRAY_H2:             {stray_h2 total from check-headings over sprint_folder}
 SPAN_ROWS_REPOINTED:  {count of span rows whose path moved to an EI part}
 OPEN_QUESTIONS:       {count}

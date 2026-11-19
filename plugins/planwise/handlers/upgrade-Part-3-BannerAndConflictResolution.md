@@ -420,11 +420,11 @@ Runs after the Step 3 banner has reported which `Recovery artifacts:` surfaces c
 | `review-then-discard` | `{planwise_root}/upgrade-transfers/*/` | Never in bulk — a genuine customization needs a human read before it is discarded. Step 4.1 case A promotes this run's files. Step 4.1 case C reviews an earlier pair's files and offers deletion one file at a time |
 | `safe-to-discard` | `{planwise_root}/upgrade-backups/*/` excluding the `backlog/`, `lessons/` and `plans/` subfolders (refresh pre-images) | Yes |
 | `review-then-discard` | `{planwise_root}/upgrade-backups/*/{backlog,lessons,plans}/` (index-migration pre-images) | Never — they are the only restore point for the files the migration rewrote. Show the banner text below, and leave them |
-| `inert` | `{planwise_root}/upgrade-conflicts/*/verdicts.json.consumed` | Yes |
+| `inert` | `{planwise_root}/upgrade-conflicts/*/verdicts.json.consumed`; `{planwise_root}/upgrade-conflicts/*/verdicts.json` (a live cache this banner finds after the cache retirement, which no later run can consume) | Yes |
 
 For each of the two deletable classes that has at least one match:
 
-1. `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->` — a plain confirm-to-delete, not structural; the inferred default is the "Upgrade leftover prune question" row of `references/auto-mode-policy.md` § Inference Defaults): "Delete the {N} `{class}` recovery artifact(s) at `{path}`?" — state the class's plain-language reason inline (`safe-to-discard`: "pre-change backups, once you are satisfied with the upgrade"; `inert`: "a consumed verdict cache").
+1. `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->` — a plain confirm-to-delete, not structural; the inferred default is the "Upgrade leftover prune question" row of `references/auto-mode-policy.md` § Inference Defaults): "Delete the {N} `{class}` recovery artifact(s) at `{path}`?" — state the class's plain-language reason inline (`safe-to-discard`: "pre-change backups, once you are satisfied with the upgrade"; `inert`: "a consumed or unconsumable verdict cache").
 2. On confirm → run the prune writer with the classes the user confirmed, and print its output. On decline, or when no interactive answer is available → skip that class; nothing under it is touched.
 
 ```bash

@@ -13,9 +13,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import config_loader
+import detect_verify_commands
 import doctor_cli
 import doctor_probes
 import install_check
+import set_verify_commands
 import upgrade_card_project as ucp
 import upgrade_preflight
 import upgrade_run
@@ -557,3 +560,174 @@ def test_gh_state_uses_shared_probe(monkeypatch):
             assert upgrade_preflight.gh_state() == expected
             assert probes == [1]
     assert "gh" not in which_calls
+
+
+VERIFY_PYPROJECT = '[tool.pytest.ini_options]\ntestpaths = ["tests"]\n\n[tool.ruff]\nline-length = 100\n'
+DROP_VERIFY = (r"^  verify: \[\]\n", "")
+FILL_VERIFY = (r"^  verify: \[\]", "  verify:\n    - make check")
+VERIFY_ROW = {"command": "pytest", "kind": "test", "source": "pyproject.toml", "confidence": "high"}
+
+
+@pytest.fixture
+def tools_on_path(monkeypatch):
+    """Every executable resolves, so the pyproject signals give high-confidence candidates."""
+    monkeypatch.setattr(detect_verify_commands.shutil, "which", lambda name: f"/bin/{name}")
+
+
+def verify_project(tmp_path, name="verify", **kwargs) -> Path:
+    root = ucp.make_project(tmp_path, name=name, **kwargs)
+    (root / "pyproject.toml").write_text(VERIFY_PYPROJECT, encoding="utf-8")
+    return root
+
+
+def writer_line(card: str) -> str:
+    return next(line for line in card.splitlines() if "set_verify_commands.py" in line)
+
+
+def test_verify_question_for_an_empty_list(tmp_path, capsys, tools_on_path):
+    card = run_card(capsys, verify_project(tmp_path, token_saver=True))
+    assert "build_commands.verify: empty    verify candidates: 2" in card
+    block = next_block(card)
+    assert "1. Ask one AskUserQuestion with the verify question." in block
+    assert f"Verify question: {upgrade_preflight.VERIFY_QUESTION}" in block
+    assert "- pytest (test, high confidence, from pyproject.toml)" in block
+    assert "- ruff check . (lint, high confidence, from pyproject.toml)" in block
+    assert "Unattended: choose the high-confidence candidates only (pytest, ruff check .)." in block
+    assert writer_line(card).endswith("--command pytest --command 'ruff check .'")
+
+
+def test_verify_question_for_an_absent_key(tmp_path, capsys, tools_on_path):
+    root = verify_project(tmp_path, token_saver=True)
+    ucp.edit_config(root, *DROP_VERIFY)
+    card = run_card(capsys, root)
+    assert "build_commands.verify: absent    verify candidates: 2" in card
+    assert f"Verify question: {upgrade_preflight.VERIFY_QUESTION}" in next_block(card)
+    assert "set_verify_commands.py" in next_block(card)
+
+
+def test_no_verify_question_for_a_non_empty_list(tmp_path, capsys, tools_on_path):
+    root = verify_project(tmp_path, token_saver=True)
+    ucp.edit_config(root, *FILL_VERIFY)
+    card = run_card(capsys, root)
+    assert "build_commands.verify: set    verify candidates: 0" in card
+    assert "Verify question:" not in card and "the verify question" not in card
+    assert "set_verify_commands.py" not in card
+
+
+def test_no_verify_question_when_the_detector_finds_nothing(tmp_path, capsys, tools_on_path):
+    card = run_card(capsys, ucp.make_project(tmp_path, name="bare", token_saver=True))
+    assert "build_commands.verify: empty    verify candidates: 0" in card
+    assert "Verify question:" not in card and "set_verify_commands.py" not in card
+    assert "Ask one AskUserQuestion" not in card
+
+
+def test_verify_question_merges_with_the_migration_questions_under_the_limit(tmp_path, capsys, tools_on_path):
+    root = verify_project(tmp_path, name="vmerge", token_saver=True, diverged=(), question=True)
+    block = next_block(run_card(capsys, root))
+    assert "Ask one AskUserQuestion with the verify question and every migration question listed above." in block
+
+
+def test_verify_question_pushes_the_pre_writer_count_over_the_limit(tmp_path, capsys, tools_on_path):
+    root = verify_project(tmp_path, name="vsplit", diverged=(), question=True)
+    ucp.edit_config(root, *DROP_DRAFTS)
+    ucp.edit_config(root, *POSTING_OFF)
+    block = next_block(run_card(capsys, root))
+    # Token Saver + drafts + posting + verify = 4 pre-writer questions, and one migration question makes 5.
+    assert ("Ask the Token Saver question and the feedback drafts question and the feedback posting question "
+            "and the verify question in one AskUserQuestion, then the migration questions listed above in a "
+            "second call (at most 4 per call).") in block
+
+
+def test_question_steps_split_by_the_limit_with_a_verify_question():
+    steps = upgrade_preflight.question_steps
+    rows = [VERIFY_ROW]
+    assert upgrade_preflight.QUESTION_LIMIT == 4
+    assert steps(False, [], "absent", "absent", rows)[0] == (
+        "Ask one AskUserQuestion with the Token Saver question and the feedback drafts question and the "
+        "feedback posting question and the verify question.")  # 4 pre-writer questions fit one call
+    assert steps(True, [("backlog", {})] * 3, "set", "enabled", rows)[0] == (
+        "Ask one AskUserQuestion with the verify question and every migration question listed above.")  # 1 + 3
+    assert steps(True, [("backlog", {})] * 4, "set", "enabled", rows)[0].startswith(
+        "Ask the verify question in one AskUserQuestion, then the migration questions")  # 1 + 4 = 5
+    assert steps(True, [], "set", "enabled", rows)[0] == "Ask one AskUserQuestion with the verify question."
+    assert steps(True, [], "set", "enabled", []) == []
+    assert steps(True, [], "set", "enabled") == []
+
+
+def test_verify_question_card_stays_read_only(tmp_path, capsys, tools_on_path):
+    root = verify_project(tmp_path, name="vro")
+    before = tree_and_home(root)
+    assert "Verify question:" in run_card(capsys, root)
+    assert tree_and_home(root) == before
+
+
+def test_verify_candidates_break_the_noop_proof(tmp_path, capsys, monkeypatch, tools_on_path):
+    root = ucp.make_up_to_date(tmp_path)
+    monkeypatch.setattr(doctor_probes, "_gh_environment", lambda: dict(GH_OK))
+    assert "Nothing to do" in run_card(capsys, root)  # control: nothing detected, so nothing to ask
+    (root / "pyproject.toml").write_text(VERIFY_PYPROJECT, encoding="utf-8")
+    card = run_card(capsys, root)
+    assert "Nothing to do" not in card
+    assert f"Verify question: {upgrade_preflight.VERIFY_QUESTION}" in next_block(card)
+
+
+def test_unattended_line_names_only_the_high_confidence_candidates(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(detect_verify_commands.shutil, "which", lambda name: "/bin/pytest" if name == "pytest" else None)
+    card = run_card(capsys, verify_project(tmp_path, token_saver=True))
+    block = next_block(card)
+    assert "- ruff check . (lint, low confidence, from pyproject.toml)" in block
+    assert "Unattended: choose the high-confidence candidates only (pytest)." in block
+    assert writer_line(card).endswith("--command pytest") and "ruff" not in writer_line(card)
+
+
+def test_unattended_line_with_no_high_confidence_candidate_skips_the_step(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(detect_verify_commands.shutil, "which", lambda name: None)
+    card = run_card(capsys, verify_project(tmp_path, token_saver=True))
+    assert "Unattended: choose the high-confidence candidates only (none, so skip that step)." in next_block(card)
+    assert writer_line(card).endswith("--command '<accepted command>'")
+
+
+def test_detector_fault_keeps_the_card(tmp_path, capsys, monkeypatch):
+    def broken(root):
+        raise OSError("unreadable")
+
+    monkeypatch.setattr(detect_verify_commands, "detect", broken)
+    card = run_card(capsys, verify_project(tmp_path, token_saver=True))
+    assert upgrade_preflight.FALLBACK not in card and card.startswith(BEGIN)
+    assert "verify candidates: 0" in card and "Verify question:" not in card
+
+
+def test_writer_line_from_the_card_stores_the_commands(tmp_path, capsys, tools_on_path):
+    root = verify_project(tmp_path, name="vwrite", token_saver=True)
+    card = run_card(capsys, root)
+    words = shlex.split(writer_line(card))
+    assert words[:2] == ["python", "-B"] and words[2].endswith("scripts/set_verify_commands.py")
+    assert set_verify_commands.main(words[3:]) == 0
+    config = config_loader.load_config(config_path=ucp.config_path(root))
+    assert config["build_commands"]["verify"] == ["pytest", "ruff check ."]
+    assert "Verify question:" not in run_card(capsys, root)  # the list is set now, so the card stops asking
+
+
+@pytest.mark.parametrize(
+    ("config", "state"),
+    [
+        ({}, "absent"),
+        ({"build_commands": {"default": "make"}}, "absent"),
+        ({"build_commands": {"verify": []}}, "empty"),
+        ({"build_commands": {"verify": None}}, "empty"),
+        ({"build_commands": {"verify": [" "]}}, "empty"),
+        ({"build_commands": {"verify": ["pytest"]}}, "set"),
+        ({"build_commands": {"verify": "pytest"}}, "set"),
+        ({"build_commands": "make"}, "absent"),
+    ],
+)
+def test_verify_state(config, state):
+    assert upgrade_preflight.verify_state(config) == state
+
+
+def test_verify_writer_command_quotes_each_command():
+    line = upgrade_preflight.verify_writer_command(Path("/p/plugin"), Path("/p/planwise/config.yaml"),
+                                                   ["echo it's here", "a  b", "pytest"])
+    words = shlex.split(line)
+    assert words[2:] == ["/p/plugin/scripts/set_verify_commands.py", "--config", "/p/planwise/config.yaml",
+                         "--command", "echo it's here", "--command", "a  b", "--command", "pytest"]

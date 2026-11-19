@@ -1,5 +1,5 @@
 ---
-description: Destructive-path and config-gated change requirements — interaction-matrix spec, independent test authorship, gated-branch pin discipline, pre-commit adversarial review, a lexical scorer's absent verdict is not evidence of absence (adjudicate before the writer runs), a similarity heuristic may only escalate in refuse-by-default tooling, and review convergence gated on consequence classes rather than severity labels, what the adversarial review must be told (seven case classes, the fix-diff review and the stopping rule), and an exemption modelled on a reference check copies the whole refusal condition, a destructive-step guard is verified through the producer of its condition, not by a read or an injected input, and a rollback-protected test cites a search of the callee's commit calls
+description: Destructive-path and config-gated change requirements — interaction-matrix spec, independent test authorship, gated-branch pin discipline, pre-commit adversarial review, a lexical scorer's absent verdict is not evidence of absence (adjudicate before the writer runs), a similarity heuristic may only escalate in refuse-by-default tooling, and review convergence gated on consequence classes rather than severity labels, what the adversarial review must be told (seven case classes, the fix-diff review and the stopping rule), and an exemption modelled on a reference check copies the whole refusal condition, a destructive-step guard is verified through the producer of its condition, not by a read or an injected input, and a rollback-protected test cites a search of the callee's commit calls, the fix of a destructive finding is reviewed again on its own diff, and a fix that replaces a library primitive lists the error, platform and predicate semantics the primitive gave
 consult-when: A branch can DELETE, OVERWRITE, MIGRATE, PRUNE or SWEEP user data — interaction-matrix spec, independent tests, adjudicating a lexical scorer's absent verdict before the writer runs, an escalate-only similarity heuristic, adversarial review gated on consequence classes, and an exemption that copies the whole refusal condition, a guard before a destructive step whose evidence is a read, a "reasoned" label or an injected input, and the producer of a guard's condition, a test that writes to or deletes from a real data store and relies on rollback for cleanup
 ---
 
@@ -12,7 +12,7 @@ consult-when: A branch can DELETE, OVERWRITE, MIGRATE, PRUNE or SWEEP user data 
 
 ## 10. Destructive-Path & Config-Gated Change Requirements
 
-*Applies to any task that adds or extends a branch which can DELETE, OVERWRITE, MIGRATE, PRUNE, or SWEEP user data or user customizations. For such code the ordinary per-task gates — lint clean, unit suite green, smoke passing, self-containment greps empty — certify nothing about the inputs and adjacent states nobody named. These requirements are a chain, not duplicates: §10.1 makes the spec cover the whole interaction matrix; §10.2 has an independent test task re-derive the contract; §10.3 pins the gated branch without disturbing default-path evidence; §10.4 backstops all three with an adversarial review before the commit. §10.5 to §10.7 cover a destructive path that a similarity score or a severity label steers: §10.5 says a lexical scorer's "absent" verdict is not evidence of absence, so a semantic adjudicator runs before the writer; §10.6 says a similarity heuristic may only escalate toward refusal; §10.7 gates a review loop's convergence on consequence classes, not on severity labels. §10.8 and §10.9 cover what a review and a guard author each miss when the author of the feature also wrote its fixtures: §10.8 names the case classes the review brief must carry, requires a review of a fix diff, and sets the stopping rule. §10.9 says an exemption modelled on a reference check copies that check's whole refusal condition. §10.10 covers the guard itself: a guard before a destructive step is verified through the producer of its condition, not by a read of the guard or a test that injects the condition's value. §10.11 covers a test whose safety rests on a rollback: it cites a search of the callee's commit calls, because a rollback protects only a callee that does not commit.*
+*Applies to any task that adds or extends a branch which can DELETE, OVERWRITE, MIGRATE, PRUNE, or SWEEP user data or user customizations. For such code the ordinary per-task gates — lint clean, unit suite green, smoke passing, self-containment greps empty — certify nothing about the inputs and adjacent states nobody named. These requirements are a chain, not duplicates: §10.1 makes the spec cover the whole interaction matrix; §10.2 has an independent test task re-derive the contract; §10.3 pins the gated branch without disturbing default-path evidence; §10.4 backstops all three with an adversarial review before the commit. §10.5 to §10.7 cover a destructive path that a similarity score or a severity label steers: §10.5 says a lexical scorer's "absent" verdict is not evidence of absence, so a semantic adjudicator runs before the writer; §10.6 says a similarity heuristic may only escalate toward refusal; §10.7 gates a review loop's convergence on consequence classes, not on severity labels. §10.8 and §10.9 cover what a review and a guard author each miss when the author of the feature also wrote its fixtures: §10.8 names the case classes the review brief must carry, requires a review of a fix diff, and sets the stopping rule. §10.9 says an exemption modelled on a reference check copies that check's whole refusal condition. §10.10 covers the guard itself: a guard before a destructive step is verified through the producer of its condition, not by a read of the guard or a test that injects the condition's value. §10.11 covers a test whose safety rests on a rollback: it cites a search of the callee's commit calls, because a rollback protects only a callee that does not commit. §10.12 covers the fix itself: each fix round's diff is reviewed again before commit, and a fix that replaces a library primitive first lists the semantics the primitive gave.*
 
 ### 10.1 Enumerate the config-interaction matrix in the spec
 
@@ -203,7 +203,7 @@ Six rules follow:
 - **Give the review the destructive surfaces by name.** List each overwrite, delete and re-split path, byte preservation, refuse-or-guess behaviour, and any known edge case. A focused brief found a part-over-budget defect that the task had written off as unreachable ("toy budget only"). In four recurrences the brief named suspected defects, the review confirmed them, and it found more in the same neighbourhood.
 - **Verify every finding before fixing it, and route design contradictions to the user.** The fix runner confirms or refutes each claim against the code. It fixes only the confirmed ones and writes a regression test for each that fails on a pre-fix copy. It does not change behaviour where the design contradicts itself.
 - **A conservation proof, a golden proof, a release dry run and a mutation score do not replace the review.** A golden proof against a hand migration showed 77 deltas and 0 unexplained. It missed a CRLF/LF mix and an unclosed comment because its base tree had neither. A ledger line `Unaccounted: 0` was a tautology, because it summed only what had been collected. A mutation score of 8 of 8 classes caught measured the tests against breaks the author could think of. The runner chose each mutation, and the mutations probed behaviours its own fixtures already covered. A review then returned 10 findings, and the fix runner reproduced all 10 with a test that failed first. Re-run a release dry run after fixes that touch the upgrade path.
-- **Review the fix diff when a fix changes a shared predicate.** A fix that changes what one function answers moves every other function that answers the same question. The first review cannot see that, because the fix did not exist yet. In one session a first review returned 9 findings, one a data-loss path in the previous session's code. A review of the fix diff then found 10 more, including two inconsistencies the first fix itself created: a `paths:`-aware verdict disagreed with the refresh condition and with the copy classifier. The second round cost one dispatch.
+- **Review the fix diff of every destructive finding.** A fix that changes what one function answers moves every other function that answers the same question. The first review cannot see that, because the fix did not exist yet. In one session a first review returned 9 findings, one a data-loss path in the previous session's code. A review of the fix diff then found 10 more, including two inconsistencies the first fix itself created: a `paths:`-aware verdict disagreed with the refresh condition and with the copy classifier. The second round cost one dispatch. A changed shared predicate is one way a fix moves code the first review saw. §10.12 (The Fix of a Destructive Finding Is Itself a Destructive Change) scopes the follow-up round and covers a fix that replaces a library primitive.
 - **Stop when a round finds nothing destructive.** Round two had no data-loss finding, so the session fixed it and committed without a third review. Bound the loop by consequence class, not by an empty findings list. §10.7 (Gate review convergence on consequence classes, not on severity labels) names the blocking classes.
 - **Widen a leak predicate from a term list toward a shape.** When the review finds a leak the predicate missed, add the shape to every downstream copy of the battery. A session token is one such shape.
 
@@ -344,6 +344,75 @@ File: {task or Execution Input file path} | Location: {the test or the sentence 
 Issue: The test "{quoted test}" relies on {rollback | no commit} for safety, and {it cites no search of the callee's commit calls | the callee commits ({quoted sentence or cited count}) and no neutralising mechanism is named | the mechanism has no second-connection before-and-after count}
 Fix: Cite a search of the callee's commit calls. If it commits, name a commit-swallowing proxy or a scratch key that holds no real row, and add a before-and-after count on a second connection, per references/destructive-change-requirements.md §10.11 | Confidence: HIGH
 ```
+
+### 10.12 The Fix of a Destructive Finding Is Itself a Destructive Change
+
+> [!constraint] Review each fix round's diff before the commit, and list what a replaced primitive gave before replacing it
+> A green suite plus one regression test per finding proves the findings are closed. It cannot show that the fix has no new path to data loss, because no test exists for a path nobody has found yet. §10.4 requires the first review. This section covers every round after it.
+>
+> One session added a writer that deletes and replaces sections in item files. The pre-commit review returned 10 findings. A fix runner fixed seven, each with a test that failed before the fix and passed after it, and the suite was green. A focused review of the fix diff then confirmed 6 new data-loss or stuck cases that the fix introduced or left reachable. A third review of the next fix confirmed 2 more defects and a design-level stuck path. The suite was green each time, and each regression test proved only the case it was written for.
+>
+> WRONG — fix the findings, see green, commit:
+> ```text
+> review -> 10 findings -> fix + 8 regression tests -> 521 passed -> commit
+> ```
+> CORRECT — review the fix diff before the commit, and stop when a round confirms nothing destructive:
+> ```text
+> review -> fix + tests -> review the FIX diff (write paths only) -> 6 confirmed -> fix + tests
+>        -> review again -> 2 confirmed + 1 design gap -> fix + tests -> commit
+> ```
+
+Four rules govern each follow-up round:
+
+- **Scope each follow-up review to the changed write paths.** Ask only for confirmed cases with a concrete input. A focused round cost about a third of a full one.
+- **Ask the reviewer to reproduce each case.** A probe against the working tree turns each finding into a decision rather than a debate.
+- **Change the design when successive rounds share one root cause.** Stop patching cases. In the session above, the root cause was a section boundary that the writer inferred from text it did not own.
+- **Stop when a round confirms no finding in a blocking class.** §10.7 (Gate review convergence on consequence classes, not on severity labels) names the classes: data loss, silent corruption and false success.
+
+#### A fix that replaces a library primitive inherits everything the primitive did
+
+A fix that swaps a standard-library primitive for hand-written code loses every behaviour the primitive gave for free. A review found that a backup prune could follow a symlink or junction out of the project. The fix replaced `Path.rglob` with a hand-written walk that refused links, and it detected junctions with `Path.is_junction`. Every new test passed, and the full suite was green. The next review round found three defects in that fix:
+
+- `rglob` silently skips an unreadable directory. The walk raised `PermissionError` there, so one locked folder aborted the upgrade after the artifact refresh and before the version pin.
+- `Path.is_junction` exists only on Python 3.12 and later. On 3.10 and 3.11 a junction read as a plain directory, so the prune still deleted files in the junction's target, which was the defect the fix was for.
+- The cleanup that called the walk ran outside any `try`, after the deletions and before the prune log was written.
+
+The round after that found that the replacement junction check treated every reparse point as a link. Cloud-sync placeholders are reparse points too, so a synced project mis-reported every pair. CPython's own `ntpath.isjunction` and `shutil.rmtree` check `st_reparse_tag` for this reason. The rounds returned 10, then 10 (4 of them introduced by the first fixes), then 9 findings, the last with no unguarded delete.
+
+Before writing the replacement, list what the primitive gave:
+
+| The primitive gave | Ask of the replacement |
+|---|---|
+| Error handling (`rglob` skips an unreadable directory) | What does mine do on `PermissionError` or `OSError`? A sweep that promises not to abort never raises here |
+| Platform coverage (`Path.is_junction` is 3.12 and later) | Does mine work on every Python and platform the project supports? |
+| A precise predicate (`st_reparse_tag` names the link tags, not "any reparse point") | Does mine match the primitive's definition, or a looser proxy? |
+
+WRONG — the replacement drops the primitive's error handling and leans on a version-gated predicate:
+```python
+def _walk(root):                                   # replaces root.rglob("*")
+    for p in root.iterdir():                       # raises on an unreadable dir; rglob skipped it
+        if p.is_symlink() or p.is_junction():      # is_junction: absent before 3.12
+            continue
+```
+CORRECT — an unreadable directory is surfaced, and the link test reads the reparse tag on every version:
+```python
+def _walk(root):
+    try:
+        entries = list(root.iterdir())
+    except OSError:
+        return [], [root]                          # surface as unreadable; never treat as empty or clearable
+    ...
+
+def is_link(p):                                    # symlink and mount-point tags only, on every Python
+    if os.path.islink(p):
+        return True
+    st = os.lstat(p)
+    if not getattr(st, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+        return False
+    return getattr(st, "st_reparse_tag", 0) in (stat.IO_REPARSE_TAG_SYMLINK, stat.IO_REPARSE_TAG_MOUNT_POINT)
+```
+
+**Applies to** every fix round for a finding on a delete, overwrite, migrate, prune or sweep path. It also applies to any change that replaces `rglob`, `os.walk`, `shutil.rmtree` or a `Path.is_*` predicate with hand-written traversal, most of all Windows link handling (symlinks, junctions and cloud reparse points).
 
 ---
 

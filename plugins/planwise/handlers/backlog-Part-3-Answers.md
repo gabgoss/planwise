@@ -33,8 +33,11 @@ The list reads only. For each item with an unanswered block it prints one header
 | `questions[].choices` | the `Options:` line split per letter: `[{"letter": "A", "text": "..."}, ...]` |
 | `questions[].recommended`, `.reason` | the planner's letter and its one-sentence reason |
 | `questions[].context`, `.evidence` | the block's other body lines, and its `Evidence:` line |
+| `unshaped_items` | the ids whose `## Open Questions` holds text and no `### Q` block |
 
 A missing value is `null`, or `[]` for `choices`. Never hand-read an item file to recover a field the payload carries.
+
+An id under `unshaped_items` has no block to ask. The loop's shape check reads that item as unanswered. Tell the user to move the text into a `### Q` block or into `## Proposed Solution`, then list again. Text above answered blocks is decided context and needs no move.
 
 When the output ends with a legacy-section count and the line `run --fold --all first`, ask once whether to fold now. On yes, show the plan, then fold and regenerate the index:
 

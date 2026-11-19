@@ -553,9 +553,12 @@ def cmd_init(args, config: dict) -> int:
     if args.mode == "specific":
         by_norm = {normalize_id(pair[0]["id"]): pair for pair in eligible}
         excluded_reason = {normalize_id(e["id"]): e["reason"] for e in excluded}
-        held_norm = {normalize_id(h["id"]) for h in held}
+        held_by_norm = {normalize_id(h["id"]): h for h in held}
         known_norm = {normalize_id(i["id"]) for i in items}
+        shown_id = {normalize_id(i["id"]): i["id"] for i in items}
+        named_norm = {normalize_id(r.strip()) for r in args.items.split(",") if r.strip()}
         queue_pairs: list[tuple[dict, dict]] = []
+        direction_notes: list[str] = []
         seen: set[str] = set()
         for raw in args.items.split(","):
             raw = raw.strip()
@@ -575,13 +578,31 @@ def cmd_init(args, config: dict) -> int:
                     why = excluded_reason[key]
                 else:
                     why = "route C is deferred in loop mode"
-            elif key in held_norm:
-                why = "blocked or on hold"
+            elif key in held_by_norm:
+                held_item = held_by_norm[key]
+                if held_item["status"].upper() in HOLD_STATUSES:
+                    why = f"on hold (status {held_item['status']})"
+                else:
+                    blockers = [shown_id.get(b, b) for b in blocked_by.get(key, [])]
+                    why = f"blocked by {', '.join(blockers)} (open)"
+                    also_named = [
+                        shown_id.get(b, b) for b in blocked_by.get(key, []) if b in named_norm
+                    ]
+                    if also_named:
+                        # A blocker named in the same run is the shape an inverted
+                        # blocks: edge produces, so point the reader at the direction.
+                        direction_notes.append(
+                            f"note: {raw} is blocked by {', '.join(also_named)}, "
+                            "which you also named. "
+                            f"If {raw} must land first, check the blocks: direction."
+                        )
             elif key in known_norm:
                 why = "filtered out or not open"
             else:
                 why = "not in the backlog index"
             warnings.append(f"warning: item {raw} dropped: {why}")
+            warnings.extend(direction_notes)
+            direction_notes.clear()
         if any(line.endswith(f": {DECISION_PENDING_REASON}") for line in warnings):
             warnings.append(DECISION_PENDING_HINT)
     else:

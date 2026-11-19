@@ -212,7 +212,7 @@ A **subagent** (spawned via `Agent`) is ephemeral: one task, one result. A **per
 >   ...
 > )
 > ```
-> `tests/test_handler_spawn_namespacing.py` fails on any handler `subagent_type` that is neither a built-in type nor prefixed. It pins no site count.
+> In plugin development, `tests/test_handler_spawn_namespacing.py` fails on any handler `subagent_type` that is neither a built-in type nor prefixed. It pins no site count.
 
 ---
 

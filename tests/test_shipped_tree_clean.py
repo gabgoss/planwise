@@ -1,4 +1,4 @@
-"""The shipped subtree holds no test file, cache directory or `probe_*` directory.
+"""The shipped subtree holds no test file, cache directory, `probe_*` directory or CLI scaffolding.
 
 The installer copies the working tree, so a stray artifact under
 `plugins/planwise` ships. The walk uses an absolute path resolved from this
@@ -22,6 +22,9 @@ ROOT = Path(
 
 BAD_FILES = ("test_*.py", "*_test.py", "conftest.py")
 BAD_DIRS = ("__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", "probe_*")
+# CLI scaffolding that a `--plugin-dir` launch writes into the source tree. Each entry is checked
+# as `ROOT / rel`, never as a basename: the shipped tree holds a legitimate top-level `types/` folder.
+BAD_ROOT_RELATIVE = (".claude-plugin/types", "tsconfig.json")
 
 
 def walk(root):
@@ -36,6 +39,10 @@ def walk(root):
         for f in filenames:
             if any(fnmatch.fnmatch(f, p) for p in BAD_FILES):
                 offenders.append(os.path.join(dirpath, f))
+    for rel in BAD_ROOT_RELATIVE:
+        target = Path(root) / rel
+        if target.exists():
+            offenders.append(str(target))
     return seen, offenders
 
 

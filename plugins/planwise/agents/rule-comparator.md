@@ -187,6 +187,33 @@ handler's handoff reads them. End with:
 > On HAS_UNIQUE, `notes` may summarize the analysis (routing is already
 > decided by the classification), and the transfer header writes it.
 
+> [!constraint] Free-text fields name a block by position and kind, and paraphrase mode names
+> The free-text fields are `notes` on a HAS_UNIQUE verdict and `rationale`.
+> In them, name a block by its position and kind, for example "the pitfall
+> callout in the ninth section". Never quote rule text there. Paraphrase every
+> permission-mode name and settings-key name, for example "the skip-all-checks
+> permission mode".
+> The transfer header writes `notes` as it stands, so a quoted mode name
+> would reach the reader unchanged.
+>
+> Three places keep the exact text, because other code matches it:
+>
+> - The labels in `unique_blocks`, the keys of `home_hints` and the keys of
+>   `relocated_blocks` stay the block's verbatim heading or callout title.
+>   Transfer review matches each label against the titles in the shipped file.
+> - `tolerated_fragments` stays verbatim. The writer copies it into `notes`,
+>   and the transfer preserves that text.
+> - A label may quote a mode name only when the block's own title contains it.
+>
+> WRONG — the free text quotes a mode name from the block's body:
+> ```
+> "notes": "The installed copy adds a {mode-name} pitfall that tells the reader to enable {mode-name}."
+> ```
+> CORRECT — the free text names the block by position and kind, and paraphrases the mode:
+> ```
+> "notes": "The installed copy adds a pitfall callout after the third section that tells the reader to enable the skip-all-checks permission mode."
+> ```
+
 ```json
 {
   "filename": "callout-conventions.md",

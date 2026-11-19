@@ -10,6 +10,10 @@ header, the session Orchestration's task-list cell and `**Total Estimated:**`,
 and in the Sprint Plan the session row, the `**Estimated Tokens:**` header
 re-summed from the Sessions table, and the task's cell and session total
 under `## Session Details`. Each file is re-rolled whole or left as authored.
+It also writes one `**Measured:**` footer under the Required Context table:
+the date, the command, the model and the bytes-per-token ratio the rows were
+priced with, so a reader can re-check any row. The date moves only when a row
+cell or the footer's own text changes.
 
 Run it through the facade, which owns the argument checks:
 
@@ -38,6 +42,7 @@ import re
 import shutil
 import sys
 import tempfile
+from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
@@ -52,7 +57,7 @@ from markdown_parser import (
     split_row_cells_code_aware,
     split_row_raw,
 )
-from read_limits import estimate_tokens
+from read_limits import bytes_per_token, estimate_tokens
 from token_saver_scan import (
     _clean_file_cell,
     content_class_for,
@@ -302,8 +307,9 @@ def price_row(
 ) -> dict:
     """Price one Required Context File cell, or say why it is left as authored.
 
-    Returns {"priced": True, "bytes", "tokens", "path", "span"} or
-    {"priced": False, "reason"}. A whole-file row is priced only when the
+    Returns {"priced": True, "bytes", "tokens", "path", "span", "ratio"} or
+    {"priced": False, "reason"}. `ratio` is the bytes-per-token figure the
+    row was priced with. A whole-file row is priced only when the
     cell holds a bare path: text after the path that is not one of the two
     span forms means the author priced something narrower than the file.
     `cache` is the run's `_FileCache`, so a file cited by several span rows
@@ -360,7 +366,8 @@ def price_row(
     _, content = content_class_for(resolved)
     tokens = estimate_tokens(num_bytes, model or "", content)
     return {"priced": True, "bytes": num_bytes, "tokens": tokens,
-            "path": str(resolved), "span": span}
+            "path": str(resolved), "span": span,
+            "ratio": bytes_per_token(model or "", content)}
 
 
 def _required_context_table(lines: list[str]) -> tuple[int, list[str]] | None:
@@ -558,6 +565,55 @@ def _task_id(lines: list[str], task_path: Path) -> str:
 _SELF_ROW_PASSES = 8  # a pass that still moves the byte count after this many is not converging
 _PASS_LISTS = ("left", "spans", "unreadable")
 
+_FOOTER_LABEL = "**Measured:**"
+_FOOTER_COMMAND = "token_saver.py --scan --write-estimates"
+_FOOTER_RE = re.compile(r"^\*\*Measured:\*\*\s*(\d{4}-\d{2}-\d{2})(?P<rest> by .*)$")
+
+
+def _write_measured_footer(lines: list[str], report: dict, where: str, header_idx: int,
+                           last_row: int, model: str | None, ratios: set[float],
+                           row_changed: bool, today: str) -> None:
+    """Write or refresh the one `**Measured:**` footer under the Required Context table.
+
+    The footer names the date, the command, the model and the ratio(s) the
+    rows were priced with. An existing footer keeps its date unless a row
+    cell changed in this pass or the footer's text after the date differs.
+    An absent footer is inserted after the table, with a blank line between,
+    so a renderer does not read it as one more table row. A footer that does
+    not match the shape is replaced.
+    """
+    if not ratios:
+        return
+    ratio_text = " / ".join(f"{r:g}" for r in sorted(ratios))
+    rest = f" by {_FOOTER_COMMAND} · {model or 'default'} · {ratio_text} B/tok"
+    found = None
+    for i in range(last_row + 1, len(lines)):
+        body = _split_eol(lines[i])[0]
+        if re.match(r"^#{1,6}\s", body):
+            break
+        if body.startswith(_FOOTER_LABEL):
+            found = i
+            break
+    if found is None:
+        eol = _split_eol(lines[header_idx])[1]
+        new = f"{_FOOTER_LABEL} {today}{rest}"
+        block = [eol, new + eol]
+        nxt = last_row + 1
+        if nxt < len(lines) and _split_eol(lines[nxt])[0].strip():
+            block.append(eol)
+        lines[last_row + 1:last_row + 1] = block
+        report["changes"].append({"file": where, "line": last_row + 3,
+                                  "what": "Measured footer", "old": "", "new": new})
+        return
+    old, eol = _split_eol(lines[found])
+    m = _FOOTER_RE.match(old)
+    date = m.group(1) if m and m.group("rest") == rest and not row_changed else today
+    new = f"{_FOOTER_LABEL} {date}{rest}"
+    if new != old:
+        lines[found] = new + eol
+        report["changes"].append({"file": where, "line": found + 1,
+                                  "what": "Measured footer", "old": old, "new": new})
+
 
 def _text_bytes(lines: list[str]) -> int:
     """The encoded size of the buffer, which is what `_Buffers.commit` writes."""
@@ -565,7 +621,7 @@ def _text_bytes(lines: list[str]) -> int:
 
 
 def _write_task(buf: _Buffers, report: dict, task_path: Path, plan_root: Path,
-                project_root: Path, cache: _FileCache) -> str | None:
+                project_root: Path, cache: _FileCache, today: str) -> str | None:
     """Write one task's row cells, subtotal and header. Returns the header text.
 
     A task file may cite itself in Required Context. Writing that row changes
@@ -584,7 +640,7 @@ def _write_task(buf: _Buffers, report: dict, task_path: Path, plan_root: Path,
         for key, n in marks.items():
             del report[key][n:]  # each pass lists them again
         total = _write_task_pass(buf, report, task_path, plan_root, project_root,
-                                 cache, measured)
+                                 cache, measured, today)
         for change in report["changes"][n_changes:]:
             hit = merged.setdefault((change["line"], change["what"]), dict(change))
             hit["new"] = change["new"]
@@ -608,11 +664,14 @@ def _write_task(buf: _Buffers, report: dict, task_path: Path, plan_root: Path,
 
 
 def _write_task_pass(buf: _Buffers, report: dict, task_path: Path, plan_root: Path,
-                     project_root: Path, cache: _FileCache, own_bytes: int) -> str | None:
-    """One pass of `_write_task`: row cells, subtotal and header, priced at `own_bytes`.
+                     project_root: Path, cache: _FileCache, own_bytes: int,
+                     today: str) -> str | None:
+    """One pass of `_write_task`: row cells, footer, subtotal and header, priced at `own_bytes`.
 
-    The row cells are kept only with a re-rolled subtotal: when the subtotal
-    cannot be re-rolled, the whole task file stays as authored.
+    The row cells and the `**Measured:**` footer are kept only with a
+    re-rolled subtotal: when the subtotal cannot be re-rolled, the whole
+    task file stays as authored. `today` is the footer's date for a pass
+    that changes a row cell.
     """
     lines = buf.get(task_path)
     text = "\n".join(lines)
@@ -642,7 +701,9 @@ def _write_task_pass(buf: _Buffers, report: dict, task_path: Path, plan_root: Pa
     reads = Decimal(0)
     row_k: list[Decimal] = []
     reads_known = True
-    for n, row_idx in enumerate(_table_rows(lines, header_idx), start=1):
+    ratios: set[float] = set()
+    row_indices = _table_rows(lines, header_idx)
+    for n, row_idx in enumerate(row_indices, start=1):
         cells = _cells(_split_eol(lines[row_idx])[0], len(header))
         if len(cells) != len(header):
             report["left"].append({"file": where, "row": n,
@@ -655,6 +716,7 @@ def _write_task_pass(buf: _Buffers, report: dict, task_path: Path, plan_root: Pa
         except OSError as exc:
             price = {"priced": False, "reason": f"read error: {exc}"}
         if price["priced"]:
+            ratios.add(price["ratio"])
             _set_cell(buf, report, task_path, row_idx, kib_idx, cells,
                       _fmt_kib(price["bytes"]), f"row {n} KiB")
             _set_cell(buf, report, task_path, row_idx, tok_idx, cells,
@@ -676,6 +738,10 @@ def _write_task_pass(buf: _Buffers, report: dict, task_path: Path, plan_root: Pa
             reads += value
             row_k.append(value / 1000)
 
+    if row_indices:
+        row_changed = any(c["what"].startswith("row ") for c in report["changes"][n_changes:])
+        _write_measured_footer(lines, report, where, header_idx, row_indices[-1], model,
+                               ratios, row_changed, today)
     has_subtotal = any(ln.startswith("**Context subtotal:**") for ln in lines)
     if not reads_known and has_subtotal:
         fail("Context subtotal", "a row's ~Tokens has no figure (task file left as authored)")
@@ -894,14 +960,16 @@ def _write_sprint_plan(buf: _Buffers, report: dict, sprint_plan: Path, session_i
 
 def write_estimates(
     task_paths: list[Path], plan_root: Path, project_root: Path,
-    dry_run: bool = False,
+    dry_run: bool = False, today: date | None = None,
 ) -> dict:
     """Write measured cells and re-rolled totals for the named task files.
 
     Everything is computed in memory first and written at the end, so a dry
     run reports exactly what a real run would write. A second run over the
-    same tree writes nothing.
+    same tree writes nothing. `today` dates the `**Measured:**` footer and
+    defaults to the current date, so a test can pin it.
     """
+    stamp = (today or datetime.now().astimezone().date()).isoformat()
     report = {"plan": str(plan_root), "dry_run": dry_run, "tasks": [str(p) for p in task_paths],
               "changes": [], "left": [], "spans": [], "unreadable": [],
               "written": [], "errors": []}
@@ -909,7 +977,8 @@ def write_estimates(
     by_session: dict[Path, list[tuple[str, str, str]]] = {}
     try:
         for task_path in task_paths:
-            total = _write_task(buf, report, task_path, plan_root, project_root, cache)
+            total = _write_task(buf, report, task_path, plan_root, project_root, cache,
+                                stamp)
             if total is not None:
                 task_id = _task_id(buf.get(task_path), task_path)
                 name = task_path.stem.rsplit("-", 1)[-1]

@@ -158,6 +158,19 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Recovery.md`.
 
 ---
 
+## User-Action Gate <!-- OPTIONAL — a session of a Discovery (meta) plan that stops for the user's answer -->
+
+<!-- Include only when the session's Orchestration file carries a `User-Action Gate` section.
+     Omit the section otherwise. Record the user's answer verbatim in the Answer cell. -->
+
+| Gate | Status | Date Asked | Answer |
+|------|--------|------------|--------|
+| {gate name} | OPEN | {YYYY-MM-DD} | {the user's answer, verbatim, or "pending"} |
+
+*Status is `OPEN` until the user answers. It then becomes `RATIFIED` or `REJECTED`.*
+
+---
+
 ## Plan-Specific Sections <!-- OPTIONAL -->
 
 Write any section that no heading above covers here, as an `###` H3. Never add it as a new `##` H2 elsewhere in this file, and draft one `idea` feedback draft for each new H3 heading (see `references/feedback-drafting.md`).

@@ -257,7 +257,8 @@ def _stage_16(config: dict) -> None:
 def _queued_model_drafts(feedback_dir: Path) -> int:
     """How many model drafts the helper's `list` would show as queued. The
     helper's own read-only `count_queued` answers, so doctor and `list` share
-    one expiry predicate. `list` itself is never called, because it writes."""
+    one expiry predicate. `count_queued` answers in-process, so doctor needs no
+    subprocess."""
     import feedback_drafts
 
     return feedback_drafts.count_queued(feedback_dir)

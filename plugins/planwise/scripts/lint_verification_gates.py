@@ -2088,6 +2088,10 @@ from lint_gate_checks_measure import CHECKS as _MEASURE_CHECKS
 
 CHECK_REGISTRY.extend(_MEASURE_CHECKS)
 
+from lint_gate_checks_layers import CHECKS as _LAYER_CHECKS
+
+CHECK_REGISTRY.extend(_LAYER_CHECKS)
+
 
 # ---------------------------------------------------------------------------
 # CLI

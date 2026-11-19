@@ -12,10 +12,14 @@ Rules, by word id:
                             the Orchestration Total Estimated by more than 10
                             percent. BLOCKER.
     cross-tier-propagation  references/ei-citation-and-token-reconciliation.md §6.
-                            Each cross-tier Note's sources reach a docstring
-                            requirement, a grep line and a fixture comment in a
-                            task file, and a signoff line. BLOCKER per missing
-                            surface.
+                            A cross-tier Note that declares "Consumed by:" has
+                            its sources reach a docstring requirement, a grep
+                            line and a fixture comment in a task file, and a
+                            signoff line. BLOCKER per missing surface. A Note
+                            with no consumer clause is not a subject, except
+                            for one ADVISORY when a code-writing task cites its
+                            section and the Note does not state "no code
+                            consumer".
     token-reconciliation    references/ei-citation-and-token-reconciliation.md §8.
                             abs(EI total - Sprint Plan EI total) / Sprint Plan EI
                             total above 0.10, or task estimates that do not sum
@@ -116,6 +120,12 @@ SPEC_NUMBER_RE = re.compile(r"Spec #(?P<num>[0-9]+)(?![0-9])")
 DOCSTRING_RE = re.compile(r"docstring", re.IGNORECASE)
 GREP_RE = re.compile(r"\bgrep", re.IGNORECASE)
 FIXTURE_RE = re.compile(r"fixture", re.IGNORECASE)
+CONSUMER_CLAUSE_RE = re.compile(r"\bConsumed[ \t]+by:", re.IGNORECASE)
+NO_CONSUMER_RE = re.compile(r"\bno[ \t]+code[ \t]+consumer\b", re.IGNORECASE)
+EI_REFERENCE_RE = re.compile(r"\bEI\b|Execution Input")
+CODE_SUFFIXES = frozenset(
+    {".py", ".js", ".ts", ".tsx", ".jsx", ".sh", ".ps1", ".rb", ".go", ".rs", ".java", ".cs", ".c", ".cpp", ".h"}
+)
 
 SECTION_REF_RE = re.compile(r"§[ \t]*(?P<ref>[0-9]+(?:\.[0-9]+)*)")
 VERBATIM_COPY_RE = re.compile(r"\bcopy\b[^\r\n]*?\bverbatim\b[^\r\n]*?\bfrom\b[^\r\n]*?§", re.IGNORECASE)
@@ -357,18 +367,48 @@ def check_threshold_alignment(ctx: Any) -> Any:
     return result
 
 
-def check_cross_tier_propagation(ctx: Any) -> Any:
-    """Each cross-tier Note's sources reach the four implementation surfaces.
+def _code_task_files(ctx: Any) -> list[tuple[str, Any]]:
+    """(task id, task file) for each task file whose id a Sprint Plan Write-Set assigns a code path."""
+    ids = {
+        task_id
+        for plan in ctx.sprint_plans
+        for _index, path, tasks in _write_set(plan)
+        if Path(path).suffix.lower() in CODE_SUFFIXES
+        for task_id in tasks
+    }
+    return [(task_id, doc) for doc in ctx.task_files for task_id in sorted(ids) if doc.path.name.startswith(task_id + "-")]
 
-    A surface is a task-file line that names every 'Spec #N' of the Note and the
-    word docstring, grep or fixture, and a line naming every 'Spec #N' in a
-    sprint file whose name holds 'Signoff'. Cannot see: a surface that names the
-    sources by filename only, a Note with fewer than two 'Spec #N' tokens, or
-    whether the cited value is one code consumes at all.
+
+def _cites_section(doc: Any, titles: list[str]) -> bool:
+    """True when a line of `doc` names the EI and carries a '§N' that one of the headings `titles` holds."""
+    for line in doc.lines:
+        if not EI_REFERENCE_RE.search(line):
+            continue
+        if any(_heading_matches(title, match["ref"]) for match in SECTION_REF_RE.finditer(line) for title in titles):
+            return True
+    return False
+
+
+def check_cross_tier_propagation(ctx: Any) -> Any:
+    """A cross-tier Note that declares a code consumer reaches the four implementation surfaces.
+
+    The subject is a Note whose paragraph carries a 'Consumed by:' clause. For that
+    Note, a surface is a task-file line that names every 'Spec #N' of the Note and
+    the word docstring, grep or fixture, and a line naming every 'Spec #N' in a
+    sprint file whose name holds 'Signoff'. Each missing surface is a BLOCKER.
+    A Note with no 'Consumed by:' clause and no 'no code consumer' statement is a
+    provenance duplicate and is not a subject, with one backstop. It gets one
+    ADVISORY when a task file whose id the Sprint Plan Write-Set assigns a code
+    path (a suffix in CODE_SUFFIXES) cites the Note's enclosing EI section by a
+    '§N' on a line that names the EI. Cannot see: a surface that names the
+    sources by filename only, a Note with fewer than two 'Spec #N' tokens (printed
+    as a note, declared or not), a consumer clause whose path is wrong, or a code
+    task that reaches the Note's section without a '§N' citation.
     """
     word = "cross-tier-propagation"
     result = core.RuleResult()
     signoff_docs = [doc for doc in ctx.sprint_markdown if "signoff" in doc.path.name.lower()]
+    code_tasks = _code_task_files(ctx)
     surfaces: list[tuple[str, list[Any], re.Pattern[str] | None]] = [
         ("task-file docstring requirement", ctx.task_files, DOCSTRING_RE),
         ("task-file citation-token grep", ctx.task_files, GREP_RE),
@@ -383,6 +423,25 @@ def check_cross_tier_propagation(ctx: Any) -> Any:
             numbers = sorted({int(m["num"]) for m in SPEC_NUMBER_RE.finditer(paragraph)})
             if len(numbers) < 2:
                 result.notes.append(_note(word, f"{part.path.name}:{index + 1} Note names under two 'Spec #N' sources"))
+                continue
+            if not CONSUMER_CLAUSE_RE.search(paragraph):
+                titles = [t for level, t, start, end in core.sections(part.lines) if level >= 2 and start <= index < end]
+                citer = None if NO_CONSUMER_RE.search(paragraph) else next(
+                    (task_id for task_id, doc in code_tasks if _cites_section(doc, titles)), None
+                )
+                if citer is not None:
+                    result.subjects += 1
+                    listed = ", ".join(f"Spec #{n}" for n in numbers)
+                    result.findings.append(
+                        _finding(
+                            word,
+                            core.ADVISORY,
+                            part.path,
+                            index,
+                            f"Note citing {listed} declares no consumer, and code-writing task {citer} cites its "
+                            "section; add a 'Consumed by: `path`' clause or state 'no code consumer'",
+                        )
+                    )
                 continue
             result.subjects += 1
             tokens = [re.compile(r"Spec #" + str(n) + r"(?![0-9])") for n in numbers]

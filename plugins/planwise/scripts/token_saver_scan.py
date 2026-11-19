@@ -82,6 +82,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 
+from check_prior_sprint_outputs import _parse_tracking_table
 from config_loader import (
     get_effective_token_saver_config,
     load_config,
@@ -97,6 +98,7 @@ from read_limits import (
     content_class_for_path,
     read_routes_advice,
 )
+from resolve_next_session import find_master_plan, is_complete, session_key
 
 # A Required Context row whose File cell is a command corpus, not a path: the
 # command's OUTPUT is what the task reads, and no file measurement prices it.
@@ -443,6 +445,64 @@ def parse_plan_token_saver_override(plan_root: Path) -> bool | None:
 
 
 # ---------------------------------------------------------------------------
+# Completed sessions
+# ---------------------------------------------------------------------------
+_SPRINT_DIR_RE = re.compile(r"^Sprint-(\d+)")
+_SESSION_DIR_RE = re.compile(r"^Session-(\d+)")
+
+
+def task_session_key(task_path: Path) -> tuple[int, int] | None:
+    """Return (sprint, session) from the task's ancestor folder names, or None."""
+    sprint = session = None
+    for part in task_path.parent.parts:
+        sprint_match = _SPRINT_DIR_RE.match(part)
+        if sprint_match:
+            sprint = int(sprint_match.group(1))
+        session_match = _SESSION_DIR_RE.match(part)
+        if session_match:
+            session = int(session_match.group(1))
+    if sprint is None or session is None:
+        return None
+    return sprint, session
+
+
+def complete_sessions(master_plan: Path | None) -> set[tuple[int, int]]:
+    """Return the (sprint, session) keys the Master Plan's Session Completion
+    Tracking table marks COMPLETE. An absent plan, an absent table or an
+    unreadable file returns an empty set, so every task stays flagged."""
+    if master_plan is None:
+        return set()
+    try:
+        rows = _parse_tracking_table(
+            master_plan.read_text(encoding="utf-8", errors="replace")
+        )
+    except OSError:
+        return set()
+    done: set[tuple[int, int]] = set()
+    for cells in rows or []:
+        if len(cells) < 3:
+            continue
+        key = session_key(cells[0], cells[1])
+        if key is not None and is_complete(cells[2]):
+            done.add(key)
+    return done
+
+
+def in_complete_session(task_path: Path, cache: dict[Path, set[tuple[int, int]]]) -> bool:
+    """True when the task's session is COMPLETE in the nearest Master Plan.
+    `cache` holds each Master Plan's parsed rows, so a plan is read once."""
+    key = task_session_key(task_path)
+    if key is None:
+        return False
+    master_plan = find_master_plan(task_path)
+    if master_plan is None:
+        return False
+    if master_plan not in cache:
+        cache[master_plan] = complete_sessions(master_plan)
+    return key in cache[master_plan]
+
+
+# ---------------------------------------------------------------------------
 # Scan
 # ---------------------------------------------------------------------------
 def scan_plan(
@@ -464,11 +524,13 @@ def scan_plan(
         "findings": [],
         "unresolved": [],
         "over_ceiling": [],
+        "over_ceiling_complete": [],
         "summary": {
             "tasks": 0, "files": 0,
             "green": 0, "notice": 0, "warn": 0, "critical": 0,
             "critical_handled": 0, "warn_handled": 0,
             "over_ceiling_unflagged": 0,
+            "over_ceiling_complete": 0,
         },
     }
     if not ts_config["token_saver"]:
@@ -482,6 +544,7 @@ def scan_plan(
     )
     result["thresholds"] = thresholds
     cli_version = config_cli_version(config)
+    complete_cache: dict[Path, set[tuple[int, int]]] = {}
 
     for task_path in find_task_files(plan_root):
         text = task_path.read_text(encoding="utf-8", errors="replace")
@@ -495,20 +558,28 @@ def scan_plan(
 
         # A task over the per-task ceiling is routed on purpose: it carries the
         # 1M flag. The window size never substitutes for that flag, so an
-        # unflagged over-ceiling task is a finding, not an advisory.
+        # unflagged over-ceiling task is a finding, not an advisory. A task in
+        # a session the Master Plan already marks COMPLETE has run, so it is
+        # listed as no-action and stays out of the exit code. A task the scan
+        # cannot map to a COMPLETE row stays flagged.
         estimate = parse_estimated_tokens(text)
         if (
             estimate is not None
             and estimate + runner_overhead > session_target
             and not parse_one_m_flag(text)
         ):
-            result["over_ceiling"].append({
+            entry = {
                 "task": task_rel,
                 "estimate": estimate,
                 "runner_overhead": runner_overhead,
                 "session_target": session_target,
-            })
-            result["summary"]["over_ceiling_unflagged"] += 1
+            }
+            if in_complete_session(task_path, complete_cache):
+                result["over_ceiling_complete"].append(entry)
+                result["summary"]["over_ceiling_complete"] += 1
+            else:
+                result["over_ceiling"].append(entry)
+                result["summary"]["over_ceiling_unflagged"] += 1
 
         for row in rows:
             if is_command_corpus(row["file_cell"]):
@@ -773,6 +844,22 @@ def format_report(result: dict) -> str:
         for o in result["over_ceiling"]:
             out.append(
                 f"  - {o['task']}  (~{o['estimate']:,} tok + "
+                f"{o['runner_overhead']:,} overhead > "
+                f"{o['session_target']:,} target)"
+            )
+        out.append("")
+
+    if result["over_ceiling_complete"]:
+        out.append(
+            "Over-ceiling tasks in COMPLETE sessions — "
+            f"{len(result['over_ceiling_complete'])} task(s). "
+            "Already run, no action:"
+        )
+        # Four-space indent keeps these lines out of plan_build's worklist
+        # pattern (`^  - \S`), so the build gate never reports them.
+        for o in result["over_ceiling_complete"]:
+            out.append(
+                f"    - {o['task']}  (~{o['estimate']:,} tok + "
                 f"{o['runner_overhead']:,} overhead > "
                 f"{o['session_target']:,} target)"
             )

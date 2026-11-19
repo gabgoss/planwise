@@ -140,6 +140,15 @@ During synthesis, the lead classifies each confirmed finding (BLOCKER, ERROR, WA
 > - Does a template, rule, or skill fail to prevent this class of error? -> **Systemic** (identify which artifact)
 > - Is the error already covered by existing guidance that was missed during execution? -> **One-off** (execution failure, not artifact gap)
 
+### Fix Owner
+
+"Systemic" keeps its cross-plan meaning: the defect class recurs in other plans. Fix Owner says whose artifact the fix edits. It is a separate field.
+
+| Fix Owner | When to use it |
+|-----------|----------------|
+| `planwise` | The Suggested Fix Target is a file the planwise plugin ships: a handler, agent, reference, template, script or hook. An installed copy under `.claude/rules/planwise/` also counts |
+| `project` | Any other target, such as the project's own `.claude/rules/`, its plans or its task files |
+
 ### Output Format
 
 Systemic findings appear in the review report's Systemic Findings section:
@@ -152,6 +161,7 @@ Systemic findings appear in the review report's Systemic Findings section:
 | Root Cause Category  | {template gap | rule gap | skill gap | EI extraction gap | protocol gap | one-off} |
 | Description          | {what pattern recurs across findings -- be specific} |
 | Suggested Fix Target | {file path + what to change in the planning artifact} |
+| Fix Owner            | {planwise | project} |
 | Other Known Instances | {one confirmed path per line with its disposition (untouched, swept, or tracked in {backlog id}), or "none" when the class has no known sibling} |
 | Status               | {OPEN | CLASS OPEN | CLOSED} |
 ```
@@ -191,7 +201,7 @@ over_ceiling(task) = task_estimate + context.token_saver_runner_overhead > conte
 
 Run each check below over every task in scope. Each is HIGH confidence (mechanical):
 
-1. **Over-ceiling without exception** — recompute the task's bottom-up estimate. If `over_ceiling(task)` is true AND the task is **not** flagged `1M-exception` → **finding** (severity ERROR — the runner overflows its budget mid-task).
+1. **Over-ceiling without exception** — recompute the task's bottom-up estimate. If `over_ceiling(task)` is true AND the task is **not** flagged `1M-exception` → **finding** (severity ERROR — the runner overflows its budget mid-task). A task in a session the Master Plan's Session Completion Tracking table marks COMPLETE is no finding, because the Token Saver scan lists it as already run.
 2. **Warn+ Required Context file with no backlog item** — if a Required Context file classifies **Warn or Critical** (cost or read) but the task records no large-file recommendation / backlog item → **finding** (WARNING).
 3. **`1M-exception` task on a 200K-window agent** — if a `1M-exception` task is declared on a 200K-window agent (`Agent: Haiku 4.5`) without the run-time override note (the flag dispatches on Opus / 1M; a 200K-window agent would still overflow) → **finding** (ERROR).
 4. **Uncovered read-gate crossing** — if a Required Context file crosses a FIXED read gate (measured bytes ≥ 256 KiB, OR `bytes ÷ {assigned-model B/tok}` ≥ 25K tokens, OR ≥ 2,000 lines) and the task records **neither** a read-route note **nor** a refactor+backlog item → **finding** (WARNING; a default Read returns a truncated first page or a refusal mid-task). The read routes are `allow_large: true` (Claude Code v2.1.296 or later), `offset`/`limit` pages, or Grep. Accept `allow_large` only when the project's `context.verified_cli_version` is v2.1.296 or later and only the token or byte gate fired: the 2,000-line window is a defensive limit, and `allow_large` is not shown to lift it.

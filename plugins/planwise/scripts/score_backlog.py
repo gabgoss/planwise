@@ -1124,6 +1124,13 @@ def _format_scoped_rules(block: dict | None) -> list[str]:
     for dest in block["destinations"]:
         matched = ", ".join(dest["rules"]) or "none"
         lines.append(f"    {dest['path']}  {dest['role']}  rules: {matched}  -> {dest['verdict']}")
+    if block["source"] == "body" and block["destinations"] and all(
+        dest["role"] == "CREATE" for dest in block["destinations"]
+    ):
+        lines.append(
+            "  scoped_rules warning: every body path resolves to nothing under the project root; "
+            "if the item writes paths relative to a nested tree, rewrite them project-relative and re-run"
+        )
     lines.append(f"  rules_to_inject:   {', '.join(block['rules_to_inject']) or 'none'}")
     return lines
 

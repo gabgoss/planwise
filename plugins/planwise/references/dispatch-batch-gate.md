@@ -1,5 +1,5 @@
 ---
-description: The gate that runs after every per-task acceptance check has passed and before consolidation. Covers why a per-task gate is structurally blind to whole-set properties, running a session criterion at the first task that makes it runnable, cross-checking claims that appear in more than one output, and pinning the output vocabulary as literal strings before fan-out. Consult when a parallel batch has returned and every runner reports green.
+description: The gate that runs after every per-task acceptance check has passed and before consolidation. Covers why a per-task gate is structurally blind to whole-set properties, running a session criterion at the first task that makes it runnable, cross-checking claims that appear in more than one output (including a rule several runners write into several artifacts, which needs one quoted source sentence and a check on every artifact), and pinning the output vocabulary as literal strings before fan-out (including one closed verdict vocabulary per layer). Consult when a parallel batch has returned and every runner reports green.
 consult-when: A parallel batch returned and every per-task gate is green — the three checks only the orchestrator can run before consolidation
 paths: {planwise_root}/{plans_dir}/**
 ---
@@ -100,6 +100,27 @@ Task 1 gate: a collection-only test run, under a second → the same failure, th
 
 **Record the divergence, do not silently reconcile it.** The consolidating agent must be told which source outputs carry superseded claims. It will otherwise copy them forward faithfully, because it has no way to know. Binding the adjudication into the consolidation prompt is what stops a retired marker from reaching the durable artifact.
 
+> [!constraint] A Rule Several Runners Write Needs One Quoted Source Sentence and a Check on Every Artifact
+> When parallel runners write one rule into several artifacts, each runner derives it from whichever design section its brief names. Two runners can read two sections and ship two different rules. Every per-task gate passes, because each artifact is consistent with its own runner's reading.
+>
+> 1. **List every artifact that states the rule**, at scaffold or confirm time. A script, its handler, a template and a schema are four artifacts, not one.
+> 2. **Quote the predicate verbatim in the brief of every task that writes it.** Do not point each runner at a different section of the design.
+> 3. **Gate each artifact.** Extend the lockstep test to cover it, or add an acceptance Grep for the predicate's literal in that file. A check on one pair of artifacts says nothing about the others.
+>
+> WRONG — the lockstep test covers one pair, and two briefs cite two sections:
+> ```
+> brief 1 (template): "per the item-shape section"  -> "an answered block passes"
+> brief 2 (script):   "per the functions section"    -> passes only when absent or empty
+> lockstep test: handler <-> script only             -> green; the template contradicts the script, unseen
+> ```
+> CORRECT — one quoted predicate, checked in every file that carries it:
+> ```
+> every brief:  "shape_ok = refined and steps >= 1 and has_verification and questions in (absent, empty)"
+> acceptance:   Grep the predicate's literal in handler, template and schema; lockstep test on the script
+> ```
+>
+> The contradiction in the measured case surfaced by luck. One runner happened to read a layer-mate's template and flagged it in its status block. This gate makes the same finding systematic.
+
 > [!practice] §2 and §3 are not merge candidates
 > Both are "run a check the per-task gate cannot", and that is where the similarity ends. §2 is about **when** a check may first run — a temporal property of one criterion. §3 is about **what** a check compares — a relational property of two outputs. A merged section states only one of them, and the one it drops is §2, because §3's evidence is more vivid.
 
@@ -138,6 +159,25 @@ A pinned literal also makes a deviation cheap to find. A heading bound to a lite
 - **Add a cross-runner shape check to the batch gate.** Diff the emitted section-label sets across outputs and flag divergence before dispatching the consolidator. `scripts/batch_gate.py labels` runs that diff. A layer whose briefs prescribe different `###` sets runs `labels --expect {task file} {output file}` instead, which checks each output against its own brief and still fails on a dropped required heading. The plain diff is the backstop for a session that inherits un-pinned task files. **It remains unproven**: in the measured session the pin left no divergence for it to catch. Presenting it as validated alongside the pin would misstate the evidence.
 - **When divergence has already happened, crosswalk — do not rewrite.** Rewriting outputs to match risks the content loss consolidation exists to prevent. A crosswalk costs a dozen lines and preserves provenance. File the divergence upstream against the scaffold afterwards.
 - **Check the intra-runner variant.** A runner that declares a framework at its own head can still drift across its own sections. Renumbering drift breaks internal `§N` cross-references silently. A shape check inside a single long output is worth the one search it costs.
+
+> [!constraint] One Closed Verdict Vocabulary per Layer
+> A layer of decision runners shares one pasted decision method, and that method defines the verdict words. Every task file in the layer uses those words with those meanings. A task file that reuses a defined word with a new meaning makes the runner follow the task file, and the same claim class then carries two words in one layer.
+>
+> - **The pasted method defines the verdict words.** Task files do not redefine them.
+> - **Put an owner distinction in its own column.** When it matters who owes an edit, such as a cut that lands in another file, write the owner in a separate column, never by borrowing a verdict word that means something else.
+> - **Grep each task file's verdict words against the method at scaffold time.** Compare every use with the method's definition before fan-out.
+>
+> WRONG — the task file reuses a defined word with a new meaning:
+> ```
+> Decision Method: record = a file this layer does not own must GAIN the claim
+> task 04 step 4:  a claim the survivor HOLDS is `record` for the later sprint
+> ```
+> CORRECT — the verdict keeps its meaning, and ownership is a column:
+> ```
+> verdict: cut   |  Survivor Edits Owed: owner | file | section | claims to drop
+> ```
+>
+> The cost of the WRONG form is translation downstream. The orchestrator's recount and the aggregating task must each map the stray word back, and the final record needs a note so a reader does not take held claims as missing.
 
 > [!practice] Keep the pin and the diff in one section
 > §4 is the only section here carrying work on both sides of the dispatch — a scaffold-time pin and a batch-time diff. The pin is motivated only by the divergence the diff would otherwise have to catch. Split into a separate scaffold rule, the pin reads as a style preference.

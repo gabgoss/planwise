@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import backlog_questions
+import item_shape
 import score_backlog
 from test_backlog_loop import CONFIG_YAML_FIXTURE, HUB_HEADER
 
@@ -515,6 +516,47 @@ class TestList(_QuestionsFixture):
         self.assertIsNone(payload["questions"][0]["context"])
         self.assertEqual(payload["legacy_sections"], 0)
         self.assertEqual(path.read_bytes(), before)
+
+
+    def test_list_and_shape_check_give_one_verdict(self):
+        # Text above answered blocks is decided context: --list reports no question and the shape check
+        # reads the section answered. A section with text and no block is named by --list and reads unanswered.
+        answered = "### Q1. Which reader?\n\nOptions: (A) one (B) two\nAnswer: 2026-10-20: one."
+        texts = {
+            "100": item_body("100", questions=answered, preamble="Decided already: the reader stays."),
+            "101": item_body("101", questions="Which reader owns the helper?"),
+        }
+        for item_id, text in texts.items():
+            self.add_item(item_id, text)
+
+        _code, _text, payload = self.run_cli("--list", "--json")
+
+        shapes = {
+            item_id: item_shape.compute_item_shape({"refined": True, "_body": text})["open_questions"]
+            for item_id, text in texts.items()
+        }
+        self.assertEqual(shapes, {"100": "answered", "101": "unanswered"})
+        self.assertEqual(payload["questions"], [])
+        self.assertEqual(payload["unshaped_items"], ["101"])
+        self.assertNotIn("100", payload["items"])
+
+    def test_list_prints_the_unshaped_item_line(self):
+        self.add_item("101", item_body("101", questions="Which reader owns the helper?"))
+
+        code, text, payload = self.run_cli("--list")
+
+        self.assertEqual(code, 0)
+        self.assertIn("101: ## Open Questions holds text with no ### Q block\n", text)
+        self.assertEqual(payload["unshaped_items"], ["101"])
+        self.assertIn("Unanswered questions: 0", text)
+
+    def test_a_none_section_and_a_fenced_example_are_not_unshaped(self):
+        self.add_item("100", item_body("100", questions="None."))
+        self.add_item("101", item_body("101", questions="```\nWhich reader?\n```"))
+
+        _code, _text, payload = self.run_cli("--list", "--json")
+
+        self.assertEqual(payload["unshaped_items"], [])
 
 
 class TestRouteNeutrality(_QuestionsFixture):

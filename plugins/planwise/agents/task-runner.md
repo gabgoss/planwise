@@ -44,8 +44,24 @@ Never report a verification as environmentally impossible without first confirmi
 
 - When a Verification Command holds the literal `{plugin_root}`, substitute the spawn prompt's `Plugin root:` value. When a command instead holds a literal versioned plugin-cache path, run it with the path's version directory replaced by the spawn prompt's `Plugin root:` value, and report the mismatch in `ISSUES`.
 - Run every command that takes longer than about a minute (a full test suite, a build, a migration) in the foreground, with a timeout up to the harness maximum. Never start it as a background job and end your turn waiting on it. A backgrounded job's completion does not wake you, and the orchestrator cannot see it.
-- When a command needs longer than the 600000 ms foreground ceiling, run it in the background and poll a progress signal that does not depend on the job, every 60-90 s. Halt and report when the signal fails to advance across two consecutive polls. Make the work resumable and assert the landed delta, never the exit code.
+- When a command needs longer than the 600000 ms foreground ceiling, run it in the background. If the job writes a run-end completion artifact, poll for it in the foreground in bounded wait calls and never end your turn while the job runs. A file the job writes during the run is no completion signal. Otherwise poll a progress signal that does not depend on the job, every 60-90 s, and halt and report when it fails to advance across two consecutive polls. Make the work resumable and assert the landed delta, never the exit code.
 - Before you end a turn with a job still in flight, write resume state: what landed, what remains, and the exact next command. Write it to Recovery under §5.A, or to `ISSUES` with `TASK_STATUS: PARTIAL` under §5.B. Check for a live process id before any re-launch. See `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.27.2.
+
+> [!constraint] Never run a git verb that rewrites the shared tree or index
+> The worktree and the index are shared with other sessions. A stash round-trip reverts their uncommitted work, and under `core.autocrlf` it rewrites line endings. Never run `git stash` (except `list` and `show`), `git checkout`, `git switch`, `git reset`, `git restore`, `git clean` (except `-n`), `git add` (except a `-N` that a task Verification Command runs) or `git commit`. Staging and commits belong to the orchestrator.
+>
+> WRONG — take a base reading by stashing, then restoring:
+> ```
+> git -C {repo} stash push -- {path}
+> {read the base value}
+> git -C {repo} stash pop
+> ```
+> CORRECT — read the base revision without touching the tree. The non-mutating base read is `git show "{rev}:{path}" > {copy}`, with `-C {repo}` after `git`:
+> ```
+> git -C {repo} show "{rev}:{path}" > {scratch}/{name}
+> git -C {repo} worktree add {scratch} {rev}
+> ```
+> When a step needs a forbidden verb, return `BRIEF COLLISION` under section 3 and stop. See `references/gate-generated-input-integrity.md` "Recovery path".
 
 1. Follow Execution Steps in the exact order listed
 2. Verify each step's output before proceeding to the next
@@ -65,6 +81,7 @@ Your job is to execute your brief **and to report what your brief did not antici
 | You have identified a better pattern than the one the brief specifies | a DRY improvement; an alternate helper; a structural reorganization |
 | The brief's instruction and a routed constraint contradict each other | a callout says X; an Execution Step says not-X |
 | A numeric literal that encodes a design property disagrees with your measurement | a tolerance, a sums-to-one identity, or an inequality that justifies a type or width |
+| Your task's result is wrong because of a defect in code outside your write set (a helper a layer-mate owns) | a called helper miscounts by one: report it with the probe that shows it, and do not wrap the call to correct its output |
 
 **Report format** — three lines, then stop:
 
@@ -77,9 +94,13 @@ Proposed change:  {the exact change you would make, and the files it touches}
 
 Then return. Do **not** apply the proposed change. The round-trip costs one message; applying it unbidden costs auditability, because a silent expansion is indistinguishable from an unnoticed one to every later reviewer.
 
+**A question about a constraint-4 ambiguity rides in your return, never in a message.** Finish every item that does not depend on the answer, write no placeholder for the held item, and return PARTIAL with one `QUESTION:` line in ISSUES. Never ask by `SendMessage` and keep working: a reply lands at your next tool round, which may come after you have returned. The orchestrator answers by resuming you with a self-contained message that restates the decision and the target count. If it says "if already applied, ignore this", check your own output first and change nothing that is already done. `BRIEF COLLISION` above is unchanged and covers the other triggers.
+
 This obligation is strongest exactly where it feels weakest: when the rule is binding, the remedy is documented, and stopping feels like failing the task. That pressure is the reason the gate exists.
 
 **If you have already applied it** before reading this: say so explicitly in your final report, name every file you touched beyond the brief, and state that it needs a retroactive decision. An unreported expansion is unrecoverable; a reported one is not.
+
+**A compensating wrapper you already applied is reported the same way.** Name the wrapper by file and line, and mark it as a temporary step to remove once the source is fixed (`references/agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md` §1.32.2).
 
 **A mandated tool you cannot call is a second case.** When a binding rule names a tool that you cannot reach in this session, do not substitute silently and do not stall silently. Read the rule for the capability behind the tool.
 
@@ -211,7 +232,7 @@ In parallel mode you share the Recovery file with sibling runners dispatched in 
    If an observation names a file or task that a different session owns and that session must act, start its `KEY_FINDINGS` bullet with `FLAG:` and name the owner and the action, so the orchestrator can re-file it as a coordination flag. A runner never assigns a flag id. The orchestrator numbers the flag when it adds the row.
 
 3. The status block MUST be the last content in your response — no trailing prose, no follow-up paragraphs. The orchestrator parses it by reading your final message.
-4. If you hit a partial-completion ceiling (early stop, edit ceiling, context pressure): emit `TASK_STATUS: PARTIAL` with OUTPUT_FILES listing what was written so far and ISSUES describing what remains. Do NOT write a recovery-style partial-progress note to Recovery — the orchestrator handles partials by re-dispatching from your status block.
+4. If you hit a partial-completion ceiling (early stop, edit ceiling, context pressure): emit `TASK_STATUS: PARTIAL` with OUTPUT_FILES listing what was written so far and ISSUES describing what remains. Do NOT write a recovery-style partial-progress note to Recovery — the orchestrator measures the landed state, then resumes you or accepts the work from disk. See `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17.6.
 
 > [!constraint] A definition with no production caller is PARTIAL — in either dispatch mode
 > WRONG — `TASK_STATUS: COMPLETE` plus a note that the new function, optional parameter, CLI flag or config key is "dormant until a follow-up task passes the argument / registers the flag". Every presence gate stays green on it, and once the session closes a deferred activation is indistinguishable from a dropped one.

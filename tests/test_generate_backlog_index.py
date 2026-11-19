@@ -185,8 +185,9 @@ class _GeneratorFixtureBase(unittest.TestCase):
     def write_item(self, item_id, *, title="Fixture item", priority="Medium",
                    status="NOT_STARTED", abbrev="BUG", created="2026-01-01",
                    blocks=None, archived=False, filename=None,
-                   extra_frontmatter=""):
-        """Write one synthetic item file with valid frontmatter."""
+                   extra_frontmatter="", body=""):
+        """Write one synthetic item file with valid frontmatter. `body` is appended
+        after the title line, for a test that needs section prose."""
         blocks = blocks or []
         blocks_yaml = "[]" if not blocks else "[" + ", ".join(blocks) + "]"
         content = (
@@ -201,6 +202,7 @@ class _GeneratorFixtureBase(unittest.TestCase):
             f"{extra_frontmatter}"
             "---\n\n"
             f"# {title}\n"
+            f"{body}"
         )
         target_dir = self.archive_dir if archived else self.backlog_dir
         name = filename or f"BB-{item_id}-01-{abbrev}-Fixture.md"
@@ -609,6 +611,161 @@ class TestReciprocalBlocksEdge(_GeneratorFixtureBase):
         self.assertEqual(code, 2)
         self.assertIn("reciprocal blocks edge", err)
         self.assertFalse((self.backlog_dir / "00-Index-Backlog.md").exists())
+
+
+class TestBlocksCycles(_GeneratorFixtureBase):
+    """A cycle of three or more ids is reported with its full path. A reciprocal pair is still reported as a pair."""
+
+    def test_three_item_cycle_is_reported_with_its_full_path(self):
+        self.write_item("001", title="A", blocks=["002"])
+        self.write_item("002", title="B", blocks=["003"])
+        self.write_item("003", title="C", blocks=["001"])
+
+        code, out, err = self.run_main("--dry-run")
+
+        self.assertEqual(code, 1)
+        self.assertIn("blocks cycle -- 001 -> 002 -> 003 -> 001", err)
+        self.assertNotIn("reciprocal blocks edge", err)
+        self.assertIn("00-Index-Backlog.md", out)  # measurement still ran
+
+    def test_three_item_cycle_refuses_write_and_writes_nothing(self):
+        self.write_item("001", title="A", blocks=["002"])
+        self.write_item("002", title="B", blocks=["003"])
+        self.write_item("003", title="C", blocks=["001"])
+
+        code, _out, err = self.run_main("--write")
+
+        self.assertEqual(code, 2)
+        self.assertIn("blocks cycle -- 001 -> 002 -> 003 -> 001", err)
+        self.assertFalse((self.backlog_dir / "00-Index-Backlog.md").exists())
+
+    def test_pair_and_cycle_in_one_graph_are_each_reported_once(self):
+        graph = {
+            "001": {"002"}, "002": {"003"}, "003": {"001"},
+            "010": {"011"}, "011": {"010"},
+            "020": {"021", "022"}, "021": {"022"}, "022": {"023"}, "023": {"020"},
+            "030": set(),
+        }
+
+        self.assertEqual(gbi.detect_reciprocal_edges(graph), [("010", "011")])
+        # The chord 020 -> 022 makes a second, shorter cycle through the same four ids.
+        self.assertEqual(
+            gbi.detect_blocks_cycles(graph),
+            [["001", "002", "003"], ["020", "021", "022", "023"], ["020", "022", "023"]],
+        )
+
+    def test_acyclic_graph_reports_no_cycle(self):
+        graph = {"001": {"002", "003"}, "002": {"003"}, "003": set()}
+
+        self.assertEqual(gbi.detect_blocks_cycles(graph), [])
+
+    def test_a_long_chain_does_not_reach_the_recursion_limit(self):
+        ids = [f"{n:04d}" for n in range(3000)]
+        graph = {ids[n]: {ids[n + 1]} for n in range(2999)}
+        graph[ids[-1]] = {ids[0]}
+
+        cycles = gbi.detect_blocks_cycles(graph)
+
+        self.assertEqual(len(cycles), 1)
+        self.assertEqual(len(cycles[0]), 3000)
+
+
+class TestInvertedBlocksEdge(_GeneratorFixtureBase):
+    """An item whose prose waits on N, while its own `blocks:` lists N, has the edge written backwards."""
+
+    def test_the_three_items_as_filed_each_report_the_inverted_id(self):
+        self.write_item("703", title="Prerequisite estimate checker")
+        self.write_item("727", title="Prerequisite install check")
+        self.write_item(
+            "704", title="Review layer", blocks=["703"],
+            body="\n## Summary\n\nSub-item 2 of a parent. It is blocked by BB-703, which creates a script.\n",
+        )
+        self.write_item(
+            "728", title="Doctor advisory", blocks=["727"],
+            body="\n## Summary\n\nThis item adds a line. It depends on the `install_check` module from BB-727.\n",
+        )
+        self.write_item(
+            "729", title="Upgrade warning", blocks=["727"],
+            body="\n## Related\n\n- Blocked by BB-727 (provides `scripts/install_check.py`)\n",
+        )
+
+        code, out, err = self.run_main("--dry-run")
+
+        self.assertEqual(code, 1)
+        self.assertIn("inverted blocks edge -- 704", err)
+        self.assertIn("waits on 703", err)
+        self.assertIn("inverted blocks edge -- 728", err)
+        self.assertIn("inverted blocks edge -- 729", err)
+        self.assertIn("Move 703 out of 704's blocks:", err)
+        self.assertIn("Direction check: scanned 5 items, 3 inverted edge(s)", out)
+
+    def test_a_correct_direction_reports_nothing_and_prints_the_scan_count(self):
+        self.write_item(
+            "010", title="Prerequisite", blocks=["011"],
+            body="\n## Summary\n\nThis is the prerequisite for the next item.\n",
+        )
+        self.write_item(
+            "011", title="Dependent",
+            body="\n## Summary\n\nThis item is blocked by BB-010.\n",
+        )
+
+        code, out, err = self.run_main("--dry-run")
+
+        self.assertEqual(code, 0)
+        self.assertNotIn("inverted blocks edge", err)
+        self.assertIn("Direction check: scanned 2 items, 0 inverted edge(s)", out)
+
+    def test_quoted_evidence_fenced_and_other_section_phrases_do_not_raise_it(self):
+        self.write_item("020", title="Target")
+        body = (
+            "\n## Summary\n\n"
+            "> The user wrote: this is blocked by BB-020.\n\n"
+            "**Evidence:** an older copy said it depends on BB-020.\n"
+            "- the same copy was blocked by BB-020 in a continued line\n\n"
+            "```\nblocked by BB-020\n```\n\n"
+            "## Proposed Solution\n\nThis step waits for BB-020 in the new design.\n"
+        )
+        self.write_item("021", title="Holder", blocks=["020"], body=body)
+
+        code, out, err = self.run_main("--dry-run")
+
+        self.assertEqual(code, 0)
+        self.assertNotIn("inverted blocks edge", err)
+        self.assertIn("scanned 2 items, 0 inverted edge(s)", out)
+
+    def test_a_phrase_in_the_next_sentence_does_not_lend_its_id(self):
+        ids = gbi.extract_waiting_ids("## Summary\n\nIt depends on the loader. The follow-up is BB-020.\n")
+
+        self.assertEqual(ids, [])
+
+    def test_a_list_of_ids_after_one_phrase_is_read_whole(self):
+        ids = gbi.extract_waiting_ids("## Summary\n\nIt is blocked by BB-020, BB-21 and BB-022.\n")
+
+        self.assertEqual(ids, ["020", "021", "022"])
+
+    def test_write_reports_an_inverted_edge_and_still_writes(self):
+        self.write_item("703", title="Prerequisite")
+        self.write_item(
+            "704", title="Dependent", blocks=["703"],
+            body="\n## Summary\n\nIt is blocked by BB-703.\n",
+        )
+
+        code, _out, err = self.run_main("--write")
+
+        self.assertEqual(code, 0)
+        self.assertIn("inverted blocks edge -- 704", err)
+        self.assertTrue((self.backlog_dir / "00-Index-Backlog.md").exists())
+
+    def test_check_exits_one_on_an_inverted_edge_after_a_clean_write(self):
+        self.write_item("703", title="Prerequisite")
+        self.write_item("704", title="Dependent", blocks=["703"], body="\n## Summary\n\nIt waits for BB-703.\n")
+        self.run_main("--write")
+
+        code, out, err = self.run_main("--check")
+
+        self.assertEqual(code, 1)
+        self.assertIn("inverted blocks edge -- 704", err)
+        self.assertIn("inverted blocks edge -- 704", out)
 
 
 class TestScannerSkipsOwnGeneratedArtifacts(_GeneratorFixtureBase):

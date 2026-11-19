@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Banner blocks for the read-only post-upgrade sweeps, printed by --upgrade.
+"""Banner blocks for the post-upgrade sweeps, printed by --upgrade.
 
 `artifact_upgrade._run_upgrade()` runs `sweep_orphaned_agent_mirrors()` on
 both of its exits and hands the findings here. The block mirrors what
-`/planwise doctor` reports for the same sweep: one row per still-installed
-mirror, its class (`REMOVABLE` or `PRESERVE`) and the sweep's own reason.
+`/planwise doctor` reports for the same sweep: one row per mirror, its class
+(`REMOVABLE`, `PRESERVE` or `TRANSFERRED`) and the sweep's own reason.
 Only the `REMOVABLE` set is ever offered for pruning. A `PRESERVE` row is
-reported and left alone. The real-upgrade branch also hands the rule
-over-scope advisory here. Each `emit_*` entry point swallows a raise from its
-sweep and writes one stderr warning, so a failed advisory never skips the
-version-pin commit. This module only formats; it never touches disk.
+reported and left alone, unless the caller passes a `relocate` callable. Under
+`upgrade.customization_handoff: report+relocate` that callable moves each
+relocatable `PRESERVE` mirror to `upgrade-transfers/` and returns it as a
+`TRANSFERRED` row. The real-upgrade branch also hands the rule over-scope
+advisory here. Each `emit_*` entry point swallows a raise from its sweep and
+writes one stderr warning, so a failed advisory never skips the version-pin
+commit. This module only formats. The `relocate` callable owns every write.
 """
 
 from __future__ import annotations
@@ -27,7 +30,11 @@ def format_mirror_block(findings: list[dict]) -> list[str]:
         return []
     lines = [f"Orphaned agent mirrors: {len(findings)}"]
     for finding in findings:
-        lines.append(f"  {finding['verdict']:<9}  {finding['path']}  — {finding['reason']}")
+        if finding["verdict"] == "TRANSFERRED":
+            detail = f"moved to {finding['transfer_path']}"
+        else:
+            detail = finding["reason"]
+        lines.append(f"  {finding['verdict']:<9}  {finding['path']}  — {detail}")
     if any(finding["verdict"] == "REMOVABLE" for finding in findings):
         lines.append(PRUNE_LINE)
     return lines
@@ -41,10 +48,16 @@ def emit_mirror_block(findings: list[dict]) -> None:
         print()
 
 
-def emit_mirror_sweep(cfg, sweep) -> None:
-    """Run `sweep(cfg)` and print its block. Never raises, so the caller's exit code holds."""
+def emit_mirror_sweep(cfg, sweep, relocate=None) -> None:
+    """Run `sweep(cfg)`, apply `relocate(cfg, findings)` when given, and print the block.
+
+    Never raises, so the caller's exit code holds.
+    """
     try:
-        emit_mirror_block(sweep(cfg))
+        findings = sweep(cfg)
+        if relocate is not None:
+            findings = relocate(cfg, findings)
+        emit_mirror_block(findings)
     except Exception as exc:  # noqa: BLE001 -- never change the exit code
         print(f"  Warning: orphaned agent mirror sweep raised unexpectedly: {exc}",
               file=sys.stderr)

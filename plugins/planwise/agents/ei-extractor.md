@@ -6,13 +6,13 @@ description: >
   sprint folder the caller already rendered. Dispatched by /planwise plan
   --scaffold, one per sprint and all in parallel, when the pass fans out.
   Copies content verbatim, never summarizes, and reports measured retention.
-tools: Read, Write, Glob, Grep, Bash
+tools: Read, Write, Edit, Glob, Grep, Bash
 # disallowedTools denies the rest of the default subagent tool set so those
 # schemas never load into this agent's context. This agent sends no message:
 # its final message is its status block, which the dispatch returns. The
-# messaging and tool-search tools are therefore unneeded. Edit is not granted
-# because the agent writes each file whole, in one Write, and edits nothing
-# in place.
+# messaging and tool-search tools are therefore unneeded. Edit stays granted
+# because the agent writes a marker skeleton first and fills one section per
+# Edit, so a stop leaves resumable state on disk.
 disallowedTools: NotebookEdit, WebFetch, WebSearch, SendMessage, Skill, TaskCreate, TaskGet, TaskList, TaskUpdate, EnterWorktree, ToolSearch
 model: opus
 effort: high
@@ -129,7 +129,11 @@ The `## Cross-References` table has the columns `| Section | Source | Source Sec
 | {Spec #N (filename.md)} | T{1,2,3} | {1-line description} | {why excluded} |
 ```
 
-Write each file whole, in one `Write`. If a body is wrong, compose it again and write the whole file again.
+**Write as you go.** The agent cannot see its turn count, so it leaves resumable state on disk instead of counting. Write the Execution Input file first as a skeleton: every mandated header line, each `## Section {n}` heading with the body `<!-- EI-PENDING -->`, and `## Cross-References` with the same marker. Write the Deferred log skeleton too, with the same marker in the body of each of its two tables. Then replace each marker with one `Edit` as soon as that section is composed, in id order. Anchor the `Edit` on the section's heading line and its marker, because the marker text repeats.
+
+**Skip rule.** A dispatch that finds the Execution Input file or the Deferred log already on disk writes no skeleton. It fills only the sections and tables that still hold the marker. A file with no marker left is finished, so leave it alone.
+
+A part split (see the split rule) stays a whole-file `Write` for each part. The pending marker holds no `FILL` text on purpose. The sprint scaffolder builds its work set by counting `<!-- FILL:` markers over `sprint_folder`, and a marker that contained that text would add this agent's pending sections to the count.
 
 ## Step 3: RECONCILE
 
@@ -138,11 +142,11 @@ Run the four-step EI consistency procedure on every EI file before the measureme
 1. **Sections.** Every `ei_sections` id has its section, with full content or the body `none`.
 2. **Cross-References table.** One or more rows per section map it to its source. Each source cell uses the form `Spec #{N} ({filename.md})`: the global number and the exact filename together, never a bare number.
 3. **`Extracted from:` header.** List every source the table cites in the paired form `Spec #{N} ({filename.md})`, with its exact filename. `{N}` is the Global Source Map's number, copied from the `source_map` row and never renumbered or recounted. Then check both directions. Every header source appears in at least one Cross-References row. Every row's source appears in the header.
-4. **Redirect targets.** Every Deferred row's redirect target is a Target value from `deferred_targets` or reads `Out of scope`. Every file-plus-heading location a Target or Rationale cell names must resolve by `Grep`, and the section under it must hold the named content when you `Read` it. Repair a failing row with a whole-file `Write`.
+4. **Redirect targets.** Every Deferred row's redirect target is a Target value from `deferred_targets` or reads `Out of scope`. Every file-plus-heading location a Target or Rationale cell names must resolve by `Grep`, and the section under it must hold the named content when you `Read` it. Repair a failing row with one `Edit`.
 
 One exemption applies. A source used only for background, and the source of no extracted section, may stay out of the header when its row carries the `(informational-only)` annotation, for example the Source cell `Spec #{N} ({filename.md}) (informational-only)`, with `§{n}` in the Source Section(s) cell.
 
-Any change this step forces is a whole-file `Write` of the affected file.
+Any change this step forces is one `Edit` of the affected section, or a whole-file `Write` of an affected part. Before the measurement, count `EI-PENDING` over `sprint_folder` with `Grep` (`output_mode='count'`). The count must read 0. A marker that remains is a section not yet written, so write it first.
 
 Then compute the retention. Measure the final EI file or parts and the Deferred log in one call:
 
@@ -204,7 +208,7 @@ ISSUES:           {one line per issue or question, or "none"}
 Each status applies in one case:
 
 - `COMPLETE` — every id in `ei_sections` is written, the Cross-References table and `Extracted from:` header reconcile, and `RETENTION_PCT` is 80 or more.
-- `PARTIAL` — the turn budget ran out, or `RETENTION_PCT` is below 80. `OUTPUT_FILES` lists what exists.
+- `PARTIAL` — `RETENTION_PCT` is below 80, or an `EI-PENDING` marker remains. `OUTPUT_FILES` lists what exists.
 - `BLOCKED` — a `source_map` path is missing, Tier 1 is absent, a cited authority revised the claim being extracted, or a choice belongs to the user. Each item is in `OPEN_QUESTIONS` and `ISSUES`.
 
 ## Failure Semantics
@@ -217,7 +221,6 @@ Each status applies in one case:
 | A scope or architectural choice belongs to the user | `BLOCKED`, the question in `ISSUES` | Asks the user, then dispatches again with the answer in the spawn prompt |
 | A planned section has no source content | `COMPLETE` or `PARTIAL`, the id in `EMPTY_SECTIONS` | Records the gap and decides whether the task still needs it |
 | `RETENTION_PCT` is below 80 | `PARTIAL`, the files written | Dispatches again for the same sprint |
-| The work would exceed `maxTurns` | `PARTIAL`, the files written so far | Dispatches again for the same sprint |
 
 ## Constraints
 

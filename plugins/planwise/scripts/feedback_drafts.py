@@ -17,17 +17,20 @@ hand-written feedback draft, a posted-marker sidecar, and anything under
 
 | Command | Behaviour | Exit |
 |---|---|---|
-| `list [--json] [--all]` | Applies expiry, then lists queued and expired drafts. `--all` adds discarded and promoted | 0 |
-| `list --table [--all] [--session-id <id>]` | Same expiry and groups as `list`, printed as one `Queued (n)` / `Expired (n)` table per group, newest `created_at` first. The Session column uses `--session-id`, else the `CLAUDE_CODE_SESSION_ID` environment variable, else prints `unknown`. Not with `--json` (exit 2) | 0 |
+| `list [--json] [--all]` | Read-only. Reports a queued draft past `EXPIRY_DAYS` as expired without writing it, then lists queued and expired drafts. `--all` adds discarded and promoted | 0 |
+| `list --table [--all] [--session-id <id>]` | Same groups as `list`, also read-only, printed as one `Queued (n)` / `Expired (n)` table per group, newest `created_at` first. The Session column uses `--session-id`, else the `CLAUDE_CODE_SESSION_ID` environment variable, else prints `unknown`. Not with `--json` (exit 2) | 0 |
 | `sweep-list` | Read-only. Prints each `*.md` file that has a `.md.posted` sidecar and is not a model draft, with its `posted:`, `url:` and `route:` values, then each orphan sidecar and a summary line | 0 |
 | `admit <path>` | Needs `--feedback-dir` or `--config`, and the file directly in that directory. A draft already `expired`, `discarded` or `promoted` is left untouched. Otherwise needs `status` to be `pending` or `queued`, no duplicated frontmatter key, and a parseable `created_at`. Fills `pending` ids, replaces a colliding id, replaces a future `created_at` with now, refuses and deletes an oversize or duplicate-title model draft or one whose parsed frontmatter is invalid, refuses and keeps a file whose frontmatter does not parse, then runs expiry and eviction and names each draft it evicts on stderr | 0 admitted, 1 file missing or config unreadable, 2 name does not match, no usable directory option, `Archive/` directory, file not directly in the directory, or a draft already expired, discarded or promoted, 3 refused, expired on admission, or evicted on admission |
 | `discard <id>` | Sets `status: discarded` | 0, 1 not found |
 | `promote <id>` | Writes the standard draft, sets `status: promoted`, adds `promoted_to:` | 0, 1 not found or discarded, 3 already promoted |
-| `expire` | Sets `status: expired` on queued drafts older than `EXPIRY_DAYS` | 0 |
+| `expire` | Sets `status: expired` on queued drafts older than `EXPIRY_DAYS`. One of the two commands that write `status: expired`, with `admit` | 0 |
 | `enable-posting --config <path>` | Sets `feedback.enabled: true` by text splice, idempotent, in the block's own indent. The result is parsed before it is written, and a result that would not parse is never written | 0, 1 config problem |
 | `posting-state --config <path>` | Reads `feedback.enabled` and prints one word, writing nothing: `enabled` when it is `true`, `disabled` when the key is set to anything else (an explicit decision), `absent` when the `feedback` block or its `enabled` key is missing or empty. A caller uses the word to tell a user who never saw the key from one who turned posting off | 0, 1 config missing or the feedback key is not a block mapping |
 | `disable-drafts --config <path>` | Sets `feedback.drafts: off` by the same text splice, idempotent, comments kept, in the block's own indent. A comment line never ends the block or sets its indent. The result is parsed before it is written, and a result that would not parse is never written. Prints the old and new value | 0, 1 config problem |
 | `prepare-post --config C --draft D` | Makes the draft file into the exact bytes a post reads, in place: cuts it at the last scan-annotation marker that starts a line and, when `feedback.include_environment` is false, deletes each `### Environment` section outside a code fence. Both settings come from `config_loader.get_feedback_config`. Then scans those bytes for an absolute path, an email address, a git remote URL and an `@handle`, and prints `clean` or `blocked: <class> at line <n>`. Never prints the matched text. A blocked draft stays in its cut state | 0 clean, 1 missing `--config` or `--draft`, or a config or read error, 2 argparse usage error such as an unknown flag, 3 blocked |
+| `mark-blocked --draft D --class C --line N --route R` | `R` is `issue` or `comment`. Writes `{D}.blocked` beside the promoted draft: `blocked: {date}`, `class:`, `line:` and `route:`, nothing else. It never holds text from the draft. A second call replaces the file, so a new block clears an earlier `dismissed:`. Needs no directory option. Refuses a model draft. The unattended post path runs it when `prepare-post` exits 3 | 0 written, 1 draft missing, `--line` below 1 or a model draft, 2 argparse usage error such as a class outside the four `prepare-post` prints |
+| `blocked-list [--json] [--all]` | Read-only. Lists each draft with a `.blocked` sidecar that has no `dismissed:` line and no `.posted` sidecar. `--all` adds dismissed and posted drafts. A sidecar whose draft is gone is not listed | 0 |
+| `dismiss-blocked --draft D` or `dismiss-blocked --all` | Appends `dismissed: {date}` to the sidecar. It never moves, rewrites or deletes a draft. `--draft` is idempotent. `--all` dismisses every blocked draft the list shows without `--all` | 0, 1 no sidecar for `--draft`, or the directory option is missing |
 
 The directory comes from `--feedback-dir <abs>` when given, otherwise from
 `--config <path>` through `config_loader.load_config()`. `--feedback-dir` must be an
@@ -42,13 +45,14 @@ byte of the file, line endings included, stays as written.
 
 ## Read-only functions
 
-A caller that only reports, such as doctor, imports these instead of running
-`list`, because `list` applies expiry and so writes.
+A caller that only reports, such as doctor, imports these when it needs a value
+without running a subprocess. `list`, `count_queued` and `is_expired` all write nothing.
 
 | Function | Returns |
 |---|---|
 | `is_expired(draft, now)` | True when the draft was created more than `EXPIRY_DAYS` before `now`. The commands above use this same predicate |
 | `count_queued(directory)` | The number of drafts `list` would show as `queued`. Writes nothing |
+| `count_blocked(directory)` | The number of drafts `blocked-list` would show without `--all`: blocked, not dismissed, with no `.posted` sidecar. Writes nothing |
 """
 
 import argparse
@@ -268,8 +272,9 @@ def _now() -> datetime:
 def is_expired(draft: Draft, now: datetime) -> bool:
     """True when `draft` was created more than `EXPIRY_DAYS` before `now`.
 
-    This is the one expiry predicate. `expire`, `list` and `admit` apply it,
-    and a read-only caller uses it to get the same answer without writing. A
+    This is the one expiry predicate. `expire` and `admit` apply it and write,
+    `list` applies it in memory, and a read-only caller uses it to get the same
+    answer without writing. A
     missing or unparseable `created_at` never expires.
     """
     created = _parse_created(draft.fm.get("created_at", ""))
@@ -280,7 +285,7 @@ def count_queued(directory: Path) -> int:
     """How many model drafts `list` would show as `queued` in `directory`.
 
     Read-only: a queued draft past expiry counts as not queued and is left
-    as it is on disk. Only `expire`, `list` and `admit` write its new status.
+    as it is on disk. Only `expire` and `admit` write its new status.
     """
     now = _now()
     return sum(1 for draft in _iter_drafts(directory) if draft.status == "queued" and not is_expired(draft, now))
@@ -295,18 +300,27 @@ def _name_kind(name: str) -> str:
     return match.group(1) if match else ""
 
 
-def _apply_expiry(drafts: "list[Draft]") -> int:
-    """Flip queued drafts older than `EXPIRY_DAYS` to expired. Deletes nothing."""
-    now = _now()
-    flipped = 0
+def _mark_expired(drafts: "list[Draft]", now: datetime) -> "list[Draft]":
+    """Mark queued drafts older than `EXPIRY_DAYS` as expired in memory. Writes nothing.
+
+    Returns the drafts it flipped, so a caller that writes can write exactly those.
+    """
+    flipped = []
     for draft in drafts:
         if draft.status != "queued" or not is_expired(draft, now):
             continue
         draft.raw = _set_fm(draft.raw, "status", "expired")
-        _write(draft.path, draft.raw)
         draft.fm["status"] = "expired"
-        flipped += 1
+        flipped.append(draft)
     return flipped
+
+
+def _apply_expiry(drafts: "list[Draft]") -> int:
+    """Flip queued drafts older than `EXPIRY_DAYS` to expired on disk. Deletes nothing."""
+    flipped = _mark_expired(drafts, _now())
+    for draft in flipped:
+        _write(draft.path, draft.raw)
+    return len(flipped)
 
 
 def _evict(drafts: "list[Draft]") -> "list[Draft]":
@@ -428,7 +442,7 @@ def cmd_list(args: argparse.Namespace) -> int:
     if directory is None:
         return code
     drafts = _iter_drafts(directory)
-    _apply_expiry(drafts)
+    _mark_expired(drafts, _now())
     wanted = {"queued", "expired"}
     if args.all:
         wanted |= {"discarded", "promoted"}
@@ -539,8 +553,9 @@ def cmd_admit(args: argparse.Namespace) -> int:
 
     title = _normalise_title(fm["title"])
     others = [d for d in _iter_drafts(directory) if d.path.resolve() != here]
+    now = _now()
     for other in others:
-        if other.status == "queued" and _normalise_title(other.fm.get("title", "")) == title:
+        if other.status == "queued" and not is_expired(other, now) and _normalise_title(other.fm.get("title", "")) == title:
             return _refusal(path, "duplicate title among queued drafts")
 
     if fm["draft_id"] == PENDING:
@@ -1019,6 +1034,142 @@ def cmd_prepare_post(args: argparse.Namespace) -> int:
     return 3
 
 
+# ---------------------------------------------------------------- blocked sidecar
+
+BLOCKED_SUFFIX = ".blocked"
+BLOCKED_CLASSES = ("git-remote", "absolute-path", "email", "handle")
+BLOCKED_ROUTES = ("issue", "comment")
+_BLOCKED_KEYS = ("blocked", "class", "line", "route", "dismissed")
+
+
+def _blocked_fields(sidecar: Path) -> "dict[str, str]":
+    """The `blocked:`, `class:`, `line:`, `route:` and `dismissed:` values a `.blocked` sidecar holds.
+
+    A key the file lacks is absent from the result. No other line is read, so text a hand
+    edit added is never returned.
+    """
+    try:
+        text = _read(sidecar)
+    except OSError:
+        return {}
+    found: dict[str, str] = {}
+    for line in text.splitlines():
+        key, sep, value = line.partition(":")
+        if sep and key.strip() in _BLOCKED_KEYS and value.strip():
+            found.setdefault(key.strip(), value.strip())
+    return found
+
+
+def _blocked_entries(directory: Path) -> "list[dict]":
+    """One record per `*.md.blocked` sidecar directly in `directory` whose draft file still exists.
+
+    A sidecar with no draft beside it is an orphan and is left out. `active` is true when the
+    sidecar has no `dismissed:` value and the draft has no `.posted` sidecar. Read-only.
+    """
+    if not directory.is_dir():
+        return []
+    entries = []
+    for entry in sorted(directory.iterdir(), key=lambda p: p.name):
+        name = entry.name
+        if not name.endswith(".md" + BLOCKED_SUFFIX) or not entry.is_file():
+            continue
+        draft = directory / name[: -len(BLOCKED_SUFFIX)]
+        if not draft.is_file():
+            continue
+        fields = _blocked_fields(entry)
+        posted = (directory / (draft.name + ".posted")).is_file()
+        dismissed = "dismissed" in fields
+        entries.append(
+            {
+                "draft": os.path.abspath(draft),
+                "sidecar": entry,
+                "fields": fields,
+                "dismissed": dismissed,
+                "posted": posted,
+                "active": not dismissed and not posted,
+            }
+        )
+    return entries
+
+
+def count_blocked(directory: Path) -> int:
+    """How many drafts `blocked-list` would show without `--all`: blocked, not dismissed, not posted.
+
+    Read-only, like `count_queued`. A sidecar whose draft is gone does not count.
+    """
+    return sum(1 for entry in _blocked_entries(directory) if entry["active"])
+
+
+def cmd_mark_blocked(args: argparse.Namespace) -> int:
+    draft = Path(args.draft)
+    if not draft.is_file():
+        print(f"feedback_drafts: draft not found at {draft}", file=sys.stderr)
+        return 1
+    if args.line < 1:
+        print("feedback_drafts: --line must be 1 or more", file=sys.stderr)
+        return 1
+    if _load_draft(draft) is not None:
+        print("feedback_drafts: mark-blocked takes the promoted draft a post reads, never a model draft", file=sys.stderr)
+        return 1
+    sidecar = draft.with_name(draft.name + BLOCKED_SUFFIX)
+    # Date, class, line and route only: the sidecar never holds text from the draft.
+    _write(sidecar, f"blocked: {_now().strftime('%Y-%m-%d')}\nclass: {args.block_class}\nline: {args.line}\nroute: {args.route}\n")
+    print(f"marked blocked: {os.path.abspath(sidecar)}")
+    return 0
+
+
+def _blocked_record(entry: dict) -> dict:
+    record = {"draft": entry["draft"]}
+    for key in _BLOCKED_KEYS:
+        record[key] = entry["fields"].get(key, "")
+    record["posted"] = entry["posted"]
+    return record
+
+
+def cmd_blocked_list(args: argparse.Namespace) -> int:
+    directory, code = _need_dir(args)
+    if directory is None:
+        return code
+    shown = [entry for entry in _blocked_entries(directory) if args.all or entry["active"]]
+    if args.json:
+        print(json.dumps([_blocked_record(entry) for entry in shown], indent=2))
+    elif not shown:
+        print("no blocked drafts" + _missing_note(directory))
+    else:
+        for entry in shown:
+            fields = entry["fields"]
+            state = "posted" if entry["posted"] else ("dismissed" if entry["dismissed"] else "blocked")
+            print(f"{entry['draft']}\t{state}\t{fields.get('class', 'unknown')}\tline {fields.get('line', 'unknown')}\t{fields.get('route', 'unknown')}\t{fields.get('blocked', 'unknown')}")
+    return 0
+
+
+def _dismiss(sidecar: Path) -> bool:
+    """Append `dismissed: {date}` to `sidecar`. False when it already holds one. Never touches the draft."""
+    if "dismissed" in _blocked_fields(sidecar):
+        return False
+    text = _read(sidecar)
+    if text and not text.endswith("\n"):
+        text += "\n"
+    _write(sidecar, text + f"dismissed: {_now().strftime('%Y-%m-%d')}\n")
+    return True
+
+
+def cmd_dismiss_blocked(args: argparse.Namespace) -> int:
+    if args.draft:
+        sidecar = Path(args.draft).with_name(Path(args.draft).name + BLOCKED_SUFFIX)
+        if not sidecar.is_file():
+            print(f"feedback_drafts: no blocked record for {args.draft}", file=sys.stderr)
+            return 1
+        print(f"dismissed {os.path.abspath(args.draft)}" if _dismiss(sidecar) else f"already dismissed {os.path.abspath(args.draft)}")
+        return 0
+    directory, code = _need_dir(args)
+    if directory is None:
+        return code
+    dismissed = sum(1 for entry in _blocked_entries(directory) if entry["active"] and _dismiss(entry["sidecar"]))
+    print(f"dismissed {dismissed} blocked draft(s)")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="feedback_drafts", description="Manage model-drafted feedback files.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1074,6 +1225,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_prepare.add_argument("--config", help="path to config.yaml; required")
     p_prepare.add_argument("--draft", help="path to the draft file the post reads; required")
     p_prepare.set_defaults(func=cmd_prepare_post)
+
+    p_mark = sub.add_parser("mark-blocked", help="record an unattended privacy block in a .blocked sidecar beside the draft")
+    p_mark.add_argument("--draft", required=True, help="path to the promoted draft the post would have read")
+    p_mark.add_argument("--class", dest="block_class", required=True, choices=BLOCKED_CLASSES, help="the class prepare-post printed")
+    p_mark.add_argument("--line", required=True, type=int, help="the line number prepare-post printed")
+    p_mark.add_argument("--route", required=True, choices=BLOCKED_ROUTES, help="the route that was blocked")
+    p_mark.set_defaults(func=cmd_mark_blocked)
+
+    p_blist = sub.add_parser("blocked-list", help="list drafts an unattended privacy block kept; read-only")
+    add_dir_options(p_blist)
+    p_blist.add_argument("--json", action="store_true", help="print a JSON array")
+    p_blist.add_argument("--all", action="store_true", help="include dismissed and posted drafts")
+    p_blist.set_defaults(func=cmd_blocked_list)
+
+    p_dismiss = sub.add_parser("dismiss-blocked", help="mark a blocked draft dismissed; the draft stays in place")
+    add_dir_options(p_dismiss)
+    which = p_dismiss.add_mutually_exclusive_group(required=True)
+    which.add_argument("--draft", help="path to one blocked draft")
+    which.add_argument("--all", action="store_true", help="dismiss every blocked draft in the directory")
+    p_dismiss.set_defaults(func=cmd_dismiss_blocked)
     return parser
 
 

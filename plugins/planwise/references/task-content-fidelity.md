@@ -1,6 +1,6 @@
 ---
 description: Required Context fidelity — measured estimates, freshness across file splits, bytes-per-token ratios, the Token Saver large-file ladder, and giving a copy or quote task every source it quotes from — for planwise task files
-consult-when: Checking Required Context fidelity in a task file — measured estimates, freshness, large-file ladder, and a copy or quote task's brief lists every quote source in Required Context (§9.A.16), and pricing table-shaped output by column count (§9.A.18)
+consult-when: Checking Required Context fidelity in a task file — measured estimates, freshness, large-file ladder, and a copy or quote task's brief lists every quote source in Required Context (§9.A.16), pricing table-shaped output by column count (§9.A.18), and a brief that names a plan-level id (a Master Plan decision or hypothesis) carries its definition (§9.A.19)
 ---
 
 # Task Content Fidelity
@@ -379,7 +379,7 @@ This subsection is the **per-task-file enforcement anchor** the `handlers/plan-P
 - **Severity / Role / Type:** ERROR / WARNING (tiered) | Task Reviewer | NEW
 - **Gate:** Runs ONLY when `context.token_saver: true` in `config.yaml`. When Token Saver is off this check is a **no-op** — skip it (zero behavior change). Read §9.A.8 for level definitions, the `reason=cost|read` contract, and the FIXED Read-tool gates before authoring findings.
 - **What:** When Token Saver is on, every task's Required Context MUST obey the folded cost + read ladder. Six failure modes, each tiered:
-  1. **Over-ceiling without exception** (ERROR) — `task_estimate + context.token_saver_runner_overhead > context.token_saver_session_target` AND the task is not flagged `1M-exception`.
+  1. **Over-ceiling without exception** (ERROR) — `task_estimate + context.token_saver_runner_overhead > context.token_saver_session_target` AND the task is not flagged `1M-exception`. A task in a session the Master Plan's Session Completion Tracking table marks COMPLETE is no finding, because the Token Saver scan lists it as already run.
   2. **Warn+ file with no backlog item** (WARNING) — a Required Context file classifies Warn or Critical (cost or read) but the task records no large-file recommendation / backlog item.
   3. **`1M-exception` on a 200K-window agent** (ERROR) — a `1M-exception` task is declared `Agent: Haiku 4.5` (the only 200K-window agent) without the run-time override note (the flag dispatches on Opus/1M).
   4. **Uncovered read-gate crossing** (WARNING) — a Required Context file crosses a FIXED read gate (measured bytes ≥ 256 KiB, OR `bytes ÷ {assigned-model B/tok}` ≥ 25K tokens, OR ≥ 2,000 lines) and the task records neither a read-route note (`allow_large` on verified v2.1.296+, `offset`/`limit`, Grep) nor a refactor+backlog item.
@@ -556,6 +556,8 @@ The error runs in both directions, so the check is symmetric. A span measured at
 > ```
 > When the resolved span covers most of the file, the row says **full read** and is budgeted as one — an "~{N} of {N+16} lines scoped" row is a full read with a scoped label.
 
+**A section row is read by its heading, not by its line span.** The `:{start}` in a resolution record is a cost hint. Other sprints edit the file after the record is written, and a runner that reads the old span misses content without knowing it. The runner locates `§X` with Grep and reads a window bounded by the next heading (`references/scaffolding-hygiene.md` §12.1). The row cites `§X–§Y` headings, never a bare `lines N-M` span.
+
 **A command corpus is its own row type, and the only way to price it is to run it.** A row whose subject is a command's *output* — a `Grep` family, a loop over a file set, a script's report — is not a file, and no file measurement prices it. It MUST be dry-run once at scaffold close and priced from the volume that run actually returned.
 
 This row type has no size intuition to fall back on, which is why it is the one most often left unmeasured. A classification pass over a mid-size tree routinely returns several times what an author would guess, and such rows habitually bundle several command families behind a single figure — so the under-estimate is multiplied by the number of families hidden in the row. A row of this shape lands most often on the highest-risk task in a sprint, where the budget margin matters most.
@@ -597,24 +599,44 @@ Mark that row `projected, re-measure at dispatch`. Never write a split or HALT t
 > | 1 | {same-session output}, projected, re-measure at dispatch | ~48 | ~19K | {purpose} |
 > ```
 
+#### Every Required Context table carries a Measured footer
+
+A size cell holds a figure and nothing says when, how or at what ratio it was measured. A reader cannot re-check the row, and a figure that has aged stays plausible. Each Required Context table therefore carries one footer line directly under it: the measurement date, the command and the bytes-per-token ratio. The build write-back (`token_saver.py --scan --write-estimates`) writes the footer and moves its date only when a row cell or the ratio changes. A hand measurement fills the same line from the `measure_files.py --model {Agent}` output, which prints the ratio.
+
+> [!constraint] A size row names its measurement
+> WRONG — a priced table with no record of how the figures were reached:
+> ```markdown
+> | 1 | {reference-file} | {K} | ~{T}K | {purpose} |
+> | 2 | {task-file} | {K} | ~{T}K | this task file — self row |
+> ```
+> CORRECT — the footer names the date, the command and the ratio, so a reviewer can repeat the measurement:
+> ```markdown
+> | 1 | {reference-file} | {K} | ~{T}K | {purpose} |
+> | 2 | {task-file} | {K} | ~{T}K | this task file — self row |
+>
+> **Measured:** {YYYY-MM-DD} by {command} · {model} · {ratio} B/tok
+> ```
+
 #### Reviewer Check 084 — Required Context Rows Measured at Row Grain
 
 - **Severity / Role / Type:** WARNING (ERROR when the task's bottom-up estimate crosses a dispatch ceiling once corrected) | Task Reviewer | NEW
-- **What:** Every Required Context row MUST carry a measured figure for the span it cites. Four failure modes:
+- **What:** Every Required Context row MUST carry a measured figure for the span it cites. Five failure modes:
   1. **Unmeasured row** — a row's `KiB` / `~Tokens` disagrees with a live `measure_files.py` measurement of the cited span by more than ±10%, while a sibling row in the same task is measured accurately (the half-applied-convention signature).
   2. **Unresolved span** — a row citing `§X`/`§X + §Y` carries no span-resolution comment, or its figure matches a section-sized guess rather than the measured heading-to-heading range.
   3. **Un-run command corpus** — a row whose subject is command output carries no dry-run record, or bundles multiple command families behind one undecomposed figure.
   4. **Unmeasured size adjective** — a size adjective appears in a size cell, Purpose column, or Notes-for-Agent line with no measured figure beside it.
+  5. **Undated measurement** — the Required Context table has no `**Measured:**` footer, or the footer lacks the date, the command or the ratio.
 - **Detection:**
   1. For each row naming a file path: run `measure_files.py --model {assigned Agent}` on it and compare against the row's cells. A row marked `projected, re-measure at dispatch` is checked for the marker and is not compared against a live measurement. A row that cites a same-session output without the marker is failure mode 1.
   2. For each row naming a `§` anchor: resolve the heading(s) in the live file, measure the bounded range (to EOF where no next heading exists), and compare.
   3. For each row whose subject is command output: check for a dry-run comment recording scope, returned line count and byte count.
   4. Grep the task file for `\b(small|large|brief|scoped|full)\b` within Required Context rows and Notes-for-Agent; each hit must have a numeric figure on the same line.
+  5. Grep `^\*\*Measured:\*\*` within the Required Context section. Exactly one line must match, and it must name a `YYYY-MM-DD` date, a command and a `B/tok` ratio.
 - **Finding template:**
 ```
 [{WARNING|ERROR}] Required Context row not measured at row grain
 File: {task file path} | Location: Required Context row {N}
-Issue: {row cites {file} at {stated} against a measured {actual} (±{pct}%) while row {M} is measured | span {§X–§Y} unresolved — measured {N} lines to EOF against a stated ~{stated} | command-corpus row bundles {K} families with no dry-run | size adjective "{adj}" carries no measured figure}
+Issue: {row cites {file} at {stated} against a measured {actual} (±{pct}%) while row {M} is measured | span {§X–§Y} unresolved — measured {N} lines to EOF against a stated ~{stated} | command-corpus row bundles {K} families with no dry-run | size adjective "{adj}" carries no measured figure | Required Context table has no dated `**Measured:**` footer}
 Fix: Re-run the row-grain sweep per references/task-content-fidelity.md §9.A.14 | Confidence: HIGH
 ```
 
@@ -695,7 +717,7 @@ A task's Required Context table prices what the runner reads. A file that the Ex
 #### Reviewer Check 123 — Execution Steps Read With No Required Context Row
 
 - **Severity / Role / Type:** WARNING (ERROR when the omitted row's measured cost carries the task estimate past its dispatch ceiling) | Task Reviewer | NEW
-- **What:** A path that the Execution Steps Read, Grep or Edit has no row in the Required Context File column.
+- **What:** A path that the Execution Steps Read, Grep or Edit has no row in the Required Context File column (lint Check 54).
 - **Detection:** List every path the Execution Steps Read, Grep or Edit. Leave out paths the task creates and values the spawn prompt injects. Compare the list with the File column. A Recovery read for a `_BASE` name in a DELEGATED later task is a finding whose fix is the `Base commit:` literal.
 - **Finding template:**
 ```
@@ -716,6 +738,42 @@ These figures are an observation from two tasks, not a fitted model: an INSERT s
 - **Severity / Role / Type:** WARNING | Task Reviewer | NEW
 - **Detection:** Recount the columns of the widest table in the Schema Pin. Raise the finding when the recount is 20 or more, the task writes a column-enumerating deliverable, and neither Expected Output nor the Context subtotal output addend carries a column term such as `48 columns × 1 + 6`. The fix states that arithmetic.
 
+### 9.A.19 Carry every plan-level identifier the brief names
+
+A task brief can name an id that only the Master Plan defines, such as a hypothesis `H4` or a decision `D2`. A runner under a DELEGATED context boundary cannot read the Master Plan. It must guess what the id means, and a wrong guess ships as a confident result. Give the runner the definition. Inline the id's row in the task file, or add a measured Required Context row for the Master Plan section that defines it (§9.A.14).
+
+> [!constraint] Carry the definition of every plan-level id a brief names
+> WRONG — a step names ids that only the Master Plan's tables define, and Required Context has no Master Plan row:
+> ```markdown
+> 3. Confirm the hypothesis ID (H4, H6, H7 or H9) before editing the index.
+> ```
+> CORRECT — the same step with the definition rows inlined under it:
+> ```markdown
+> 3. Confirm the hypothesis ID (H4, H6, H7 or H9) before editing the index.
+>
+> | # | Hypothesis | Status |
+> |---|------------|--------|
+> | H4 | {claim H4 tests} | OPEN |
+> | H6 | {claim H6 tests} | OPEN |
+> | H7 | {claim H7 tests} | OPEN |
+> | H9 | {claim H9 tests} | OPEN |
+> ```
+
+**Applies to** any task that names a Master Plan decision `D{n}` or a plan-specific table id. Lint Check 56 warns on a task that names such an id with neither form of definition. It cannot see an id the Master Plan defines only in prose, or an id spelled with a prefix of two or more letters.
+
+#### Reviewer Check 136 — Plan-Level Id Named With No Definition the Runner Can Read
+
+- **Severity / Role / Type:** WARNING | Task Reviewer | NEW
+- **What:** A task names an id that only a Master Plan table defines, and the task neither defines it nor lists the Master Plan in Required Context (lint Check 56).
+- **Detection:** List each `D{n}` or table id the task names. Look each one up in the Master Plan's `ID` and `#` tables. For each id defined there, confirm the task file carries its definition row or its Required Context names the Master Plan. A coincidence, such as `H2` meaning a heading level, is not a finding.
+- **Finding template:**
+```
+[WARNING] Task names a plan-level id with no definition the runner can read
+File: {task file path} | Location: {section}, line {N}
+Issue: the task names {id}, which only {Master Plan file} defines, and Required Context has no row for it
+Fix: Inline the id's definition row in the task | add a measured Required Context row for the Master Plan section that defines it | Confidence: MEDIUM
+```
+
 ---
 
 ## Plan-Review Enforcement Summary
@@ -733,11 +791,12 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 | 7 | Action tier contradicts its own evidence tier | A derived status cell in the action tier disagrees with the evidence section's recorded observation for the same item | §9.A.11 |
 | 8 | Comparison task sized without reference coverage | A comparison/reconciliation task brief omits the reference-side coverage measurement that should set its size and shape | §9.A.12 |
 | 9 | Assertion label and validation cell not 1:1 | A task file enumerating validation cells carries no assertion-label ↔ cell-ID table; or a label appears twice within one task file; or one label's assert-vs-report disposition differs between two files | §9.A.13 |
-| 10 | Required Context row not measured at row grain | A row disagrees with a live measurement of the span it cites while a sibling row is measured; or a `§` span row carries no resolution; or a command-corpus row was never dry-run; or a size adjective stands in place of a number | §9.A.14 |
+| 10 | Required Context row not measured at row grain | A row disagrees with a live measurement of the span it cites while a sibling row is measured; or a `§` span row carries no resolution; or a command-corpus row was never dry-run; or a size adjective stands in place of a number; or the table has no dated `**Measured:**` footer | §9.A.14 |
 | 11 | Large-file scan hand-reproduced | `context.token_saver: true` AND a task carries a `⚠ PAGED` / `⚠ REFACTOR` annotation with no recorded scan run behind it; or the Step 8c checklist item is ticked with no exit code recorded | §9.A.15 |
 | 12 | Quote source outside Required Context | A task brief demands a verbatim copy or quote of recorded content, and a source file the brief names for any quote is absent from the task's Required Context | §9.A.16 |
 | 13 | Execution Steps read with no Required Context row | A path the Execution Steps Read, Grep or Edit has no row in the task's Required Context File column | §9.A.17 |
 | 14 | Table-shaped output with no column term | Schema Pin recount of 20 or more columns, a column-enumerating deliverable, and no column term in Expected Output or the subtotal | §9.A.18 |
+| 15 | Plan-level id with no definition the runner can read | A task names a Master Plan decision or table id, and neither defines it nor lists the Master Plan in Required Context | §9.A.19 |
 
 For the Verify-Before-Cite checks (§9.B: cited-artifact verification, field-name drift, facade re-export, upsert column-presence, Schema Pin / Pre-SQL verification), see [verify-before-cite.md](verify-before-cite.md)'s Plan-Review Enforcement Summary.
 

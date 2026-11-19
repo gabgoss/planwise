@@ -23,7 +23,12 @@ a single-line JSON object:
   --answer --id N --q K --text-file F  fill the empty `Answer:` line of `### Q{K}.`
   --list [--id N] [--json]             print every unanswered block over the
                                        backlog index, then the count of
-                                       sections still to fold; reads only.
+                                       sections still to fold; reads only. An
+                                       item whose section holds text and no
+                                       block is named, and its id goes under
+                                       `unshaped_items`. Text above answered
+                                       blocks is decided context, so that
+                                       item reports no question.
                                        Each block carries its question, its
                                        options split into choices, the
                                        recommendation with its letter and
@@ -60,7 +65,10 @@ from item_shape import (
     _ANSWER_LINE_RE,
     _QUESTION_HEADING_RE,
     _THEMATIC_BREAK_RE,
+    block_answered,
     fence_flags_any_indent,
+    open_questions_state,
+    question_blocks,
 )
 from markdown_parser import normalize_id
 from reconcile_common import (
@@ -213,19 +221,6 @@ def _q_number(line: str) -> int:
     return int(_QUESTION_HEADING_RE.match(line).group(0)[len("### Q"):])
 
 
-def _blocks(section: str) -> tuple[list[str], list[bool], list[tuple[int, int]]]:
-    """The section's lines, their fence flags, and each `### Q` block's line range."""
-    lines = section.split("\n")
-    flags = fence_flags_any_indent(section)
-    starts = [i for i, line in enumerate(lines) if not flags[i] and _QUESTION_HEADING_RE.match(line)]
-    ranges = [(s, starts[n + 1] if n + 1 < len(starts) else len(lines)) for n, s in enumerate(starts)]
-    return lines, flags, ranges
-
-
-def _answered(lines: list[str], flags: list[bool], start: int, end: int) -> bool:
-    return any(not flags[i] and _ANSWER_LINE_RE.match(lines[i]) for i in range(start + 1, end))
-
-
 def _block_lines(number: int, run_id: str, question: str) -> list[str]:
     return [
         f"### Q{number}. {_LOOP_TITLE}{run_id})",
@@ -247,7 +242,7 @@ def _insert_block(text: str, run_id: str, question: str) -> str:
     span = _questions_span(text)
     if span is not None:
         start, end = span
-        lines, _flags, ranges = _blocks(text[start:end])
+        lines, _flags, ranges = question_blocks(text[start:end])
         body = lines[1:]
         while body and not body[-1].strip():
             body.pop()
@@ -307,7 +302,7 @@ def append_question(path: Path, run_id: str, text: str) -> str:
         raise QuestionError(f"the item file {path.name} {reason}. Repair the file first.")
     span = _questions_span(body)
     if span is not None:
-        lines, flags, _ranges = _blocks(body[span[0]:span[1]])
+        lines, flags, _ranges = question_blocks(body[span[0]:span[1]])
         tag = f"<!-- loop-decision run={run_id} -->"
         if any(not flags[i] and line.strip() == tag for i, line in enumerate(lines)):
             return QUESTION_SAME_RUN
@@ -418,11 +413,11 @@ def answer_question(path: Path, number: int, text: str, today: str | None = None
     span = _questions_span(body)
     if span is None:
         raise QuestionError(f"the item file {path.name} has no {QUESTIONS_HEADING} section")
-    lines, flags, ranges = _blocks(body[span[0]:span[1]])
+    lines, flags, ranges = question_blocks(body[span[0]:span[1]])
     block = next(((s, e) for s, e in ranges if _q_number(lines[s]) == number), None)
     if block is None:
         raise QuestionError(f"Q{number} is not in the {QUESTIONS_HEADING} section of {path.name}")
-    if _answered(lines, flags, *block):
+    if block_answered(lines, flags, *block):
         raise QuestionError(f"Q{number} is already answered")
     at = next((i for i in range(block[0] + 1, block[1]) if not flags[i] and _EMPTY_ANSWER_RE.match(lines[i])), None)
     if at is None:
@@ -485,10 +480,10 @@ def unanswered_questions(text: str) -> list[dict]:
     span = _questions_span(text)
     if span is None:
         return []
-    lines, flags, ranges = _blocks(text[span[0]:span[1]])
+    lines, flags, ranges = question_blocks(text[span[0]:span[1]])
     found = []
     for start, end in ranges:
-        if _answered(lines, flags, start, end):
+        if block_answered(lines, flags, start, end):
             continue
         title = lines[start][_QUESTION_HEADING_RE.match(lines[start]).end():].lstrip(". ").strip()
         body = [lines[i].strip() for i in range(start + 1, end) if not flags[i] and lines[i].strip()]
@@ -517,6 +512,21 @@ def unanswered_questions(text: str) -> list[dict]:
             "context": "\n".join(context) or None,
         })
     return found
+
+
+def has_unshaped_questions(text: str) -> bool:
+    """True when `## Open Questions` holds text but no `### Q` block.
+
+    The loop's shape check reads such a section as `unanswered`. This is the
+    reading `--list` reports under `unshaped_items`, so both give one verdict.
+    """
+    span = _questions_span(text)
+    if span is None:
+        return False
+    section = text[span[0]:span[1]]
+    if question_blocks(section)[2]:
+        return False
+    return open_questions_state(section) == "unanswered"
 
 
 def _first_paragraph(text: str, title: str) -> str | None:
@@ -560,8 +570,8 @@ def item_brief(text: str, path: Path, backlog_dir: Path) -> dict:
     preamble = None
     span = _questions_span(text)
     if span is not None:
-        lines, flags, ranges = _blocks(text[span[0]:span[1]])
-        stop = ranges[0][0] if ranges else len(lines)
+        lines, flags, ranges = question_blocks(text[span[0]:span[1]])
+        stop =ranges[0][0] if ranges else len(lines)
         opening = [
             lines[i].strip() for i in range(1, stop)
             if not flags[i] and lines[i].strip() and not _LOOP_MARKER_RE.match(lines[i].strip())
@@ -641,11 +651,15 @@ def cmd_list(args, config: dict) -> tuple[list[str], dict, int]:
     questions: list[dict] = []
     items: dict[str, dict] = {}
     legacy_items: list[str] = []
+    unshaped_items: list[str] = []
     legacy = 0
     lines = []
     for item_id, path in _item_paths(config, args.id):
         text, _eol_unused = _read(path)
         found = unanswered_questions(text)
+        if has_unshaped_questions(text):
+            unshaped_items.append(item_id)
+            lines.append(f"{item_id}: {QUESTIONS_HEADING} holds text with no ### Q block")
         if found:
             brief = item_brief(text, path, config["_backlog_dir"])
             items[item_id] = brief
@@ -667,7 +681,10 @@ def cmd_list(args, config: dict) -> tuple[list[str], dict, int]:
     lines.append(f"Unanswered questions: {len(questions)}")
     if legacy:
         lines.append(f"Legacy {LEGACY_HEADING} sections: {legacy} in {len(legacy_items)} item(s); run --fold --all first")
-    payload = {"questions": questions, "items": items, "legacy_sections": legacy, "legacy_items": legacy_items}
+    payload = {
+        "questions": questions, "items": items, "legacy_sections": legacy, "legacy_items": legacy_items,
+        "unshaped_items": unshaped_items,
+    }
     return ([] if args.json else lines), payload, EXIT_OK
 
 

@@ -193,6 +193,31 @@ def test_verdicts_stdin_both_forms(tmp_path, capsys, monkeypatch):
     assert verdict_sanitize.sanitize_agent_entry(landed)["notes"] == "x"
 
 
+def test_verdicts_stdin_utf8_on_cp1252_console(tmp_path, capsys, monkeypatch):
+    root = ucp.make_project(tmp_path)
+    one = entry(root, "skill-authoring.md", rationale="see §2b")
+    document = json.dumps([one], ensure_ascii=False)
+    # a Windows pipe: UTF-8 bytes behind a text layer that decodes them as cp1252
+    wrapped = io.TextIOWrapper(io.BytesIO(document.encode("utf-8")), encoding="cp1252")
+    monkeypatch.setattr(sys, "stdin", wrapped)
+    capsys.readouterr()
+    code = upgrade_run.main(["--project-root", str(root), "--pair", PAIR, "--verdicts-stdin", "--dry-argv"])
+    out = capsys.readouterr().out
+    assert code == 0, out
+    staged = verdicts_file(root).read_text(encoding="utf-8")
+    assert "§2b" in staged and "Â§" not in staged
+    assert json.loads(staged)["skill-authoring.md"]["rationale"] == "see §2b"
+
+    # bytes that are not UTF-8 refuse with the error line and stage nothing
+    verdicts_file(root).unlink()
+    bad = io.TextIOWrapper(io.BytesIO(b'[{"rationale": "\xa72b"}]'), encoding="cp1252")
+    monkeypatch.setattr(sys, "stdin", bad)
+    code = upgrade_run.main(["--project-root", str(root), "--pair", PAIR, "--verdicts-stdin", "--dry-argv"])
+    out = capsys.readouterr().out
+    assert code == 2 and "error: --verdicts-stdin: cannot decode stdin as UTF-8" in out, out
+    assert not verdicts_file(root).exists()
+
+
 def test_verdicts_file_matches_stdin_and_is_exclusive(tmp_path, capsys, monkeypatch):
     root = ucp.make_project(tmp_path)
     document = json.dumps([entry(root, "skill-authoring.md")])

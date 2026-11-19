@@ -385,7 +385,7 @@ Agent(
 3. Recompute delegated verdicts: for each subagent that returned a verdict label (GREEN/YELLOW/RED, NEEDS_FIXES/APPROVED, READY/READY-WITH-NOTES, or equivalent), recompute the classification from the reported finding counts using the task's stated classification rule. If the recomputed verdict differs from the reported label, use the recomputed verdict and log a meta-finding -- do NOT accept a verdict label without verifying it against the agent's own evidence. For cross-file control-flow claims ("symbol X never used in this file -> feature Y is broken"), trace the full consumer call path before accepting OR rejecting the finding -- single-file grep proves local non-use, not global inertness (`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.16)
 4. Cross-check `[UNCERTAIN]` findings against Known Patterns Whitelist
 5. Assign finding IDs: BLOCKERs -> [B1], [B2]...; ERRORs -> [E1], [E2]...; WARNINGs -> [W1]...; INFO -> [I1]...
-6. Classify systemic findings, and carry forward the prior review's non-CLOSED systemic findings (see [Systemic Finding Classification](../references/review-classification.md#systemic-finding-classification) and [Class Closure and Carry-Forward](../references/review-classification.md#class-closure-and-carry-forward))
+6. Classify systemic findings, and carry forward the prior review's non-CLOSED systemic findings (see [Systemic Finding Classification](../references/review-classification.md#systemic-finding-classification) and [Class Closure and Carry-Forward](../references/review-classification.md#class-closure-and-carry-forward)). Set each one's Fix Owner, and draft feedback for each new `planwise`-owned one per [the review finding trigger](../references/feedback-drafting.md#the-review-finding-trigger)
 7. Compute verdict (see [Verdict and Report](#verdict-and-report))
 8. Write report to `{PlanPath}/Reviews/{Abbrev}-Review-{YYYY-MM-DD}.md`
 
@@ -670,7 +670,7 @@ Agent(
     - Cross-check against other reviewers' findings
     - Confirmed -> promote to stated severity; contradicted -> discard as false positive
 12. **Assign finding IDs:** BLOCKERs -> [B1], [B2]...; ERRORs -> [E1], [E2]...; WARNINGs -> [W1]...; INFO -> [I1]...
-13. **Classify systemic findings:** For each confirmed finding (BLOCKER, ERROR, WARNING), determine one-off vs systemic (see [Systemic Finding Classification](../references/review-classification.md#systemic-finding-classification)). Then carry forward the prior review's non-CLOSED systemic findings (see [Class Closure and Carry-Forward](../references/review-classification.md#class-closure-and-carry-forward)).
+13. **Classify systemic findings:** For each confirmed finding (BLOCKER, ERROR, WARNING), determine one-off vs systemic (see [Systemic Finding Classification](../references/review-classification.md#systemic-finding-classification)). Then carry forward the prior review's non-CLOSED systemic findings (see [Class Closure and Carry-Forward](../references/review-classification.md#class-closure-and-carry-forward)). Set each systemic finding's Fix Owner, and draft feedback for each new `planwise`-owned one per [the review finding trigger](../references/feedback-drafting.md#the-review-finding-trigger).
 14. **Compute verdict** (see [Verdict and Report](#verdict-and-report)).
 
 ### Phase 4: Report and Cleanup

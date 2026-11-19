@@ -421,10 +421,48 @@ Fix: Add the blast-radius gate matching the edit type per references/session-exe
 > - If session produced code changes and `/code-review` has not already been run on all changed files, run `/code-review` before committing
 > - **Push** automatically (no confirmation needed)
 > - **git add** specific files (never `git add .` or `git add -A`)
-> - **commit by pathspec**: `git commit -m <msg> -- <paths>`. `git add` by path alone does not protect the commit, because a bare commit takes the whole index
+> - **commit by pathspec**: `git commit -m <msg> -- <paths>`, for a file this session owns whole. `git add` by path alone does not protect the commit, because a bare commit takes the whole index. A file a peer also holds follows §7.1
 > - **Record the commit** — write the SHA and push state into Recovery's session commit pin right after the push succeeds, before any question to the user
 > - **attribute a guard finding by author** before choosing restore or override. See `handlers/run.md` Step 4.0
 > - **Prior-sprint Outputs guard** (run handler Step 4.0) must have passed before the session-end commit, or carry a recorded Recovery override
+
+### 7.1 A Write-Set File a Peer Also Holds
+
+> [!constraint] Never edit under a live peer, and never commit a shared file by pathspec
+> A pathspec commit takes the whole working file. A shared file therefore carries the peer's hunks into this session's commit. The peer's own size and diff gates then measure this session's lines. This session's diff against its base also credits the peer's hunks to this session. A file this session owns whole keeps the §7 pathspec rule. A shared file takes one of the two routes below. The owner of the peer's hunks picks the route.
+
+**Route 1: a live peer is mid-work. Split the task around the file.**
+
+1. Narrow the HALT to the task that writes the held file. The base-recording task tolerates exactly the peer's ` M <file>` line and HALTs on any other dirty path.
+2. Every task that does not write the held file proceeds.
+3. The task that writes the held file runs in two passes on ONE runner. Pass A does everything except the held file and returns PARTIAL.
+4. Pass B resumes the same runner after the peer commits. It takes a second base literal, `<FILE>_BASE`, set to HEAD after that commit. It gates the file against that base.
+5. The peer has committed when `git status --porcelain -- <file>` prints nothing. Test that condition each time the orchestrator regains control. Do not start a background polling loop.
+6. If the session closes first, commit the rest by pathspec and report pass B as open work. Never commit, stage or revert the peer's hunks.
+
+**Route 2: a dormant draft holds hunks that avoid the target lines. Stage only this session's hunk.** A dormant draft belongs to an item that no session is executing.
+
+1. At Phase 1, pin the sha256 of the peer's diff for the file. List its hunks with `git diff -U0 -- <file>`. Confirm that none touches this session's target lines.
+2. The runner's gate accepts that one ` M <file>` line and re-checks the hash before its first edit.
+3. At close, write the file header and this session's hunk, and nothing else, to a patch file. Write it LF-only, because a text-mode write on Windows ends every line in a carriage return.
+4. Run `git apply --cached --unidiff-zero --check <patch>`. Then run the same command without `--check`.
+5. Prove three facts. `git diff --cached -U0 -- <file>` shows only this session's hunk. `git diff -U0 -- <file>` still shows the peer's hunks. `git diff --cached --stat` shows nothing foreign.
+6. Commit the index with a bare `git commit -m <msg>` and no pathspec.
+
+Never use `git stash` to separate the two sets of edits. A stash round-trip under `core.autocrlf` rewrites line endings.
+
+WRONG — a pathspec commit of a file a peer's uncommitted draft also holds:
+```
+git commit -m "<msg>" -- <file>
+# commits the whole worktree file: this session's hunk AND every drafted peer hunk
+```
+CORRECT — stage the own hunk, prove both sides, then commit the index:
+```
+git apply --cached --unidiff-zero <own-hunk.patch>   # patch written LF-only
+git diff --cached -U0 -- <file>                      # only the own hunk
+git diff -U0 -- <file>                               # the peer hunks, unchanged
+git commit -m "<msg>"                                # no pathspec: commits the index
+```
 
 ---
 

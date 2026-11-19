@@ -413,7 +413,7 @@ file's bytes and prints one line:
 | Exit | Output | Route action |
 |---|---|---|
 | 0 | `clean` | Post the file |
-| 3 | `blocked: <class> at line <n>` | Keep the draft, post nothing more, print one line, exit 0 |
+| 3 | `blocked: <class> at line <n>` | Keep the draft, run `mark-blocked` (below), post nothing more, print one line, exit 0 |
 | 1 or 2 | none on stdout | The gate could not run: keep the draft, print one line, exit 0 |
 
 **The issue route** (CLEAR, UNKNOWN). Scan `{draft_path}`, then post it only when the scan
@@ -435,7 +435,22 @@ python -B "{plugin_root}/scripts/feedback_drafts.py" prepare-post --config "{pla
 "{gh_path}" issue comment -R {feedback.repo} {NN} --body-file "{comment_draft_path}"
 ```
 
-A block on the comment body keeps both drafts, posts nothing and exits 0.
+A block on the comment body keeps both drafts, posts nothing, runs `mark-blocked` with `--route comment` and exits 0.
+
+**The blocked record.** When `prepare-post` exits 3 on either route, record the block before the
+fallback line prints. The sidecar goes beside the kept promoted draft, `{draft_path}`, for both
+routes. `{class}` and `{n}` are the two values the `blocked:` line printed, and `{route}` is `issue` or `comment`:
+
+```
+python -B "{plugin_root}/scripts/feedback_drafts.py" mark-blocked --draft "{draft_path}" --class {class} --line {n} --route {route}
+```
+
+The command writes `{draft_path}.blocked` with four lines: `blocked: {date}`, `class:`, `line:` and
+`route:`. The sidecar never holds text from the draft. It is a separate file, so the draft's bytes
+do not change. If `mark-blocked` exits non-zero, the fallback line still prints and the path exits 0.
+`blocked-list` shows the recorded drafts. `dismiss-blocked` adds a `dismissed:` line to a sidecar
+and never moves or deletes a draft. A draft with a `.posted` sidecar or a `dismissed:` line no
+longer counts as blocked.
 
 **The fallback lines.** Each case keeps every draft on disk, prints one line naming the reason
 and the draft's absolute path, and exits 0. The parent flow continues:

@@ -63,6 +63,27 @@ def test_overlap_without_running_still_checks_the_candidate(tmp_path, capsys):
     assert "no **Output:** line" in capsys.readouterr().out
 
 
+def test_overlap_running_none_is_the_empty_set(tmp_path, capsys):
+    cand = _task(tmp_path, "c.md", "`scripts/a.py`")
+    assert dp.main(["overlap", "--candidate", str(cand), "--running", "none"]) == 0
+    out = capsys.readouterr().out
+    assert "running tasks: 0" in out
+    assert "disjoint" in out
+
+
+def test_overlap_running_none_ignores_case(tmp_path, capsys):
+    cand = _task(tmp_path, "c.md", "`scripts/a.py`")
+    assert dp.main(["overlap", "--candidate", str(cand), "--running", "NONE"]) == 0
+    assert "running tasks: 0" in capsys.readouterr().out
+
+
+def test_overlap_running_none_beside_a_path_is_input_error(tmp_path, capsys):
+    cand = _task(tmp_path, "c.md", "`scripts/a.py`")
+    run = _task(tmp_path, "r.md", "`docs/b.md`")
+    assert dp.main(["overlap", "--candidate", str(cand), "--running", "none", str(run)]) == 2
+    assert "cannot be combined" in capsys.readouterr().out
+
+
 # --- prereq -----------------------------------------------------------------
 
 
@@ -174,6 +195,13 @@ def test_siblings_closed_before_since_is_out_of_window(tmp_path, capsys):
     args = _siblings_args(tmp_path, "2026-01-01", ["plugins/x/references/shared.md"])
     assert dp.main(args) == 0
     assert "recoveries on or after 2026-01-10: 0" in capsys.readouterr().out
+
+
+def test_siblings_recoveries_none_is_the_empty_set(tmp_path, capsys):
+    edit = _w(tmp_path / "edit.txt", "plugins/x/references/shared.md\n")
+    args = ["siblings", "--since", "2026-01-10", "--recoveries", "none", "--edit-set", str(edit)]
+    assert dp.main(args) == 0
+    assert "recoveries given: 0" in capsys.readouterr().out
 
 
 def test_paths_meet_needs_a_component_boundary():

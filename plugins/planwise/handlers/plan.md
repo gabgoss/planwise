@@ -101,7 +101,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If a task's Verification Commands carry an After block, or a Success Criteria item states an expectation over a measured value: Read `references/gate-pre-edit-baseline.md` (every gate records its measured pre-edit value; Check 082) and `references/gate-input-set-and-compared-window.md` (a diff-pinned or sweep criterion records its input-set counts; a verbatim proof prints its compared-set size) (Step 8e)
 - If an anchor, exit criterion or Execution Input gate enumerates outcomes, or a gate pins a `git diff --stat` allowed set over a directory a tool regenerates: Read `references/gate-anchor-outcome-set.md` (the anchor accepts exactly the task's terminal branches; Check 095)
 - If a task pins any `grep`, `diff`, `wc` or `awk` gate, or pins a pattern, count or count method before its subject exists: Read `references/gate-command-semantics.md` (the four command-semantics traps, regex dialect, digit boundaries, window size) and `references/gate-pinned-from-real-content.md` (a verdict line's bytes, a heading counted by anchor, a gate run over the real content first) (Step 8e)
-- If a task's deliverable is a gate (guard, hook, linter, validation pass), or an acceptance criterion cites a gate run as proof: Read `references/verification-gate-evidence.md` (the family index), then `references/gate-positive-and-mutation-controls.md` (the positive control, the mutation control, the dry-run pair) and `references/gate-fixture-provenance.md` (an input set that could have contained the defect; what the proof does not cover)
+- If a task's deliverable is a gate (guard, hook, linter, validation pass), or an acceptance criterion cites a gate run as proof: Read `references/verification-gate-evidence.md` (the family index), then `references/gate-positive-and-mutation-controls.md` (the positive control, the mutation control, the dry-run pair) and `references/gate-fixture-provenance.md` (an input set that could have contained the defect; one live run with every hit classified before a checker, lint, scanner or guard is accepted, §7.2; what the proof does not cover)
 - If a task's gate checks an extraction boundary or anchor, a sweep that several runners share, a fixture set scored against a threshold, or a per-item gate fed a precomputed value: Read `references/gate-discriminating-case.md` (could the input set have contained the case that fails the gate?)
 - If a task's content is a live gate's subject, or a runner may report that it shaped content to satisfy a gate: Read `references/gate-artifact-over-instrument.md` (the artifact is authoritative; pre-adjudicate the collision at dispatch)
 - If a task moves a section between references, gates a generated path list or row count, claims bytes or line endings preserved, or grades a decision log or an exit code: Read `references/gate-old-home-citation-sweep.md`, `references/gate-generated-input-integrity.md` and `references/gate-script-output-assertions.md`
@@ -116,7 +116,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If a task's deliverable is a gate, guard, hook, linter or validation pass, or the plan composes a verification battery: Read `references/gate-instrument-proof-obligations.md` (the four obligations) and `references/gate-change-vs-state-detecting.md` (name at least one state-detecting gate)
 - If a task's Verification Commands include an absence gate ("MUST be empty"), a cross-task prerequisite marker or a per-run check on a transcript or log, or the task adds a declaration something else must render: Read `references/gate-satisfiability.md` — pair an absence gate with an exempt-set count, execute a new declaration's path once, prove a marker is an upstream addition, and probe the surface with an ordinary prompt (Step 8e)
 - If a task builds or modifies a measurement harness, campaign driver or eval framework: Read `references/harness-instrument-integrity.md` — run the instrument against live artifacts, not fixtures, couple every fact it duplicates, and give every terminal state a signal
-- If a task writes a run sheet or probe driver that pins flags on a reset or launch line, or a grader over a numeric log field: Read `references/gate-run-sheet-and-grader-fields.md` (§13-§14) — pin the field the hook reads, not the flag whose name matches the intent
+- If a task writes a run sheet or probe driver that pins flags on a reset or launch line, a grader over a numeric log field, or a grader, census rule or verdict rule restated from a design: Read `references/gate-run-sheet-and-grader-fields.md` (§13-§16) — pin the field the hook reads, check each restated clause against the design, and give every arm or verdict rule a finished-the-job gate
 - If a task spec cites third-party SDK identifiers, type names, enum members, delegate shapes, framework presence, or destination file paths under scoped-rule triggers: Read `references/verify-against-shipped-artifact.md`
 - If the plan authors a task that creates or modifies a rule, agent, skill, handler, or CLAUDE.md callout (promoting lesson/backlog content): Read `references/artifact-self-containment.md`
 
@@ -177,7 +177,18 @@ If **any Discovery implicit indicator** is detected without an explicit indicato
 | `--scaffold` flag present in arguments | **Scaffolding** |
 | User says "scaffold", "scaffolding phase", or "from Discovery" | **Scaffolding** |
 
-**If Scaffolding Mode (explicit):** Read `handlers/plan-scaffolding.md` and follow it instead of Steps 1-9.
+**Scaffolding precondition:** Every route into Scaffolding runs this check first. The routes are the `--scaffold` flag, the "scaffold" phrase, and a user choice of Scaffolding at either prompt. Take `{Abbrev}` from the Meta-Plan folder the user names. Glob `Meta-{Abbrev}/Outputs/{Abbrev}-Consolidated-Context-Part-*.md`.
+
+- **One or more parts:** Read `handlers/plan-scaffolding.md` and follow it instead of Steps 1-9.
+- **Zero parts, or no Meta-Plan folder named:** Output the block below. Read the named document completely, if the user named one. Then go to Step 1 and pre-fill the plan name, vision and scope from that document.
+
+> [!template] Scaffold Route Confirmation
+> ```
+> SCAFFOLD ROUTE — NO CONSOLIDATED CONTEXT PARTS
+> Route: Standard
+> Reason: no Consolidated Context parts in Meta-{Abbrev}/Outputs/
+> Premise document: {named document path, or none}
+> ```
 
 **Optional Scaffolding flag — `--scaffold-per-sprint`:**
 

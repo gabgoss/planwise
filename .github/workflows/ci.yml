@@ -118,6 +118,11 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+      # The cross-language feedback test runs the TypeScript writer under node,
+      # which needs type stripping. Pin it so the runner image's default cannot decide.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
       - run: python -m pip install pytest==9.0.2 pytest-xdist==3.8.0 pyyaml==6.0.3
       # The Windows runner's TEMP is the 8.3 short path C:\Users\RUNNER~1\...
       # Keep it: conftest.py resolves it, and this job proves that it does.

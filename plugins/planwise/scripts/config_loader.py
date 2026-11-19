@@ -1188,3 +1188,30 @@ def get_token_saver_extension_config(config: dict) -> dict:
         "run_layer_stop": run_layer_stop,
         "plan_authoring": plan_authoring,
     }
+
+
+PLAN_NAME_CAP_DEFAULTS = {"folder_max": 40, "file_max": 80, "path_max": 160}
+
+
+def get_plan_names_config(config: dict) -> dict:
+    """Extract the `plan_names:` block, the length caps of generated plan names.
+
+    The plan writer cuts each free-text Name part so that the names it
+    generates stay inside these caps, and it refuses a plan whose generated
+    path is still over the path cap. Defaults apply when the block, a key, or
+    a value is absent, null, not a number, or below 1:
+
+      * folder_max -> 40   (a sprint or session folder name, such as
+                            `Session-NN-<Name>`, in characters)
+      * file_max   -> 80   (a task file name, in characters)
+      * path_max   -> 160  (the repo-relative path of any generated file, in
+                            characters)
+    """
+    block = config.get("plan_names", {})
+    if not isinstance(block, dict):
+        block = {}
+    caps = {}
+    for key, default in PLAN_NAME_CAP_DEFAULTS.items():
+        value = _as_int_default(block.get(key), default)
+        caps[key] = value if value >= 1 else default
+    return caps

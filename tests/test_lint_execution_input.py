@@ -706,6 +706,47 @@ def test_spec_citation_pair_repaired_is_clean(tmp_path, capsys):
     assert "spec-citation-pair: 4 subject(s), 0 finding(s)" in out
 
 
+MAP_PART_2_KEY = "plan__DEMO-Master-Plan-Part-2-GlobalSourceMap.md"
+MAP_PART_2_CAPTURE = MAP_PART_2 + "| 4 | T1 | `capture.json` | 100 |\n"
+
+
+def _capture_overrides(citation: str) -> dict[str, str]:
+    """A map holding a non-markdown Tier 1 source, and an EI whose Extracted from line cites `citation`."""
+    part = PART_1.replace(
+        "Spec #2 (Beta-Source.md) [Tier 1 raw]",
+        f"Spec #2 (Beta-Source.md) [Tier 1 raw], {citation} [Tier 1 raw]",
+    )
+    return {MAP_PART_2_KEY: MAP_PART_2_CAPTURE, PART_1_KEY: part}
+
+
+def test_spec_citation_pair_accepts_a_non_markdown_source(tmp_path, capsys):
+    code, out = run(tmp_path, capsys, **_capture_overrides("Spec #4 (capture.json)"))
+    assert code == 0
+    assert "spec-citation-pair: 5 subject(s), 0 finding(s)" in out
+
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "Spec #4 (other.json)",  # right number, wrong file
+        "Spec #2 (capture.json)",  # right file, wrong number
+    ],
+)
+def test_spec_citation_pair_non_markdown_mismatch_fires(tmp_path, capsys, citation):
+    code, out = run(tmp_path, capsys, **_capture_overrides(citation))
+    assert code == 1
+    assert len(finding_lines(out, "spec-citation-pair")) == 1
+
+
+def test_spec_citation_pair_bare_token_message_is_extension_neutral(tmp_path, capsys):
+    broken = "| §1 | Spec #2 | § Findings |"
+    part = PART_1.replace("| §1 | Spec #2 (Beta-Source.md) | § Findings |", broken)
+    code, out = run(tmp_path, capsys, **{PART_1_KEY: part})
+    assert code == 1
+    lines = finding_lines(out, "spec-citation-pair")
+    assert len(lines) == 1 and "is not followed by '(filename)'" in lines[0]
+
+
 # --------------------------------------------------------------------------- count-claim (advisory, exit 0)
 
 

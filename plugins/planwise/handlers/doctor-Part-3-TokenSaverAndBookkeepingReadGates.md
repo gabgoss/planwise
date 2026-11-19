@@ -141,7 +141,7 @@ The script prints this stage (banner: planwise doctor — consumer read-gate sca
 
 ### Stage 25: Consumer Section-Citation Check
 
-The script prints this stage (banner: planwise doctor — consumer section-citation check). Pass it through verbatim. It resolves each `§` citation in the project's own `.claude/rules/` against the installed plugin's `references/`. It reports only citations whose target is a plugin file, and counts the citations of project files in its summary line. It prints each dangling citation, each citation whose target file does not resolve, and each citation whose section moved to another file of the same family, as an upgrade leftover. A moved section prints with the file that now holds it. The stage skips the machine-managed copies under `.claude/rules/planwise/`. The report ends with one remedy line: edit the citing rule to the section that now holds the text, or run `/planwise upgrade` if the citing file is a stale installed copy. The stage runs whether or not `context.token_saver` is on.
+The script prints this stage (banner: planwise doctor — consumer section-citation check). Pass it through verbatim. It resolves each `§` citation in the project's own `.claude/rules/` against the installed plugin's `references/`. It reports only citations whose target is a plugin file, and counts the citations of project files in its summary line. It prints each dangling citation, each citation whose target file does not resolve, and each citation whose section moved to another file of the same family, as an upgrade leftover. A moved section prints with the file that now holds it. A citation that occurs more than once on one line prints as one row with a `(N mentions)` count, and the header counts distinct rows. The stage skips the machine-managed copies under `.claude/rules/planwise/`. The report ends with one remedy line: edit the citing rule to the section that now holds the text, or run `/planwise upgrade` if the citing file is a stale installed copy. The stage runs whether or not `context.token_saver` is on.
 
 ### Stage 26: Lesson Resolution Keys
 
@@ -158,6 +158,21 @@ The script prints this stage (banner: planwise doctor — lesson resolution keys
 Beside the classes, the stage prints two totals lines for the open lessons, `open by origin:` and `open by check kind:`. Each sums to the scanned count. Origins fall into the known origins, `unknown` and `missing`. Check kinds fall into `none`, the configured kinds, any other kind by name, `invalid` and `missing`. A configured kind named `invalid` or `missing` counts in that one bucket, never in a second one. A zero count is not printed. A landed block follows, one line giving `landed lessons scanned:` with the count of lessons whose `status:` is `rule` or `applied`, how many lack an `origin:` key and how many lack an `enforced-by:` key. When any landed lesson was scanned, `landed by origin:` and `landed by check kind:` lines follow it. The landed block prints no ids and no action line, and a `promoted` lesson counts nowhere.
 
 The kinds come from `lesson_check_kinds` in `config.yaml`. When the file declares no such key, the stage prints one line saying the default kinds apply and naming `/planwise upgrade` as the remedy. When any class has a lesson, the report ends with one line naming `/planwise lessons curate` and `/planwise lessons promote-batch`. The stage counts a file it cannot read or parse in one line and never prints one line per lesson. When no lessons folder is configured, it prints one line and scans nothing. The stage runs whether or not `context.token_saver` is on.
+
+### Stage 27: Backlog Item Shape
+
+The script prints this stage (banner: planwise doctor — backlog item shape). Pass it through verbatim. It is advisory and never changes the exit status. It scans the open item files directly under the backlog folder and skips `Archive/`. It prints how many items it scanned, then one line per drift class with the count and up to ten item ids. The classes are:
+
+- A `status:` outside the valid statuses.
+- A legacy `## Loop Decision Needed` section.
+- A `title:` over the title cap.
+- An H2 heading outside the item template. A heading inside a fenced code block does not count.
+- A missing core section: Summary, Problem, Proposed Solution or Acceptance Criteria.
+- A `**Priority:**` or `**Domain:**` line that is missing or differs from the frontmatter.
+- A footer that is missing or differs from `created:`.
+- A frontmatter key outside the template.
+
+A template-shaped item produces no line. The stage counts an item whose frontmatter it cannot read in one line. When any class has an item, the report ends with one line naming `/planwise upgrade` as the repair. The stage offers no writer, and it runs whether or not `context.token_saver` is on.
 
 ---
 

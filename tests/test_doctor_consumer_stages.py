@@ -243,6 +243,32 @@ class TestConsumerSectionCitationStage:
         assert ".claude/rules/cites.md:9:" not in out
         assert "2 citation(s) to project files skipped" in out
 
+    def test_a_citation_twice_on_one_line_prints_one_row_with_a_count(self, tmp_path, capsys):
+        doubled_line = "See `known.md` §9 and again `known.md` §9 for one.\n"
+        single_line = "See `known.md` §8 for two.\n"
+        plugin = _plugin(tmp_path / "plugin")
+        alone = _project(tmp_path / "alone")
+        _write(alone / ".claude" / "rules" / "cites.md", "# Cites\n\n" + doubled_line)
+        both = _project(tmp_path / "both")
+        _write(both / ".claude" / "rules" / "cites.md", "# Cites\n\n" + doubled_line + "\n" + single_line)
+        # The checker keeps one finding per mention, so the grouping is the stage's own work.
+        raw = check_tree(plugin, extra_roots=(alone / ".claude" / "rules",), scan_roots=(alone / ".claude" / "rules",))
+        assert [f.verdict for f in raw] == ["dangling", "dangling"]
+
+        run_section_citation_stage(SimpleNamespace(project_root=alone, planwise_root="planwise", plugin_root=plugin))
+        out = capsys.readouterr().out
+        rows = [ln for ln in out.splitlines() if ln.startswith("  .claude/rules/cites.md:")]
+        assert len(rows) == 1 and rows[0].endswith("(2 mentions)")
+        assert "1 dangling section citation(s)" in out
+
+        run_section_citation_stage(SimpleNamespace(project_root=both, planwise_root="planwise", plugin_root=plugin))
+        out = capsys.readouterr().out
+        doubled = [ln for ln in out.splitlines() if ln.startswith("  .claude/rules/cites.md:3:")]
+        single = [ln for ln in out.splitlines() if ln.startswith("  .claude/rules/cites.md:5:")]
+        assert len(doubled) == 1 and doubled[0].endswith("(2 mentions)")
+        assert len(single) == 1 and "mentions" not in single[0]
+        assert "2 dangling section citation(s)" in out
+
     def test_installed_copies_are_excluded_from_the_check(self, tmp_path, monkeypatch):
         root = _project(tmp_path / "exclude")
         calls = []

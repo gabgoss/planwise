@@ -132,6 +132,18 @@ blocks: [{parent}, B]
 blocks: [{parent}]
 ```
 
+`generate_backlog_index.py` reports three defects in the `blocks:` graph as anomalies. Each report names the ids and the item files.
+
+| Anomaly | What it means | `--check` and report modes | `--write` |
+|---------|---------------|----------------------------|-----------|
+| Reciprocal edge | A lists B and B lists A, so each waits on the other | exit 1 | refuses, writes nothing |
+| Blocks cycle | Three or more ids wait on one another in a ring, such as A, B and C. The report gives the full path | exit 1 | refuses, writes nothing |
+| Inverted edge | An item's prose says it waits on N, and its own `blocks:` also lists N. The edge is written backwards | exit 1 | reports, then writes |
+
+The generator never edits an item. A person decides which side is right, because the prose may be the stale one. The fix for an inverted edge is to move N out of the item's `blocks:` and add the item's id to N's `blocks:`.
+
+The direction check reads only the `## Summary`, `## Problem`, `## Resolution`, `## Dependencies` and `## Related` sections. It reads the phrases "blocked by", "depends on", "lands after" and "waits for", followed within the same sentence by a `BB-` id. It skips a quoted line, a fenced block and an `**Evidence:**` paragraph. Each run prints how many item files it scanned.
+
 | Field | Type | Required | Used By |
 |-------|------|----------|---------|
 | `id` | integer | Yes | Row identity; Score/File cell derivation |
@@ -263,6 +275,9 @@ python {plugin_root}/scripts/update_backlog.py --id ID --mark-needs-plan
 # Close an item whose criteria are already met, with its proof record
 python {plugin_root}/scripts/update_backlog.py --id ID --status=COMPLETE --resolution-file PATH
 
+# Record the commits that fixed a COMPLETE item, archived or not (status unchanged)
+python {plugin_root}/scripts/update_backlog.py --id ID --fixed-in SHA [--fixed-in SHA ...] [--completes SHA]
+
 # Create a new backlog item (writes the BLI file from the template only; the
 # caller regenerates the index with generate_backlog_index.py --write)
 python {plugin_root}/scripts/update_backlog.py --create --id ID --feature FEATURE \
@@ -282,6 +297,8 @@ Pass a status or outcome value joined to its flag with `=`, as in `--status=COMP
 | `--files FILES` | Create only | Semicolon-separated (required with `--create`). The first entry is the new item file, written from `templates/backlog-item.md`. It must sit directly inside the backlog folder: give a bare file name, a path from the project root, or an absolute path. A path to any other folder is refused and nothing is written. The heading and the first Related link use the bare file name. Later entries are affected-file references, given as paths from the project root. Each one renders under Related as a backticked path labelled "affected file", with no link (`` - `src/a/B.cs` - affected file ``) |
 | `--mark-needs-plan` | No | Write `needs_plan: true` into the item's frontmatter without changing its status (the Route C marker-and-skip; regenerate the index afterwards) |
 | `--resolution-file PATH` | No (with `--status=COMPLETE` only) | After the status flip and the archive move, append the file's text under `## Resolution`; when `## Resolution` already exists, the file's text is appended below it as a dated `### Closed {date}` block; on an item already COMPLETE the append still runs |
+| `--fixed-in SHA` | No (repeatable) | Append one dated `- {date}: Fixed in: {sha}` line per fixing commit under the item's `## Notes`, creating the section when absent (before `## Related`). Runs alone on an item that is already COMPLETE, in `Archive/` or not, because the squash-merge commit exists only after the close, or together with `--status=COMPLETE`. The sha is 7 to 64 hex characters. A sha already recorded is skipped. The command exits 1 and writes nothing for a sha that is not hex or is shorter than 7 characters, for an item that is not COMPLETE, and in combination with `--create` or `--mark-needs-plan` |
+| `--completes SHA` | No (repeatable, needs `--fixed-in`) | Mark that `--fixed-in` sha with the suffix ` (completes the fix)`. A value absent from `--fixed-in` exits 1 and writes nothing |
 
 **Automatic archival (COMPLETE/CLOSED):** Moves the item file to `{backlog_dir}/Archive/`. It never edits the index. The next `generate_backlog_index.py --write` renders the new link from the file's new location. `--mark-needs-plan` writes `needs_plan: true` without changing the status. `--status=COMPLETE --resolution-file P` appends the file's text under `## Resolution` after the status flip and the archive move, and, when `## Resolution` already exists, appends the file's text below it as a dated `### Closed {date}` block.
 

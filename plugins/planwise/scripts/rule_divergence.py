@@ -7,8 +7,11 @@ degradation (documented design: a missing/broken structural_compare degrades
 to a conservative preserve-on-doubt verdict rather than crashing).
 """
 
+import hashlib
+import json
 import re
 import types
+from pathlib import Path
 
 # The frontmatter split/parse primitives, bound under this module's long-standing
 # private names so `init_project`'s re-export block and any external caller keep
@@ -16,7 +19,7 @@ import types
 # them were mirrored here and disagreed with each other on BOM handling and on
 # their absence signal.
 from frontmatter_parser import (
-    BOM_CHAR as _BOM_CHAR,  # noqa: F401 -- re-exported for callers of rule_divergence
+    BOM_CHAR as _BOM_CHAR,  # also re-exported for callers of rule_divergence
 )
 from frontmatter_parser import (
     FM_KEY_LINE_RE as _FM_KEY_LINE_RE,  # noqa: F401 -- re-exported for callers of rule_divergence
@@ -152,6 +155,72 @@ def normalize_pair(installed_text: str, shipped_text: str, norm=normalize_rule_f
 # "never analyzed" (the old shape-based detection's false-positive hazard).
 _DEGRADED_VERDICT_SOURCE = "not-analyzed"
 
+# Source of the verdict `_classify_diverged` returns when the installed body
+# matches a body the plugin shipped in an earlier release.
+_HISTORY_VERDICT_SOURCE = "shipped-history"
+
+# Digests of every body each installed, de-scoped and style rule reference has
+# ever shipped. Written by `tools/gen_rule_history.py` from the plugin repo's
+# git history, so it is never edited by hand.
+RULE_HISTORY_MANIFEST = Path(__file__).resolve().parent.parent / "manifests" / "rule-history.json"
+
+# {manifest path: ((mtime_ns, size), parsed digests)}. See `load_rule_history`.
+_RULE_HISTORY_CACHE: "dict[str, tuple[tuple[int, int], dict[str, set[str]]]]" = {}
+
+
+def rule_history_digest(text: str) -> str:
+    """Return the sha256 hex of a rule body in its comparison form.
+
+    Drops a leading BOM, folds CRLF to LF, then applies `normalize_rule_for_diff`,
+    so a rule installed with a project-specific `paths:` value digests the same as
+    the shipped reference. The manifest generator and the classifier call this one
+    function, so the two cannot disagree.
+    """
+    text = text.lstrip(_BOM_CHAR).replace("\r\n", "\n")
+    return hashlib.sha256(normalize_rule_for_diff(text).encode("utf-8")).hexdigest()
+
+
+def load_rule_history(manifest_path: "Path | None" = None) -> "dict[str, set[str]]":
+    """Return {rule filename: {digest of every body it ever shipped}}.
+
+    A missing, unreadable or malformed manifest returns {}, so the classifier
+    falls back to the structural comparison and never adopts on missing evidence.
+    """
+    path = RULE_HISTORY_MANIFEST if manifest_path is None else manifest_path
+    try:
+        stat = path.stat()
+    except OSError:
+        return {}
+    # One upgrade classifies many rules, so the file is read once per process and
+    # signature. The signature is a stat call and never reads the file.
+    signature = (stat.st_mtime_ns, stat.st_size)
+    cached = _RULE_HISTORY_CACHE.get(str(path))
+    if cached is not None and cached[0] == signature:
+        return {name: set(digests) for name, digests in cached[1].items()}
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        loaded = {
+            str(name): {str(d) for d in digests}
+            for name, digests in doc["rules"].items()
+        }
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        loaded = {}
+    _RULE_HISTORY_CACHE[str(path)] = (signature, loaded)
+    return {name: set(digests) for name, digests in loaded.items()}
+
+
+def _matches_shipped_history(installed_norm: str) -> bool:
+    """True when the installed body equals a body some release shipped.
+
+    A body the plugin shipped holds no user text, so the check takes the union of
+    every listed digest and needs no filename.
+    """
+    history = load_rule_history()
+    if not history:
+        return False
+    digest = rule_history_digest(installed_norm)
+    return any(digest in digests for digests in history.values())
+
 
 def _classify_diverged(
     installed_norm: str,
@@ -173,7 +242,31 @@ def _classify_diverged(
     `_verdict_not_analyzed()` can never mistake a genuine verdict for this
     stand-in. Module-level (not nested) so tests can monkeypatch
     `ip._classify_diverged` directly.
+
+    The first check is the shipped-history manifest. An installed body that
+    matches any body an earlier release shipped is an unedited older rule, so it
+    returns SUBSET at exact confidence with source `shipped-history`, before the
+    override and before any structural comparison. Every caller inherits this
+    without an edit.
     """
+    if _matches_shipped_history(installed_norm):
+        fields = {
+            "classification": "SUBSET",
+            "confidence": "exact",
+            "unique_blocks": [],
+            "shared_blocks": 0,
+            "total_installed_blocks": 0,
+            "installed_only_chars": 0,
+            "unique_sample_tokens": [],
+            "source": _HISTORY_VERDICT_SOURCE,
+            "notes": "",
+        }
+        try:
+            from structural_compare import StructuralVerdict as _Verdict
+        except ImportError:
+            # Duck-typed stand-in: the real class is unavailable on this branch.
+            return types.SimpleNamespace(**fields)  # pyright: ignore[reportReturnType]
+        return _Verdict.from_dict(fields)
     if override is not None:
         return override
     try:

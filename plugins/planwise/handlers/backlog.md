@@ -260,6 +260,34 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
 
    In loop mode a `placement` verdict is a documented skip, never an escalation to Route C.
 
+   > [!constraint] A rule match is a reason to read the rule, not a conflict
+   > The verdict sorts the matched rules into two kinds. A behaviour rule says how to edit, verify or commit a tree. A placement rule says where a kind of content must or must not live. Only a placement rule that disagrees with the destination is a conflict. A behaviour rule is a constraint the executor obeys, so it is injected, never a skip.
+   >
+   > WRONG — treat any `paths:` match as a conflict:
+   > ```
+   > paths: <plugin tree>/**   matches handlers/init.md
+   > -> scoped-rule conflict -> loop documented skip
+   > ```
+   > CORRECT — classify the match, then act:
+   > ```
+   > identifier-isolation rule   behaviour rule (identifier battery)  -> obey, run the battery at VERIFY
+   > no placement rule names another home for handlers/init.md        -> inject, route proceeds
+   > ```
+   >
+   > A `placement` row with `source: body` needs one more read. With no `## Files Touched` table, the script takes every path-like token in the body as a destination. A test fixture string or a placeholder under `.claude/rules/` then reads as a `CREATE` under a rule tree. Read each `placement` row before a skip, and ask whether the item writes that file or only names it as data.
+   >
+   > WRONG — skip on the verdict alone:
+   > ```
+   > scoped_rules: placement  ->  documented skip, item handed back unworked
+   > ```
+   > CORRECT — read the rows, and override in `Reason:` when every placement row is data:
+   > ```
+   > Reason: scoped_rules printed placement. All four placement rows are fixture strings in
+   > Resolution step 4 (tmp_path test data and a placeholder). No file is created under
+   > .claude/rules/. The real destinations are inject. Verdict overridden to inject.
+   > ```
+   > The authoring fix is a `## Files Touched` table with Role `EDIT` or `CREATE`. The script then reads the table and ignores body tokens.
+
 8. Present the scope assessment to the user:
 
 > [!template] Scope Assessment Block
@@ -476,6 +504,8 @@ python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/
 
 **Automatic archival:** When status is set to COMPLETE or CLOSED, `update_backlog.py` automatically moves the item file(s) to the Archive/ directory within `{backlog_dir}`. It no longer repoints the index link itself — the `--write` run above does that, because it renders each row from wherever the file actually lives.
 
+**Record the fixing commits:** The close runs before the squash-merge commit exists. Once each fixing commit is on the default branch, record it with `update_backlog.py --id "{item_id}" --fixed-in {sha}`, and add `--completes {sha}` for the commit that completes the fix. The command runs alone on an item that is already COMPLETE, archived or not. `references/backlog-schema.md` lists the flags.
+
 **Twin-plan reconciliation (run when the outcome is COMPLETE/CLOSED):** If this item shipped deliverables that a live plan was authored to produce, retire that twin plan in the **same** closeout. Only `/planwise run` closeout writes a plan's status fields, so the plan stays runnable and would re-run idempotency-unsafe steps ("append N rows") against satisfied state.
 
 > [!constraint] Retire or link the twin plan at backlog closeout
@@ -561,10 +591,10 @@ For the accepted candidate set — the gate below applies per candidate, the han
 1. Dispatch `backlog-preflight` once in `file` mode, one block per candidate. It runs the pre-filing re-verification gate above, so a candidate that no longer holds returns as a retirement.
 2. Dispatch `backlog-planner` once per `HOLDS` block, named `planner-{id-or-label}`.
 3. On a `QUESTIONS` return, brief the user and ask each question per the Question briefing of `references/backlog-creation-process.md` §5, using the candidate's title, problem and preflight `EVIDENCE` line as context. Then send the answers with `SendMessage` to the planner's dispatch name (`references/backlog-creation-process.md` §5).
-4. Dispatch `backlog-author` once in `file` mode after the last planner returns. It files the batch and regenerates the index. It sets no status: a status change runs through `update_backlog.py --status` here.
+4. Dispatch `backlog-author` once in `file` mode after the last planner returns. It files the batch and regenerates the index. It sets no status: a status change runs through `update_backlog.py --status` here. Then run the post-author index check, `generate_backlog_index.py --check`, per `references/backlog-creation-process.md` § 7 Constraints.
 
 > [!constraint] One dispatch, never a fan-out
-> Dispatch one agent at a time, in the foreground, and batch every candidate into one dispatch, per `references/backlog-creation-process.md` §7. The id-allocation race is the only remaining reason: `--next-id` reads index files that change only when `generate_backlog_index.py --write` runs. This guard can retire once id allocation stops depending on the regenerated index.
+> Dispatch one agent at a time, in the foreground, with at most 8 candidates per dispatch. A larger set runs as sequential batches, per `references/backlog-creation-process.md` § 7 Constraints.
 
 **Result handling:** render Step 7.4 from the author's status block. `ITEMS_FILED < CANDIDATES_IN` is a valid COMPLETE — name each retirement the author lists under `ITEMS_RETIRED`, with its evidence, in the summary. Reconcile each source document listed under `SOURCE_RECONCILE` per `references/verify-backlog-citation-freshness.md` §10.4; the author does not touch those files. If the preflight's `SOURCE_PINS` shows a source file whose line count differs from this session's own read, re-read it before trusting the item drafted from it.
 

@@ -1,12 +1,12 @@
 ---
-description: A gate result is evidence only if the input set could have contained the case that fails it, and that case goes missing in four places - behind a boundary the extractor drew wrongly (§1), outside the slice a runner was given (§2), below a metric's own threshold (§3), and on a failure branch that a forecast hides (§4) - so ask one question before citing any gate (§5).
-consult-when: About to cite a gate result as proof — could its input set have contained the case that fails it? An extraction boundary needs an interior and an exterior probe (§1), a sweep several runners share is gated at session scope over the full corpus (§2), a fixture must cross its metric's own threshold, not only beat the clean one (§3), and a per-item gate takes the operation's observed result, not a forecast, with a failure-injection test (§4); the one question that unifies the four (§5)
+description: A gate result is evidence only if the input set could have contained the case that fails it, and that case goes missing in four places - behind a boundary the extractor drew wrongly (§1), outside the slice a runner was given (§2), below a metric's own threshold (§3), and on a failure branch that a forecast hides (§4) - so ask one question before citing any gate (§5), and run two checks on every gate, a named defect planted in a scratch copy and an input-size count on a review or diff gate (§6).
+consult-when: About to cite a gate result as proof — could its input set have contained the case that fails it? An extraction boundary needs an interior and an exterior probe (§1), a sweep several runners share is gated at session scope over the full corpus (§2), a fixture must cross its metric's own threshold, not only beat the clean one (§3), and a per-item gate takes the operation's observed result, not a forecast, with a failure-injection test (§4); the one question that unifies the four (§5); a gate must name its defect and fail on a planted copy of the correct post-state (§6.1), and a review or diff gate prints its input count, with zero or untracked never PASS (§6.2)
 paths: {planwise_root}/{plans_dir}/**
 ---
 
 # Gate Discriminating Case (An Input Set That Could Have Failed the Gate)
 
-**Purpose:** A gate ran, nothing errored, and the result was recorded as verification. The run carried no information, because the input set could not contain the case that would fail it. This file names the four places that case goes missing and the practice that closes each. The sections are numbered 1 to 5 in this file. They are new rules, not former sections of `verification-gate-evidence.md`. The family index is `verification-gate-evidence.md`.
+**Purpose:** A gate ran, nothing errored, and the result was recorded as verification. The run carried no information, because the input set could not contain the case that would fail it. This file names the four places that case goes missing and the practice that closes each. The sections are numbered 1 to 6 in this file. Sections 1 to 4 are the four places, section 5 is the question, and section 6 is the two checks every gate runs. They are new rules, not former sections of `verification-gate-evidence.md`. The family index is `verification-gate-evidence.md`.
 
 **Read this when** you author or accept a gate that checks an extraction, a split or an anchor, a sweep that several runners share, a fixture set scored against a threshold, or a per-item gate that is fed a precomputed value.
 
@@ -17,6 +17,9 @@ paths: {planwise_root}/{plans_dir}/**
 - [3. Assert the Crossing, Not the Direction](#3-assert-the-crossing-not-the-direction)
 - [4. A Per-Item Gate Is Only as Good as the Provenance of What It Is Fed](#4-a-per-item-gate-is-only-as-good-as-the-provenance-of-what-it-is-fed)
 - [5. The One Question That Unifies the Four](#5-the-one-question-that-unifies-the-four)
+- [6. Two Checks Every Gate Carries](#6-two-checks-every-gate-carries)
+  - [6.1 Name the Defect, Plant It, and Show the Gate Failing](#61-name-the-defect-plant-it-and-show-the-gate-failing)
+  - [6.2 A Review or Diff Gate Proves Its Input Was Non-Empty](#62-a-review-or-diff-gate-proves-its-input-was-non-empty)
 
 ---
 
@@ -165,6 +168,59 @@ Three practices close the hole.
 > The answer is no in four places. Those places are the boundary (§1), the scope (§2), the threshold (§3) and the provenance (§4). A gate exercised only on input it accepts has been demonstrated, not tested.
 
 Keep all four places in view together. A reader who meets only the scope case does not learn to look for the threshold case. The value of the list is the enumeration.
+
+Section 6 is the check each gate runs to answer this question. It is not a fifth place.
+
+---
+
+## 6. Two Checks Every Gate Carries
+
+Section 5 asks whether the input set could have contained the failing case. Two checks answer it for every gate. The first shows the gate failing on a planted defect. The second shows that a review or diff gate saw a non-empty input.
+
+### 6.1 Name the Defect, Plant It, and Show the Gate Failing
+
+A pre-edit baseline shows the gate failing on the unfixed artifact. So does Obligation A of the instrument's proof obligations. Both exercise the before-state. A proxy gate fails the before-state too, and then also passes a wrong edit. Only a planted copy of the post-state tells the two apart.
+
+Take four steps for each gate.
+
+1. **Name the defect the gate catches, in one line.** Write the defect, not the check. "A count of matching lines" is a check. "The section exists but holds the wrong content" is a defect.
+2. **Copy the correct post-state to a scratch root outside the shipped tree.**
+3. **Plant that defect in the copy.** Change the one thing the defect names, and nothing else.
+4. **Run the gate on the copy and record its FAIL beside its PASS on the real artifact.** A gate that passes the planted copy checks a proxy. Replace it.
+
+> [!constraint] A gate that fails the before-state is not shown to catch its defect
+> WRONG — a line-count gate fails before the edit and passes after it, and the wrong content has the right length:
+> ```
+> gate: line count of the new section is at least 12      # pre-edit 0, post-edit 14: PASS
+> # The section holds twelve lines of unrelated text, and the gate still reads PASS.
+> ```
+> CORRECT — name the defect, plant it in a scratch copy of the correct post-state, and record both results:
+> ```
+> defect: the section exists and does not state the rule
+> gate:   Grep for the rule's key sentence inside the section, count at least 1
+> real post-state:   1  -> PASS
+> planted copy (same 14 lines, key sentence replaced): 0  -> FAIL
+> ```
+
+### 6.2 A Review or Diff Gate Proves Its Input Was Non-Empty
+
+A review or diff gate that was given nothing reads as clean. A reviewer that returns no findings over an empty set has reviewed nothing. A `git diff` over an untracked file prints nothing, and nothing reads as no change.
+
+Print the count of files or lines the gate was given beside its verdict. A count of 0, or a non-zero count of untracked files in the compared set, is FAIL or `[UNCERTAIN]`, never PASS. A reviewer returns the list of what it read, so the reader can compare it with what the review was meant to cover.
+
+[`gate-input-set-and-compared-window.md`](gate-input-set-and-compared-window.md) §10.6 owns the recorded input-set counts. [`gate-baseline-independence.md`](gate-baseline-independence.md) §1 owns the untracked-target case. This section applies both to every review or diff gate and does not restate them.
+
+> [!constraint] A diff gate prints what it was given
+> WRONG — a diff over a file git does not track prints nothing, and the gate reads it as clean:
+> ```
+> git diff -- <new file>        # prints nothing: the file is untracked
+> # verdict: PASS (no unwanted lines in the diff)
+> ```
+> CORRECT — the gate prints the size of its input, and a zero or an untracked file is not PASS:
+> ```
+> files compared: 0   untracked in the set: 1
+> # verdict: [UNCERTAIN] - the gate saw no input
+> ```
 
 ---
 

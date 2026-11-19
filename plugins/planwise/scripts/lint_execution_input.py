@@ -53,7 +53,7 @@ Rules, by word id:
     spec-citation-pair    references/ei-citation-and-token-reconciliation.md §7.
                           Every ``Spec #N`` token on the ``Extracted from:`` line
                           and in a Cross-References Source cell is followed by
-                          ``(filename.md)``, and the number and filename resolve
+                          ``(filename)``, and the number and filename resolve
                           as a pair in the Global Source Map. BLOCKER.
     count-claim           references/ei-citation-and-token-reconciliation.md §7.
                           A count-claim match in sprint markdown outside the EI
@@ -153,6 +153,8 @@ MAP_TITLE_RE = re.compile(r"Global Source Map", re.IGNORECASE)
 MAP_NUMBER_RE = re.compile(r"(?:Spec[ \t]*)?#?[ \t]*([0-9]+)")
 # A map cell may elide a long filename's prefix with an ellipsis: `…Part-3-Topic.md`.
 MD_NAME_RE = re.compile(r"(?:…)?[A-Za-z0-9_.\-/\\]+\.md\b")
+# A cited source of any extension; MD_NAME_RE is for rules that read the source as markdown.
+SOURCE_NAME_RE = re.compile(r"(?:…)?[A-Za-z0-9_.\-/\\]+\.[A-Za-z][A-Za-z0-9]*\b")
 ELISION_PREFIXES = ("…", "...")
 # A sentence about the marker, not a claim carrying it: "each UNCONFIRMED caveat".
 MARKER_MENTION_RE = re.compile(
@@ -377,7 +379,7 @@ def _read_map_span(lines: list[str], span: range, files: dict[int, str], tiers: 
         if not line.lstrip().startswith("|"):
             previous_table_line = False
             for number, inner in ((m["num"], m["inner"]) for m in SPEC_TOKEN_RE.finditer(line)):
-                name = MD_NAME_RE.search(inner or "")
+                name = SOURCE_NAME_RE.search(inner or "")
                 if name:
                     files.setdefault(int(number), Path(name.group(0).replace("\\", "/")).name)
             continue
@@ -395,7 +397,7 @@ def _read_map_span(lines: list[str], span: range, files: dict[int, str], tiers: 
             continue
         number = int(MAP_NUMBER_RE.fullmatch(cells[number_at].strip("`*_ ")).group(1))
         for position, cell in enumerate(cells):
-            name = MD_NAME_RE.search(cell) if position != number_at else None
+            name = SOURCE_NAME_RE.search(cell) if position != number_at else None
             if name:
                 files.setdefault(number, Path(name.group(0).replace("\\", "/")).name)
                 break
@@ -804,7 +806,7 @@ def check_cross_tier_note(ctx: Context) -> RuleResult:
                 numbers = {int(n) for n in SPEC_NUMBER_RE.findall(source)}
                 names = {}
                 for match in SPEC_TOKEN_RE.finditer(source):
-                    name = MD_NAME_RE.search(match["inner"] or "")
+                    name = SOURCE_NAME_RE.search(match["inner"] or "")
                     if name:
                         names[int(match["num"])] = Path(name.group(0).replace("\\", "/")).name
                 if numbers:
@@ -919,7 +921,10 @@ def check_spec_citation_pair(ctx: Context) -> RuleResult:
     Cross-References Source cells, or one in a plural form ('Specs #3, #4').
     Filenames are compared by basename. A map name elided with a leading
     ellipsis matches any cited name ending in its tail, so two sources that
-    share a tail cannot be told apart.
+    share a tail cannot be told apart. The filename may carry any extension,
+    so an abbreviation such as 'e.g' also reads as a filename: in a citation it
+    still reports the BLOCKER, and in a map row it misreads only when such a
+    cell precedes the filename cell.
     """
     result = RuleResult()
     for ei in ctx.eis:
@@ -927,9 +932,9 @@ def check_spec_citation_pair(ctx: Context) -> RuleResult:
             for match in SPEC_TOKEN_RE.finditer(text):
                 result.subjects += 1
                 number = int(match["num"])
-                name = MD_NAME_RE.search(match["inner"] or "")
+                name = SOURCE_NAME_RE.search(match["inner"] or "")
                 if name is None:
-                    message = f"'Spec #{number}' is not followed by '(filename.md)'"
+                    message = f"'Spec #{number}' is not followed by '(filename)'"
                 else:
                     cited = Path(name.group(0).replace("\\", "/")).name
                     mapped = ctx.source_map.files.get(number)

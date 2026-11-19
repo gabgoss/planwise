@@ -1,6 +1,6 @@
 ---
-description: A figure is not verified until its derivation is. Covers why recomputing a total proves only that the author can add, why a filtered denominator is wrong only where it bites, why a bare count in prose has to be re-derived at every hop that depends on it, and why a measurement written into its own subject needs a convergence argument. Consult when about to report, verify or repair a figure that is a sum, a labelled aggregate, or a count stated in prose. Also covers why every operand of a byte-equality gate must come from one byte instrument, because a character count in a byte identity reads as lost content.
-consult-when: About to report, verify or repair a total, a labelled aggregate, or a count stated in prose — verify the addends, state the population beside the figure, name the members inline, and take every operand of a byte-equality gate from one byte instrument (a character count in a byte identity reads as lost content)
+description: A figure is not verified until its derivation is. Covers why recomputing a total proves only that the author can add, why a filtered denominator is wrong only where it bites, why a bare count in prose has to be re-derived at every hop that depends on it, and why a measurement written into its own subject needs a convergence argument. Consult when about to report, verify or repair a figure that is a sum, a labelled aggregate, or a count stated in prose. Also covers why every operand of a byte-equality gate must come from one byte instrument, because a character count in a byte identity reads as lost content. Also covers four more shapes. An occurrence count comes from a findall over the bare pattern. Both readings of a before/after level gate come from one instrument. Two recounts that disagree are reconciled by their unmatched lists, not their totals. A fan-out pins the selection grain as a literal beside the instrument.
+consult-when: About to report, verify or repair a total, a labelled aggregate, or a count stated in prose — verify the addends, state the population beside the figure, name the members inline, and take every operand of a byte-equality gate from one byte instrument (a character count in a byte identity reads as lost content), pin an occurrence count from a findall over the bare pattern, read both sides of a before/after level gate from one instrument, reconcile two recounts by their unmatched lists, and pin a fan-out's selection grain as a literal
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Aggregate Provenance — A Figure Is Not Verified Until Its Derivation Is
@@ -20,6 +20,10 @@ Three neighbouring rules own adjacent machinery. [`measurement-discipline.md`](m
 - [3. A Bare Count in Prose Is a Claim, Not a Measurement — Name the Members Inline](#3-a-bare-count-in-prose-is-a-claim-not-a-measurement--name-the-members-inline)
 - [4. A Measurement Stored Inside Its Own Subject Needs a Convergence Argument](#4-a-measurement-stored-inside-its-own-subject-needs-a-convergence-argument)
 - [5. Every Operand of a Byte Identity Comes From One Byte Instrument](#5-every-operand-of-a-byte-identity-comes-from-one-byte-instrument)
+- [6. A Pinned Occurrence Count Comes From a Findall Over the Bare Pattern](#6-a-pinned-occurrence-count-comes-from-a-findall-over-the-bare-pattern)
+- [7. Both Readings of a Before/After Level Gate Come From One Instrument](#7-both-readings-of-a-beforeafter-level-gate-come-from-one-instrument)
+- [8. Two Recounts Disagree by Tokenizer: Reconcile the Unmatched Lists, Never the Totals](#8-two-recounts-disagree-by-tokenizer-reconcile-the-unmatched-lists-never-the-totals)
+- [9. A Fan-Out Pins the Selection Grain as a Literal, Not Only the Instrument](#9-a-fan-out-pins-the-selection-grain-as-a-literal-not-only-the-instrument)
 
 ---
 
@@ -157,6 +161,112 @@ Check 51 in `scripts/lint_gate_checks_measure.py` enforces the first point on ta
 Name the instrument beside each byte figure, and treat blob bytes against checkout bytes as the same trap: [`measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md`](measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md) § "8.12 A byte pin names its instrument: blob bytes and checkout bytes differ under autocrlf".
 
 [`measurement-discipline.md`](measurement-discipline.md) § "8.1 Line-count measurements MUST use `wc -l`, not Read-output line numbers" governs line counts. This section is the byte-and-character counterpart.
+
+---
+
+## 6. A Pinned Occurrence Count Comes From a Findall Over the Bare Pattern
+
+> [!constraint] Take an occurrence count from the instrument the executor will assert with, and run that instrument once before pinning the number
+> Context added to a shell search pattern becomes part of the match. A search that prints each match (`-o`) with trailing context can absorb the next occurrence on the same line. A line count (`Grep` count mode, or a shell `-c`) counts lines, not occurrences. A brief pinned "5 replacements" on a file that held 6, because one line held the pattern twice.
+>
+> ```
+> WRONG — count occurrences from a context-padded match, or from a line count:
+> re.findall(rb'.{0,60}PATTERN.{0,40}', data)      # 6 matches, but 7 occurrences
+> Grep  pattern='PATTERN'  output_mode='count'     # 6 lines, not occurrences
+>
+> CORRECT — count with a findall over the bare pattern; use context only for display:
+> python -c "import re,sys; print(len(re.findall(rb'PATTERN', open(sys.argv[1],'rb').read())))" file   # 7
+> ```
+
+A brief that pins a replacement count or an occurrence count takes it from the same kind of instrument the executor will assert with. That instrument is `re.findall` or `re.subn`. Run it once before pinning the number.
+
+The trigger is a file where one line can hold the pattern twice. Doc comments, examples and tables are the usual places.
+
+---
+
+## 7. Both Readings of a Before/After Level Gate Come From One Instrument
+
+> [!constraint] Read the base and the current figure with the same instrument, then attribute the delta by commit
+> Under `core.autocrlf=true` a blob holds LF and the checkout holds CRLF, one byte more per line. A read-gate level boundary sits close to the sizes of these files, so that difference can cross it. A handler read 24,681 tokens (WARN) as a base blob and about 25,000 tokens (OVER) as a checkout. The report said the series had moved it to OVER.
+>
+> The HEAD blob, measured with the same instrument, read 24,699 tokens. That is still WARN. The series had added 18 tokens through a one-line edit.
+>
+> ```
+> WRONG — base from the blob, current from the checkout:
+> base   git show <base>:run.md → measure → 24,681 WARN
+> now    measure run.md (CRLF)  → 25,000 OVER   # "the series pushed it over"
+>
+> CORRECT — one instrument on both sides, then attribute the delta by commit:
+> base   git show <base>:run.md → measure → 24,681 WARN
+> now    git show HEAD:run.md   → measure → 24,699 WARN   # +18, no level change
+> git log --numstat <base>..HEAD -- <path>    # whose commit moved it
+> ```
+
+A second file in the same row did cross from OK to WARN on the blob instrument. `git log` showed that two peer commits caused it. The plan's one-line edit did not.
+
+Section 5 carries the same trap for byte pins. A level gate is the token form of it.
+
+---
+
+## 8. Two Recounts Disagree by Tokenizer: Reconcile the Unmatched Lists, Never the Totals
+
+> [!constraint] List each unmatched item and classify it before comparing two totals
+> A runner reported 15 inline-code spans with 0 unmatched, and 55 digit-bearing figures with 11 unmatched. The orchestrator recounted the same blob. It split on whitespace and kept punctuation. It read 15 spans with 1 unmatched, and 60 figures with 14 unmatched.
+>
+> Listing the orchestrator's unmatched items settled it. The one span belonged to a cut paragraph that the set-difference section recorded. The extra figures were punctuation variants of terms still present, such as `(see 10.2` and `(see 10.2)`. The rest was the tail of a cut guard that the set-difference record also named.
+>
+> ```
+> WRONG — compare two totals from two instruments:
+> runner:       figures 55, unmatched 11
+> orchestrator: figures 60, unmatched 14   -> "mismatch" or "close enough"
+>
+> CORRECT — list each unmatched item and classify it:
+> for each item in orchestrator_unmatched:
+>     present in the edited file under another punctuation?   -> instrument artifact
+>     recorded in ## Set Difference with a survivor?          -> covered
+>     neither?                                                 -> a lost term: the finding
+> ```
+
+The gate passes when every unmatched item is an artifact or covered. The record names which instrument produced which count. A gate that demands equal totals fails correct work. A gate that accepts "close enough" passes a real loss.
+
+---
+
+## 9. A Fan-Out Pins the Selection Grain as a Literal, Not Only the Instrument
+
+> [!constraint] Pin what is put on the scale as well as how it is weighed
+> A measurement has two parts that drift independently. The instrument is how the number is taken, here bytes divided by 2.6. The selection is which text counts as kept. A method gate checks how a number was taken. It does not check what was put on the scale.
+>
+> Four outputs of one fan-out gave five readings, and all passed the method gate. Each used the same instrument and read a different grain:
+>
+> | Output | Grain read | Example target | Share of source kept |
+> |---|---|---|---|
+> | Output 1 | per file | `callout-conventions.md` 6,985 → 2,106 | 30% |
+> | Output 1 | per file | `rule-authoring.md` 7,625 → 3,879 | 51% |
+> | Output 2 | mixed | four files | 59% to 81% |
+> | Output 3 | per rule section | `read-confirm-act-protocol.md` 22,430 → 17,362 | 77% |
+> | Output 4 | per rule section, every heading and Reviewer Check kept | `scaffolding-hygiene.md` 23,919 → 19,086 | 80% |
+
+Four rules follow.
+
+1. Pin the selection grain as a literal. Write "one WRONG/CORRECT pair per file" or "one pair per `##` rule section". Never write "the operative rule plus one pair".
+2. Make each output state its grain beside its method line.
+3. At the batch gate, compare the kept share across outputs. A spread of 30% to 87% for one disposition is the signal, and only the set shows it.
+4. When the spread has already happened, never average or sum across grains. Route it to the consolidator. The consolidator pins one grain and re-derives the other class, or reports the two classes separately.
+
+```
+WRONG — the brief pins the instrument and leaves the selection to each runner:
+Step 5: for compress, sum the bytes of the operative rule sentences plus one
+        WRONG/CORRECT pair and divide by 2.6.
+# runner A: one pair per file        -> 30-51% kept
+# runner B: one pair per rule section -> 77-87% kept   (both pass the method gate)
+
+CORRECT — the brief pins both, and the output declares its grain:
+Step 5: for compress, keep every heading, each section's operative rule sentences,
+        and ONE WRONG/CORRECT pair per FILE. Sum the kept bytes, divide by 2.6.
+Output header: **Target-token method:** bytes / 2.6. **Grain:** one pair per file.
+```
+
+The trigger is any fan-out where several runners each produce a figure that a later step sums or compares. Compress targets, kept-line counts, "core" token budgets and coverage percentages all qualify. The vocabulary half of the same discipline is [`dispatch-batch-gate.md`](dispatch-batch-gate.md) § "4. Pin the Output Vocabulary Before Fan-Out; Diff the Emitted Shapes After".
 
 ---
 

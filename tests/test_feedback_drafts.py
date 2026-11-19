@@ -1,6 +1,7 @@
 """Tests for scripts/feedback_drafts.py: every command, every branch, every delete."""
 
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -230,6 +231,41 @@ def test_count_queued_on_an_absent_directory_is_zero(tmp_path):
     assert fd.count_queued(tmp_path / "missing") == 0
 
 
+def test_list_writes_nothing_and_still_reports_an_over_age_draft_as_expired(fdir, capsys):
+    old = make_draft(fdir, "2026-01-01-draft-bug-old.md", draft_id="old", created_at=iso(31), title="Old one")
+    make_draft(fdir, "2026-01-01-draft-bug-fresh.md", draft_id="fresh", created_at=iso(1), title="Fresh one")
+    before = {p.name: p.read_bytes() for p in fdir.iterdir()}
+
+    code, out, _ = run(["list", "--feedback-dir", str(fdir)], capsys)
+    assert code == 0
+    assert {p.name: p.read_bytes() for p in fdir.iterdir()} == before
+    assert any(line.split("\t")[:2] == ["old", "expired"] for line in out.splitlines())
+
+    code, out, _ = run(["list", "--json", "--all", "--feedback-dir", str(fdir)], capsys)
+    assert code == 0
+    assert {p.name: p.read_bytes() for p in fdir.iterdir()} == before
+    assert {item["draft_id"]: item["status"] for item in json.loads(out)} == {"old": "expired", "fresh": "queued"}
+
+    code, out, _ = run(["list", "--table", "--feedback-dir", str(fdir)], capsys)
+    assert code == 0
+    assert {p.name: p.read_bytes() for p in fdir.iterdir()} == before
+    assert "Expired (1)" in out
+    assert fm_value(old, "status") == "queued"
+
+    code, _, _ = run(["expire", "--feedback-dir", str(fdir)], capsys)
+    assert code == 0
+    assert fm_value(old, "status") == "expired"
+
+
+def test_admit_ignores_an_over_age_queued_draft_with_the_same_title(fdir, capsys):
+    old = make_draft(fdir, "2026-01-01-draft-bug-old.md", draft_id="old", created_at=iso(31), title="Same")
+    new = make_draft(fdir, "2026-01-01-draft-bug-new.md", draft_id="pending", created_at="pending", status="pending", title="Same")
+    code, _, _ = run(["admit", str(new), "--feedback-dir", str(fdir)], capsys)
+    assert code == 0
+    assert new.exists()
+    assert fm_value(old, "status") == "expired"
+
+
 def test_duplicate_title_exits_3_removes_file_and_prints_one_line(fdir, capsys):
     make_draft(fdir, "2026-01-01-draft-bug-first.md", draft_id="f1", created_at=iso(2), title="Same Title!")
     dup = make_draft(fdir, "2026-01-01-draft-bug-second.md", draft_id="pending", created_at="pending", status="pending", title="same   title")
@@ -451,7 +487,7 @@ def test_admit_without_a_directory_option_exits_2_and_changes_nothing(fdir, caps
     assert {p: p.read_bytes() for p in (stale, target)} == before
 
 
-@pytest.mark.parametrize("command", [["list"], ["expire"], ["discard", "x1"], ["promote", "x1"]])
+@pytest.mark.parametrize("command", [["list"], ["expire"], ["discard", "x1"], ["promote", "x1"], ["blocked-list"], ["dismiss-blocked", "--all"]])
 def test_every_directory_command_refuses_an_archive_directory(fdir, capsys, command):
     archived = make_draft(fdir / "Archive", "2026-01-01-draft-bug-old.md", draft_id="x1", created_at=iso(90))
     before = archived.read_bytes()
@@ -1032,3 +1068,204 @@ def test_sweep_list_never_lists_a_model_draft(fdir, capsys):
     assert str(draft) not in out
     assert "orphan" not in out
     assert out.splitlines()[-1] == "No posted drafts to archive."
+
+
+# ---------------------------------------------------------------- blocked sidecar
+
+LEAKY_LINE = "The report quotes secret.person@example.test in full."
+BLOCKED_LINES = [
+    ("git-remote", "Clone it from git@github.example:team/repo.git first."),
+    ("absolute-path", r"It failed under C:\Users\someone\project."),
+    ("email", LEAKY_LINE),
+    ("handle", "Thanks to @someone-private for the report."),
+]
+
+
+def make_promoted(directory: Path, name: str = "2026-11-18-bug-leaky.md", line: str = LEAKY_LINE) -> Path:
+    """A promoted draft: a standard draft with no frontmatter, as `promote` writes it."""
+    path = directory / name
+    path.write_bytes(f"### What happened\n\n{line}\n\n{fd.PROVENANCE_LINE}\n".encode())
+    return path
+
+
+def mark(draft: Path, capsys, *, block_class: str = "email", line: str = "3", route: str = "issue"):
+    return run(["mark-blocked", "--draft", str(draft), "--class", block_class, "--line", line, "--route", route], capsys)
+
+
+def sidecar_of(draft: Path) -> Path:
+    return draft.with_name(draft.name + ".blocked")
+
+
+def test_mark_blocked_writes_exactly_date_class_line_route_and_no_matched_text(fdir, capsys):
+    draft = make_promoted(fdir)
+    code, out, _ = mark(draft, capsys)
+    assert code == 0
+    assert str(sidecar_of(draft)) in out
+    lines = sidecar_of(draft).read_text(encoding="utf-8").splitlines()
+    assert [line.split(":", 1)[0] for line in lines] == ["blocked", "class", "line", "route"]
+    assert re.fullmatch(r"blocked: \d{4}-\d{2}-\d{2}", lines[0])
+    assert lines[1:] == ["class: email", "line: 3", "route: issue"]
+    text = sidecar_of(draft).read_text(encoding="utf-8")
+    assert "secret" not in text and "example.test" not in text and "@" not in text
+
+
+@pytest.mark.parametrize(("block_class", "line"), BLOCKED_LINES)
+def test_mark_blocked_takes_every_class_prepare_post_can_print(fdir, capsys, block_class, line):
+    draft = make_promoted(fdir, line=line)
+    hit = fd.scan_post_bytes(draft.read_bytes(), "owner/repo")
+    assert hit is not None and hit[0] == block_class
+    code, _, _ = mark(draft, capsys, block_class=hit[0], line=str(hit[1]), route="comment")
+    assert code == 0
+    assert f"class: {block_class}" in sidecar_of(draft).read_text(encoding="utf-8")
+
+
+def test_mark_blocked_leaves_the_draft_untouched(fdir, capsys):
+    draft = make_promoted(fdir)
+    before = draft.read_bytes()
+    mark(draft, capsys)
+    assert draft.read_bytes() == before
+    assert sorted(p.name for p in fdir.iterdir()) == [draft.name, draft.name + ".blocked"]
+
+
+def test_mark_blocked_refuses_a_missing_draft_a_model_draft_and_a_line_below_one(fdir, capsys):
+    code, _, err = mark(fdir / "2026-11-18-bug-gone.md", capsys)
+    assert code == 1 and "draft not found" in err
+    model = make_draft(fdir, "2026-11-18-draft-bug-model.md")
+    code, _, err = mark(model, capsys)
+    assert code == 1 and "never a model draft" in err
+    assert not sidecar_of(model).exists()
+    draft = make_promoted(fdir)
+    code, _, err = mark(draft, capsys, line="0")
+    assert code == 1 and "--line must be 1 or more" in err
+    assert not sidecar_of(draft).exists()
+
+
+@pytest.mark.parametrize("argv", [["--class", "password"], ["--route", "pull-request"]])
+def test_mark_blocked_rejects_a_class_or_route_outside_the_fixed_sets(fdir, capsys, argv):
+    draft = make_promoted(fdir)
+    base = {"--class": "email", "--route": "issue"}
+    base[argv[0]] = argv[1]
+    with pytest.raises(SystemExit) as raised:
+        fd.main(["mark-blocked", "--draft", str(draft), "--line", "3", "--class", base["--class"], "--route", base["--route"]])
+    assert raised.value.code == 2
+    capsys.readouterr()
+    assert not sidecar_of(draft).exists()
+
+
+def test_mark_blocked_again_replaces_the_record_and_clears_an_earlier_dismissal(fdir, capsys):
+    draft = make_promoted(fdir)
+    mark(draft, capsys)
+    run(["dismiss-blocked", "--draft", str(draft)], capsys)
+    assert fd.count_blocked(fdir) == 0
+    mark(draft, capsys, block_class="handle", line="7", route="comment")
+    text = sidecar_of(draft).read_text(encoding="utf-8")
+    assert "dismissed" not in text
+    assert "class: handle" in text and "line: 7" in text and "route: comment" in text
+    assert fd.count_blocked(fdir) == 1
+
+
+def test_dismiss_blocked_writes_dismissed_and_leaves_the_draft_in_place(fdir, capsys):
+    draft = make_promoted(fdir)
+    mark(draft, capsys)
+    before = draft.read_bytes()
+    code, out, _ = run(["dismiss-blocked", "--draft", str(draft)], capsys)
+    assert code == 0
+    assert out.startswith("dismissed ")
+    assert draft.read_bytes() == before
+    lines = sidecar_of(draft).read_text(encoding="utf-8").splitlines()
+    assert [line.split(":", 1)[0] for line in lines] == ["blocked", "class", "line", "route", "dismissed"]
+    assert re.fullmatch(r"dismissed: \d{4}-\d{2}-\d{2}", lines[-1])
+    assert sum(1 for line in lines if line.startswith("dismissed:")) == 1
+
+
+def test_dismiss_blocked_is_idempotent_and_exits_1_without_a_record(fdir, capsys):
+    draft = make_promoted(fdir)
+    code, _, err = run(["dismiss-blocked", "--draft", str(draft)], capsys)
+    assert code == 1 and "no blocked record" in err
+    mark(draft, capsys)
+    run(["dismiss-blocked", "--draft", str(draft)], capsys)
+    once = sidecar_of(draft).read_bytes()
+    code, out, _ = run(["dismiss-blocked", "--draft", str(draft)], capsys)
+    assert code == 0 and out.startswith("already dismissed ")
+    assert sidecar_of(draft).read_bytes() == once
+
+
+def test_dismiss_blocked_all_dismisses_only_the_active_drafts(fdir, capsys):
+    active = make_promoted(fdir, "2026-11-18-bug-a.md")
+    posted = make_promoted(fdir, "2026-11-18-bug-b.md")
+    for draft in (active, posted):
+        mark(draft, capsys)
+    (fdir / (posted.name + ".posted")).write_text("posted: 2026-11-19\nurl: u\nroute: issue\n", encoding="utf-8")
+    drafts_before = {p.name: p.read_bytes() for p in (active, posted)}
+    code, out, _ = run(["dismiss-blocked", "--all", "--feedback-dir", str(fdir)], capsys)
+    assert code == 0 and out.strip() == "dismissed 1 blocked draft(s)"
+    assert "dismissed:" in sidecar_of(active).read_text(encoding="utf-8")
+    assert "dismissed:" not in sidecar_of(posted).read_text(encoding="utf-8")
+    assert {p.name: p.read_bytes() for p in (active, posted)} == drafts_before
+
+
+def test_dismiss_blocked_needs_exactly_one_of_draft_and_all(fdir, capsys):
+    for argv in ([], ["--all", "--draft", "x"]):
+        with pytest.raises(SystemExit) as raised:
+            fd.main(["dismiss-blocked", "--feedback-dir", str(fdir), *argv])
+        assert raised.value.code == 2
+    capsys.readouterr()
+
+
+def test_count_blocked_excludes_dismissed_posted_and_orphan_records_and_writes_nothing(fdir, capsys):
+    counted = make_promoted(fdir, "2026-11-18-bug-counted.md")
+    dismissed = make_promoted(fdir, "2026-11-18-bug-dismissed.md")
+    posted = make_promoted(fdir, "2026-11-18-bug-posted.md")
+    for draft in (counted, dismissed, posted):
+        mark(draft, capsys)
+    run(["dismiss-blocked", "--draft", str(dismissed)], capsys)
+    (fdir / (posted.name + ".posted")).write_text("posted: 2026-11-19\nurl: u\nroute: issue\n", encoding="utf-8")
+    (fdir / "2026-11-18-bug-gone.md.blocked").write_text("blocked: 2026-11-18\nclass: email\nline: 1\nroute: issue\n", encoding="utf-8")
+    before = {p.name: p.read_bytes() for p in fdir.iterdir()}
+    assert fd.count_blocked(fdir) == 1
+    assert {p.name: p.read_bytes() for p in fdir.iterdir()} == before
+
+
+def test_count_blocked_on_an_absent_directory_is_zero(tmp_path):
+    assert fd.count_blocked(tmp_path / "missing") == 0
+
+
+def test_blocked_list_shows_active_drafts_and_all_adds_dismissed_and_posted(fdir, capsys):
+    active = make_promoted(fdir, "2026-11-18-bug-a.md")
+    dismissed = make_promoted(fdir, "2026-11-18-bug-b.md")
+    posted = make_promoted(fdir, "2026-11-18-bug-c.md")
+    for draft in (active, dismissed, posted):
+        mark(draft, capsys, route="comment")
+    run(["dismiss-blocked", "--draft", str(dismissed)], capsys)
+    (fdir / (posted.name + ".posted")).write_text("posted: 2026-11-19\nurl: u\nroute: issue\n", encoding="utf-8")
+    code, out, _ = run(["blocked-list", "--feedback-dir", str(fdir)], capsys)
+    assert code == 0
+    rows = out.splitlines()
+    assert len(rows) == 1
+    cells = rows[0].split("\t")
+    assert cells[0] == str(active) and cells[1:5] == ["blocked", "email", "line 3", "comment"]
+    code, out, _ = run(["blocked-list", "--all", "--feedback-dir", str(fdir)], capsys)
+    assert [row.split("\t")[1] for row in out.splitlines()] == ["blocked", "dismissed", "posted"]
+    assert "secret" not in out
+
+
+def test_blocked_list_json_carries_the_sidecar_keys_and_no_matched_text(fdir, capsys):
+    draft = make_promoted(fdir)
+    mark(draft, capsys)
+    code, out, _ = run(["blocked-list", "--json", "--feedback-dir", str(fdir)], capsys)
+    assert code == 0
+    records = json.loads(out)
+    assert len(records) == 1
+    record = records[0]
+    assert record["draft"] == str(draft)
+    assert (record["class"], record["line"], record["route"], record["dismissed"], record["posted"]) == ("email", "3", "issue", "", False)
+    assert "secret" not in out
+
+
+def test_blocked_list_says_so_when_nothing_is_blocked_and_writes_nothing(fdir, capsys):
+    draft = make_promoted(fdir)
+    before = {p.name: p.read_bytes() for p in fdir.iterdir()}
+    code, out, _ = run(["blocked-list", "--feedback-dir", str(fdir)], capsys)
+    assert code == 0 and out.strip() == "no blocked drafts"
+    assert {p.name: p.read_bytes() for p in fdir.iterdir()} == before
+    assert draft.exists()

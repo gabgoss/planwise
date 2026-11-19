@@ -1,6 +1,6 @@
 ---
-description: A finding is scoped to the sample it was taken from, the project it was measured in, and the corpus that was searched — and the sentence that states it has to carry that boundary. Covers why one dispatch is an anecdote and how to sample without cherry-picking, why a hypothesis about a consuming project cannot be settled in the tool's own repository, why "the record does not capture X" is true only of the shelf that was swept, and the three sentence forms that keep the boundary attached. Consult when measuring model or harness behaviour, testing a hypothesis whose magnitude lives outside the tool, or accepting an evidence-gap statement. Also covers why a column that reads the same value before the first boundary measures the floor every session pays, and must be baselined before arms are compared on it.
-consult-when: Measuring model or harness behaviour, testing a hypothesis whose magnitude lives in a consuming project, or accepting "the record does not capture X" — declare n per cell, classify the hypothesis, enumerate the record-keeping layers, write the boundary into the sentence, and baseline a column that reads the same before the first boundary because it measures the floor every session pays, and scope a negative to the invocation that produced it and read an under-run cost as a broken chain (§6)
+description: A finding is scoped to the sample it was taken from, the project it was measured in, and the corpus that was searched — and the sentence that states it has to carry that boundary. Covers why one dispatch is an anecdote and how to sample without cherry-picking, why a hypothesis about a consuming project cannot be settled in the tool's own repository, why "the record does not capture X" is true only of the shelf that was swept, and the three sentence forms that keep the boundary attached. Consult when measuring model or harness behaviour, testing a hypothesis whose magnitude lives outside the tool, or accepting an evidence-gap statement. Also covers why a column that reads the same value before the first boundary measures the floor every session pays, and must be baselined before arms are compared on it. Also covers why a harness behaviour measured on one surface is a claim about that surface only. Also covers why a baseline figure carries the fixture it was measured on, so a prediction computed from it stays a prediction.
+consult-when: Measuring model or harness behaviour, testing a hypothesis whose magnitude lives in a consuming project, or accepting "the record does not capture X" — declare n per cell, classify the hypothesis, enumerate the record-keeping layers, write the boundary into the sentence, and baseline a column that reads the same before the first boundary because it measures the floor every session pays, and scope a negative to the invocation that produced it and read an under-run cost as a broken chain (§6), and scope a harness behaviour to the surface that measured it before shipping guidance (§7), and read the fixture behind a recorded figure before computing a prediction from it (§8)
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Measurement Scope and Sample — Write the Boundary Into the Sentence
@@ -23,6 +23,8 @@ A task that builds or operates the measurement harness itself reads [`harness-in
 - [4. Write the Boundary Into the Sentence](#4-write-the-boundary-into-the-sentence)
 - [5. A Column That Reads the Same Before the Boundary Measures the Floor — Baseline It](#5-a-column-that-reads-the-same-before-the-boundary-measures-the-floor--baseline-it)
 - [6. A Negative Is Scoped to the Invocation That Produced It](#6-a-negative-is-scoped-to-the-invocation-that-produced-it)
+- [7. A Harness Behaviour Measured on One Surface Is a Claim About That Surface Only](#7-a-harness-behaviour-measured-on-one-surface-is-a-claim-about-that-surface-only)
+- [8. A Baseline Figure Carries the Fixture It Was Measured On](#8-a-baseline-figure-carries-the-fixture-it-was-measured-on)
 
 ---
 
@@ -191,6 +193,74 @@ A deferred call threw `no session is bound in this process`. The error text name
 > ```
 
 **Applies to** probe designs that ask "does X survive headless", cost estimates for chained runs, and any hook or plugin that schedules work for "after the answer".
+
+---
+
+## 7. A Harness Behaviour Measured on One Surface Is a Claim About That Surface Only
+
+> [!constraint] Record the surface beside the build, and check every surface the guidance reaches
+> A probe ran headless with `claude -p` on one CLI build. It found that an `Agent` call omitting `run_in_background` ran in the background in 15 of 15 spawns. It also found that `run_in_background: false` gave a foreground child.
+>
+> A backlog item proposed adding the flag to every writer spawn, and a shipped reference already said the flag triggers the foreground. On the next build the two surfaces disagreed. The table lists each surface's reading.
+>
+> | Surface | `run_in_background` on the `Agent` schema | Flag `false` passed | Child ran in |
+> |---|---|---|---|
+> | headless `claude -p` | accepted | yes | foreground |
+> | interactive session | absent, with `additionalProperties: false` | yes, accepted without error | background |
+>
+> The interactive harness ignored the flag and still routed the child's approval request to the user as a prompt. The defect the item fixed is a background child denied with no prompt. That defect exists headless, and the interactive surface behaves differently. The triage caught this only because it read its own `Agent` schema.
+>
+> WRONG — the surface is implicit, so the claim reads as universal:
+> ```
+> Measured 2026-10-25 on Claude Code 2.1.310: run_in_background: false gives a foreground run.
+> How to trigger foreground: run_in_background: false on the Agent call.
+> ```
+> CORRECT — the surface is named, and the other surface is measured or marked unmeasured:
+> ```
+> Measured 2026-10-28 on 2.1.312, headless (claude -p): run_in_background: false gives a foreground run.
+> Interactive, same build: the Agent schema has no run_in_background field; the flag is accepted
+> and ignored, and the child runs in the background. Its approval prompts still reach the user.
+> ```
+
+Three rules follow.
+
+- **Scope a harness measurement to the surface that produced it.** The surfaces are headless `-p`, interactive and SDK. Record the surface beside the build.
+- **Check the parameter on every surface the guidance reaches.** A plugin's handlers run on both surfaces. Guidance about a parameter reaches both.
+- **Read the live tool schema first, because it costs nothing.** Then spawn one trivial agent with the parameter set, because that is cheap.
+
+**Applies to** any reference, handler or backlog item that states what a Claude Code tool parameter, permission mode or spawn mode does. It applies most where the evidence comes from a `claude -p` probe harness. §6 covers the same boundary for a negative result.
+
+---
+
+## 8. A Baseline Figure Carries the Fixture It Was Measured On
+
+> [!constraint] Read the fixture behind a recorded figure before doing arithmetic on it
+> At the confirm step, an orchestrator predicted that a task's new report lines would break the pin `assert len(report) < 2_000`. The build had 35 tasks. The orchestrator took a 716-character baseline from an earlier record and added about 1,540 characters. It reported about 2,250 as a structural finding.
+>
+> The 716 came from a build with a stray H2 and no sibling file. That is not the clean build the pin measures. The clean build measured about 400 characters, and the comment one line above the pin said so. The true total was 1,887, under the pin.
+>
+> The false figure then did damage. The brief told the runner the pin would fail. The runner loosened the pin to `< 2_500` and copied "about 716 of gate lines" into the test comment. The correction cost one corrective resume and three plan-file notes.
+>
+> WRONG — take the number from a record and do arithmetic on it:
+> ```text
+> record: "The report is 716 characters"      (a run with a stray H2)
+> finding: 716 + 1,540 = 2,256 -> past the 2,000 pin -> widen the write-set
+> brief:   "the pin fails"
+> ```
+> CORRECT — read the fixture, then measure the subject the claim is about:
+> ```text
+> record: "with a stray H2 in one session objective" -> not the clean build
+> pin comment: "about 400 characters" -> disagrees, so measure
+> measure once: 453 + 1,434 = 1,887 -> under the pin -> no finding
+> ```
+
+Three rules follow.
+
+1. **State a prediction as a prediction in the brief.** "Expect about N, measure it" lets a runner disagree. "The pin fails" tells the runner what to do to a passing gate.
+2. **When two sources disagree, measure before raising a finding.** Here the pin comment said about 400 and the record said 716.
+3. **Treat a runner's surprising number as a test of the author's premise.** It is evidence about the brief, not only about the runner.
+
+**Applies to** any finding, brief or flag that computes an expected value from a recorded figure. It applies most where the arithmetic predicts a gate failure, because the prediction then authorizes a change to the gate.
 
 ---
 

@@ -1,6 +1,6 @@
 // Plan building, composed into the one hooks module (register.ts). Its session.start work
 // registers the build_plan tool, and a tool.call hook serves it: validate the input, write the
-// spec and the bodies files beside the plan folder, run scripts/plan_build.py, and return the
+// spec and the bodies files to {planwise_root}/plan-build/<plan folder name>/, run scripts/plan_build.py, and return the
 // script's exit code and report. The tool is an accelerator: the plan handler works without it.
 import type { EngineInterface, On, PluginOptions, ToolSpec } from 'claude-code'
 
@@ -37,9 +37,9 @@ const DESCRIPTION =
   'action=keys prints every document id with its fill markers and headings. ' +
   'action=lint checks the bodies files against those keys. ' +
   'action=build lints, writes the plan tree to `out`, and runs the post-build gates; force=true overwrites files a hand edit changed. ' +
-  'Every action first writes the spec to <out>/../<abbrev>-build-spec.json and each bodies file to <out>/../<file name>, ' +
+  'Every action first writes the spec to {planwise_root}/plan-build/<plan folder name>/<abbrev>-build-spec.json and each bodies file to that same folder, ' +
   'so a file name must read <abbrev>-bodies-plan.md or <abbrev>-bodies-SXX-YY<suffix>.md. ' +
-  'The script reads every bodies file in that folder, including files an earlier call wrote. ' +
+  'The script reads every bodies file in that folder, including files an earlier call wrote, and build writes its manifest there too. ' +
   'Returns text: the first line reads exitCode: N, the script report follows, and stderr follows a --- stderr --- line when it holds text. ' +
   'Exit codes: keys 0 printed, 2 refused; ' +
   'lint 0 clean, 1 a marker has no body, 2 errors; build 0 clean, 1 built with findings, 2 refused, 3 a write failed.'
@@ -59,7 +59,7 @@ const INPUT_SCHEMA: Record<string, unknown> = {
     },
     out: {
       type: 'string',
-      description: 'The plan folder, relative to the project root or absolute inside it. The spec and bodies go in its parent folder.',
+      description: 'The plan folder, relative to the project root or absolute inside it. Its last segment names the plan; the spec and bodies go in {planwise_root}/plan-build/<that name>/.',
     },
     force: { type: 'boolean', description: 'build only: overwrite files that changed since the last build.' },
   },
@@ -244,6 +244,16 @@ export function validateInput(input: Record<string, unknown>, projectRoot: strin
   return { ok: true, action: action as Action, abbrev, specText: JSON.stringify(spec, null, 2) + '\n', bodies, out, force: force === true }
 }
 
+/**
+ * The durable build folder for one plan: `<planwise root>/plan-build/<plan folder name>`. The
+ * planwise root is the folder of the config file. The plan folder name is the last segment of `out`.
+ * The plan handler binds the same folder as its bodies folder, so both routes share one manifest.
+ */
+export const buildDirOf = (configPath: string, out: string): string => {
+  const planwiseRoot = configPath.slice(0, configPath.lastIndexOf('/'))
+  return planwiseRoot + '/plan-build/' + out.slice(out.lastIndexOf('/') + 1)
+}
+
 /** The script arguments after the action, for each action. */
 const scriptArgs = (checked: Extract<Checked, { ok: true }>, specPath: string, bodiesDir: string): string[] => {
   if (checked.action === 'keys') return ['--spec', specPath]
@@ -294,14 +304,14 @@ export function register(on: On, options: PluginOptions) {
 
   on('tool.call', { tool: FULL_TOOL_NAME }, async ($, e, next) => {
     const host = hostOf($)
-    // A module reload re-runs register() without a new session.start. Resolve the config here
-    // once, and never register the tool again.
-    if (!session.resolved) {
-      try {
-        await resolveSession(host)
-      } catch (err) {
-        failed(host, 'config resolution', errText(err))
-      }
+    // The session root moves when the session enters a git worktree, and a module reload re-runs
+    // register() without a new session.start. Read the root on every call and re-resolve the
+    // config when it is unresolved or the root changed. Never register the tool again.
+    try {
+      const root = normPath(await host.root())
+      if (!session.resolved || root !== session.projectRoot) await resolveSession(host)
+    } catch (err) {
+      failed(host, 'config resolution', errText(err))
     }
     if (!session.resolved || !session.found) return { deny: 'build_plan: no planwise config.yaml was found in this project' }
     const checked = validateInput(e as unknown as Record<string, unknown>, session.projectRoot)
@@ -318,15 +328,15 @@ export function register(on: On, options: PluginOptions) {
     )
     if (refusal !== null) return { deny: 'build_plan: ' + refusal }
 
-    const parent = checked.out.slice(0, checked.out.lastIndexOf('/'))
-    const specPath = parent + '/' + checked.abbrev + '-build-spec.json'
+    const buildDir = buildDirOf(session.configPath, checked.out)
+    const specPath = buildDir + '/' + checked.abbrev + '-build-spec.json'
     // fs.write creates missing parent directories.
     await host.write(specPath, checked.specText)
-    for (const [name, text] of checked.bodies) await host.write(parent + '/' + name, text)
+    for (const [name, text] of checked.bodies) await host.write(buildDir + '/' + name, text)
 
     let run: RunResult
     try {
-      run = await runScript(host, [checked.action, ...scriptArgs(checked, specPath, parent)])
+      run = await runScript(host, [checked.action, ...scriptArgs(checked, specPath, buildDir)])
     } catch (err) {
       failed(host, 'plan_build.py run', errText(err))
       return { deny: 'build_plan: plan_build.py did not run: ' + errText(err) }

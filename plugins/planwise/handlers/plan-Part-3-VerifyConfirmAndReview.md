@@ -313,6 +313,7 @@ Before completing `/planwise plan`, verify:
 [ ] Session token estimates validated (< `practical_session_limit` per session — 100K on Pro, 400K on Max; see `references/session-context-budget.md` §5)
 [ ] Each task has a bottom-up estimate: (Required Context tokens) + (output tokens) <= task estimate
 [ ] Every file a task's Execution Steps read has a measured Required Context row, a prior Recovery.md read included (references/task-content-fidelity.md §9.A.17, Check 123)
+[ ] Every plan-level id a task names (a Master Plan D{n}, H{n} or similar) is defined in the task file, or its Master Plan section is a Required Context row (references/task-content-fidelity.md §9.A.19, Check 136)
 [ ] If DELEGATED: each task estimate + 54K overhead < `context_window` (200K on Pro, 1M on Max)
 [ ] Execution Strategy declared in Orchestration (DIRECT or DELEGATED)
 [ ] If 2+ Opus tasks or META session -> Strategy is DELEGATED

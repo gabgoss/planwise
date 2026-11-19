@@ -1,6 +1,6 @@
 ---
-description: A citation names a copy and an instant, not just a file. Covers why a disputed reading is a question about which artifact was read — an installed copy, the committed tree, or the live working tree — and how line-number offsets settle it when content cannot; why a read whose subject may be concurrently written needs content hashes at both ends and both layers, because git status, diff --stat and mtime all fail to pin identity of content; why a concurrent writer also narrows what the session-close commit may include; why a shipped script that errors against project data is compared with the development tree's copy before the data is blamed; and why two readings of a tool's version that disagree must each name the resolver that produced them. Consult when two readings of one file disagree, when a read-only sweep runs while another session may be writing the tree, when committing in a tree another session shares, when a script run from a pinned installed path fails on project data, and when two readings of a tool's version disagree.
-consult-when: Two readings of one file disagree, a read-only sweep runs while another session may be writing the tree, or a session-close commit lands in a shared tree — triangulate line numbers across the installed copy, `HEAD` and the live tree; pin content hashes at both ends and both layers; commit only what this session wrote, and a shipped script run from a pinned installed path errors against project data — compare the development tree's copy before blaming the data, and two readings of a CLI's version that disagree — name the resolver beside each number and pin from the binary the subject runs
+description: A citation names a copy and an instant, not just a file. Covers why a disputed reading is a question about which artifact was read — an installed copy, the committed tree, or the live working tree — and how line-number offsets settle it when content cannot; why a read whose subject may be concurrently written needs content hashes at both ends and both layers, because git status, diff --stat and mtime all fail to pin identity of content; why a concurrent writer also narrows what the session-close commit may include; why a shipped script that errors against project data is compared with the development tree's copy before the data is blamed, and why a clean refusal from that pinned copy is a claim about the copy; and why two readings of a tool's version that disagree must each name the resolver that produced them. Also covers why a claim about installed-copy behaviour is measured on the comparer that decides the outcome on that path, why an init-time plugin gate proves which plugin loaded and not which files the run executed, and why a stray artifact in an installed tree is dated against its install before a fix layer is chosen. Consult when two readings of one file disagree, when a read-only sweep runs while another session may be writing the tree, when committing in a tree another session shares, when a script run from a pinned installed path fails on project data, when two readings of a tool's version disagree, and when a lab or defect report makes a claim about which copy, which comparer or which writer.
+consult-when: Two readings of one file disagree, a read-only sweep runs while another session may be writing the tree, or a session-close commit lands in a shared tree — triangulate line numbers across the installed copy, `HEAD` and the live tree; pin content hashes at both ends and both layers; commit only what this session wrote, and a shipped script run from a pinned installed path errors against project data or prints a clean refusal — check the pin's tag distance, compare the development tree's copy before blaming the data, and name the copy beside every recorded reading, and two readings of a CLI's version that disagree — name the resolver beside each number and pin from the binary the subject runs, and a "will an installed copy read as customized" claim answered by one comparison helper — trace the deciding call and measure every comparer on it (§6), and a lab or arm matrix that measures a plugin from a scratch copy — check the runtime paths, not only the init gate (§7), and a report that a stray file is present in an installed tree — date it against its install and read the upstream copy before choosing the fix layer (§8)
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Artifact Identity — Which Copy Did You Read, and Did It Hold Still While You Read It
@@ -19,7 +19,11 @@ Two neighbouring rules own the tree-naming half. [`verify-backlog-citation-fresh
 - [2. When a Read's Subject May Be Concurrently Written, Pin Content Hashes at Both Ends](#2-when-a-reads-subject-may-be-concurrently-written-pin-content-hashes-at-both-ends)
 - [3. Commit Only What This Session Wrote](#3-commit-only-what-this-session-wrote)
 - [4. A Shipped Script That Errors Against Project Data Is Compared With the Development Tree Before the Data Is Blamed](#4-a-shipped-script-that-errors-against-project-data-is-compared-with-the-development-tree-before-the-data-is-blamed)
+  - [4.1 A Clean Refusal From the Pinned Copy Is a Claim About That Copy](#41-a-clean-refusal-from-the-pinned-copy-is-a-claim-about-that-copy)
 - [5. Two Readings of a Tool's Version Disagree: Name the Resolver](#5-two-readings-of-a-tools-version-disagree-name-the-resolver)
+- [6. Measure the Comparer That Decides the Outcome on the Path in Question](#6-measure-the-comparer-that-decides-the-outcome-on-the-path-in-question)
+- [7. An Init-Time Plugin Gate Proves Which Plugin Loaded, Not Which Files the Run Executed](#7-an-init-time-plugin-gate-proves-which-plugin-loaded-not-which-files-the-run-executed)
+- [8. Date a Stray Artifact Against Its Install Before Choosing the Fix Layer](#8-date-a-stray-artifact-against-its-install-before-choosing-the-fix-layer)
 
 ---
 
@@ -138,9 +142,35 @@ The error reads as a data problem. The data has moved to a shape the installed c
 Two operative points follow.
 
 1. **Compare before assuming the data is wrong.** When a project has both an installed plugin cache and its own development tree on disk, and a shipped script errors against current project data, compare the development tree's copy of the same script. A mismatch between the version in the project's config and the version in the development tree's plugin manifest is the fast confirmation.
+
+   A matching version does not rule skew out. Two copies can carry the same version string and differ on the exact option in use. When the versions match and the error persists, `Grep` the option or symbol in both copies before you trust either one. `gate-instrument-proof-obligations.md` §10, "Real-path pitfalls", carries the worked case.
 2. **Once skew is confirmed, run the development-tree scripts directly for the rest of the session.** Do not patch the installed cache, because an upgrade overwrites it. Do not block on a release cut mid-task.
 
 **Pre-check.** Before editing any generated artifact by hand to satisfy a script, run the same script from the development tree. If it succeeds there, the data was never wrong.
+
+### 4.1 A Clean Refusal From the Pinned Copy Is a Claim About That Copy
+
+A pinned script can also fail without an error. A refusal, a route or a verdict prints cleanly, reads as a statement about the data, and names no copy.
+
+> [!constraint] A clean refusal from a pinned installed copy is a claim about that copy
+> A gate's verdict carries the version of the instrument that produced it. When the config pins an installed copy and the development tree is ahead, the verdict describes the installed copy. An error names its instrument. A well-formed refusal does not, so it passes review unread.
+>
+> WRONG — the installed copy refuses cleanly, and the refusal is recorded as the scorer's verdict on the tree. The reading names no copy:
+> ```
+> <installed>/scripts/score_backlog.py --route --id <id>   # route C, so the loop drops the item
+> ```
+> CORRECT — the pin's tag distance is read, the same scorer runs from both copies, and both readings are recorded with the copy named beside each:
+> ```
+> git -C <dev-tree> describe --tags --always               # <tag>-11-g<sha>: the tree is 11 commits past the pin
+> <installed>/scripts/score_backlog.py --route --id <id>   # installed copy: route C
+> <dev-tree>/scripts/score_backlog.py --route --id <id>    # development copy: route B
+> ```
+
+Three rules follow.
+
+1. **Check the pin's tag distance before trusting a pinned gate.** One `git describe --tags --always` call shows whether the development tree is ahead. When it is, a verdict from the pinned copy needs a second reading from the development copy.
+2. **A clean refusal does not prove the refusing copy is current.** An error names the instrument and a refusal does not.
+3. **Name the copy beside every recorded reading.** A note that says "route C" without naming the scorer's copy cannot be re-derived once the pin moves.
 
 ---
 
@@ -168,6 +198,86 @@ Three consequences follow.
 > ```
 
 **Applies to** any precondition, pin or drift check keyed on a CLI's reported version where a package manager leaves a shim and a native executable side by side. It also applies to driver scripts with their own executable discovery that run beside shell-invoked commands in one session, and to reading a version-mismatch line in a session log.
+
+---
+
+## 6. Measure the Comparer That Decides the Outcome on the Path in Question
+
+> [!constraint] Trace the call that decides, then measure every comparer on that path
+> A session added a one-line `consult-when:` frontmatter key to every shipped reference. Six of them install into consumer `.claude/rules/`. The open question was whether an untouched installed copy, written before the key existed, would read as customized.
+>
+> The orchestrator measured a pre-session copy of 20 installed and descoped rules and found a removable subset. It saw `style_rules._has_edits` return False for both style rules. It recorded "22 of 22 refresh silently".
+>
+> The closeout review contradicted the record. The upgrade path `style_rules._reconcile_one` decides from `compare_installed`, which calls `_verdict`, and it never calls `_has_edits`. Measured on that path, both style rules returned `diverged`, so an untouched copy would be kept as customized. The record was retracted and the comparer fixed in the same session.
+>
+> WRONG — measure the first comparer that answers the question:
+> ```
+> _has_edits(shipped, old_copy)        # False → "refreshes silently"
+> ```
+> CORRECT — trace the deciding call, then measure every comparer on it:
+> ```
+> Grep "_reconcile_one|compare_installed|_verdict|_has_edits" style_rules.py
+> _reconcile_one → compare_installed → _verdict(shipped, old_copy)   # diverged
+> _has_edits(shipped, old_copy)                                       # False (duplicate path only)
+> → record the result per comparer and per path
+> ```
+
+**Applies to** claims about installed-copy behaviour, upgrade dispositions, doctor verdicts and drift reports. It also applies to any "will X read as Y" question answered by calling one function. The risk is highest where the module holds more than one comparison helper, or where the claim reaches another session as measured.
+
+---
+
+## 7. An Init-Time Plugin Gate Proves Which Plugin Loaded, Not Which Files the Run Executed
+
+> [!constraint] Check the runtime paths too, and remove the model's choice of path
+> A headless matrix loaded the plugin from a hash-verified scratch copy made with `git archive`. Every run's `plugin_gate` passed on the init event. The fixtures lived inside a project whose instructions file names the plugin development tree.
+>
+> In all 3 workflow runs the model's first call, a `Skill` call, failed. The model then globbed the disk and found the development tree's plugin directory. It passed that path as the `Workflow` tool's `plugin_root` argument.
+>
+> The workflow agents ran `plan_build.py` from the development tree. That script imports `scaffold_plan.py`, and that file carried another session's uncommitted +3/-1 diff. The gate had verified the scratch copy while the run executed the other tree.
+>
+> WRONG — trust the init gate for the whole run:
+> ```
+> init.plugins planwise -> scratch copy -> plugin_gate PASS -> "the run measured <sha>"
+> ```
+> CORRECT — check the runtime paths too, and remove the choice:
+> ```
+> Grep each run's events for tool inputs naming a plugin path outside the scratch copy -> confound or VOID
+> Run the fixture outside any repo that holds the plugin source, or drop path arguments the tool can resolve itself
+> ```
+
+Section 4 covers a shipped script that errors against project data. This section covers a path the model chose for itself.
+
+**Applies to** any lab, probe or arm matrix that measures a plugin from a scratch copy while the source tree is reachable on disk. It also applies to any tool or workflow that takes a `plugin_root` or script path as an argument.
+
+---
+
+## 8. Date a Stray Artifact Against Its Install Before Choosing the Fix Layer
+
+> [!constraint] A layer question that looks like the user's choice may be a fact nobody measured
+> A backlog item reported `scripts/__pycache__/` inside the installed plugin and attributed it to packaging. It offered three fixes at three layers: the script, the handler invocation and packaging. An earlier backlog loop run skipped the item and asked the user to pick the layer, because nobody had dated the artifact.
+>
+> Two reads settled it. In the install cache, the `scripts/` directory was created at 21:13:51 and `scripts/__pycache__/` at 21:23:06, nine minutes later. The bytecode directory held 143 `.pyc` files running to a week later. The marketplace clone the installer copies from held 467 files and no `__pycache__`.
+>
+> The scripts wrote the bytecode while running from the install cache. A packaging exclude would have changed nothing. The fix is at the script layer: `sys.dont_write_bytecode = True` before the first sibling import, in every entry script.
+>
+> WRONG — infer the path from where the artifact sits:
+> ```
+> __pycache__ found in install cache -> "packaging ships it" -> exclude at packaging time
+> ```
+> CORRECT — date it, then check the source:
+> ```
+> install dir ctime 21:13:51, __pycache__ ctime 21:23:06   -> written after install
+> marketplace clone: 467 files, no __pycache__             -> packaging is clean
+> -> the runtime writes it -> fix the scripts
+> ```
+
+Three steps follow.
+
+1. **Compare the artifact's creation time with its parent's.** A cache directory younger than its install was written after the install.
+2. **Read the upstream copy as well.** Absence in the clone or archive the installer reads rules out the shipping path.
+3. **Pick the layer that matches the writer.** A layer question that looks like a user's choice may be a fact nobody measured. Measure it before routing it to the user.
+
+**Applies to** any defect report of the form "X is present in the installed or deployed tree". Bytecode, logs, lock files and caches are the usual cases.
 
 ---
 

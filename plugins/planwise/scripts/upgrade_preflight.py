@@ -13,6 +13,7 @@ CLI: python -B upgrade_preflight.py upgrade [--project-root PATH] [--user-settin
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -61,6 +62,11 @@ UNATTENDED_POSTING_KEPT = (
 UNATTENDED_POSTING_ON = (
     "Unattended: add no --feedback-drafts; the writer backfills feedback.drafts: notify into an existing "
     "feedback block."
+)
+VERIFY_QUESTION = (
+    "Which commands should `build_commands.verify` hold? planwise runs them to check a change before it "
+    "counts as done. Choose any of the candidates listed below, or none to leave the list empty. "
+    "This question accepts several answers."
 )
 COMPARATOR_LINE = ("Comparator verdicts: {returned}/{diverged} (late: {n} resumed, {m} recorded after the writer "
                    "ran; failed: {k} — inline primitive used)")
@@ -423,22 +429,64 @@ def next_command(root: Path, project_root: Path, pair: str, token_saver: bool, a
     return [" ".join(parts), example, HEREDOC]
 
 
+def verify_state(config: dict) -> str:
+    """`set` when `build_commands.verify` holds a command, `empty` for a key with no command, else `absent`."""
+    block = _mapping(config.get("build_commands"))
+    if "verify" not in block:
+        return "absent"
+    value = block["verify"]
+    if isinstance(value, list):
+        return "set" if any(str(item).strip() for item in value) else "empty"
+    return "set" if str(value or "").strip() else "empty"
+
+
+def verify_candidates(project_root: Path, state: str) -> list[dict]:
+    """The detector's candidates when `build_commands.verify` is absent or empty, else an empty list.
+
+    The detector is read-only, so the card stays read-only. A detector fault gives no candidates: the
+    question is an offer, and a fault must not turn the card into the fallback line.
+    """
+    if state == "set":
+        return []
+    try:
+        import detect_verify_commands
+
+        return detect_verify_commands.detect(project_root)
+    except Exception:  # noqa: BLE001 - an unreadable project offers nothing and never drops the card
+        return []
+
+
+def verify_writer_command(root: Path, config_path: Path, commands: list[str]) -> str:
+    """The `set_verify_commands.py` line for `commands`, each shell-quoted, or a placeholder when none."""
+    parts = [f'python -B "{root.as_posix()}/scripts/set_verify_commands.py" --config "{config_path.as_posix()}"']
+    parts += [f"--command {shlex.quote(command)}" for command in commands] or ["--command '<accepted command>'"]
+    return " ".join(parts)
+
+
+def high_confidence(candidates: list[dict]) -> list[str]:
+    return [row["command"] for row in candidates if row.get("confidence") == "high"]
+
+
 def question_steps(token_saver: bool, questions: list, feedback_state: str = "set",
-                   posting_state: str = "enabled") -> list[str]:
+                   posting_state: str = "enabled", verify: "list | None" = None) -> list[str]:
     """The AskUserQuestion step text: the pre-writer questions and the migration questions, merged when they fit.
 
     The pre-writer questions are the Token Saver question (when off), the feedback drafts question (when the
-    config has no `feedback.drafts` key) and the feedback posting question (when `feedback.enabled` is not
-    true). The run command takes the answers as flags the model adds.
+    config has no `feedback.drafts` key), the feedback posting question (when `feedback.enabled` is not
+    true) and the verify question (when `verify` holds detector candidates, which the card passes only for
+    an absent or empty `build_commands.verify`). The run command takes the answers as flags the model adds.
     """
     ask_drafts = feedback_state != "set"
     ask_posting = posting_state != "enabled"
-    pre = (0 if token_saver else 1) + (1 if ask_drafts else 0) + (1 if ask_posting else 0)
+    ask_verify = bool(verify)
+    pre = ((0 if token_saver else 1) + (1 if ask_drafts else 0) + (1 if ask_posting else 0)
+           + (1 if ask_verify else 0))
     if not pre and not questions:
         return []
     names = ((["the Token Saver question"] if not token_saver else [])
              + (["the feedback drafts question"] if ask_drafts else [])
-             + (["the feedback posting question"] if ask_posting else []))
+             + (["the feedback posting question"] if ask_posting else [])
+             + (["the verify question"] if ask_verify else []))
     pre_what = " and ".join(names)
     lines = []
     if pre and pre + len(questions) <= QUESTION_LIMIT:
@@ -470,6 +518,15 @@ def question_steps(token_saver: bool, questions: list, feedback_state: str = "se
             lines.append(f"  {UNATTENDED_POSTING_KEPT}")
         else:
             lines.append(f"  {UNATTENDED_POSTING_ON}")
+    if ask_verify:
+        lines.append(f"  Verify question: {VERIFY_QUESTION}")
+        lines += [f"    - {row['command']} ({row['kind']}, {row['confidence']} confidence, from {row['source']})"
+                  for row in verify or []]
+        confident = high_confidence(verify or [])
+        lines.append("  Each chosen candidate becomes one --command of the verify step at the end of this list. "
+                     "None chosen: skip that step.")
+        lines.append("  Unattended: choose the high-confidence candidates only ("
+                     + (", ".join(confident) if confident else "none, so skip that step") + ").")
     if questions:
         lines.append("  Each migration option above ends in `=> {answer}`. Build the stdin object's \"answers\" by "
                      "merging the answer object of every chosen option: same key, lists concatenate. Example, with "
@@ -484,8 +541,9 @@ def render_next(branch: str, noop: bool, ctx: dict) -> list[str]:
     lines = ["NEXT"]
     step = 1
     questions = ctx.get("questions") or []
+    verify = ctx.get("verify_candidates") or []
     asks = question_steps(ctx["token_saver"], questions, ctx.get("feedback_drafts", "set"),
-                          ctx.get("feedback_enabled", "enabled"))
+                          ctx.get("feedback_enabled", "enabled"), verify)
     if asks:
         lines.append(f"{step}. {asks[0]}")
         lines += asks[1:]
@@ -522,6 +580,11 @@ def render_next(branch: str, noop: bool, ctx: dict) -> list[str]:
                  "diverged, and omit the line when the comparator step did not run.")
     lines.append(f"{step + 2}. Ask the user once with the offer list upgrade_run prints, then run upgrade_apply "
                  "with the answers.")
+    if verify:
+        lines.append(f"{step + 3}. After the offer answers are applied, store the accepted verify commands. Run once, "
+                     "with one --command for each chosen candidate (unattended: the high-confidence ones, as "
+                     "written here). Skip this step when none was chosen:")
+        lines.append(verify_writer_command(ctx["root"], ctx["config_path"], high_confidence(verify)))
     return lines
 
 
@@ -565,6 +628,8 @@ def render_card(ctx: dict, rows: list, questions: list, transfers: list, found: 
          f"feedback_enabled: {ctx['feedback_enabled']}    yaml: {ctx['yaml']}"),
         # the upgrade branch only: a Yes given before unattended posting shipped learns it now
         *([FEEDBACK_POSTING_NOTICE] if ctx["branch"] == "upgrade" and ctx["feedback_enabled"] == "enabled" else []),
+        (f"build_commands.verify: {ctx.get('verify_state', 'set')}    "
+         f"verify candidates: {len(ctx.get('verify_candidates') or [])}"),
         f"user settings: {ctx['user_settings'].as_posix()} ({ctx['user_step']})",
         *install,
         "",
@@ -652,7 +717,12 @@ def build_card(rest: list[str]) -> str:
     transfers = transfer_review.review_transfers(cfg, exclude_pair=pair)
     artifacts = artifact_upgrade._scan_recovery_artifacts(cfg)
     noop = noop_proof(branch, rows, config, config_path, found, cfg.install_scope)
+    verify_kept = verify_state(config)
+    verify_rows = verify_candidates(project_root, verify_kept)
+    if verify_rows and noop[0]:
+        noop = (False, "build_commands.verify is not set and the detector found candidates", noop[2])
     ctx = {
+        "verify_state": verify_kept, "verify_candidates": verify_rows, "config_path": config_path,
         "project_root": project_root, "root": cfg.plugin_root, "pinned": pinned, "shipped": shipped,
         "pair": pair, "branch": branch, "token_saver": cfg.token_saver, "yaml": yaml_state(),
         "user_settings": user_settings, "user_step": user_step,

@@ -36,6 +36,8 @@ const world = (
   const writes: string[] = []
   const checks: { tool: string; input: unknown }[] = []
   const questions: string[] = []
+  // The session root the fake engine reports. A test moves it to model a session entering a worktree.
+  const state = { root: ROOT }
   const check = async (tool: string, input: unknown): Promise<Verdict> => {
     checks.push({ tool, input })
     return gate.verdict ?? { decision: 'allow' }
@@ -50,7 +52,7 @@ const world = (
     return typeof reply === 'function' ? reply() : reply
   }
   const host: Host = {
-    root: async () => ROOT,
+    root: async () => state.root,
     pluginRoot: () => 'C:/plugins/planwise',
     read: async (path) => store.get(path),
     write: async (path, text) => {
@@ -78,7 +80,7 @@ const world = (
     ui: { log: (text: string) => host.uiLog(text, 'debug'), ask },
     process: { run },
   }
-  return { host, engine, store, runs, logs, registered, writes, checks, questions }
+  return { host, engine, state, store, runs, logs, registered, writes, checks, questions }
 }
 
 type Hook = (engine: unknown, event: unknown, next: unknown) => Promise<unknown>
@@ -102,7 +104,7 @@ const dispatch = async (hooks: Map<string, Hook>, engine: unknown, tool: string,
 }
 
 const SPEC = { abbrev: 'QZX', plan_name: 'Demo' }
-const KEYS_INPUT = { action: 'keys', spec: SPEC, out: 'planwise/Plans/Demo/QZX' }
+const KEYS_INPUT = { action: 'keys', spec: SPEC, out: 'planwise/Plans/Demo' }
 const GOOD_FILES = { [ROOT + '/planwise/config.yaml']: CONFIG }
 
 test('buildplan registers the tool when a planwise config exists', async () => {
@@ -137,7 +139,7 @@ test('buildplan keys call returns the known report through the injected runner',
   assert.ok(argv.includes('--spec'))
   assert.equal(w.runs[0]!.init.cwd, ROOT)
   assert.equal(w.runs[0]!.init.timeoutMs, 540_000)
-  assert.ok(w.writes.includes(ROOT + '/planwise/Plans/Demo/QZX-build-spec.json'))
+  assert.ok(w.writes.includes(ROOT + '/planwise/plan-build/Demo/QZX-build-spec.json'))
 })
 
 test('buildplan non-zero exit is a result, not a deny', async () => {
@@ -220,12 +222,12 @@ test('buildplan build passes --config and --force, and lint passes neither', asy
   const build = w.runs[0]!.argv
   const lint = w.runs[1]!.argv
   assert.equal(build[build.indexOf('--config') + 1], ROOT + '/planwise/config.yaml')
-  assert.equal(build[build.indexOf('--out') + 1], ROOT + '/planwise/Plans/Demo/QZX')
+  assert.equal(build[build.indexOf('--out') + 1], ROOT + '/planwise/Plans/Demo')
   assert.ok(build.includes('--force'))
   assert.equal(lint.includes('--force'), false)
   assert.equal(lint.includes('--config'), false)
-  assert.equal(lint[lint.indexOf('--bodies-dir') + 1], ROOT + '/planwise/Plans/Demo')
-  assert.ok(w.writes.includes(ROOT + '/planwise/Plans/Demo/QZX-bodies-S01-01.md'))
+  assert.equal(lint[lint.indexOf('--bodies-dir') + 1], ROOT + '/planwise/plan-build/Demo')
+  assert.ok(w.writes.includes(ROOT + '/planwise/plan-build/Demo/QZX-bodies-S01-01.md'))
   const denied = (await dispatch(hooks, w.engine, REGISTERED, { ...KEYS_INPUT, action: 'lint', bodies: BODIES, force: true })) as { deny: string }
   assert.match(denied.deny, /force applies to build only/)
 })
@@ -236,7 +238,7 @@ test('buildplan asks the engine for a permission verdict on its own tool before 
   await dispatch(capture(), w.engine, REGISTERED, { ...KEYS_INPUT, action: 'build', bodies: BODIES, force: true })
   assert.equal(w.checks.length, 1)
   assert.equal(w.checks[0]!.tool, REGISTERED)
-  assert.deepEqual(w.checks[0]!.input, { action: 'build', out: ROOT + '/planwise/Plans/Demo/QZX', force: true })
+  assert.deepEqual(w.checks[0]!.input, { action: 'build', out: ROOT + '/planwise/Plans/Demo', force: true })
   assert.equal(w.questions.length, 0)
   assert.equal(w.runs.length, 1)
 })
@@ -255,7 +257,7 @@ test('buildplan an ask verdict puts the question to the user and runs only on Al
   await onSessionStart(allowed.host)
   const ran = (await dispatch(capture(), allowed.engine, REGISTERED, { ...KEYS_INPUT, action: 'build', bodies: BODIES, force: true })) as { result: string }
   assert.equal(ran.result, 'exitCode: 0\n' + KNOWN_REPORT)
-  assert.deepEqual(allowed.questions, ['Allow build_plan to run build for planwise/Plans/Demo/QZX with force?'])
+  assert.deepEqual(allowed.questions, ['Allow build_plan to run build for planwise/Plans/Demo with force?'])
 
   const refused = world(GOOD_FILES, { exitCode: 0, stdout: KNOWN_REPORT, stderr: '' }, { verdict: { decision: 'ask' }, answer: 'Deny' })
   await onSessionStart(refused.host)
@@ -288,6 +290,41 @@ test('buildplan refusedByRule refuses only on a deny and never asks', async () =
   assert.equal(await refusedByRule(verdict('deny', 'a deny rule'), REGISTERED, {}), 'a deny rule')
   assert.equal(await refusedByRule(verdict('deny'), REGISTERED, {}), 'the permission settings refuse this call')
   assert.equal(await refusedByRule(async () => { throw new Error('gone') }, REGISTERED, {}), 'the permission check failed: gone')
+})
+
+test('buildplan a root that moves after session start re-resolves the config, the cwd and out', async () => {
+  const MOVED = ROOT + '/.claude/worktrees/wt'
+  const w = world({ ...GOOD_FILES, [MOVED + '/planwise/config.yaml']: CONFIG }, { exitCode: 0, stdout: KNOWN_REPORT, stderr: '' })
+  await onSessionStart(w.host)
+  w.state.root = MOVED
+  await dispatch(capture(), w.engine, REGISTERED, { ...KEYS_INPUT, action: 'build', bodies: BODIES })
+  assert.equal(w.runs.length, 1)
+  const build = w.runs[0]!.argv
+  assert.equal(build[build.indexOf('--config') + 1], MOVED + '/planwise/config.yaml')
+  assert.equal(build[build.indexOf('--out') + 1], MOVED + '/planwise/Plans/Demo')
+  assert.equal(w.runs[0]!.init.cwd, MOVED)
+  assert.ok(w.writes.includes(MOVED + '/planwise/plan-build/Demo/QZX-bodies-S01-01.md'))
+})
+
+test('buildplan the spec and bodies go to the plan-build folder beside the config, and --bodies-dir names it', async () => {
+  const w = world({ [ROOT + '/config.yaml']: CONFIG }, { exitCode: 0, stdout: KNOWN_REPORT, stderr: '' })
+  await onSessionStart(w.host)
+  await dispatch(capture(), w.engine, REGISTERED, { ...KEYS_INPUT, action: 'lint', bodies: BODIES })
+  assert.equal(w.runs.length, 1)
+  const lint = w.runs[0]!.argv
+  const spec = lint[lint.indexOf('--spec') + 1]!
+  assert.equal(spec, ROOT + '/plan-build/Demo/QZX-build-spec.json')
+  assert.equal(lint[lint.indexOf('--bodies-dir') + 1], spec.slice(0, spec.lastIndexOf('/')))
+  assert.ok(w.writes.includes(ROOT + '/plan-build/Demo/QZX-bodies-S01-01.md'))
+})
+
+test('buildplan a root that moves to a tree with no config is denied', async () => {
+  const w = world(GOOD_FILES, { exitCode: 0, stdout: KNOWN_REPORT, stderr: '' })
+  await onSessionStart(w.host)
+  w.state.root = 'C:/work/elsewhere'
+  const out = (await dispatch(capture(), w.engine, REGISTERED, KEYS_INPUT)) as { deny: string }
+  assert.match(out.deny, /no planwise config.yaml was found/)
+  assert.equal(w.runs.length, 0)
 })
 
 test('buildplan the Windows not-found exit moves to the next interpreter name', async () => {

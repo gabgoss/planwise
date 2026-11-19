@@ -9,7 +9,16 @@ two template lines, because no template marker says where those two sections end
 
 Commands (run with `python -B`):
 
-    keys --spec SPEC.json [--session SXX-YY] [--templates DIR]
+    Name caps. Every command renders the spec after cutting each sprint, session and task
+    Name that would pass its cap on a PascalCase word boundary, and prints one `NOTE:` line
+    per cut. The caps come from the `plan_names` block of --config (`build` requires it, and
+    `keys` and `lint` take it as an option), or from the shipped defaults when `keys` or
+    `lint` get no --config. `scaffold_plan.py` documents the three caps. Pass the same
+    --config to `keys`, `lint` and `build`, so each one cuts the same names. `build` also
+    refuses with exit 2, before it writes a file, when a generated path is over `path_max`
+    from the project root, and prints one `PATH-CAP:` line per path.
+
+    keys --spec SPEC.json [--session SXX-YY] [--templates DIR] [--config FILE]
         Render in memory and print the keys of every document, in tree order:
           doc <ID> markers=<n>
             marker <name> count=<n>      one line per name, first occurrence first
@@ -20,7 +29,7 @@ Commands (run with `python -B`):
         Exit 0 printed, 2 refused (unreadable spec, spec lint error, render failure,
         or a --session value that is not in the spec).
 
-    lint --spec SPEC.json --bodies-dir DIR [--session SXX-YY] [--templates DIR]
+    lint --spec SPEC.json --bodies-dir DIR [--session SXX-YY] [--templates DIR] [--config FILE]
         Check the bodies files in DIR against the rendered skeleton. Prints one
         `LINT: doc=<ID> key=<key>: <reason>` line per error, then the summary lines:
           plan missing=<n> errors=<n>
@@ -598,39 +607,59 @@ def meta_tree(files, abbrev):
     return tree
 
 
-def render_core(spec_path, templates_dir, date=None):
-    """Lint the core spec, render it and cut its omissions. Print the refusal and return None on failure."""
+def name_caps(args):
+    """The `plan_names` caps of `--config`, or the shipped defaults. A config that cannot be read prints one NOTE."""
+    caps, note = sp.load_name_caps(getattr(args, "config", None))
+    if note:
+        print(f"NOTE: {note}")
+    return caps
+
+
+def load_or_refuse(spec_path):
+    """The spec at `spec_path`, or None after a refusal."""
     spec, err = sp.load_spec(spec_path)
     if err:
         print(f"REFUSED: {err}. Fix: pass a readable UTF-8 JSON spec.")
+        return None
+    return spec
+
+
+def refuse_errors(errors, label, fix):
+    """Print the errors, then the REFUSED line."""
+    for e in errors:
+        print(f"LINT: {e}")
+    print(f"REFUSED: {len(errors)} {label} error(s). Fix: {fix}")
+
+
+def render_core(spec_path, templates_dir, date=None, caps=None, spec=None):
+    """Lint the core spec, cut its over-cap names, render it and cut its omissions. Print the refusal and return None on failure.
+
+    `caps` is the `plan_names` caps dict, and the shipped defaults apply when it is None. Each cut prints a NOTE line.
+    `spec` skips the file read.
+    """
+    spec = load_or_refuse(spec_path) if spec is None else spec
+    if spec is None:
         return None
     core = core_spec(spec)
     try:
         errors = sp.lint_spec(core, templates_dir)
         if errors:
-            for e in errors:
-                print(f"LINT: {e}")
-            print(f"REFUSED: {len(errors)} spec lint error(s). Fix: correct the spec, then re-run this command.")
-            return None
+            return refuse_errors(errors, "spec lint", "correct the spec, then re-run this command.")
+        core, notes, errors = sp.cap_spec_names(core, caps or sp.DEFAULT_NAME_CAPS)
+        for line in notes:
+            print(f"NOTE: {line}")
+        if errors:
+            return refuse_errors(errors, "name cap", "raise the cap in the config's plan_names block.")
         plan, errors = omit_plan(spec, omittable_names(templates_dir))
         if errors:
-            for e in errors:
-                print(f"LINT: {e}")
-            print(f"REFUSED: {len(errors)} omit_sections error(s). Fix: name only an omittable heading.")
-            return None
+            return refuse_errors(errors, "omit_sections", "name only an omittable heading.")
         errors = meta_errors(spec)
         if errors:
-            for e in errors:
-                print(f"LINT: {e}")
-            print(f"REFUSED: {len(errors)} meta plan error(s). Fix: correct the meta value, the session mode or the output name.")
-            return None
+            return refuse_errors(errors, "meta plan", "correct the meta value, the session mode or the output name.")
         errors = estimate_errors(spec)
         if errors:
-            for e in errors:
-                print(f"LINT: {e}")
-            print(f"REFUSED: {len(errors)} estimate error(s). Fix: give the task both output_k and working_k as numbers, "
-                  "and each tokens_k a finite figure that is not negative.")
-            return None
+            return refuse_errors(errors, "estimate", "give the task both output_k and working_k as numbers, "
+                                 "and each tokens_k a finite figure that is not negative.")
         files, _rec = sp.render_all(core, templates_dir, date)
         files = omit_files(files, plan, templates_dir)
         return core, files, doc_index(files, templates_dir)
@@ -815,10 +844,10 @@ def fill_estimates(docs, figures, index):
     return errors
 
 
-def load_all_bodies(spec_path, bodies_dir, core, index):
+def load_all_bodies(spec_path, bodies_dir, core, index, spec=None):
     """Return (docs, load errors, figures): the bodies files with the spec's `{O}` and `{W}` fills merged in."""
     docs, load_errors = load_bodies(bodies_dir, core["abbrev"])
-    figures = task_figures(sp.load_spec(spec_path)[0])
+    figures = task_figures(sp.load_spec(spec_path)[0] if spec is None else spec)
     return docs, [*load_errors, *fill_estimates(docs, figures, index)], figures
 
 
@@ -901,11 +930,12 @@ def apply_bodies(files, docs, templates_dir):
 MANIFEST_ERRORS = (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError, AttributeError)
 
 
-def manifest_path(spec):
+def manifest_path(spec, loaded=None):
     """`<ABBREV>-build-manifest.json` beside the spec file at path `spec`, with `-META` after the abbreviation on a Meta plan."""
-    loaded, err = sp.load_spec(spec)
-    if err:
-        raise ValueError(err)
+    if loaded is None:
+        loaded, err = sp.load_spec(spec)
+        if err:
+            raise ValueError(err)
     return Path(spec).parent / f"{loaded['abbrev']}{'-META' if is_meta(loaded) else ''}-build-manifest.json"
 
 
@@ -929,27 +959,27 @@ def store_manifest(path, hashes, stale):
     path.write_bytes((json.dumps(data, indent=2) + "\n").encode("utf-8"))
 
 
-def write_manifest(out, spec, rels=None, stale=None):
+def write_manifest(out, spec, rels=None, stale=None, path=None):
     """Hash the built files under `out` into the manifest beside `spec`. Return its path.
 
     `rels` names the files, and `stale` holds the dropped paths with their hashes. Both
     default to what the manifest already lists. A step that rewrites built files calls
     this with `out` and `spec` alone.
     """
-    path = manifest_path(spec)
+    path = manifest_path(spec) if path is None else path
     names = read_manifest(path) if rels is None else rels
     kept = read_stale(path) if stale is None else stale
     store_manifest(path, {rel: file_hash(Path(out) / rel) for rel in names}, kept)
     return path
 
 
-def record_landed(out, spec, landed, stale):
+def record_landed(out, spec, landed, stale, path=None):
     """Record the files of a write that stopped, so the next build can tell them from hand edits.
 
     A file the write never reached keeps its earlier hash, because nothing here has
     checked its bytes. The file that stopped the write keeps its earlier hash too.
     """
-    path = manifest_path(spec)
+    path = manifest_path(spec) if path is None else path
     try:
         earlier = read_manifest(path)
     except MANIFEST_ERRORS:
@@ -1013,20 +1043,24 @@ def write_built(files, out, landed):
 
 # ---------------------------------------------------------------- CLI
 
-def unknown_session(session, index):
-    """True when `session` names neither the plan group nor a session of the rendered spec."""
-    return bool(session) and session != PLAN_GROUP and session not in {session_of(d) for d in index}
+def render_command(args, date=None):
+    """Read the spec once and render it. Return (caps, spec, core, files, index), or None on refusal."""
+    caps = name_caps(args)
+    spec = load_or_refuse(args.spec)
+    built = render_core(args.spec, args.templates, date, caps, spec) if spec is not None else None
+    session = getattr(args, "session", None)
+    if built and session and session != PLAN_GROUP and session not in {session_of(d) for d in built[2]}:
+        print(f"REFUSED: session {session} is not in the spec. Fix: pass a session such as S01-01.")
+        return None
+    return None if built is None else (caps, spec, *built)
 
 
 def cmd_keys(args):
-    built = render_core(args.spec, args.templates)
-    if built is None:
+    ready = render_command(args)
+    if ready is None:
         return 2
-    _core, _files, index = built
-    if unknown_session(args.session, index):
-        print(f"REFUSED: session {args.session} is not in the spec. Fix: pass a session such as S01-01.")
-        return 2
-    figures = task_figures(sp.load_spec(args.spec)[0])
+    _caps, spec, _core, _files, index = ready
+    figures = task_figures(spec)
     total = 0
     shown = 0
     for doc, info in index.items():
@@ -1048,17 +1082,14 @@ def cmd_keys(args):
 
 
 def cmd_lint(args):
-    built = render_core(args.spec, args.templates)
-    if built is None:
+    ready = render_command(args)
+    if ready is None:
         return 2
-    core, _files, index = built
-    if unknown_session(args.session, index):
-        print(f"REFUSED: session {args.session} is not in the spec. Fix: pass a session such as S01-01.")
-        return 2
+    _caps, spec, core, _files, index = ready
     if not Path(args.bodies_dir).is_dir():
         print(f"REFUSED: {args.bodies_dir} is not a folder. Fix: pass the folder that holds the bodies files.")
         return 2
-    docs, load_errors, _figures = load_all_bodies(args.spec, args.bodies_dir, core, index)
+    docs, load_errors, _figures = load_all_bodies(args.spec, args.bodies_dir, core, index, spec)
     lines, rows = lint_bodies(index, docs, load_errors, args.session)
     for line in lines:
         print(f"LINT: {line}")
@@ -1074,15 +1105,13 @@ def cmd_lint(args):
 
 def build_inputs_refusal(args):
     """The refusal line of a bad `build` argument, or None."""
-    if args.date and not sp.DATE_RE.match(args.date):
-        return f"REFUSED: --date {args.date} is not YYYY-MM-DD. Fix: pass a date such as 2026-01-31."
-    if not Path(args.config).is_file():
-        return f"REFUSED: {args.config} is not a file. Fix: pass the project's config file."
-    if not Path(args.bodies_dir).is_dir():
-        return f"REFUSED: {args.bodies_dir} is not a folder. Fix: pass the folder that holds the bodies files."
-    if Path(args.out).exists() and not Path(args.out).is_dir():
-        return f"REFUSED: {args.out} is not a folder. Fix: pass a folder for --out."
-    return None
+    checks = [
+        (args.date and not sp.DATE_RE.match(args.date), f"--date {args.date} is not YYYY-MM-DD. Fix: pass a date such as 2026-01-31."),
+        (not Path(args.config).is_file(), f"{args.config} is not a file. Fix: pass the project's config file."),
+        (not Path(args.bodies_dir).is_dir(), f"{args.bodies_dir} is not a folder. Fix: pass the folder that holds the bodies files."),
+        (Path(args.out).exists() and not Path(args.out).is_dir(), f"{args.out} is not a folder. Fix: pass a folder for --out."),
+    ]
+    return next((f"REFUSED: {line}" for bad, line in checks if bad), None)
 
 
 # ---------------------------------------------------------------- gate chain
@@ -1267,14 +1296,14 @@ def delta_lines(out, files, figures):
     return lines
 
 
-def write_failure(args, exc, landed, total, stale, left):
+def write_failure(args, exc, landed, total, stale, left, path):
     """Report a write that stopped. Record what landed, so the next build can tell it from hand edits. Return 3."""
     reason = " ".join(f"{type(exc).__name__}: {exc}".split())
     print(f"FAILED: the write stopped after {len(landed)} of {total} files ({reason}). "
           "Fix: free the --out folder, then re-run.")
     if landed:
         try:
-            record_landed(args.out, args.spec, landed, stale)
+            record_landed(args.out, args.spec, landed, stale, path)
         except MANIFEST_ERRORS as err:
             print(f"FAILED: the landed files are not in the manifest ({type(err).__name__}: {err}). "
                   "Fix: re-run with --force once the --out folder is free.")
@@ -1287,19 +1316,17 @@ def cmd_build(args):
     if refusal:
         print(refusal)
         return 2
-    built = render_core(args.spec, args.templates, args.date)
-    if built is None:
+    ready = render_command(args, args.date)
+    if ready is None:
         return 2
-    core, skeleton, index = built
-    docs, load_errors, figures = load_all_bodies(args.spec, args.bodies_dir, core, index)
+    caps, spec, core, skeleton, index = ready
+    docs, load_errors, figures = load_all_bodies(args.spec, args.bodies_dir, core, index, spec)
     lines, _rows = lint_bodies(index, docs, load_errors)
     if lines:
-        for line in lines:
-            print(f"LINT: {line}")
-        print(f"REFUSED: {len(lines)} bodies lint error(s). Fix: correct the bodies files, then re-run this command.")
+        refuse_errors(lines, "bodies lint", "correct the bodies files, then re-run this command.")
         return 2
     files, left = apply_bodies(skeleton, docs, args.templates)
-    if is_meta(sp.load_spec(args.spec)[0]):
+    if is_meta(spec):
         root = f"Meta-{core['abbrev']}"
         if Path(args.out).resolve().name == root:
             print(f"REFUSED: --out {args.out} already ends in {root}, and the build adds that folder. "
@@ -1311,20 +1338,23 @@ def cmd_build(args):
             print(refusal)
             return 2
         skeleton, files = meta_tree(skeleton, core["abbrev"]), meta_tree(files, core["abbrev"])
-    path = manifest_path(args.spec)
+    over = sp.path_cap_lines(list(files), args.out, caps)
+    if over:
+        print("\n".join(over))
+        return 2
+    path = manifest_path(args.spec, spec)
     guard = [] if args.force else guard_refusal(args.out, path, skeleton)
     if guard:
         print("\n".join(guard))
         return 2
     stale = stale_files(path, skeleton, args.out)
-    leaked = {rel: sp.unmasked_braces(t) for rel, t in skeleton.items() if rel.endswith(".md")}
-    leaked = {rel: names for rel, names in leaked.items() if names}
+    leaked = {rel: names for rel, t in skeleton.items() if rel.endswith(".md") and (names := sp.unmasked_braces(t))}
     landed = []
     try:
         write_built(files, args.out, landed)
-        write_manifest(args.out, args.spec, files, stale)
+        write_manifest(args.out, args.spec, files, stale, path)
     except OSError as exc:
-        return write_failure(args, exc, landed, len(files), stale, left)
+        return write_failure(args, exc, landed, len(files), stale, left, path)
     print(f"built {len(files)} files to {args.out}; fill_remaining={left}; surviving_placeholders="
           f"{sum(len(v) for v in leaked.values())}")
     for rel, names in leaked.items():
@@ -1336,7 +1366,7 @@ def cmd_build(args):
     for line in delta_lines(args.out, files, figures):
         print(line)
     try:
-        write_manifest(args.out, args.spec)  # the estimates gate rewrote task files after the first manifest
+        write_manifest(args.out, args.spec, None, None, path)  # the estimates gate rewrote task files after the first manifest
     except MANIFEST_ERRORS as exc:
         print(f"REFUSED: the manifest rewrite failed ({type(exc).__name__}: {exc}). Fix: free the --out folder, then re-run.")
         print(f"fill_remaining={left}\nexit=3")
@@ -1353,11 +1383,13 @@ def main(argv=None):
     k.add_argument("--spec", required=True)
     k.add_argument("--session", help="print only one session's documents, such as S01-01, or PLAN for the plan documents")
     k.add_argument("--templates", default=str(sp.DEFAULT_TEMPLATES))
+    k.add_argument("--config", help="the project config whose plan_names block sets the name caps (default: the shipped caps)")
     s = sub.add_parser("lint", help="check the bodies files against the rendered skeleton")
     s.add_argument("--spec", required=True)
     s.add_argument("--bodies-dir", required=True)
     s.add_argument("--session", help="limit the check to one session, such as S01-01")
     s.add_argument("--templates", default=str(sp.DEFAULT_TEMPLATES))
+    s.add_argument("--config", help="the project config whose plan_names block sets the name caps (default: the shipped caps)")
     b = sub.add_parser("build", help="write the tree with its bodies, and the sha256 manifest")
     b.add_argument("--spec", required=True)
     b.add_argument("--bodies-dir", required=True)

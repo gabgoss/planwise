@@ -259,6 +259,28 @@ The baseline SHA is defined in [`gate-diff-baseline-pinning.md`](gate-diff-basel
 >   Do NOT read this value from any other file — it is authoritative as given here."
 > ```
 
+> [!constraint] Carry Every Pinned Block a Step Names, Unless the Runner May Read Its File
+> HARD CONSTRAINT 2 bars a runner from reading a file outside its Required Context. A step may name a block that lives in such a file. Examples are a sweep pattern, a census command and a fixture block. The runner cannot open the block. It guesses the content and reports a result built on the guess.
+>
+> Close the gap in one of two ways. Add the block's file to the task's Required Context. Or paste the block verbatim into the spawn prompt, on the `Pinned blocks:` line of the Spawn-Prompt Skeleton in `templates/orchestration.md`.
+>
+> WRONG — the step names a block, and the prompt supplies neither the block nor its file:
+> ```
+> Step 3: Run the census sweep pattern from the Orchestration's pinned block.
+> prompt: "Execute {task file}."
+> # the Orchestration is not in Required Context, and the pattern is not in the prompt
+> # runner returns: "I could not read the pattern, so I assumed one"
+> ```
+> CORRECT — the orchestrator pastes the block, and says the pasted copy is authoritative:
+> ```
+> prompt: "Execute {task file}.
+>   Pinned blocks: census sweep pattern =
+>     {census-sweep pattern, verbatim}
+>   Do NOT read this block from any other file — it is authoritative as given here."
+> ```
+>
+> Before each dispatch, search the task's steps for the phrases "the ... block", "the ... pattern" and "copied verbatim". Confirm that each hit has its file in Required Context or its block in the prompt. A runner that reports "I could not read X, so I assumed Y" has met a prompt gap. Check its output against the real X before you accept it.
+
 ## 1.7 Idle-Mid-Step Wake-Up via SendMessage
 
 Named runners go idle after every turn. This is NORMAL — idle does not mean stopped. When a named runner is idle mid-step (has more work to do but has not been prompted for the next step), the orchestrator sends a wake-up message:
@@ -310,6 +332,35 @@ The paragraphs above tell a reader not to conclude that an idle agent has stoppe
 > [!practice] Record the observation; attribute a cause only when you can support it
 > When writing up *why* something went wrong, separate what you **observed** from what you **inferred**. "{Bookkeeping file} was stale at {timestamp}" is an observation. "The runner stalled" is an inference, and a runner that was raced looks the same. An unverified causal claim written into a permanent audit trail is corrected only if the other actor happens to push back, so write the observation and leave the cause unstated until it is established.
 
+### 1.7.2 A Reply Can Land After the Runner Returns
+
+A message sent to a runner is read at the runner's next tool round. A runner that has already returned never reads it in that turn. The reply can also land after a resume has started a new turn. So a reply to a question, or a wake-up, is not a reliable channel.
+
+The runner therefore asks in its return, never by `SendMessage`. It finishes every item that does not depend on the answer, returns PARTIAL, and puts one `QUESTION:` line in ISSUES (the clause in §1.8 constraint 4). The orchestrator answers by resuming the SAME runner. Every resume is self-contained and idempotent:
+
+- Restate the decision in full. The resumed runner may not hold the earlier reply.
+- State the target count, such as the number of rows or files the finished work holds.
+- Say "if already applied, ignore this", so a second delivery changes nothing.
+- List the remaining work only, and fence off what is already done.
+
+Any measurement taken before the runner's final report is void. The runner may still be writing, so the orchestrator measures the landed state after the report.
+
+An idle `result` that predates a resume is an earlier turn's report. It does not describe the work in flight. Read the file it names and the modification times of the write area. Act on the disk only. Never interrupt a runner in the middle of a paid step.
+
+> [!constraint] Answer a Held Question by Resuming, and Restate Everything
+> WRONG — reply with a bare "yes, use B", and treat the idle notice that follows as the finished work:
+> ```
+> runner       → returns PARTIAL, QUESTION: A or B for row 7?
+> orchestrator → SendMessage(runner, "Use B.")      # lands at a later tool round, or never
+> runner       → idle notice carrying the earlier turn's report → orchestrator accepts it
+> ```
+> CORRECT — resume the same runner with a self-contained message, then read the disk:
+> ```
+> orchestrator → resume(runner, "Decision: row 7 uses B, because {reason}. Target: 12 rows
+>                 in {file}. If already applied, ignore this. Remaining: rows 7, 9, 10 only.")
+> orchestrator → on the final report, Read {file} and the write-area modification times
+> ```
+
 ## 1.8 HARD CONSTRAINTS Spawn-Prompt Skeleton + SCOPE BOUNDARY Clause
 
 Every DELEGATED spawn prompt MUST include a HARD CONSTRAINTS section and a SCOPE BOUNDARY clause:
@@ -319,7 +370,7 @@ Every DELEGATED spawn prompt MUST include a HARD CONSTRAINTS section and a SCOPE
 1. Modify ONLY the files named on this task's Output line. Every other Required Context file is read-only.
 2. Do NOT read files not listed in Required Context
 3. Do NOT spawn sub-agents or create teams
-4. If you encounter an ambiguity requiring a file not in Required Context, STOP and report it; do NOT expand scope
+4. If you encounter an ambiguity requiring a file not in Required Context, STOP and report it; do NOT expand scope. Finish every item that does not depend on it, write no placeholder for the held item, and return PARTIAL with one `QUESTION:` line in ISSUES. Never ask by SendMessage and keep working
 
 ## SCOPE BOUNDARY
 This task operates within:
@@ -327,7 +378,24 @@ This task operates within:
 - **Out of scope:** {list of adjacent files/modules this task must NOT touch}
 ```
 
+A runner that returns a `QUESTION:` line holds one item, not the whole task. The orchestrator answers by resuming the SAME runner, as §1.7.2 describes, and never starts a replacement for the held item.
+
 Check each prohibition and each narrowed write permission against every step of the brief before dispatch. See `dispatch-brief-neutrality.md` for the enumeration rule ("A Prohibition Claims That No Step Needs the Prohibited Thing") and the both-branches rule ("A Scope Boundary That Narrows a Write Permission Names Every Branch of the Task's Own Decision Rule").
+
+The spawn prompt owns the scratch namespace. Every runner in a session writes to the one scratch folder, so disjoint Output paths do not make scratch paths disjoint. Two parallel runners that each write one generic scratch name collide, and one can read back the other's rows. Give each prompt a `Scratch prefix:` header line, set to the task id. The runner starts every scratch file name with that prefix and never reads a scratch file it did not write in this run. A prefix taken from the task id is immutable state, so the exemption in `parallel-layer-shared-objects.md` section 1 applies and the layer needs no serialization.
+
+> [!constraint] Scratch Prefix Presence
+> WRONG — two parallel runners write one generic scratch name, and the second reads back the first runner's rows:
+> ```
+> runner A (task S01-01-01): writes {scratch}/rows.txt, then reads {scratch}/rows.txt
+> runner B (task S01-01-02): writes {scratch}/rows.txt, then reads {scratch}/rows.txt
+> # each read can return the other runner's rows, and the result changes with timing
+> ```
+> CORRECT — each spawn prompt names a per-task prefix, and each runner reads only what it wrote:
+> ```
+> Scratch prefix:   S01-01-01-      (runner A: writes and reads {scratch}/S01-01-01-rows.txt)
+> Scratch prefix:   S01-01-02-      (runner B: writes and reads {scratch}/S01-01-02-rows.txt)
+> ```
 
 > [!constraint] HARD CONSTRAINTS Presence
 > WRONG — spawn prompt omits HARD CONSTRAINTS; subagent reads adjacent files and expands scope:
@@ -387,6 +455,7 @@ This task approaches operational ceilings:
 - **Turn ceiling:** ~{T} tool calls expected; harness limit {maxTurns} turns (for example 50 for task-runner)
 Turn economy:
 - Batch independent shell commands into one call.
+- Run each pinned gate command exactly as pinned. Batching combines pinned commands and never replaces one with your own script or regex. Report a gate you could not run as pinned as not run, with the reason.
 - Edit each notebook with one script, not one call per cell.
 - Read a large file with Grep or offset/limit, not in full pages.
 - Before a heavy step, a live execution or a run-once step, write the checkpoint. Sequential mode: set the task's Recovery row IN_PROGRESS and add a Change Log row naming the remaining steps. Parallel mode: write the pre-step evidence file only and do not touch Recovery (§1.13).
@@ -395,6 +464,8 @@ what was completed and what remains, then signal completion via your final respo
 ```
 
 The block costs about 80 tokens per dispatch. The 80K-token and eight-command thresholds come from two sessions. They are observations, not fitted limits.
+
+A turn-economy notice invites a runner to save turns, and a runner may save one by replacing a pinned gate with its own script. When a status block says a gate was "folded", "combined" or "checked with one pass", it reports a gate that did not run as pinned. Re-run the pinned command before acceptance.
 
 ## 1.12 N>25 Edit-Task and Turn-Cap Resume Protocol with Tool-Use Budget Estimation
 
@@ -430,6 +501,8 @@ When N DELEGATED dispatches in a single session must write the same target (a sh
 **The shared target may be a counter rather than a file.** Disjoint `**Output:**` paths still collide on a next-free allocation; [`parallel-layer-shared-objects.md`](parallel-layer-shared-objects.md) §1 holds the mechanism, the namespaces and the deferral for when pre-resolution is not available. Treat a next-free allocation as a shared target and apply this matrix to it. The cheapest strategy is usually not on the matrix at all: the orchestrator resolves each dispatch's number before dispatch and injects it as a literal, per §1.6.
 
 **A read of a layer-mate's Output is a dependency, not a shared target.** The "Reads from a layer-mate's Output" column of the layer table must be empty for a parallel layer. A non-empty cell means the matrix does not apply. Move the reader to a later layer, or list the layer-mate in `Depends On`. A recorded base is the common case, such as later tasks that take their base commit from Task 01's Output file. Two fixes work. (a) The orchestrator records the shared base before layer 1 and injects it as a literal in each spawn prompt, per the callout "Inject the Literal, Do Not Indirect Through a File" (§1.6) and the `Base commit:` line of the Spawn-Prompt Skeleton in `templates/orchestration.md`. (b) Each task records its own base behind its own clean check. Never take a base from a layer-mate's Output file.
+
+**A report that several dispatches feed takes the main session as its planned writer.** A summary or report file that several dispatches feed names the main session as its writer in the plan. Runners return their rows as text, or as a small Outputs file of their own. The orchestrator applies one Edit and runs the shape gate. This is Option C applied at planning, so no runner is ever the writer. Claude Code may refuse a subagent's Write of a report-shaped file. One runner's Write was refused with "Subagents should return findings as text, not write report files", and another runner's Write was allowed. The cause and scope are not established, so plan for the refusal and do not rely on either outcome.
 
 > [!constraint] Never Run Uncoordinated Parallel Writes to the Same Target
 > WRONG — N parallel dispatches write the same shared file with no cap, no shards, no delta reconciliation:

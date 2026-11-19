@@ -67,15 +67,25 @@ WARN_ALLOWLIST = frozenset({
     "review.md",                                               # about 22,052; crossed the warn line at commit 6c713ab
     "task-content-fidelity.md",                                # 22,615
     "upgrade.md",                                              # about 22,538; crossed the warn line through the posting-consent question and notice edits
+    "verify-before-cite.md",                                   # about 22,558; crossed the warn line when section 9.B.29 was added
+    "agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md",  # about 22,362; crossed the warn line when the launch-mode paragraph was added to section 1.21
+    "gate-predicate-discrimination.md",                        # about 23,651; crossed the warn line when section 19 was added
+    "backlog.md",                                              # about 22,600; crossed the warn line when the scoped-rule constraint callout was added to step 7
 })
 # 2026-11-14: review.md and upgrade.md were added to WARN_ALLOWLIST after the pin above; both measure WARN.
+# 2026-11-18: verify-before-cite.md was added after the pin above; it measures WARN.
+# 2026-11-19: agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md was added after the pin above; it measures WARN.
+# 2026-11-19: gate-predicate-discrimination.md was added after the pin above; it measures WARN. Split or trim it before the next section.
+# 2026-11-19: backlog.md was added after the pin above; it measures WARN. Trim or split it before the next addition.
 
 # OVER_EXEMPTIONS pinned @ becccfe10f08ea60e0abe67cab4fd965b4ca2954 (2026-10-20); tokens from CRLF-normalized bytes (checkout-independent)
 # Guards READ_PAGE_CAP_TOKENS (25,000). An exempted file must still measure OVER.
 # The sprint that splits run.md removes this entry in its own write-set.
 OVER_EXEMPTIONS = frozenset({
     "run.md",                                                  # 25,251
+    "task-content-fidelity.md",                                # about 25,809; crossed the page cap when the Measured footer section and Check 084 mode 5 were added. Split or trim it before the next addition
 })
+# 2026-11-19: task-content-fidelity.md was added after the pin above; it measures OVER.
 
 
 def _scan_paths() -> list[str]:

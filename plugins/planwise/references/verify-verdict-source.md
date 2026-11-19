@@ -1,13 +1,13 @@
 ---
-description: A verdict rests on the primary source it re-read, not on who agrees with it. Covers the symbol-level search a negative verdict requires, what a "confirmation" must name, why severity does not ratchet on agreement, why a runner's accurate status block cannot see a cross-artifact invariant, why the orchestrator is not a safe place for an unverified negative, how to make a failure name its members, how to classify every non-zero exit as an instrument defect or a subject finding before acting on it, and why a criterion that names an instrument's printed line is met only by that line, and why a quotation deliverable is accepted by finding each quote in its source rather than on heading presence or the runner's own assertion, and why a predicate that names fields the build does not emit is graded by the field that carries the same fact, never marked untestable from the absence of its own names. Consult before recording ABSENT, before confirming another agent's finding, before accepting a batch of status blocks, before writing a negative into Recovery, when a verifier exits non-zero, before accepting a task whose criterion names a printed line, before accepting a copy or quote task, and before grading a predicate whose named fields the log does not carry.
-consult-when: About to record ABSENT, confirm another agent's finding, accept a batch of status blocks as whole-set evidence, or write a negative into Recovery — search the code for the symbol not the prose, name the primary source re-opened, keep severity flat on agreement, recompute cross-artifact invariants on disk, make a failure name its members, classify a non-zero exit as instrument or subject, and treat a criterion that names a printed line as met only by that line, and accept a copy or quote deliverable by finding each quote in its source, not on heading presence, and grade a predicate whose named fields the log lacks by the field that carries the same fact, never "untestable" (§11)
+description: A verdict rests on the primary source it re-read, not on who agrees with it. Covers the symbol-level search a negative verdict requires, what a "confirmation" must name, why severity does not ratchet on agreement, why a runner's accurate status block cannot see a cross-artifact invariant, why the orchestrator is not a safe place for an unverified negative, how to make a failure name its members, how to classify every non-zero exit as an instrument defect or a subject finding before acting on it, and why a criterion that names an instrument's printed line is met only by that line, and why a quotation deliverable is accepted by finding each quote in its source rather than on heading presence or the runner's own assertion, and why a predicate that names fields the build does not emit is graded by the field that carries the same fact, never marked untestable from the absence of its own names, and why a runner's method, consolidation or coverage claim is accepted only on a gate that can fail on it. Consult before recording ABSENT, before confirming another agent's finding, before accepting a batch of status blocks, before writing a negative into Recovery, when a verifier exits non-zero, before accepting a task whose criterion names a printed line, before accepting a copy or quote task, and before grading a predicate whose named fields the log does not carry.
+consult-when: About to record ABSENT, confirm another agent's finding, accept a batch of status blocks as whole-set evidence, or write a negative into Recovery — search the code for the symbol not the prose, name the primary source re-opened, keep severity flat on agreement, recompute cross-artifact invariants on disk, make a failure name its members, classify a non-zero exit as instrument or subject, and treat a criterion that names a printed line as met only by that line, and accept a copy or quote deliverable by finding each quote in its source, not on heading presence, and grade a predicate whose named fields the log lacks by the field that carries the same fact, never "untestable" (§11), and accept a runner's method, consolidation or coverage claim only on a gate that can fail on it (§12)
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Verify the Verdict's Source — A Verdict Is Only as Good as the Source It Re-Read
 
 **Purpose:** Several verdicts were confident, internally consistent, and wrong — each because the evidence it rested on **could not have contained the answer**. One searched prose for a feature that lives in code and returned ABSENT. One "confirmed" a claim about a document without re-opening the document. One reported an accurate status block against a question its runner was never asked. Two more read an exit code or a printed line that did not come from the subject the gate exists to judge (§8, §9).
 
-**Read this when** you are about to record ABSENT, confirm another agent's finding, accept a batch of runner status blocks as evidence for a whole-set property, or write a negative into Recovery. Read §8 when a verifier exits non-zero. Read §9 when you accept a task whose criterion names a line an instrument prints. Read §10 when you accept a delegated task whose brief says "copy" or "quote verbatim". Read §11 when a grader reports a predicate "untestable" because the fields it names are absent from the log.
+**Read this when** you are about to record ABSENT, confirm another agent's finding, accept a batch of runner status blocks as evidence for a whole-set property, or write a negative into Recovery. Read §8 when a verifier exits non-zero. Read §9 when you accept a task whose criterion names a line an instrument prints. Read §10 when you accept a delegated task whose brief says "copy" or "quote verbatim". Read §11 when a grader reports a predicate "untestable" because the fields it names are absent from the log. Read §12 before accepting a runner's method, consolidation or coverage claim.
 
 The known failure direction for delegated classification is **under-**classification: a runner calls something FIXED that is still live. A false ABSENT and an over-classified severity produce *extra* work instead, so nothing downstream fails loudly. A false PRESENT is usually caught immediately. A **false ABSENT propagates as work to be done**, and it surfaces only if someone recomputes the claim against the primary source.
 
@@ -26,6 +26,10 @@ Two neighbouring rules meet this one at a single point each. [`dispatch-brief-ne
 - [9. A Criterion That Names an Instrument's Line Is Met Only by That Line](#9-a-criterion-that-names-an-instruments-line-is-met-only-by-that-line)
 - [10. A Quotation Deliverable Is Accepted by Finding Each Quote in Its Source](#10-a-quotation-deliverable-is-accepted-by-finding-each-quote-in-its-source)
 - [11. A Predicate That Names Fields the Build Does Not Emit Is Graded by the Field That Carries the Same Fact](#11-a-predicate-that-names-fields-the-build-does-not-emit-is-graded-by-the-field-that-carries-the-same-fact)
+- [12. A Delegated Claim Is Accepted on a Gate That Can Test the Claim](#12-a-delegated-claim-is-accepted-on-a-gate-that-can-test-the-claim)
+  - [12.1 A step that names a method gets a gate that tests the method](#121-a-step-that-names-a-method-gets-a-gate-that-tests-the-method)
+  - [12.2 A consolidation claim is an absence claim: search for the old code, not the new symbol](#122-a-consolidation-claim-is-an-absence-claim-search-for-the-old-code-not-the-new-symbol)
+  - [12.3 A sweep ledger's coverage gate takes its denominator from the sweep's own hit set](#123-a-sweep-ledgers-coverage-gate-takes-its-denominator-from-the-sweeps-own-hit-set)
 
 ---
 
@@ -303,6 +307,69 @@ Three consequences follow.
 **The recording rule.** A design document that names fields records the drift and the stand-in field in the write-up. It does not record a lost result. The orchestrator recomputes a delegated grader's "cannot be determined" verdict from the row and the code that wrote it, as it would a PASS or FAIL. §5 ("The Orchestrator Is Not a Safe Place for an Unverified Negative") covers why an unverified negative must not travel on.
 
 **Applies to** any grading of a design predicate, probe sheet or acceptance criterion that names log fields, event keys or column names. §1 requires a symbol-level search before a negative verdict about a feature. This section covers the same search applied to the field a predicate names.
+
+---
+
+## 12. A Delegated Claim Is Accepted on a Gate That Can Test the Claim
+
+> [!constraint] Name the claim, then pick a gate that could fail on it
+> A shape gate, a search for the new symbol, control rows and a summary-equals-rows check each test something the runner's output fills in. None of them can test a method that was skipped, old code that survived, or a row nobody wrote. Each claim below gets the gate that fails on it. §4 is the reason a runner's accurate status block is not that gate.
+
+### 12.1 A step that names a method gets a gate that tests the method
+
+Incident: four runners each filled a disposition table. Execution Step 4 of every task said to sum the bytes of the kept text and divide by 2.6. Three runners returned estimates instead, such as "plus or minus 20 percent", "hand-summed estimate" and "~9,170". Every acceptance gate tested shape only: heading order, row count, header row and a non-empty Evidence cell. So every output passed. Only one task's criteria named the byte method, and that runner measured. A corrective resume moved one target from ~10,800 to 16,887 tokens.
+
+WRONG — the acceptance gates test only the cells the method fills:
+```
+Grep '^\| .*\| compress \|' <output>      # 8 rows with Evidence -> accept
+# Target tokens cell reads "~10,800 (estimated, plus or minus 20 percent)"
+```
+CORRECT — a method gate beside the shape gates:
+```
+Grep '^\*\*Target-token method:|\| compress \|' <output>
+  -> search the hits for 'estimate|~[0-9]|plus or minus|approx'
+# a hit -> resume the same runner to byte-measure; accept only "N (measured)"
+```
+Rules:
+1. For every execution step that names a method (measure, byte-count, run, re-read), check that some criterion tests the method, not only the field it fills. If none does, add one at scaffold time, or add an acceptance check in the orchestration.
+2. The cheapest method gate searches the method line and the filled cells for the words a skipped method leaves behind.
+3. Route the gate to every sibling session that runs the same task shape.
+4. A corrective message sent the moment a runner returns may go unread, because the runner can go idle first. Check the output on disk before you count a correction as applied.
+
+### 12.2 A consolidation claim is an absence claim: search for the old code, not the new symbol
+
+Incident: a runner reported "one resolver and one wiring function serve three callers". The orchestrator found the new function at all three call sites and accepted. One caller did call the shared wiring function. It still computed its input with its own inline YAML parse. That parse had no type check, so a scalar config block crashed the upgrade path. Presence of the new call says nothing about whether the old logic is gone.
+
+WRONG — the acceptance check proves the new symbol is present:
+```
+Grep '<new_resolver>|<new_wiring_fn>'  -> 3 call sites -> accept "one resolver"
+```
+CORRECT — the acceptance check proves the old logic is gone:
+```
+Grep '<old parse call>|<old key lookup>'  over every caller file
+  -> <caller>.py:737, :741 still parse inline -> the claim is false -> route the fix
+```
+Pick the old code's own local tokens (the parse call, the key lookup), not the function names the refactor keeps. Then read each caller's lines just above the new call, because the stale value is computed there. Applies to any delegated refactor, dedup or fix whose status block says logic was consolidated, replaced or removed. It applies most when the new helper's name already appears at every call site.
+
+### 12.3 A sweep ledger's coverage gate takes its denominator from the sweep's own hit set
+
+Incident: a sweep task classed every roster mention as current or historical in a ledger. Four control rows were all present, and 7 historical rows equalled the ledger's own summary count. The ledger still missed a manifest file that the member-name sweep had matched. A corrective resume added 3 rows, and the summary became 10. Control rows prove that known rows are present. A summary check proves the table agrees with itself. Neither can see a row nobody wrote. [`gate-denominator-integrity.md`](gate-denominator-integrity.md) §3 is the general rule. This is its sweep-ledger form.
+
+WRONG — both gates read only the table and the known controls:
+```
+Grep ledger for 4 control strings          -> 4 of 4 classified
+count rows with Class = historical         -> 7 == <m> on the final line
+accept
+```
+CORRECT — a coverage gate whose denominator is the sweep's own hit set:
+```
+files_hit      = the file list of each sweep pattern (Grep output_mode=files_with_matches)
+files_ledgered = the File column of the ledger
+leftover       = files_hit - files_ledgered
+each leftover file -> a ledger row, or a named exclusion class in the ledger's preamble
+accept only when no leftover file is unaccounted for
+```
+An exclusion stated once for a class of hits is fine. A file in neither list is the finding. The brief asks the runner to write the leftover list into the ledger. The orchestrator then checks a list against a rule and does not re-derive the sweep. A brief that says "every hit classified" needs this check as its proof of "every".
 
 ---
 

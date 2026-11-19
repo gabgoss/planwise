@@ -86,6 +86,19 @@ route_dated: {YYYY-MM-DD}
 
 A stored hint rots exactly like any other claim. Triage re-derives the route from live signals and treats a disagreeing hint as data about drift, never as an override. Omit all three fields rather than guess.
 
+> [!binding] Write every path in an item relative to the project root
+> The scoped-rule gate resolves each path in the item body from the project root, the same root the rule `paths:` globs use. A sentence that rebases paths onto a nested tree resolves to nothing. The gate then labels every existing file `CREATE`, reports no scoped rules and prints a warning.
+>
+> WRONG — a rebasing sentence and a short path:
+> ```
+> Paths are under `cloned-repos/planwise/` unless absolute.
+> 1. `handlers/run.md` -- edit the step
+> ```
+> CORRECT — the full project-relative path on every line:
+> ```
+> 1. `cloned-repos/planwise/plugins/planwise/handlers/run.md` -- edit the step
+> ```
+
 **Scope the item to what the defect needs.** Effort and diff size are never a tiebreaker — see `references/do-the-hard-things.md`. An item that describes a partial fix leaving known incoherence behind is mis-drafted, not economical.
 
 ### Mapping From Inputs to the Item
@@ -94,7 +107,7 @@ This table is the whole decision surface. Find the row for each fact-sheet block
 
 | Input | Writes |
 |---|---|
-| `DESIGN: REFINED` | `## Resolution` from `APPROACH` and `STEPS`; `## Verification` from `VERIFICATION`; `## Open Questions` = `None.`; `refined: true` |
+| `DESIGN: REFINED` | `## Resolution` from `APPROACH` and `STEPS`; `## Verification` from `VERIFICATION`, where a `user-run: {step} -> {expected}` line is copied into the fence as one `# user-run: {step} -> {expected}` line; `## Open Questions` = `None.`; `## Files Touched` with one row per path the `STEPS` lines name, each path relative to the project root, Role `EDIT` when the file exists and `CREATE` otherwise, Size per `templates/backlog-item.md` section Files Touched; `refined: true` |
 | `DESIGN: QUESTIONS` | `## Open Questions` from `QUESTIONS` (one `### Q{n}.` block each, `Answer:` empty); `## Resolution` and `## Verification` absent or unchanged; `refined: false` |
 | `DESIGN: DECOMPOSE` | The parent keeps `refined: false`; each `SUB_ITEMS` line becomes a new item with `blocks: [{parent}]` and its own `## Resolution`; a sub-item whose `SUB_ITEMS` line carries an `{after}` position also has its id added to the prerequisite's `blocks:`, the earlier sibling at that position, as the §3 Sub-items paragraph states; the parent's `## Open Questions` = `None.` and its `## Resolution` names the sub-items |
 | `DESIGN: NEEDS_PLAN` | `needs_plan: true`; `## Open Questions` carries `NEEDS_PLAN_REASON` as one unanswered block; `refined: false` |
@@ -133,11 +146,12 @@ A question that is still unanswered keeps its block, and the item keeps `refined
 
 Run in this order. `{plugin_root}` and `{planwise_root}` arrive in the spawn prompt. Steps 1 and 2 repeat for each new item. Step 3 runs once per dispatch, after the last item is filed or rewritten. An existing item in `refine` mode skips steps 1 and 2 and takes the refine path after step 3.
 
-1. **Next free ID** — never trust an ID supplied in the spawn prompt; re-derive from live state:
+1. **Next free ID** — never trust an ID supplied in the spawn prompt; re-derive from live state. Run the drift check first, then read the next id:
    ```bash
+   python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --check
    python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.yaml --next-id
    ```
-   Increment locally for each subsequent item in the same batch. Do not skip numbers. `--next-id` reads the generated index files, not the item files. It cannot see an item this dispatch filed until step 3 runs, so the local increment is what keeps this batch's ids distinct.
+   Each `{id}: no on-disk row yet` line from `--check` names an item file that the index lacks. An earlier dispatch filed it and its step 3 did not run. `--next-id` reads the index, so it returns an id that is already on disk. Take the next id as the larger of the `--next-id` value and the highest such `{id}` plus 1. Report the drift in `ISSUES`. Increment locally for each subsequent item in the same batch. Do not skip numbers. `--next-id` reads the generated index files, not the item files. It cannot see an item this dispatch filed until step 3 runs, so the local increment is what keeps this batch's ids distinct.
 2. **File the item through the guarded writer**, then fill its body:
    ```bash
    python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --create --id "{NNN}" --feature "{title, 120 characters or fewer}" --priority "{High|Medium|Low}" --abbrev "{Domain}" --files "BB-{NNN}-01-{Domain}-{Topic}.md"
@@ -157,6 +171,9 @@ Run in this order. `{plugin_root}` and `{planwise_root}` arrive in the spawn pro
    | `1` | Drift or anomaly, naming the items. `--check` returns it. `--write` does not, so treat it as unexpected | `no — exit 1: {stderr}` |
    | `2` | Refused before writing anything: unrenderable input, a missing required frontmatter key, an unresolvable `blocks:` id, or a reciprocal `blocks:` edge | `no — exit 2: {stderr}` |
    | `2` | Refused because the index is hand-authored (stderr names `hand-authored index`). Nothing was written. The fix is the caller's Index shape gate, which migrates through `/planwise upgrade`, not a change to your input. Report it in `ISSUES` | `no — exit 2: {stderr}` |
+   | denied or not run | The call never returned an exit code: the harness denied it or it could not start | `no — not run: {reason}` |
+
+   Never retry a denied call and never work around it. The orchestrator runs the post-author index check and the `--write` itself.
 
    A non-zero exit does not make the item files wrong. They are the source of truth, and the index is derived from them. Do not roll them back or file them again. Capture stderr and continue to §4. A `stale-score` report alone never fails the exit code and needs no action. A `title(s) truncated` warning on stderr is one line that lists every item whose frontmatter `title:` exceeds 120 characters. Report each item you filed this run that appears in that list in `ISSUES`.
 
@@ -195,7 +212,7 @@ ITEMS_REWRITTEN:   {n}
 ITEMS_ALREADY_MET: {ids, or none}
 ITEMS_RETIRED:     {label} — {evidence}    (one line each, or "none")
 OUTPUT_FILES:      {comma-separated absolute paths written}
-INDEX_REGENERATED: yes | no — exit {1|2}: {stderr}
+INDEX_REGENERATED: yes | no — exit {1|2}: {stderr} | no — not run: {reason}
 SOURCE_RECONCILE:  {candidates whose source doc needs reconciling, or "none"}
 ISSUES:            {one line per issue, or "none"}
 ```
@@ -215,7 +232,7 @@ The block carries no source-pin field. The preflight's status block carries the 
 | Some items written, then a mid-batch failure | `PARTIAL` + partial `OUTPUT_FILES`, and `INDEX_REGENERATED` from the step-3 run | Verifies which item files landed. Re-dispatches only the unfiled remainder |
 | `--create` rejects a title longer than 120 characters | No failure return. The agent shortens the title, moves the overflow into `## Summary`, and re-runs `--create` | No action. The retried item is filed normally |
 | `--create` exits non-zero for any other reason | `PARTIAL`, the failure in `ISSUES` | Fixes the input the writer names. Re-dispatches only the unfiled remainder |
-| Generator exits `1` or `2`, item files correct | `COMPLETE`, `INDEX_REGENERATED: no — exit {1\|2}: {stderr}` | Fixes the input the generator names, then re-runs `generate_backlog_index.py --write`. Never files the items again |
+| Generator exits `1` or `2`, or is denied or not run, item files correct | `COMPLETE`, `INDEX_REGENERATED: no — exit {1\|2}: {stderr}` or `no — not run: {reason}` | Runs `generate_backlog_index.py --check`, then `--write` on exit 1. Fixes the input the generator names when it exited `2`. Never files the items again |
 | No design file and no fact sheet in `handover_dir` | `BLOCKED` + reason, no files written | Runs the missing dispatch; does not retry verbatim |
 | An input the §2 mapping table does not name | `BLOCKED` naming the input, no files written | Fixes the input or its upstream dispatch; does not retry verbatim |
 
@@ -224,7 +241,7 @@ The block carries no source-pin field. The preflight's status block carries the 
 ## Constraints
 
 - `background` is omitted and MUST never be set true — a background subagent auto-denies its Write/Edit/Bash calls silently, and permission-bypass modes do not override that gate. Every dispatch of this agent is foreground.
-- **Never dispatch two of these agents concurrently.** The id-allocation race is the only remaining reason. `--next-id` reads the generated index files, and those change only when `generate_backlog_index.py --write` runs at the end of a dispatch. Two concurrent dispatches can therefore read the same next-free id and file two items under it. This guard can retire once id allocation stops depending on the regenerated index. Batch candidates into **one** dispatch rather than fanning out per candidate. One dispatch also costs less than several.
+- **Never dispatch two of these agents concurrently.** The id-allocation race is the only remaining reason. `--next-id` reads the generated index files, and those change only when `generate_backlog_index.py --write` runs at the end of a dispatch. Two concurrent dispatches can therefore read the same next-free id and file two items under it. This guard can retire once id allocation stops depending on the regenerated index. Batch candidates into **one** dispatch rather than fanning out per candidate, up to **at most 8** candidates (file mode) or items (refine mode) per dispatch. The bound comes from `maxTurns: 40`. A dispatch spends about 6 fixed turns (read the fact sheet, list the designs, `--check`, `--next-id`, `--write`, report) and about 3 per item (read the design, `--create`, `Edit`). (40 − 6) / 3 is 11, and a bound of 8 leaves slack for a title retry or a sub-item. A larger set runs as sequential batches, as `references/backlog-creation-process.md` § 7 Constraints describes. One dispatch of up to 8 also costs less than several.
 - **The index-file race is retired, and no guard replaces it.** An earlier version of this agent appended index rows itself, so two dispatches could race on the index file. That race is gone. `--create` writes only the item file. `generate_backlog_index.py --write` rebuilds the whole index atomically from the item files on disk, so a later run always repairs an earlier one. Do not reinstate an index-file guard.
 - File the batch it was given — do not discover, infer, or add candidates of its own.
 - Never set a status; the orchestrator runs `update_backlog.py --status`.

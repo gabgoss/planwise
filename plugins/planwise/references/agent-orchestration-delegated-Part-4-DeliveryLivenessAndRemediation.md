@@ -1,6 +1,6 @@
 ---
-description: DELEGATED dispatch discipline, Part 4 of 4. This file holds §1.29–§1.32, delivery, liveness and remediation, including naming a status block's delivery channel (§1.29.1), establishing that a silent runner is dead before dispatching a replacement (§1.30), pinning a target over a stored corpus with a census, a fallback ceiling and a NONE sentinel (§1.31.1), and deriving a remediation brief's write set from where each fix lands (§1.32). Part 1 of 4 is agent-orchestration-delegated.md.
-consult-when: Writing a DELEGATED spawn prompt's delivery channel or lead-resolved conditions, establishing that a silent runner is dead before dispatching a replacement, resolving a precondition a whole dispatch layer shares, pinning a paid or irreversible step's target over a stored corpus with a census, a fallback ceiling and a NONE sentinel, and deriving a remediation brief's write set from where each fix lands
+description: DELEGATED dispatch discipline, Part 4 of 4. This file holds §1.29–§1.32, delivery, liveness and remediation, including naming a status block's delivery channel (§1.29.1), establishing that a silent runner is dead before dispatching a replacement (§1.30), pinning a target over a stored corpus with a census, a fallback ceiling and a NONE sentinel (§1.31.1), running the repo-wide guard tests between layers (§1.31.2), and deriving a remediation brief's write set from where each fix lands (§1.32), including a review-fix brief that names every function answering the same question (§1.32.1) and a layer-mate's helper bug fixed at its source (§1.32.2). Part 1 of 4 is agent-orchestration-delegated.md.
+consult-when: Writing a DELEGATED spawn prompt's delivery channel or lead-resolved conditions, establishing that a silent runner is dead before dispatching a replacement, resolving a precondition a whole dispatch layer shares, pinning a paid or irreversible step's target over a stored corpus with a census, a fallback ceiling and a NONE sentinel, running the repo-wide guard tests between layers, deriving a remediation brief's write set from where each fix lands, writing a review-fix brief, and a layer-mate's helper bug that a runner is tempted to wrap
 ---
 
 # DELEGATED Dispatch Discipline — Part 4: Delivery, Liveness and Remediation
@@ -95,7 +95,7 @@ Two practices follow.
 
 **The lead already knows the trigger.** One Grep for `^(\*\*Mode:\*\*|Execution Strategy:)\s*DELEGATED\b` over the Master Plan and every Orchestration file decides whether to append the block. The pattern matches the `**Mode:**` line the Orchestration template writes, and it anchors at the line start so the template's reminder text in a DIRECT plan does not match. The lead prints the outcome with the matched and total file counts, so a miss reads as a defect and not as a DIRECT plan. A handler that already runs that Grep for another check reuses the same result here, at no extra cost.
 
-**A checklist row with no loader is a false assurance.** When auditing a checklist-driven handler, verify for each row that *some* spawn prompt causes it to be evaluated. A count of the handler's mentions of the reference does not answer that. A mention in a synthesis step, or in a lead-side conditional-reference list, loads nothing into the agent that runs the check. Read each prompt. `tests/test_reviewer_reference_reachability.py` asserts that the shipped reviewer block names every delegated part file.
+**A checklist row with no loader is a false assurance.** When auditing a checklist-driven handler, verify for each row that *some* spawn prompt causes it to be evaluated. A count of the handler's mentions of the reference does not answer that. A mention in a synthesis step, or in a lead-side conditional-reference list, loads nothing into the agent that runs the check. Read each prompt. In plugin development, `tests/test_reviewer_reference_reachability.py` asserts that the shipped reviewer block names every delegated part file.
 
 Hand-extending one prompt for one pass does not fix this. The next run reverts to the shipped prompt, so the extension has to land in the handler.
 
@@ -282,6 +282,34 @@ Issue: The pin "{quoted pin}" orders {corpus} by recency for a paid or irreversi
 Fix: Add the census to the delta, set the ceiling above the largest known gap, and keep the NONE sentinel with the measure-don't-substitute instruction, per references/agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md §1.31.1 | Confidence: HIGH
 ```
 
+### 1.31.2 A repo-wide guard test is a layer gate the orchestrator runs between layers
+
+A new file is subject to every guard test that scans its directory. Those tests live in files the task does not own, so a runner that gates only its own test files never runs them.
+
+In one reported run, six new entry scripts across three runners each passed their own-file gates. Three layers were built on them. Only the affected-tests run at the end reported `6 failed`, because a repo-wide guard test scanned the directory the scripts were written to.
+
+> [!constraint] The orchestrator runs the guard tests after each layer, not once at the end
+> WRONG — each runner gates its own test files, and the repo-wide run waits for the end of the session:
+> ```text
+> layer 1: three runners write six new scripts, and each own-file gate passes
+> layers 2 and 3: built on those scripts
+> end of session: affected-tests run -> 6 failed
+> ```
+> CORRECT — the task's gate lists the guard tests, and the orchestrator runs the suite after each layer returns:
+> ```text
+> task gate: own test files + the guard tests that scan the write directory
+>            (one Grep of the test folder for the directory name)
+> layer 1 returns -> orchestrator runs the full suite or the affected-tests form -> 6 failed
+> resume the SAME runner that wrote each file -> run passes -> dispatch layer 2
+> ```
+>
+> - **List the guard tests in the task's gate.** One `Grep` of the test folder for the write directory's name finds them.
+> - **Run the suite after each layer returns and before the next layer dispatches.** Use the whole suite, or the project's affected-tests form of its runner.
+> - **Treat the affected-tests form as the fallback.** Use it when a full run is unaffordable or not permitted. It never replaces the between-layer run.
+> - **On a failure, resume the SAME runner that wrote the file.** Dispatch nothing until the run passes.
+
+**Applies to** any layer that writes into a directory that a repo-wide test scans, such as entry scripts, fixtures, generated references or registry files.
+
 ## 1.32 Derive a Remediation Brief's Write Set From Where Each Fix Lands
 
 A remediation task written at a review gate carries two lists. The Fixes table lists intents. The `Output:` line (the runner's write set) lists locations. An author who writes the second from memory of the first drops every fix whose location the author did not picture. The runner then finds the fix, reproduces the defect with a failing test, and correctly refuses to edit a file or line outside its write set.
@@ -312,6 +340,65 @@ A remediation task written at a review gate carries two lists. The Fixes table l
 **The cost to inline.** The measured halt cost a full resume round trip into a nearly full window: the runner had used about 200K tokens. §1.17.5 of [`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) ("Name a write-by turn in the spawn prompt, and size the brief by its proof count") covers the neighbouring rule on brief size. The two rules compound: a large brief with an incomplete write set halts late.
 
 **Applies to** remediation tasks written at a review gate, where the orchestrator authors a brief under time pressure from a findings list. It also applies to any brief that lists permitted edits per file by purpose ("only the X block") rather than by location. For how to rank the fixes themselves, see [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) §1.9 and §1.25.3.
+
+### 1.32.1 A review-fix brief names every function that answers the same question
+
+A review finding names one function. The defect usually sits in a question that several functions answer. A fix to the named function leaves its siblings answering the old way, and the next review round finds them.
+
+In one reported run, a review-fix cycle took three rounds and returned 10, 10 and then 8 findings. Every fix brief listed the reported sites one by one. Each round's fix changed how one function answered a question. A sibling function that answered the same question was left behind or no longer agreed with it.
+
+> [!constraint] A review-fix brief carries a SWEEP block, and the fix is ordered by question
+> WRONG — the brief lists the reported site only:
+> ```text
+> Review finding: the Archive exclusion exists only in cmd_admit.
+> FIX: refuse Archive in cmd_admit.
+> ```
+> CORRECT — the brief names the question and requires the sweep:
+> ```text
+> Review finding: "which directory, and is it allowed?" is answered by three functions.
+> FIX: put the check in the one shared resolver that every command uses.
+> SWEEP: list every function that answers each question the fix touches, with line numbers.
+>   _resolve_dir   cli.py:41   agrees after the fix
+>   _need_dir      cli.py:88   agrees after the fix
+>   cmd_admit      cli.py:132  agrees after the fix
+> Confirm that they agree. Record this table in the Output.
+> ```
+>
+> - **Name each question the fix touches.** State it as a plain question, not as the function the finding named.
+> - **List every function that answers it, with file and line.** The runner confirms that they agree after the fix and records the table in its Output.
+> - **Order the fix by question, not by finding.** Group the findings that touch one question into one change to the one shared predicate. Do not patch call sites one at a time.
+> - **Expect the review loop not to converge without the sweep.** The stopping rule still holds. The sweep is what lets a round end clean.
+
+Step 2 of section 1.32 adds a row for each reader of a changed scope, key or predicate. This subsection adds the sweep over every function that answers the same question. The adversarial-review section of [`destructive-change-requirements.md`](destructive-change-requirements.md) covers what the review itself is told. Its heading is "What the adversarial review must be told, and when it stops".
+
+**Applies to** any review-fix loop over code with a shared destructive or gating predicate. Examples are delete guards, path confinement, status machines and write paths. It applies most when fresh runners each see only their own findings.
+
+### 1.32.2 Fix a layer-mate's bug at its source, and remove the compensating wrapper in the same change
+
+A helper that one task writes is often called by a task in a later layer. The later runner may find the helper wrong while its own write set excludes the helper. The runner can report the bug, or it can wrap the call and correct the output.
+
+In one reported run, a helper counted the lines of a section. A 10-line section that ended a newline-terminated body counted 11, because the empty segment after the final newline was counted. The caller's runner wrapped the helper and subtracted one. The helper stayed wrong for every other caller. Once the helper was fixed, the wrapper would have undercounted, and the suite stayed green throughout.
+
+> [!constraint] Report the helper's bug, and land the source fix and the wrapper removal as one decision
+> WRONG — the caller compensates and moves on:
+> ```python
+> def _count_in_caller(body):          # private wrapper in the caller
+>     text, n = helper(body)
+>     return text, n - 1               # corrects the helper's off-by-one for this caller only
+> ```
+> CORRECT — fix the helper, pin the case with a regression test, and call the helper directly:
+> ```python
+> # helper: the empty segment after a trailing newline is not counted
+> # test: a 10-line section reads 10 with a trailing newline, 10 without one, 10 before another heading
+> text, n = helper(body)               # the caller uses the helper directly
+> ```
+>
+> - **A runner that finds a bug in code outside its write set reports it.** It never compensates silently. A wrapper is acceptable only as a flagged, temporary step.
+> - **The orchestrator re-proves the bug with a probe before it resumes anyone.** In the measured case the probe read 11, 10 and 10 over three bodies.
+> - **The source fix and the wrapper removal are one decision.** The owner fixes the helper, and the caller removes the wrapper.
+> - **Re-run the caller's gates after both land.** A green suite does not prove the compensation is gone.
+
+**Applies to** a DELEGATED session where one task's output is a helper that a later task calls. It applies most when the helper's owner has already returned. Step 3 of section 1.32 covers the halt when a fix needs a location outside the write set.
 
 ---
 

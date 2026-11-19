@@ -59,7 +59,7 @@ In Auto Mode, ask nothing and follow the unattended branch of `references/backlo
 
 ### Step 5: Rewrite the batch
 
-After every planner of the batch has returned its final design, dispatch `planwise:backlog-author` once in `refine` mode with the batch ids, in the foreground. It rewrites each item in place and regenerates the index once.
+After every planner of the batch has returned its final design, dispatch `planwise:backlog-author` once in `refine` mode with the batch ids, in the foreground. It rewrites each item in place and regenerates the index once. Cap each batch at 8 items and run a larger set as sequential batches. After each author dispatch, run the post-author index check, `generate_backlog_index.py --check`, per `references/backlog-creation-process.md` § 7 Constraints.
 
 ### Step 6: Close an ALREADY_MET item
 

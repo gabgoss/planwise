@@ -17,7 +17,7 @@ A model draft asks no posting question when it is written. The /planwise feedbac
 
 ## Triggers
 
-Draft when one of these seven happens during `/planwise` work:
+Draft when one of these eight happens during `/planwise` work:
 
 1. A handler step failed, or you had to work around it.
 2. A shipped planwise script errored on valid input.
@@ -26,6 +26,7 @@ Draft when one of these seven happens during `/planwise` work:
 5. A reasonable request needed a planwise capability that does not exist.
 6. The user corrected your own planwise behaviour.
 7. A plan author wrote a section under `## Plan-Specific Sections` because no template heading fit. See [The catch-all section trigger](#the-catch-all-section-trigger).
+8. A `/planwise review` found a systemic finding whose Fix Owner is `planwise`. See [The review finding trigger](#the-review-finding-trigger).
 
 ## The catch-all section trigger
 
@@ -38,11 +39,22 @@ Every plan template ends with a `## Plan-Specific Sections` catch-all. A section
 - The tool queues the draft locally, and its reply says not to announce it. Print nothing yourself.
 - When drafts are on but the tool is not registered (the hooks module did not load), use the [Write recipe](#write-recipe) below, with the same title and the `idea` body headings.
 
+## The review finding trigger
+
+A review finding about a file the plugin ships is evidence for a plugin fix. Only the review lead calls the tool, at synthesis. The reviewer agents have no MCP tool.
+
+- Draft once per systemic finding whose Fix Owner is `planwise` and that is new in this review. A finding carried forward from an earlier review adds no draft.
+- Call `mcp__planwise__draft_feedback` with `kind: bug` when the artifact states something wrong, or `kind: idea` when it lacks a rule or an example. Take `title` from the finding's one-line description.
+- Put the Suggested Fix Target path in `where` (`idea`) or `steps` (`bug`). Set `subcommand: review`.
+- Quote no plan content. Describe the artifact's gap only.
+- The 10-call cap, the `feedback.drafts: off` rule and the not-registered fallback of [The catch-all section trigger](#the-catch-all-section-trigger) apply unchanged. When drafts are on and the tool is not registered, use the [Write recipe](#write-recipe) below.
+- A finding whose Fix Owner is `project` drafts nothing. A review with no planwise-owned finding drafts nothing.
+
 ## Not triggers
 
 Do not draft for these three:
 
-1. A problem in the project's own content, such as a plan, backlog item or lesson.
+1. A problem in the project's own content, such as a plan, backlog item or lesson. A review finding whose Fix Owner is `planwise` is not this case. Trigger 8 covers it.
 2. A config typo that the handler reported correctly.
 3. A gate that stopped the flow as designed.
 
@@ -58,6 +70,10 @@ Read `feedback.drafts` through the running handler's config resolution. Apply it
   ```
 
 A missing or unreadable config counts as `off`. So does a missing key.
+
+## Which tree the draft goes to
+
+The draft goes to `{feedback_dir}` under the session's current project root. Read that root when you write the draft, not once at session start. In a git worktree the current root is the worktree's tree, not the main checkout. The draft file, the config that the review card edits and the path in the notice line all name that same tree. The hooks module re-reads the root on every call, so the `draft_feedback` tool follows a session that moves into a worktree.
 
 ## Do not announce
 
@@ -167,7 +183,11 @@ An unattended context is Auto Mode, a /planwise backlog loop session, or /planwi
   planwise: a feedback draft was posted to {url}
   ```
   `{url}` is the issue URL or the comment URL that `gh` printed.
-- A draft that the privacy gate blocks, or that any other failure keeps, prints the saved-draft line above, unchanged.
-- With `feedback.drafts: quiet`, nothing prints in either case.
+- With `feedback.drafts: notify`, a draft that the privacy gate blocks prints the post path's block line instead of the saved-draft line. The line names the class and the line number, never the matched text. The post path has already recorded the block in a `.blocked` sidecar by then:
+  ```
+  Feedback draft kept, not posted: the privacy check blocked it ({class} at line {n}). Draft: {draft_path}
+  ```
+- A draft that any other failure keeps prints the saved-draft line above, unchanged.
+- With `feedback.drafts: quiet`, nothing prints in any of these cases, a blocked draft included. The block is still recorded in the sidecar.
 - For a model draft, these output rules take the place of the post path's fallback and success lines.
 - Drafting and posting still ask no question.

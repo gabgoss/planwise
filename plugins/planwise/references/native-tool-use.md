@@ -181,6 +181,11 @@ below have no tool equivalent and stay in the shell:
   an environment provides, activating a virtual environment, or reporting the
   exact command that was run and the exact error it produced. No dedicated
   tool selects an interpreter or activates an environment.
+- **A shipped plugin script.** Before writing a one-off script for a planwise
+  step, list `{plugin_root}/scripts/` with `Glob` and read the candidate
+  script's `--help`. Use a shipped script when one covers the step. The
+  plugin tests a shipped script, and a new script repeats its work without
+  those tests.
 
 A read that happens mid-pipeline, consuming another command's output rather
 than a file tree directly, is likewise legitimate: the object being searched

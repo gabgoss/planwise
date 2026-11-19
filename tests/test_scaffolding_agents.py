@@ -209,12 +209,53 @@ class ScaffoldingAgentContractTests(unittest.TestCase):
         in for the `maxTurns` row, and the handler routes a dispatch that returns no block."""
         agent = _read(SCAFFOLDER)
         self.assertIn("Fill at most 8 files per dispatch", agent)
-        self.assertIn("skip a rendered file whose `FILL` count is already 0", agent)
+        self.assertIn("skip a rendered file whose `<!-- FILL:` count is already 0", agent)
         self.assertNotIn("exceed `maxTurns`", agent)
         handler = _read(PLUGIN / "handlers" / "plan-scaffolding.md")
         gate = handler.split("**Scaffolder gate**", 1)[1].split("**Harmonizer gate**", 1)[0]
         self.assertIn("no status block", gate)
         self.assertIn("references/dispatch-boundary-evidence.md", gate)
+
+    def test_extractor_and_harmonizer_write_as_they_go_and_each_gate_routes_no_block(self):
+        """The agents cannot see their turn counter, so each leaves resumable state on disk
+        and the handler gives each gate its own route for a dispatch that returns no block."""
+        extractor = _read(EXTRACTOR)
+        harmonizer = _read(HARMONIZER)
+        for name, text in (("extractor", extractor), ("harmonizer", harmonizer)):
+            with self.subTest(agent=name):
+                self.assertNotIn("exceed `maxTurns`", text)
+                self.assertNotIn("turn budget", text)
+        self.assertIn("EI-PENDING", extractor)
+        # The marker must not read as a scaffolder work-set marker.
+        self.assertNotIn("<!-- FILL", extractor.replace("`<!-- FILL:`", ""))
+        tools_line = next(line for line in extractor.splitlines() if line.startswith("tools:"))
+        self.assertRegex(tools_line, r"\bEdit\b")
+        self.assertIn("as soon as the gate names it", harmonizer)
+        handler = _read(PLUGIN / "handlers" / "plan-scaffolding.md")
+        extractor_gate = handler.split("**Extractor gate**", 1)[1].split("**Scaffolder gate**", 1)[0]
+        scaffolder_gate = handler.split("**Scaffolder gate**", 1)[1].split("**Harmonizer gate**", 1)[0]
+        harmonizer_gate = handler.split("**Harmonizer gate**", 1)[1].split("**Stalled re-dispatch.**", 1)[0]
+        self.assertIn("no status block", extractor_gate)
+        self.assertIn("EI-PENDING", extractor_gate)
+        self.assertIn("no status block", harmonizer_gate)
+        self.assertIn("scripts/scaffold_deviations.py", harmonizer_gate)
+        self.assertNotIn("ei-extractor", scaffolder_gate)
+        self.assertNotIn("turn budget", handler)
+
+    def test_fill_count_searches_the_marker_not_the_bare_word(self):
+        """The Sprint Plan template prose names the word FILL ("CONSUMES FILL"), so a count
+        of the bare word reads template prose as a remaining marker. Every file that counts
+        markers names `<!-- FILL:` as the search pattern."""
+        handler = _read(PLUGIN / "handlers" / "plan-scaffolding.md")
+        files = {"harmonizer": _read(HARMONIZER), "scaffolder": _read(SCAFFOLDER), "handler": handler}
+        for name, text in files.items():
+            with self.subTest(file=name):
+                self.assertIn("`<!-- FILL:`", text)
+                self.assertNotRegex(
+                    text, r"(?i)(literal|for|count|search)\s+`FILL`(?!_)|`FILL`\s+(count|search)"
+                )
+        self.assertIn("literal `<!-- FILL:`", files["harmonizer"])
+        self.assertIn("(CONSUMES FILL)", _read(PLUGIN / "templates" / "sprint-plan.md"))
 
 
 class PlanAuthorContractTests(unittest.TestCase):

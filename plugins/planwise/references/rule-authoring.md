@@ -346,6 +346,37 @@ Issue: "{sentence}" states a {format|cap|threshold}; no writer emits it and no g
 Fix: Name the enforcing writer or add a gate beside the line it governs, per references/rule-authoring.md §7 | Confidence: HIGH
 ```
 
+### 7.6 A plan's safety promise is a guardrail: it names its step and its gate
+
+A plan states safety promises in three places: a Decision, a Risk Mitigation row and the Sprint Plan's own prose. Examples are "no existing file is overwritten", "the rollback keeps every record" and "the live table is never touched". Each one is a rule with no control until two things exist. A task step implements it, and a gate fails when it breaks. A promise with a step and no gate breaks silently. A promise with a gate and no step has nothing for the gate to test.
+
+The Sprint Plan template carries a required `## Guardrails` table for this reason. It holds one row per promise, and each row names its source, its implementing step and its failing gate. The section is required even for a sprint with no promise, which writes one `None` line. An absent section then never reads as clean.
+
+> [!constraint] A promise in prose is not a guardrail until it names a step and a gate
+> WRONG — the promise lives in a Decision and a Risk row, and no task implements or checks it:
+> ```
+> Decision D4: "No existing user file is overwritten."
+> Risk row 3, Mitigation: "The installer never touches files it did not create."
+> Sprint Plan: no Guardrails section; no task step writes the check; no Success Criterion fails on an overwrite
+> ```
+> CORRECT — one Guardrails row resolves the promise to a real step and a real gate:
+> ```
+> | 1 | No existing user file is overwritten | Decision D4, Risk row 3 | {Abbrev}-S{XX}-{YY}-{##} Step 4 | {Abbrev}-S{XX}-{YY}-{##} Success Criterion 3: the fixture's pre-existing file keeps its hash |
+> ```
+
+#### Reviewer Check 135 — Guardrail With No Implementing Step or No Failing Gate
+
+- **Severity / Role / Type:** WARNING (HIGH confidence) | Task Reviewer | NEW
+- **What:** For each safety promise in the plan, find the Sprint Plan `## Guardrails` row that names its implementing task step and its failing gate. Flag a promise with no row, and a row with no step or no gate.
+- **Detection:** Enumerate the promises in the Master Plan's Decisions (Locked), the Mitigation cells of Risk Mitigation, and the Sprint Plan's prose ("never", "must not", "preserve", "no ... is lost or touched"). Each promise needs a Guardrails row. Each row's step must resolve to a real Execution Step in a task file of the sprint. Each row's gate must resolve to a real Success Criterion or Verification Command. A missing row, a missing step or a missing gate → WARNING. A Sprint Plan with no `## Guardrails` section → WARNING, never a pass. A `None` line passes only when the enumeration above found no promise.
+- **Finding template:**
+```
+[WARNING] Guardrail with no implementing step or no failing gate
+File: {Sprint Plan path} | Location: {Guardrails row, or the Decision/Risk row/sentence with no row}
+Issue: "{promise}" has {no Guardrails row | no implementing step | no failing gate}; nothing implements it or fails when it breaks
+Fix: Add the task step and the gate, or drop the promise and record why in the Change Log, per references/rule-authoring.md §7.6 | Confidence: HIGH
+```
+
 ## 8. A Rule That Names a Tool States the Capability, an Instance for Each Actor and the Reason for Each Prohibition
 
 A rule that mandates a specific tool binds every actor that does the work. The actors are the human, the orchestrator, a subagent and CI. A tool that one actor cannot reach leaves that actor without a path.

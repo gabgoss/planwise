@@ -44,6 +44,14 @@ except ImportError:
     )
 
 try:
+    from config_loader import read_config_mapping
+except ImportError:
+    raise ImportError(
+        "config_loader is required for doctor_sweeps's pinned-version read; "
+        "the scripts/ directory appears to be partially installed"
+    )
+
+try:
     from frontmatter_parser import parse_frontmatter_map, split_frontmatter_block
 except ImportError:
     raise ImportError(
@@ -748,6 +756,59 @@ def lint_installed_divergence(cfg: "InitConfig") -> list[dict]:
     return findings
 
 
+# Report text for a live verdicts.json the next upgrade run may still read.
+PENDING_CACHE_MEANING = (
+    "a comparator verdict cache for the pending upgrade: the next "
+    "/planwise upgrade reads it"
+)
+PENDING_CACHE_ACTION = (
+    "keep it until you run /planwise upgrade, which consumes it; "
+    "never pruned automatically"
+)
+UNKNOWN_PIN_CACHE_MEANING = (
+    "a comparator verdict cache, and config.yaml's plugin_version could not "
+    "be read, so the pending upgrade pair is unknown"
+)
+UNKNOWN_PIN_CACHE_ACTION = (
+    "fix config.yaml's plugin_version, then run /planwise doctor again; "
+    "never pruned automatically"
+)
+
+
+def _pending_upgrade_pair(cfg: "InitConfig") -> "str | None":
+    """The `{pinned}-to-{shipped}` pair the next upgrade run will resolve.
+
+    Returns that pair name when config.yaml's pin differs from the shipped
+    version (cfg.plugin_version). Returns "" when they match, so no pair is
+    pending. Returns None when the pin cannot be read: a missing file, an
+    invalid file, or a `plugin_version` that is absent, empty or not a
+    string. Read-only, and never raises.
+    """
+    config_path = cfg.project_root / cfg.planwise_root / "config.yaml"
+    pinned = read_config_mapping(config_path).get("plugin_version")
+    if not isinstance(pinned, str) or not pinned.strip():
+        return None
+    pinned = pinned.strip()
+    if pinned == cfg.plugin_version:
+        return ""
+    return f"{pinned}-to-{cfg.plugin_version}"
+
+
+def _live_cache_disposition(pair: str, pending_pair: "str | None") -> tuple:
+    """(klass, (meaning, action) or None) for a live verdicts.json under `pair`.
+
+    Only the pending pair's cache can still be consumed, so it is never
+    prunable. An unreadable pin makes every pair unknown, which is held the
+    same way. Under any other pair, including a pair whose two versions are
+    equal, no upgrade run will read the file, so it is inert.
+    """
+    if pending_pair is None:
+        return "review-then-discard", (UNKNOWN_PIN_CACHE_MEANING, UNKNOWN_PIN_CACHE_ACTION)
+    if pair == pending_pair:
+        return "review-then-discard", (PENDING_CACHE_MEANING, PENDING_CACHE_ACTION)
+    return "inert", None
+
+
 def sweep_upgrade_leftovers(cfg: "InitConfig") -> list[dict]:
     """Post-boundary sweep of leftover version-pair recovery directories.
     Read-only — report-only by default; NEVER writes or deletes anything.
@@ -765,12 +826,17 @@ def sweep_upgrade_leftovers(cfg: "InitConfig") -> list[dict]:
     artifacts:` banner's. `doctor_cli.py`'s report printer imports the dict
     itself to render each class's description alongside these findings.
 
-    upgrade-conflicts/{pair}/ holds THREE separately-classified content
+    upgrade-conflicts/{pair}/ holds FOUR separately-classified content
     kinds and is never reported as a single row for the whole pair dir:
     unresolved `*.new` sidecars ("action-required"), the nested
     issue-drafts/ subfolder ("action-required" — an unfiled draft still
     needs the user's review, same class as the sidecars but a distinct
-    row/path), and a `verdicts.json.consumed` marker ("inert"). Getting
+    row/path), a `verdicts.json.consumed` marker ("inert"), and a live
+    `verdicts.json` the comparator fan-out left behind. The live cache is
+    "inert" under a stale or same-version pair, which no upgrade run will
+    ever read. It is "review-then-discard" under the pending
+    `{pinned}-to-{shipped}` pair, because the next upgrade would consume
+    it, and under any pair when the pin cannot be read. Getting
     this split right matters beyond reporting: the opt-in prune writer
     (`_run_prune_upgrade_leftovers` in doctor_cli.py) prunes ONLY "inert"
     and "safe-to-discard" findings from this sweep, so a row misclassified
@@ -783,7 +849,8 @@ def sweep_upgrade_leftovers(cfg: "InitConfig") -> list[dict]:
        (review-then-discard, never prunable) | "upgrade-transfers" |
        "upgrade-conflicts" |
        "upgrade-conflicts/issue-drafts" | "upgrade-conflicts (consumed
-       verdict cache)"), path, count (file(s) at that surface), bytes
+       verdict cache)" | "upgrade-conflicts (unconsumed verdict cache)"),
+       path, count (file(s) at that surface), bytes
        (total on-disk size of those files), age_days (days since the
        surface's directory/file was last modified), klass (a
        RECOVERY_ARTIFACT_CLASSES key)}
@@ -854,6 +921,7 @@ def sweep_upgrade_leftovers(cfg: "InitConfig") -> list[dict]:
                              "age_days": _age_days(pair_dir), "klass": "review-then-discard"})
 
     conflicts_root = root / "upgrade-conflicts"
+    pending_pair = _pending_upgrade_pair(cfg)
     for pair_dir in sorted(p for p in conflicts_root.glob("*-to-*") if p.is_dir()):
         sidecars = [f for f in pair_dir.rglob("*.new") if f.is_file()]
         if sidecars:
@@ -880,6 +948,18 @@ def sweep_upgrade_leftovers(cfg: "InitConfig") -> list[dict]:
                              "path": str(consumed_cache), "count": 1,
                              "bytes": _bytes_of([consumed_cache]),
                              "age_days": _age_days(consumed_cache), "klass": "inert"})
+
+        live_cache = pair_dir / "verdicts.json"
+        if live_cache.is_file():
+            klass, text = _live_cache_disposition(pair_dir.name, pending_pair)
+            finding = {"pair": pair_dir.name,
+                       "surface": "upgrade-conflicts (unconsumed verdict cache)",
+                       "path": str(live_cache), "count": 1,
+                       "bytes": _bytes_of([live_cache]),
+                       "age_days": _age_days(live_cache), "klass": klass}
+            if text:
+                finding.update(reason=text[0], action=text[1])
+            findings.append(finding)
 
     return findings
 

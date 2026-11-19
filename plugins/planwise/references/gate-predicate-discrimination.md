@@ -1,6 +1,6 @@
 ---
-description: A gate whose pattern is narrower than the claim it is cited to support returns its PASS value against known-bad input. Covers the paired-input control taken from version control, the three ways a pattern ends up narrower than its claim, case blindness in both directions, asserting a negative from a pattern shaped for a different positive, why a wrong figure in a briefing costs more than a wrong gate, the diff-filter character class that silently drops a whole syntactic population, and the pinned pattern that must run against the real expected-hit line (a verbatim fixture row) with a passing branch shown reachable on known-good input, and the "count unchanged" gate that an addition sharing its vocabulary makes unsatisfiable (pin a baseline diff, the old line's full shape, or a predicted total), the delivered gate that compares a PRE-edit constant and passes only before the work it verifies (read its code, prove it on the state it will gate, make it two-mode), the enforcer that decides on one measurement and asserts on another (decide and assert on the same measurement), and two instruments that disagree on one member (locate the member in the source, never pick the instrument that keeps the assertion green), the mutation proof whose assertion must sit on the branch the mutated symbol gates, one minimal input per guard so an earlier guard cannot shadow a later one, and the keyed read that hides a duplicate row (count rows before keying), and the gate that never executes the defective part of its artifact (certify through the consumer's shape and run every gate on known-good input, §9.2 and §17). Consult when about to cite a grep, a count, or a diff filter as proof.
-consult-when: About to cite a match pattern, count, or diff filter as proof — pair the anchor against its known-bad state from git, match the claim rather than one phrasing, never assert an absence from a pattern shaped for a different positive, anchor a diff filter on the sign alone, never write `\+` in a basic-syntax header filter or trust an empty pipe without counting its stream, run a pinned pattern against the real expected-hit line as a verbatim fixture row with a passing branch shown reachable on known-good input, and never gate "count unchanged" with a bare count when the addition shares the pattern's vocabulary — pin a baseline diff, the old line's full shape, or a predicted total, read a delivered gate's code and prove it on the state it will gate (a PRE-constant gate passes only before the work), decide and assert on one measurement so no window refuses correct input, and when two instruments disagree on one member locate the member in the source rather than keeping the instrument that leaves the assertion green, a mutation proof asserts on the branch the mutated symbol gates, give each guard one minimal input so an earlier guard cannot shadow it, and count rows before keying a dict so a duplicate row is reported, and certify an artifact through the shape its real consumer uses, never a bare `COUNT(*)`, running every gate on known-good input before it ships
+description: A gate whose pattern is narrower than the claim it is cited to support returns its PASS value against known-bad input. Covers the paired-input control taken from version control, the three ways a pattern ends up narrower than its claim, case blindness in both directions, asserting a negative from a pattern shaped for a different positive, why a wrong figure in a briefing costs more than a wrong gate, the diff-filter character class that silently drops a whole syntactic population, and the pinned pattern that must run against the real expected-hit line (a verbatim fixture row) with a passing branch shown reachable on known-good input, and the "count unchanged" gate that an addition sharing its vocabulary makes unsatisfiable (pin a baseline diff, the old line's full shape, or a predicted total), the delivered gate that compares a PRE-edit constant and passes only before the work it verifies (read its code, prove it on the state it will gate, make it two-mode), the enforcer that decides on one measurement and asserts on another (decide and assert on the same measurement), and two instruments that disagree on one member (locate the member in the source, never pick the instrument that keeps the assertion green), the mutation proof whose assertion must sit on the branch the mutated symbol gates, one minimal input per guard so an earlier guard cannot shadow a later one, and the keyed read that hides a duplicate row (count rows before keying), the gate that never executes the defective part of its artifact (certify through the consumer's shape and run every gate on known-good input, §9.2 and §17), and the producer and consumer of one fact that must apply one predicate (prove the pair by a round trip through both real components, §18), and the search over a runner-written table or a transcript that matches the row format, an unrelated token, the dispatch prompt or the init roster instead of the answer (pair an absence count with a same-family presence count, run it on the wrong arm, and count structured tool_use records, §19). Consult when about to cite a grep, a count, or a diff filter as proof.
+consult-when: About to cite a match pattern, count, or diff filter as proof — pair the anchor against its known-bad state from git, match the claim rather than one phrasing, never assert an absence from a pattern shaped for a different positive, anchor a diff filter on the sign alone, never write `\+` in a basic-syntax header filter or trust an empty pipe without counting its stream, run a pinned pattern against the real expected-hit line as a verbatim fixture row with a passing branch shown reachable on known-good input, and never gate "count unchanged" with a bare count when the addition shares the pattern's vocabulary — pin a baseline diff, the old line's full shape, or a predicted total, read a delivered gate's code and prove it on the state it will gate (a PRE-constant gate passes only before the work), decide and assert on one measurement so no window refuses correct input, and when two instruments disagree on one member locate the member in the source rather than keeping the instrument that leaves the assertion green, a mutation proof asserts on the branch the mutated symbol gates, give each guard one minimal input so an earlier guard cannot shadow it, and count rows before keying a dict so a duplicate row is reported, certify an artifact through the shape its real consumer uses, never a bare `COUNT(*)`, running every gate on known-good input before it ships, and when a producer and a consumer read one fact make the producer apply the consumer's own predicate and prove the pair by a round trip through both real components (a refusal and its answer check, an unlock set and the loader it widens, a guard and the writes it guards, a writer and its reader), and pair every absence count over a runner-written table or transcript with a same-family presence count, run it on the wrong arm, and count structured tool_use records rather than raw text (§19)
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Gate Predicate Discrimination — a Pattern Narrower Than Its Claim Passes Against Known-Bad Input
@@ -34,6 +34,17 @@ This is the predicate half of a two-part problem. [`measurement-discipline.md`](
 - [15. One Minimal Input Per Guard: a Real-Body Fixture Proves the Corpus, Not the Guard](#15-one-minimal-input-per-guard-a-real-body-fixture-proves-the-corpus-not-the-guard)
 - [16. A Keyed Read Hides a Duplicate: Count Rows Before Keying](#16-a-keyed-read-hides-a-duplicate-count-rows-before-keying)
 - [17. A Gate Certifies Through the Shape a Real Consumer Uses](#17-a-gate-certifies-through-the-shape-a-real-consumer-uses)
+- [18. A Producer and a Consumer of One Fact Apply One Predicate](#18-a-producer-and-a-consumer-of-one-fact-apply-one-predicate)
+  - [18.1 A refusal and its answer check](#181-a-refusal-and-its-answer-check)
+  - [18.2 An unlock set and the loader it widens](#182-an-unlock-set-and-the-loader-it-widens)
+  - [18.3 A guard and the writes it guards](#183-a-guard-and-the-writes-it-guards)
+  - [18.4 A writer's validator and its reader's grammar](#184-a-writers-validator-and-its-readers-grammar)
+  - [18.5 A file written by one language and read by another](#185-a-file-written-by-one-language-and-read-by-another)
+- [19. A Search Over a Runner-Written Table or a Transcript Can Match the Instruction, Not the Answer](#19-a-search-over-a-runner-written-table-or-a-transcript-can-match-the-instruction-not-the-answer)
+  - [19.1 A line-end anchor never matches the row a runner wrote](#191-a-line-end-anchor-never-matches-the-row-a-runner-wrote)
+  - [19.2 A same-line qualifier is satisfied by an unrelated token](#192-a-same-line-qualifier-is-satisfied-by-an-unrelated-token)
+  - [19.3 A status search over a sidechain matches the prompt and the agent definition](#193-a-status-search-over-a-sidechain-matches-the-prompt-and-the-agent-definition)
+  - [19.4 An agent-name search over a headless transcript cannot reach zero](#194-an-agent-name-search-over-a-headless-transcript-cannot-reach-zero)
 
 ---
 
@@ -152,6 +163,8 @@ The same wrong pattern costs differently depending on which register consumes it
 > ```
 > spawn prompt: "the file has 2 ### headings. If a live measurement disagrees, the live measurement wins — report the disagreement."
 > ```
+
+A figure read from state another session can change also carries its reading time. [`gate-diff-baseline-pinning.md`](gate-diff-baseline-pinning.md) §8.6 carries that rule.
 
 Handing figures down is a genuine efficiency and should continue. [`read-confirm-act-protocol.md`](read-confirm-act-protocol.md) states the clause: *"if a live measurement disagrees, the live measurement wins — report the disagreement."*
 
@@ -323,6 +336,8 @@ Two rules follow, one for each role:
 
 **The sibling failure from the other side.** A bare count over a content block picks up the block's own comment, because the pattern is too loose for the old content ([`gate-pinned-from-real-content.md`](gate-pinned-from-real-content.md) §11.2). Here the pattern is too loose for the new content. In both cases, count a shape instead of a token, or stop counting and diff.
 
+A sweep or hit count pinned after an edit fails the same way when the task's own new literals or sibling edits match the pattern. [`gate-pinned-from-real-content.md`](gate-pinned-from-real-content.md) §11.6 covers that shape and four others in which a post-edit gate is pinned from content other than the post-edit file.
+
 ---
 
 ## 11. Read a Delivered Gate's Code, and Prove It on the State It Will Gate
@@ -455,7 +470,7 @@ Three operative points:
 - **An aggregate that is invariant under the mutation is the tell.** When the asserted value is a fixed point of the mutation, the test is not a proof.
 - **Run the mutation. Do not argue coverage.** A reading of the call graph would have reported the first version as a proof.
 
-A reviewer reading a mutation-proof claim in a status block asks which assertion turned red, not whether the mutation "was run". [`gate-positive-and-mutation-controls.md`](gate-positive-and-mutation-controls.md) §2 (A Test Whose Subject Is a Refusal Must Be Proven Load-Bearing) holds the three-step control this section sharpens.
+A reviewer reading a mutation-proof claim in a status block asks which assertion turned red, not whether the mutation "was run". [`gate-positive-and-mutation-controls.md`](gate-positive-and-mutation-controls.md) §2 (A Test Whose Subject Is a Refusal Must Be Proven Load-Bearing) holds the three-step control this section sharpens. [`gate-positive-and-mutation-controls.md`](gate-positive-and-mutation-controls.md) §24 holds the three requirements a control meets so it fails for the rule's own reason. §15 below is the guard-shadowing case of the same failure.
 
 ---
 
@@ -559,4 +574,193 @@ The rule applies to any artifact with a consumer that exercises more of it than 
 
 ---
 
-*Cross-reference: [`measurement-discipline.md`](measurement-discipline.md) §8.7 (the gate's input set — the other half of an unfalsifiable gate, and the dry-run mandate this file gives a recipe for) · [`gate-artifact-over-instrument.md`](gate-artifact-over-instrument.md) §12 (adjudicating a disclosure that a gate shaped its own subject) · [`gate-positive-and-mutation-controls.md`](gate-positive-and-mutation-controls.md) §3 (the correct-post-state arm of the dry-run) · [`gate-diff-baseline-pinning.md`](gate-diff-baseline-pinning.md) §8 (the recorded baseline a diff-scoped gate pins) · [`gate-command-semantics.md`](gate-command-semantics.md) §10.9 (reading a gate command as a program) and [`gate-pinned-from-real-content.md`](gate-pinned-from-real-content.md) §11 (a gate pinned from a run over real content) · [`read-confirm-act-protocol.md`](read-confirm-act-protocol.md) (the live-measurement-wins clause a briefing figure travels with)*
+## 18. A Producer and a Consumer of One Fact Apply One Predicate
+
+§12 asks one component to decide and assert on one measurement. §17 asks a gate to certify through the consumer's shape. This section covers two components that read one fact. A producer writes it, or a guard permits it, and a consumer reads it, or a loader accepts it.
+
+> [!constraint] The producer applies the consumer's own predicate, and a round trip through both real components proves it
+> **Rule.** When two components read one fact, the producer must apply the consumer's own predicate. Run the proof as a round trip through both real components. Two predicates agree on well-formed, fresh input, and that is the only input the author's own tests build. Each side's green tests prove nothing about the pair.
+
+Five pairs follow. Each one passed both sides' own tests and failed on the first input the other side treated differently.
+
+### 18.1 A refusal and its answer check
+
+A backlog migrator refused a reciprocal `blocks:` pair on the frontmatter before reconcile. It tested the answer on the edges after reconcile. None of its three offered options could settle the question, so the upgrade refused forever.
+
+> [!constraint] Raise the refusal and test the answer on the same model
+> WRONG — the answer is hand-picked for a fixture where it applies:
+> ```
+> answers = {"edge_drops": ["002->001"]}
+> assert migrate(cfg, answers=answers).state == "migrated"
+> ```
+> CORRECT — every option the refusal offers is run through the same check that raised it:
+> ```
+> for q in report(cfg)["questions"]:
+>     for option in q["options"]:
+>         assert pair_settles(cfg, answers=option["answer"], pair=q["pairs"][0])
+> ```
+> The refusal and the answer check read the state the tool will write. Neither reads a stale copy.
+
+### 18.2 An unlock set and the loader it widens
+
+A de-scope force set tested `name in verdicts`. The verdict loader rejects a non-dict entry and a stale entry. The entry `{"<file>": "garbage"}` opened the gate, and the file was removed.
+
+> [!constraint] The set that widens a delete calls the loader that validates its input
+> WRONG — the set tests membership only:
+> ```
+> return frozenset(name for name, _ in DESCOPED_RULES if name in verdicts)
+> ```
+> CORRECT — the set keeps a name only when the loader accepts its entry:
+> ```
+> # call _load_verdict_override(verdicts, name, raw, path) for each name
+> # keep the name only when it returns non-None
+> ```
+> A regression test feeds one malformed entry and one stale entry. It asserts that the file stays byte-identical. It does not stop at "no exception was raised".
+
+### 18.3 A guard and the writes it guards
+
+A settings-write refusal built its allowlist from the same three paths every planned write came from. The guard could never fire. The option `--user-settings <project>/package.json` exited 0 and wrote into `package.json`.
+
+> [!constraint] A guard is proven on an input that reaches it through the real code path
+> WRONG — the allowlist is built from the writes it guards:
+> ```
+> allowed = {proj/".claude/settings.json", proj/".claude/settings.local.json", user_path}
+> if target not in allowed: refuse()      # never true on a real run
+> ```
+> CORRECT — the guard tests the property of the target, not its membership in a derived set:
+> ```
+> if p.name not in {"settings.json", "settings.local.json"} or p.parent.name != ".claude":
+>     return f"REFUSED: ..."
+> ```
+> Ask whether any real input can make the guard return non-empty. Prove it on an input that reaches the guard through the real code path. A monkeypatched target source alone does not prove it.
+
+### 18.4 A writer's validator and its reader's grammar
+
+A question-block writer inherited the old writer's refusal list. A question that held `---` ended the reader's section in mid-block. A question that held `Answer: probably A` read as answered at write time.
+
+> [!constraint] List the reader's grammar first, and derive the validator from it
+> WRONG — the validator is the old writer's refusal list:
+> ```
+> refuse: heading level 1-2, unclosed fence, end marker (+ level 3)
+> reader: splits on ### Q, ends at ---, answered on "Answer:"
+> ```
+> CORRECT — the validator is derived from the reader's structure, and a write is read back:
+> ```
+> reader structure: ### heading, fence, thematic break, answer line
+> refuse each, outside fences, on the raw text AND on the composed block
+> test: write, then read back with the reader
+> ```
+> Check the composed result when composition moves a line, because a line that was safe in the raw text may become a heading or a break.
+
+### 18.5 A file written by one language and read by another
+
+A TypeScript writer quoted frontmatter with `JSON.stringify`. The Python reader strips one quote pair and decodes no escape. The TypeScript test round-tripped through `JSON.parse`, which is the writer's own inverse, so it passed.
+
+> [!constraint] Run the real writer, then the real reader, and compare with hand-written literals
+> WRONG — each side is tested against its own inverse or its own fixtures:
+> ```
+> TS: yamlQuote = JSON.stringify; test: JSON.parse(line.after('title: ')) === title    # green
+> PY: tests feed hand-written frontmatter                                              # green
+> -> a title with " reads back as Fix \"quoted\"
+> ```
+> CORRECT — the writer renders a file, and the reader's own commands read it:
+> ```
+> node render.ts -> write <scratch>/<date>-draft-bug-fix-quoted.md   (title: Fix "quoted": C:\x)
+> python -B feedback_drafts.py admit <file> --feedback-dir <scratch>   -> exit 0
+> python -B feedback_drafts.py list --json --feedback-dir <scratch>    -> title == the literal the reader must return
+> ```
+> The fixture carries every character class the two sides could treat differently: quotes, backslashes, colons and line breaks. When the reader cannot change, the writer emits only what the reader decodes exactly. The writer's unit test then pins the reader's semantics.
+
+In plugin development, these tests hold each pair: `tests/test_migrate_backlog_flags.py::test_each_option_payload_is_accepted_through_answers`, `tests/test_rule_descope_migration.py::TestMigrationBranches::test_malformed_verdict_entry_does_not_force_the_file`, `tests/test_upgrade_apply.py::test_user_settings_target_must_be_a_claude_settings_file`, `tests/test_backlog_questions.py::TestBlockIntegrity::test_a_question_with_a_thematic_break_or_an_answer_line_is_refused`, and `tests/test_feedback_cross_language.py`.
+
+The rule applies to migration preflights and answer files, force, allow and override sets that widen a delete or an overwrite, write guards and path allowlists, writers whose output another function parses by line shape, and any artifact written by one language and parsed by another.
+
+## 19. A Search Over a Runner-Written Table or a Transcript Can Match the Instruction, Not the Answer
+
+§1 to §18 ask whether a pattern discriminates. This section covers a file that holds the instruction as well as the answer. A runner-written table carries a row format nobody pinned. A long line carries tokens from an unrelated clause. A subagent sidechain carries the dispatch prompt and the agent definition. A headless `claude -p` transcript carries the init record's agent roster and the loaded handler text. A search over such a file counts whichever of these matches, and it prints a plausible number.
+
+> [!constraint] Pair the count with a same-family control, run it on the wrong arm, and count structured records
+> **Rule.** Before pinning a count over a runner-written table or a transcript, do three things:
+>
+> 1. Pair every absence count with a presence count from the same pattern family over the same file. If the control also reads 0, the instrument cannot see rows at all.
+> 2. Run the gate once on the known-bad state or the wrong arm. If it prints the pass value there, it cannot fail, and its reading on the real state proves nothing.
+> 3. Over a transcript, grade the agent's final message or count structured events. A token that the prompt, the definition or the roster also names is not evidence.
+
+### 19.1 A line-end anchor never matches the row a runner wrote
+
+An orchestrator recomputed a `COMPLETE` label to `PARTIAL` when the Verify file held an OFF row. Runners wrote Markdown table rows with a trailing pipe, so `OFF` was never at the line end. The gate read 0 on three tasks. The third task held a real OFF row and was accepted until the runner named the row in its own ISSUES field. An ON-row control (18, 12 and 37 rows) later showed that the first two zeros were real.
+
+WRONG — an absence count with no control, anchored on a format nobody pinned:
+```
+Grep  pattern=' \| OFF[[:space:]]*$'  path='<task>-Verify.md'  output_mode='count'
+# 0 -- rows read `category | command | expect | measured | OFF |`, and a blind pattern also prints 0
+```
+CORRECT — a tolerant anchor, and a positive control from the same family over the same file:
+```
+Grep  pattern='\| *OFF *\|? *$'  path='<task>-Verify.md'  output_mode='count'   # the absence count
+Grep  pattern='\| *ON *\|? *$'   path='<task>-Verify.md'  output_mode='count'   # control: MUST be > 0, or the gate saw no rows
+```
+
+A count of a token by its position in a line is a claim about the row format. The row format belongs to whoever writes the rows.
+
+### 19.2 A same-line qualifier is satisfied by an unrelated token
+
+A gate required every line that names `plugin-types` to also say `removed`, `dormant` or `only when`. The brief recorded "pre-edit: 1 line (line 87)". Run on the unedited file, the probe printed nothing. Line 87 also held the scan step's output shape, `scan ok: … (pin=<p>, removed=<r>, …)`, and `removed=<r>` supplied the qualifier. The old line already passed, so the gate could not tell the edit from no edit.
+
+WRONG — trust the brief's pre-edit annotation, and filter on the whole line:
+```
+Grep  pattern='plugin-types'  path='SKILL.md'  output_mode='content'  -n=true
+# then drop every line that matches 'removed|dormant|only when'
+# brief says "pre-edit: 1 line"; the real pre-edit result is nothing
+```
+CORRECT — run the probe on the old state, locate the token that supplies the qualifier, and strip it before filtering:
+```
+python -c "import re,sys; [print(n, l.rstrip()) for n, l in enumerate(open(sys.argv[1], encoding='utf-8'), 1) if 'plugin-types' in l and not re.search(r'removed|dormant|only when', l.replace('removed=<r>', ''))]" SKILL.md
+# pre-edit: line 87 -> after the edit: nothing
+```
+
+Narrow the probe to the clause around the subject word. That is the general fix. Stripping one known token is the minimal repair for one file. A pre-edit annotation without a recorded run is not a reading.
+
+### 19.3 A status search over a sidechain matches the prompt and the agent definition
+
+A dry-run pair required a known-bad brief to return `BLOCKED` and a known-good brief to return `COMPLETE`. The gate searched each sidechain for its status. The first records of each sidechain hold the dispatch prompt and the agent definition, and the definition's status-block section names every status. Both sidechains held both strings. The gate would have passed with the two arms swapped. The single-space form matched only the definition text, because the real block used a wide gap.
+
+WRONG — a presence count over the whole sidechain:
+```
+Grep  pattern='TASK_STATUS: BLOCKED'   path='<known-bad sidechain>'   output_mode='count'   # >= 1: the definition text satisfies it
+Grep  pattern='TASK_STATUS: COMPLETE'  path='<known-good sidechain>'  output_mode='count'   # >= 1: so does the prompt
+```
+CORRECT — the last status line of each sidechain, and the two arms must differ:
+```
+Grep  pattern='TASK_STATUS:\s+[A-Z]+'  path='<sidechain>'  output_mode='content'  -n=true  -o=true
+# take the highest line number per file
+known-bad:  line 26   TASK_STATUS:      BLOCKED
+known-good: line 110  TASK_STATUS:      COMPLETE   -> the arms differ, so the gate discriminates
+```
+
+Run the gate once on the wrong arm before pinning it. Here the `BLOCKED` search over the known-good sidechain also returned hits. That one call shows the gate cannot discriminate.
+
+### 19.4 An agent-name search over a headless transcript cannot reach zero
+
+A control run on the inline path had to prove it never dispatched `planwise:plan-author`. The After block pinned an agent-name search over the run's `transcript.jsonl` with 0 expected. A control run that dispatched nothing returned 2 hits. The init record lists every loaded agent, and the loaded handler text named the agent too. The gate would have failed every correct run.
+
+WRONG — the predicate matches the roster, not the dispatch:
+```
+Grep  pattern='planwise:plan-author'  glob='**/transcript.jsonl'  output_mode='count'
+# control run, no dispatch: 2 hits (the init record's agent list, the handler text)
+```
+CORRECT — count dispatches as structured events, proven on a known pair:
+```
+for each record: for each assistant content block:
+    block.type == 'tool_use' and block.name in ('Agent', 'Task')
+    and '<agent>' in block.input.subagent_type          -> n += 1
+# known-good (one dispatch): 1    control (no dispatch): 0
+```
+
+A name in the init record, in loaded handler text or in a dispatch prompt is not evidence of a dispatch. A status line follows the same rule: grade it on the final message with the line-anchored `^TASK_STATUS:\s+BLOCKED`, never on the whole transcript.
+
+The rule applies to any gate over a file that a runner, an agent or the CLI writes. Examples are Verify tables, Recovery step tables, review verdict tables, subagent sidechains and `claude -p` stream-json transcripts. [`gate-satisfiability.md`](gate-satisfiability.md) §4 covers the opposite direction, a transcript that lacks the signal a gate waits for.
+
+---
+
+*Cross-reference: [`measurement-discipline.md`](measurement-discipline.md) §8.7 (the gate's input set — the other half of an unfalsifiable gate, and the dry-run mandate this file gives a recipe for) · [`gate-artifact-over-instrument.md`](gate-artifact-over-instrument.md) §12 (adjudicating a disclosure that a gate shaped its own subject) · [`gate-positive-and-mutation-controls.md`](gate-positive-and-mutation-controls.md) §3 (the correct-post-state arm of the dry-run) · [`gate-diff-baseline-pinning.md`](gate-diff-baseline-pinning.md) §8 (the recorded baseline a diff-scoped gate pins) · [`gate-command-semantics.md`](gate-command-semantics.md) §10.9 (reading a gate command as a program, and a filter that targets a neighbouring or same-line variant) and [`gate-pinned-from-real-content.md`](gate-pinned-from-real-content.md) §11 (a gate pinned from a run over real content) · [`read-confirm-act-protocol.md`](read-confirm-act-protocol.md) (the live-measurement-wins clause a briefing figure travels with) · [`gate-satisfiability.md`](gate-satisfiability.md) §4 (the opposite direction: a transcript that lacks the signal)*
