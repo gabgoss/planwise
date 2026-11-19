@@ -196,7 +196,7 @@ Keys come from the rendered body (excluding `### Environment`) and the title, in
 | A | A cited file name whose extension **ends** the token — one of `md` `py` `yml` `yaml` `json` `js` `ts` `sh` `ps1` `toml` `txt` — optionally followed by a line-or-range suffix (`:12`, `:12-30`) that is discarded. Normalize to the basename, then strip any leading `-` `.` `/`. Anchoring the extension at the end of the token is what stops a compiled-artifact name from being truncated mid-token into a file that does not exist, burning a query slot on a term nothing can match. | 4 |
 | B1 | A backticked span (≤ 40 chars, ≤ 4 words) that contains `.` `_` `-` or `/`, **or** that spans 2–4 words | 3 |
 | B2 | A single-word backticked span (≤ 40 chars) carrying none of those separators | 2 |
-| C | The first 8 words of a quoted or fenced line carrying an error signature — `Error`, `Exception`, `Traceback`, `FAILED`, `fatal:`, `exit code`, `not found`, `cannot`, `denied`, `refused`, every one matched **case-insensitively** so an upper-cased line in a pasted log still qualifies. At most one Tier-C key. | 3 |
+| C | The first 8 words of a quoted or fenced line carrying an error signature — `Error`, `Exception`, `Traceback`, `FAILED`, `fatal:`, `exit code`, `not found`, `cannot`, `denied`, `refused`, every one matched **case-insensitively** so an upper-cased line in a pasted log still qualifies. Build the key from the line's words: drop each parenthesised fragment, strip surrounding quotes and brackets from each word, drop any word that then fails the per-token pattern below, and keep the first 8 surviving words. A line with fewer than 2 surviving words gives no key. At most one Tier-C key. | 3 |
 | D | A title word ≥ 4 chars after stopword removal | 1 |
 
 A bare section, step, gate, or line number is never a key on its own — it is appended to the
@@ -208,6 +208,8 @@ multi-word key travels as one double-quoted `--search` argument, so the space be
 not a shell metacharacter and does not disqualify it. A key must not begin `/` `~` `\` or a drive
 letter, must contain no `@`, and must not be a bare number or a lone stopword. A key that fails is
 dropped, never escaped or repaired — it degrades the scan to fewer candidates, never to a bad command.
+Tier C is the one tier that drops a failing word instead of the whole key, as its row states. The key
+it builds from the surviving words still passes every rule in this paragraph.
 
 **Closed stopword list** — used by Tier D and by the lone-stopword test, with no additions. The last
 five are domain words that appear in nearly every title in this tracker and carry no signal:
@@ -367,7 +369,7 @@ the comment draft path resolve under it:
   the Issue Forms chooser, so without this flag the issue posts with no label at all,
   silently losing the categorization a web-filed report gets for free.
 - Issue draft path: `{planwise_root}/{feedback_dir}/{YYYY-MM-DD}-{kind}-{slug}.md`.
-- Comment draft path: `{planwise_root}/{feedback_dir}/{YYYY-MM-DD}-comment-{NN}-{slug}.md`.
+- Comment draft path: `{planwise_root}/{feedback_dir}/{YYYY-MM-DD}-comment-{NN}-{draft stem}.md`.
 - Draft-first buys three things: approved text and posted text are byte-identical — on the
   comment path, the posted body is the approved body plus the single lead-in line the
   consent prompt states in advance; a failed post leaves a recoverable artifact; the

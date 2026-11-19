@@ -1,0 +1,2 @@
+@"%FAKE_GH_PYTHON%" -B "%FAKE_GH_SCRIPT%" %*
+@exit /b %ERRORLEVEL%
