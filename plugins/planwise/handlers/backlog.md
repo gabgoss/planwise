@@ -242,7 +242,7 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
    d. Override the script's route only on a signal it cannot see — a keyword hit you read and classified as self-quotation, edit evidence you judged insufficient, a `##` count inflated by appended coordination flags — and name that signal in `Reason:`. Carry the script's `LARGE_SCOPE` forward unchanged when the route stays C.
 
 <!-- AUTO-MODE: critical — discharged by auto-escalation, not by a prompt. See step 7's Auto Mode paragraph. -->
-7. **Scoped-rule pre-delegation check (`verify-against-shipped-artifact.md` §3g):** Read the `scoped_rules` block that step 6a's `--route --id` report printed. The script took the item's destinations from its `## Files Touched` table (Role `EDIT` or `CREATE`), or, when the item has no table, from the path-like tokens in its body, and matched each one against the frontmatter `paths:` of every rule under `.claude/rules/`. The block ends in one of three verdicts:
+7. **Scoped-rule pre-delegation check (`verify-against-shipped-artifact.md` §3g):** Read the `scoped_rules` block that step 6a's `--route --id` report printed. The script took the item's destinations from its `## Files Touched` table (Role `EDIT` or `CREATE`), or, when the item has no table, from the path-like tokens in its body, and matched each one against the frontmatter `paths:` of every rule under `.claude/rules/`. A body path that exists counts as an edit. A body path that does not exist counts as a creation only when its sentence or table cell proposes it, with a word such as create, add, new or write. Otherwise the script treats it as a citation and gives it no verdict. The block ends in one of three verdicts:
 
    | Verdict | Meaning | What to do |
    |---|---|---|
