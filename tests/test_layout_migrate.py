@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Tests for the move of an older install's working folders into the current layout.
 
 `plan-build/` moves to `{plans_dir}/Plan-Build/`. `feedback-drafts/` and the loose
