@@ -13,7 +13,9 @@ Two subcommands, each reading `---` frontmatter through `frontmatter_parser`.
   - `name`, when present, is lowercase-hyphen and at most 64 characters
   - a `description` key exists and is not empty
   - `agent:` appears only together with `context: fork`
-  - every `Bash(x)` entry of `allowed-tools` has a pattern ending in a glob
+  - no `Bash(x)` entry of `allowed-tools` is a bare one-word command with no
+    glob, such as `Bash(dotnet)`; a glob or an exact command with arguments,
+    such as `Bash(npm test)`, passes
 
 Reading `paths`, `agent`, `context` and `allowed-tools` needs no second YAML
 parser. `parse_frontmatter_map` returns one string per key. A list value
@@ -97,6 +99,17 @@ def _list_items(value: str) -> list[str]:
     return items
 
 
+def _is_bare_command(pattern: str) -> bool:
+    """True for a Bash pattern with no glob and no argument, such as `dotnet`.
+
+    A bare command name matches only that literal command, so it allows no
+    subcommand. A pattern with a `*` is a glob. A pattern with a space is an
+    exact command with its arguments, such as `npm test`, and is valid.
+    """
+    text = pattern.strip()
+    return "*" not in text and not any(ch.isspace() for ch in text)
+
+
 def _key_line(frontmatter: str, key: str) -> int:
     """1-based file line of a top-level key, or 2 when the key is absent."""
     for index, line in enumerate(frontmatter.split("\n")):
@@ -169,9 +182,9 @@ def lint_skill(path: Path) -> list[str]:
     if "agent" in fm_map and _unquote(fm_map.get("context", "")) != "fork":
         findings.append(f"{path}:{_key_line(fm_text, 'agent')}: agent is set without context: fork")
     for pattern in BASH_ENTRY_RE.findall(fm_map.get("allowed-tools", "")):
-        if not pattern.endswith("*"):
+        if _is_bare_command(pattern):
             findings.append(
-                f"{path}:{_key_line(fm_text, 'allowed-tools')}: Bash({pattern}) pattern does not end in a glob"
+                f"{path}:{_key_line(fm_text, 'allowed-tools')}: Bash({pattern}) is a bare command with no glob"
             )
     return findings
 

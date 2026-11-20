@@ -32,7 +32,7 @@ text, so a column that moved position would break them silently.
 | Score | 7 (second-to-last) | Integer or `-` | Computed priority score (open items only; `-` for COMPLETE/CLOSED) |
 | File | 8 (last) | One markdown link | Reference file: `[003](path.md)` |
 
-> [!note] A generated index's File cell always resolves against `backlog_dir`
+> [!hazard] A generated index's File cell always resolves against `backlog_dir`
 > A `generate_backlog_index.py`-produced hub, hub overflow leaf, or Archive
 > shard renders its single File cell as a link relative to `backlog_dir` --
 > never relative to the row's own containing file. A reader resolves every

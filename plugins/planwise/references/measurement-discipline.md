@@ -298,7 +298,7 @@ This is worse than a missing gate. A missing gate is visible in review; a gate t
 > [!constraint] F — Assert a precondition's observable state, never its self-report
 > Some steps exist only so that a later gate means something: registering untracked files before a diff gate, exporting a pinned baseline before running pinned diffs, installing a fixture before asserting on it, clearing a cache before measuring a cold path. None of them leaves a trace in the deliverable — and that absence is exactly what makes a false report of one undetectable.
 >
-> | | Observable in the deliverable? | Caught by a deliverable check? |
+> | n/a | Observable in the deliverable? | Caught by a deliverable check? |
 > |---|---|---|
 > | Deliverable content | yes | yes |
 > | Verification gate result | reported, not observable | no — the report *is* the claim |

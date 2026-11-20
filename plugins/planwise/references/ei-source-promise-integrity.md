@@ -284,7 +284,7 @@ This rule is the behavioral-claim analogue of §10.2. §10.2 verifies that the c
 
 **Relationship to §11.** This section is the brief-side counterpart of §11 (verbatim-block behavioral freshness). §11 freezes wording and re-verifies the claims. This section forbids a restatement where a quotation is available.
 
-#### Reviewer Check 097 — Brief Restates a Design Pin and Drops Its Fallback
+### Reviewer Check 097 — Brief Restates a Design Pin and Drops Its Fallback
 
 - **Severity / Role / Type:** WARNING (HIGH confidence) | Task Reviewer | NEW
 - **What:** For each task brief that cites a pin, a decision row or an Execution Input section as the reason for a stop rule, locate the cited text. Confirm the brief quotes it verbatim, or that the brief's paraphrase carries every fallback and exception clause.

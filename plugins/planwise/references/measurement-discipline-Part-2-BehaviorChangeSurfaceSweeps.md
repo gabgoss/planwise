@@ -10,7 +10,7 @@ paths: {planwise_root}/{plans_dir}/**
 
 ---
 
-### 8.8 After a behavior change, sweep the surfaces that describe and call it
+## 8.8 After a behavior change, sweep the surfaces that describe and call it
 
 A behavior change lands on surfaces beyond the code that implements it. **The tests cover the code. Nothing covers the metadata that *describes* the code, or the document that *invokes* it.** Both can be left asserting the old behavior with the suite fully green. Both are read as authoritative: the metadata by tooling and by the next author, the document by the user following it.
 
@@ -170,7 +170,7 @@ A behavior change lands on surfaces beyond the code that implements it. **The te
 
 **Applies-to surface (sub-rule J).** Any split of a module into a facade plus siblings, where documentation directs an agent or user to call module attributes. It applies most to plugin handlers, which are prose the agent executes.
 
-#### Reviewer Check 076 — Detection + Repair With No Routing Deliverable
+### Reviewer Check 076 — Detection + Repair With No Routing Deliverable
 
 - **Severity / Role / Type:** WARNING | Plan Reviewer | NEW
 - **What:** When a plan's deliverables include BOTH a new diagnostic (a check, warning, doctor stage, lint, drift detector) AND a new repair path (a fixer, migration, self-heal, reconcile-on-consent branch), it MUST also carry a deliverable that edits the **caller** which routes from the diagnostic's recommendation to the repair's execution. Without it, both halves ship, both are tested, the suite is green — and the loop is still open: the diagnostic's advice is a dead end. **The caller is frequently a document**, not code. Where a handler, runbook or documented command sequence is the caller of record, its gate conditions are as load-bearing as an `if`, and a prose gate that exits on the very condition the repair path serves cannot be caught by any test. A secondary signal: a plan that makes a previously-unreachable branch live without a deliverable auditing that branch against every input the newly-routed caller can supply — the branch's age and test count are not evidence, since until now it never ran.

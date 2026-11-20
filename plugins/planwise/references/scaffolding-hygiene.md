@@ -8,7 +8,7 @@ consult-when: Scaffolding a multi-sprint plan — eleven binding hygiene rules p
 
 This file is the §14 expansion referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols). Read it before generating any `Sprint-{XX}-{Name}/` folders.
 
-> [!important] This reference is split across two files — §13–§19 live in Part 2
+> [!hazard] This reference is split across two files — §13–§19 live in Part 2
 > This part carries §1–§12: the rules governing what the scaffold **emits**. The rules governing what a scaffold must **compute before it closes** live in [scaffolding-hygiene-Part-2-DerivationAndParallelism.md](scaffolding-hygiene-Part-2-DerivationAndParallelism.md): retirement deletion-set derivation (§13), config-editing permission round-trips (§14), the first-task diff baseline (§15), the sprint-level write-set intersection (§16), the dispatch-layer write-target intersection (§17), the rule for a sheet a human pastes (§18) and the orchestrator replay command (§19).
 >
 > Section numbers are continuous across the two files, so there is no `§1` in Part 2. Read Part 2 as well before closing a scaffold.
@@ -49,7 +49,7 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 > research into focused per-sprint content. Subagents read the EI for the
 > sprint they are executing, not the raw Meta-Plan outputs.
 
-#### Reviewer Check 046 — Meta-Plan Source Detection
+### Reviewer Check 046 — Meta-Plan Source Detection
 
 - **Severity / Role:** BLOCKER | Scaffolding Hygiene Reviewer | NEW
 - **Detection:** Glob `**/Consolidated-Context-Part-*.md` under `Meta-{Abbrev}/Outputs/`. Absent for Meta-Plan → BLOCKER.
@@ -80,7 +80,7 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 > folder name and abbreviation make the Discovery → Execution lineage visible
 > at a glance.
 
-#### Reviewer Check 047 — Execution-Folder Naming Discipline
+### Reviewer Check 047 — Execution-Folder Naming Discipline
 
 - **Severity / Role:** BLOCKER | Scaffolding Hygiene Reviewer | NEW
 - **Detection:** Glob `Plans/{PlanName}/Exec-{Abbrev}/`. Folder name not matching `Exec-{Abbrev}` → BLOCKER.
@@ -115,7 +115,7 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 > The general principle: when a user-provided value violates a constraint, ask
 > rather than silently adjusting.
 
-#### Reviewer Check 048 — Abbreviation Validation
+### Reviewer Check 048 — Abbreviation Validation
 
 - **Severity / Role:** BLOCKER | Scaffolding Hygiene Reviewer | NEW
 - **Detection:** Extract `{Abbrev}` from Master Plan filename; validate 2-4 chars uppercase; check uniqueness across `Plans/` siblings. Invalid/non-unique → BLOCKER.
@@ -301,7 +301,7 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 > harmonizes section headers, restores the template lines, and
 > creates the Scaffold folder if appropriate.
 
-#### Reviewer Check 049 — Parallel-Scaffold Deviation Classes
+### Reviewer Check 049 — Parallel-Scaffold Deviation Classes
 
 - **Severity / Role:** ERROR/WARNING/BLOCKER (by class) | Scaffolding Hygiene Reviewer | NEW
 - **Detection:** Compare scaffolded sprint outputs against template; classify deviations: A (section-header drift = WARNING), B (template-line omission = ERROR), C (Scaffold-folder absence = BLOCKER). Gate Class C on phase first: Glob for `Exec-{Abbrev}/`, and skip the class entirely when it is absent. A Discovery-phase plan carrying `Meta-{Abbrev}/` alone is correct, not deviant. Grade Class C only when `Exec-{Abbrev}/` exists and `Scaffold-{Abbrev}/` does not.
@@ -382,7 +382,7 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 > This reference defines the *principle* and the *signal*. A project's own
 > rule files name the *cohorts*.
 
-#### Reviewer Check 050 — Cohort Token-Uplift Practice
+### Reviewer Check 050 — Cohort Token-Uplift Practice
 
 - **Severity / Role:** WARNING | Scaffolding Hygiene Reviewer | NEW
 - **Detection:** In each sprint, `Grep` the task files for `^### Field Mapping`. Two or more matching task files form a high-divergence cohort, per the "Mechanical signal" paragraph of §10. For each file in a cohort, `Grep` the whole file for `\(cohort uplift:`. That label belongs only to the Context subtotal addend of §10 step 3, and a long subtotal may wrap onto a second line. A cohort file with no match → WARNING. A sprint with fewer than two matching files → the check does not fire.

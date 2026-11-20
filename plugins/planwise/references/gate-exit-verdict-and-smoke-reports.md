@@ -60,35 +60,35 @@ paths: {planwise_root}/{plans_dir}/**
 >
 > Cost asymmetry justifies advisory standing today: days of latent in-scope work laundered as deferred vs minutes of cross-check at closeout — real but single-occurrence. On recurrence, open a Backlog item to convert this `> [!practice]` to a `> [!constraint]` with WRONG / CORRECT examples and a mechanical closeout check (grep every "deferred" claim in the Recovery against the originating task spec's in-scope list).
 
-#### Reviewer Check 013 — Task Verification Commands Section Present
+### Reviewer Check 013 — Task Verification Commands Section Present
 
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
 - **What:** Tasks touching code/tests/schemas MUST include `## Verification Commands` section using placeholder vocabulary.
 - **Detection:** Open task; grep `^## Verification Commands` heading. If task touches `{code, test, schema, migration, notebook}` AND section absent → BLOCKER.
 - **Script:** `scripts/lint_task_file_structure.py` rule `verification-section` reports `BLOCKER: [verification-section] Reviewer Check 013: …` on the Output line. Fix: append the section per `templates/task-file.md`.
 
-#### Reviewer Check 014 — Per-File-Type Verification Table Populated
+### Reviewer Check 014 — Per-File-Type Verification Table Populated
 
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | EXTEND
 - **What:** Verification Commands section MUST include per-file-type table with placeholder command rows (`{lint-cmd}`, `{format-cmd}`, `{test-cmd}`, `{exec-cmd}`).
 - **Detection:** Open Verification Commands section; count rows matching `{[a-z-]+-cmd}`. Zero → BLOCKER.
 - **Script:** `scripts/lint_task_file_structure.py` rule `verification-section` reports `BLOCKER: [verification-section] Reviewer Check 014: …` when the section holds no `{...-cmd}` row and no concrete command, or a template slot left unfilled. Fix: add rows per `templates/task-file.md`.
 
-#### Reviewer Check 034 — Verification Commands Notebook Execution Present
+### Reviewer Check 034 — Verification Commands Notebook Execution Present
 
 - **Severity / Role / Type:** ERROR | Task Reviewer | NEW
 - **What:** Tasks producing/modifying `{notebook-file}` artifacts MUST include `{exec-cmd}` in Verification Commands.
 - **Detection:** Grep Expected Output for notebook artifacts; grep Verification Commands for `{exec-cmd}`. Notebook output + `{exec-cmd}` absent → ERROR.
 - **Script:** `scripts/lint_task_file_structure.py` rule `per-type-commands` reports `ERROR: [per-type-commands] Reviewer Check 034: …`. Fix: add an `{exec-cmd}` row per `templates/task-file.md`.
 
-#### Reviewer Check 035 — Verification Commands Lint/Format Present
+### Reviewer Check 035 — Verification Commands Lint/Format Present
 
 - **Severity / Role / Type:** ERROR | Task Reviewer | NEW
 - **What:** Tasks producing/modifying code files MUST include `{lint-cmd}` AND `{format-cmd}` in Verification Commands per-file-type table.
 - **Detection:** Code-producing output + missing `{lint-cmd}` OR `{format-cmd}` in Verification Commands → ERROR.
 - **Script:** `scripts/lint_task_file_structure.py` rule `per-type-commands` reports `ERROR: [per-type-commands] Reviewer Check 035: …`. A section with concrete commands and no placeholder table owes a lint command only. Fix: add rows per `templates/task-file.md`.
 
-#### Reviewer Check 036 — Verification Commands DB Pre-Check Position
+### Reviewer Check 036 — Verification Commands DB Pre-Check Position
 
 - **Severity / Role / Type:** WARNING | Task Reviewer | NEW
 - **What:** DB-write tasks MUST include `{connectivity-check-cmd}` in `> [!verify]` "Before" block (not "After").
@@ -104,7 +104,7 @@ paths: {planwise_root}/{plans_dir}/**
 > - [ ] The Master Plan's Sprint Overview row makes the gate state explicit
 > - [ ] The Recovery file's "deferred" claims are cross-checked against the originating task spec's in-scope list (see §3 practice)
 
-#### Reviewer Check 015 — Verification `> [!verify]` Before/After Block Present
+### Reviewer Check 015 — Verification `> [!verify]` Before/After Block Present
 
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
 - **What:** Task files producing executable artifacts MUST include `> [!verify]` callout with Before/After bash commands.

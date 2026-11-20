@@ -10,7 +10,7 @@ consult-when: A handler can't get an AskUserQuestion answer — taxonomy, gate-b
 **Purpose:** Define how skill handlers behave when invoked non-interactively ("Auto Mode"),
 where `AskUserQuestion` cannot be answered by a user.
 
-### § Auto Mode Context
+## § Auto Mode Context
 
 Auto Mode is a harness-level execution flag that signals the skill is running unattended —
 for example, when a handler is invoked as a subroutine by another handler, or when the user
@@ -25,14 +25,14 @@ Skill authors MUST classify every `AskUserQuestion` call site in their handler a
 critical or convenience. This classification is enforced at plan-review time via
 `<!-- AUTO-MODE: critical -->` and `<!-- AUTO-MODE: convenience -->` inline comments.
 
-### § Critical vs Convenience Taxonomy
+## § Critical vs Convenience Taxonomy
 
 | Classification | Definition | Examples |
 |---------------|------------|---------|
 | **Critical** | Agent CANNOT safely infer a correct answer. Wrong inference causes data loss, incorrect plan structure, or destructive action. User MUST decide. | Plan name, abbreviation (when collision possible), vision/objective, sprint count, sprint purpose, scaffolding source mapping, destructive action confirmation (revert/delete) |
 | **Convenience** | Agent CAN safely infer a correct answer from project context. Wrong inference causes cosmetic inconvenience, not data loss. | Install scope, directory names, review approach, lesson capture acknowledgment, recovery resume confirmation |
 
-### § Critical Question Behavior
+## § Critical Question Behavior
 
 When a call site is classified as **critical**:
 
@@ -57,7 +57,7 @@ When a call site is classified as **critical**:
 
 <!-- AUTO-MODE: critical -->
 
-### § Convenience Question Behavior
+## § Convenience Question Behavior
 
 When a call site is classified as **convenience**:
 
@@ -73,7 +73,7 @@ When a call site is classified as **convenience**:
 
 <!-- AUTO-MODE: convenience -->
 
-### § Inline Tagging Convention
+## § Inline Tagging Convention
 
 Every `AskUserQuestion` call site in a handler MUST be tagged with one of:
 
@@ -94,9 +94,9 @@ that is the house style, and the compliance check allows for it.
 > [!pitfall] Keep the marker, the `Default:` comment and the question together
 > The marker, the optional `<!-- Default: … -->` comment and the question line form one
 > unit of at most three lines. The compliance check looks at the question's own line and
-> the two lines above it. A paragraph inserted between the marker and the question pushes
+> the two lines above it. **Problem:** A paragraph inserted between the marker and the question pushes
 > the marker to the third line up, and the check then reports the question as untagged.
-> New prose goes above the marker, never inside the unit.
+> **Solution:** New prose goes above the marker, never inside the unit.
 >
 > WRONG — a mode paragraph inserted after the two comments. The marker is now three lines
 > above the question:
@@ -117,19 +117,12 @@ that is the house style, and the compliance check allows for it.
 > After any edit near a tagged site, run the check below before and after the edit and
 > compare the two outputs. A line that appears only in the second output is the regression.
 
-This placement lets a reviewer agent check compliance mechanically. Run from the plugin
-root:
+This placement lets a reviewer agent check compliance mechanically. In plugin development,
+the plugin repo's test `tests/test_auto_mode_call_sites.py` runs the check over `handlers/*.md`. It reports
+every `AskUserQuestion` mention whose own line, and the two lines above it,
+carry no AUTO-MODE marker, unless its closed list classifies that line.
 
-```bash
-# Every AskUserQuestion mention whose own line, and the two lines above it,
-# carry no AUTO-MODE marker. Run from the plugin root.
-awk '/AskUserQuestion/ && $0 !~ /AUTO-MODE:/ && p1 !~ /AUTO-MODE:/ && p2 !~ /AUTO-MODE:/ {
-       printf "%s:%d: %s\n", FILENAME, FNR, $0
-     }
-     { p2 = p1; p1 = $0 }' handlers/*.md
-```
-
-**Reading the result.** Each printed line is a **candidate**, not a confirmed violation.
+**Reading the result.** Each unmarked line is a **candidate**, not a confirmed violation.
 Disposition every one of them as either:
 
 - a **call site** — an instruction to issue the question. Tag it. This is a defect.
@@ -153,7 +146,7 @@ judgement, a false negative ships an untagged gate.
 > not suppress a tagged site, so it returned its hits whether or not the tree was clean:
 > against a fully-tagged fixture it reported every site in the file.
 
-### § Worked Example
+## § Worked Example
 
 ```markdown
 ### Step 1: Gather Information
@@ -181,7 +174,7 @@ When Auto Mode is active:
 - Questions tagged `convenience` log inference and proceed:
   "Auto-Mode inference: review_approach=auto-review (reason: recommended option)"
 
-### § Inference Defaults
+## § Inference Defaults
 
 This table is the single source for every convenience default. A row that names no handler
 applies wherever that variable is inferred. A row that names a handler and phase applies to

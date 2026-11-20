@@ -62,7 +62,7 @@ A count-threshold whose target is structurally unreachable is a **spec bug**, no
 
 `scripts/lint_verification_gates.py` detects two shapes of this class in a task file. Check 15 fires on an anchored `grep -c '^…'` gate whose threshold is two or more. Check 10 fires on a `grep -c <one word>` gate over a Markdown file against such a threshold, because `grep -c` counts lines and a soft-wrapped paragraph is one line.
 
-#### Reviewer Check 058 — Verification Task Anchored Aggregate Count Threshold
+### Reviewer Check 058 — Verification Task Anchored Aggregate Count Threshold
 
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
 - **What:** A verification task MUST NOT ship an anchored aggregate count threshold (e.g., `grep -cE '^…' {file}` paired with `expect ≥N`) as its sole pass/fail gate. If sibling extraction tasks produce more than one output format for the measured construct, the threshold is structurally unreachable and the verifier will either FAIL incorrectly or fudge to PASS. Replace with per-unit existence assertions: enumerate the units the verifier is checking and assert the property holds per unit.
@@ -126,7 +126,7 @@ Enumerate one row per format per sibling task. Then design the pattern to match 
 
 A denominator counted in the artifact being gated cannot detect an item nobody scoped. See [gate-denominator-integrity.md](gate-denominator-integrity.md) §3. A predicate that counts also names its unit: see §13 below.
 
-#### Reviewer Check 059 — Verification Task Keyword-Proximity Coverage Gate
+### Reviewer Check 059 — Verification Task Keyword-Proximity Coverage Gate
 
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
 - **What:** A verification task MUST NOT ship a keyword-proximity heuristic (e.g., `grep -B{N} keyword {file} | grep -c tag`) paired with a coverage-ratio denominator from a bare keyword grep (`grep -c keyword`) as its pass/fail gate. The denominator is inflated by prose, table headers, and fenced pseudo-code that mention the keyword without invoking the construct, and the proximity bound (`-B1`, `-A1`) misses correctly-tagged sites whose tag sits 2+ lines away. Replace with explicit-site enumeration: verify the spec's enumerated anchors are tagged, do not re-derive the site set from a keyword grep.

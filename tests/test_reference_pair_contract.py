@@ -50,7 +50,6 @@ _LABEL_RES = (
 # with two labels is the author's regression, never an entry added without a
 # recorded reason.
 PAIR_EXEMPTIONS = {
-    ("artifact-self-containment.md", "### 3.1 Rule body must inline, not cite the source lesson"): 3,  # @ becccfe (2026-10-20)
     ("execution-time-binding-rules.md", "## 19. Narrow Fix Reveals a Systemic Gap — Bounded Temp Fix That Seeds the Deferred Discovery (BINDING)"): 2,  # @ becccfe (2026-10-20)
     ("exit-criteria-fidelity.md", "#### 16.3 Extension — BLI-Cited Audit-Anchor Re-Verification"): 2,  # @ becccfe (2026-10-20)
     ("lessons-curate-workflow.md", "## 7. Constraints"): 3,  # @ becccfe (2026-10-20)
@@ -60,12 +59,9 @@ PAIR_EXEMPTIONS = {
     ("read-confirm-act-protocol.md", "### 1.2 Structural Findings Beyond Literal Scope"): 2,  # @ becccfe (2026-10-20)
     ("read-confirm-act-protocol.md", "#### Audit-Trail Requirement"): 2,  # @ becccfe (2026-10-20)
     ("review-classification.md", "## The Three Claims in a Finding"): 3,  # @ becccfe (2026-10-20)
-    ("rule-authoring.md", "## 2b. Common Frontmatter Mistakes"): 2,  # @ becccfe (2026-10-20)
     ("scaffolding-hygiene-Part-2-DerivationAndParallelism.md", "## 16. Declared Parallelism Requires a Computed Write-Set Intersection"): 3,  # @ becccfe (2026-10-20)
     ("session-execution-protocol.md", "### 6.1 A Refactor's Blast Radius Exceeds Its Edit Set"): 2,  # @ becccfe (2026-10-20)
     ("session-plan-requirements.md", "### Scaffolding Phase Requirements (Plan Writing)"): 3,  # @ becccfe (2026-10-20)
-    ("skill-authoring.md", "## 5b. Forked Execution Mistakes"): 2,  # @ becccfe (2026-10-20)
-    ("skill-authoring.md", "## 7b. Tool Restriction Mistakes"): 2,  # @ becccfe (2026-10-20)
     ("task-content-fidelity.md", "### 9.A.8 Token Saver Large-File Ladder"): 2,  # @ becccfe (2026-10-20)
     ("task-content-fidelity.md", "### 9.A.14 Measure every Required Context row at scaffold close"): 2,  # @ becccfe (2026-10-20)
     ("task-file-and-tracking-requirements.md", "### Task File Template"): 3,  # @ becccfe (2026-10-20)

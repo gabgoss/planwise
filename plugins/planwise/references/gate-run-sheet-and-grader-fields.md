@@ -94,7 +94,7 @@ CORRECT: if not os.path.exists(path): sys.exit("input missing: " + path)
 
 **Applies to** any grader, assertion or report that reads a numeric field from a log, a store or a result file. Cross-reference: [gate-runtime-boundary-evidence.md](gate-runtime-boundary-evidence.md) §6 covers a build that is fresh while the deployed copy is not. This section covers the run that graded PASS on a build whose measurements were never taken.
 
-#### Reviewer Check 102 — Driver or Grader Defaults a Missing Input to 0
+### Reviewer Check 102 — Driver or Grader Defaults a Missing Input to 0
 
 - **Severity / Role / Type:** ERROR (HIGH confidence) | Verification-Gate Reviewer | NEW
 - **What:** A driver, grader or gate in the plan MUST NOT turn an absent input (transcript, log, result file or field) into the number 0.

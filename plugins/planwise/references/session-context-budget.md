@@ -316,7 +316,7 @@ Every subcommand invocation carries a block of instruction text that a runtime `
 
 Figures are labelled by the tree they were measured on — **dev** (the tree the plugin is developed in) or **installed** (the tree a consumer has on disk). The two differ in line counts, so a figure from one tree is not comparable to a figure from the other.
 
-> [!note] Historical measurement basis
+> [!hazard] Historical measurement basis
 > The tables below were measured under the superseded per-line token model ("At 13 tok/line" columns). They are kept as the historical record of those probes; a fresh floor measurement should use `measure_files.py` (bytes ÷ bytes-per-token) instead of any per-line rate.
 
 **Whole-path floor** — skill body + base context + handler body + always-load references:

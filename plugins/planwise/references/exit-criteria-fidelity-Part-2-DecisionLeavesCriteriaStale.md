@@ -9,7 +9,7 @@ consult-when: A go/no-go or fallback decision leaves a known failing input under
 
 ---
 
-### 16.13 A Decision That Leaves a Known Verifier Failure Rewrites Every Criterion Pinned to Its Exit Code
+## 16.13 A Decision That Leaves a Known Verifier Failure Rewrites Every Criterion Pinned to Its Exit Code
 
 > [!constraint] A decision that leaves a known failure in a verifier's input set changes every claim that verifier's exit code backs
 > The claims live in files the decision-maker did not open. "`<verifier>` exits 0" was true when written. It became false at the decision, and nothing in the tree marked it. A routed flag that carries only the grading rule is correct and incomplete. It leaves the criterion standing, so the contradiction surfaces one session later as a structural finding instead of at its cause.
@@ -47,7 +47,7 @@ Three consequences follow.
 
 §16.9 covers an absence criterion that cannot be met because its own enactor trips it. This section covers a criterion that was meetable until a decision made it unmeetable, and the decision-maker was the only party positioned to rewrite it.
 
-### 16.14 A Size or Rate Constant Is Derived From the Headline Criterion, and Every Closeout Reports Against the Criterion
+## 16.14 A Size or Rate Constant Is Derived From the Headline Criterion, and Every Closeout Reports Against the Criterion
 
 > [!constraint] A budget constant and a headroom target are different quantities. A green budget gate says nothing about the target
 > "Under 22,000" and "at least 2x under 25,000" answer different questions. When a plan states a headline target and a design constant that enforces size, derive the constant from the target. Or state explicitly that the constant is the weaker guarantee, and restate the target to match.
@@ -75,7 +75,7 @@ Three consequences follow.
 
 **Where it applies.** Any plan whose success criterion is a margin or ratio (headroom, a latency percentile, an error budget) while the implementation enforces a different threshold. It also applies to any closeout that reports a measurement against the implementation's threshold rather than the plan's criterion. §16.11 covers filling the signoff at sprint close. This section covers what the filled signoff must report against.
 
-#### Reviewer Check 096 — Size Constant Cannot Meet the Plan's Headline Margin
+### Reviewer Check 096 — Size Constant Cannot Meet the Plan's Headline Margin
 
 - **Severity / Role / Type:** WARNING (HIGH confidence) | Verification-Gate Reviewer | NEW
 - **What:** For each headline margin or ratio criterion, find the design constant that enforces size. Compute the constant's implied margin. Flag a constant that cannot meet the headline and states no weaker-guarantee restatement.
@@ -93,7 +93,7 @@ Issue: Headline requires {margin}; constant {value} permits {implied margin} and
 Fix: Derive the constant from the headline or restate the headline, and report each closeout against the headline, per references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md §16.14 | Confidence: HIGH
 ```
 
-### 16.15 A Newest-First Numbered Record Renumbers Every Entry on Each Append
+## 16.15 A Newest-First Numbered Record Renumbers Every Entry on Each Append
 
 > [!constraint] An append-only record that counts identifiers from the newest end rewrites every existing identifier on each append
 > An entry number then stops meaning the same entry over time. Every append also edits lines it did not add. Number from the oldest end, or key each entry by its date or another fixed value. An append then touches only the new entry. The newest entry can still sit at the top of the page.
@@ -119,7 +119,7 @@ Fix: Derive the constant from the headline or restate the headline, and report e
 
 **Applies to** any changelog, log, or decision record kept newest-first with numbered headings. It also applies to any ledger or evidence file that cites such an entry by number.
 
-### 16.16 A Master Plan Success Criteria Clause Names One Owning Task
+## 16.16 A Master Plan Success Criteria Clause Names One Owning Task
 
 > [!constraint] Restating a clause is not owning it
 > A Master Plan Success Criteria clause that appears in the Master Plan, the Sprint Plan and an Orchestration, and in no task's Success Criteria or Verification Commands, has no owner. Each restatement reads as coverage. No task answers for the clause, so a task that forgets the work still passes every check it owns. An exit criterion no task owns is no guarantee at all.
@@ -149,7 +149,7 @@ A roll-up clause names the task that answers for the roll-up. "All sprints compl
 
 **Which layers count.** Only task-level Success Criteria and Verification Commands count as ownership. A Sprint Plan or Orchestration restatement does not. Those layers repeat the Master Plan clause. They do not prove it.
 
-#### Reviewer Check 106 — Master Plan Success Criteria Clause With No Owning Task
+### Reviewer Check 106 — Master Plan Success Criteria Clause With No Owning Task
 
 - **Severity / Role / Type:** ERROR (HIGH confidence) | Coverage Reviewer | NEW
 - **What:** Set-diff the Master Plan Success Criteria clauses against the union of task-level Success Criteria checkboxes and Verification Commands. Report each clause that no task carries, and each clause that names no owner.
@@ -169,7 +169,7 @@ Fix: Name one owning task on the clause and add a machine-checkable checkbox or 
 
 **Scope.** §16.3 covers a Sprint signoff row against the Execution Input's exit criteria. This section covers the layer above it, the Master Plan clause. §16.1 covers a refinement that must echo across layers. Echoing a clause across layers is the restatement this rule says is not ownership.
 
-### 16.17 A Checkbox That Asserts Prose Content Pairs With a Command That Reads the File
+## 16.17 A Checkbox That Asserts Prose Content Pairs With a Command That Reads the File
 
 > [!constraint] A prose-content checkbox needs a Verification Command that reads the file
 > A Success Criteria checkbox can assert what a file says. "The header carries the licence line." "The docstring covers the failure cases." If no Verification Command reads that file, the checkbox passes on the runner's self-report. Pair each such checkbox with a command that reads the file and returns a match or a count.
@@ -192,7 +192,7 @@ A checkbox about behaviour that a test run exercises is outside this rule. The r
 > Verification Commands: Grep pattern='non-commercial' path='{new module}' output_mode='count'   # >= 1
 > ```
 
-#### Reviewer Check 108 — Prose-Content Checkbox With No Verification Command That Reads the File
+### Reviewer Check 108 — Prose-Content Checkbox With No Verification Command That Reads the File
 
 - **Severity / Role / Type:** WARNING (HIGH confidence) | Task Reviewer | NEW
 - **What:** For each Success Criteria checkbox whose subject is text in a file, find a Verification Command in the same task that reads that file. Flag a checkbox with none.
@@ -210,7 +210,7 @@ Issue: The checkbox asserts text in {file} and no Verification Command reads tha
 Fix: Add a command that reads the file and returns a match or a count, per references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md §16.17 | Confidence: HIGH
 ```
 
-### 16.18 A Per-File Requirement Cited Only in Notes for Agent Gates Nothing
+## 16.18 A Per-File Requirement Cited Only in Notes for Agent Gates Nothing
 
 > [!constraint] Every task that creates a file under a per-file requirement carries a per-file command
 > A requirement that applies to every file of a family is a mention when only Notes for Agent states it. The runner can read it and still ship a file without it. Each task that creates such a file carries a command that reads that file and returns an expected count. A sprint sweep does not replace those commands.
@@ -235,7 +235,7 @@ The sweep caught the gap only because its file set was wider than any one task's
 > Sprint exit sweep:          files_with_matches count MUST equal the number of files in the union of T-02 and T-03 Output lines
 > ```
 
-#### Reviewer Check 109 — Per-File Requirement in Notes for Agent With No Per-File Command in the Creating Task
+### Reviewer Check 109 — Per-File Requirement in Notes for Agent With No Per-File Command in the Creating Task
 
 - **Severity / Role / Type:** ERROR (HIGH confidence) | Task Reviewer | NEW
 - **What:** For each per-file requirement stated in a task's Notes for Agent, find a per-file Verification Command in every task that creates a file under it. Flag a creating task with none, and a sprint sweep whose file set differs from the union of the creating tasks' Output lines.
@@ -253,7 +253,7 @@ Issue: The task creates {files} under the requirement and its Verification Comma
 Fix: Add a per-file command with an expected count to each creating task, and build the sprint sweep's file set from the union of their Output lines, per references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md §16.18 | Confidence: HIGH
 ```
 
-### 16.19 Measurement Work Carries One Criterion That Ties a Produced Value to Its Evidence
+## 16.19 Measurement Work Carries One Criterion That Ties a Produced Value to Its Evidence
 
 > [!constraint] A shape gate cannot detect a fabricated value, so one criterion ties each produced value to its evidence
 > A gate that counts rows, checks a grain or pairs a span with a source certifies the shape of the data. It cannot tell a measured value from a fabricated one. Measurement work carries at least one criterion that joins a produced value to the source record that justifies it.
@@ -283,7 +283,7 @@ Two corollaries follow:
 >   AND NOT EXISTS (SELECT 1 FROM corpus b WHERE b.emitted_string = a.name AND b.event_date = a.valid_from);  -- MUST be 0
 > ```
 
-#### Reviewer Check 124 — Data-State Literal Used as a Pass or Fail Value
+### Reviewer Check 124 — Data-State Literal Used as a Pass or Fail Value
 
 - **Severity / Role / Type:** ERROR (MEDIUM confidence) | Task Reviewer | NEW
 - **What:** An expected value that is a data-state literal fails §16.10.1 even when the literal is cited. Measurement work with no criterion that ties a produced value to its evidence fails §16.19.

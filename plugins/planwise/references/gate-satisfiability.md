@@ -171,7 +171,7 @@ Two incidents showed the shape:
 2. **Write the absence criterion as an exact expected count that names each allowed location.** An example is "expect 1, the history line at the Change Log". Never leave the final count to the runner's judgment.
 3. **Treat a hit outside the edit scope as a sibling finding.** The author either missed that site or meant it to stay. Add a step for it, or name it as an allowed location in the criterion. A hit that is neither is noise only to a brief that was never enumerated.
 
-#### Reviewer Check 113 — Absence Check Scope Differs From the Execution Steps' Enumeration
+### Reviewer Check 113 — Absence Check Scope Differs From the Execution Steps' Enumeration
 
 - **Severity / Role / Type:** WARNING (HIGH confidence) | Verification-Gate Reviewer | NEW
 - **What:** A task whose absence criterion searches a wider set than its Execution Steps edit MUST name each allowed location for the difference. Flag a task whose criterion expects 0, or a count with no named location, while its steps cover fewer sites than the search returns.

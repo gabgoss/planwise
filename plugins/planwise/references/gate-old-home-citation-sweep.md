@@ -46,7 +46,7 @@ Three shapes stay outside the checker, so read each hit of these by hand:
 ### 15.1 The dual-citation false match — write the sibling citation first
 
 > [!pitfall] A line citing both halves of a former anchor false-matches whenever the anchor's filename precedes the moved section number
-> The false-match case is a single line citing **two** files that were once one anchor: one section that stayed, one that moved.
+> **Problem:** The false-match case is a single line citing **two** files that were once one anchor: one section that stayed, one that moved.
 > ```
 > WRONG — anchor filename first; §{moved} appears later on the line ⇒ MATCH (false):
 >   `{anchor}.md` §{stayed} / `{sibling}.md` §{moved}
@@ -54,7 +54,7 @@ Three shapes stay outside the checker, so read each hit of these by hand:
 > CORRECT — sibling citation first; the anchor filename is followed only by §{stayed}:
 >   `{sibling}.md` §{moved} / `{anchor}.md` §{stayed}
 > ```
-> Both lines are accurate. Only the order differs, and only the second passes the sweep. `scripts/check_section_citations.py` binds each `§` to the nearest file on its line, so it resolves both orders. Where a substring sweep still gates the corpus, the order is load-bearing: record it beside the citation, because the correct form may cite a higher section number before a lower one on purpose.
+> Both lines are accurate. Only the order differs, and only the second passes the sweep. `scripts/check_section_citations.py` binds each `§` to the nearest file on its line, so it resolves both orders. **Solution:** Where a substring sweep still gates the corpus, the order is load-bearing: record it beside the citation, because the correct form may cite a higher section number before a lower one on purpose.
 
 ### 15.2 Do NOT tighten the pattern — prefer the failure you can inspect
 
@@ -149,12 +149,12 @@ Prefer a content key where the store allows one. A test constant keyed by a cont
 ### 15.5 A bare section citation means this file to the checker
 
 > [!pitfall] A bare section citation means this file to the checker
-> A `§` with no file named on its line resolves against the file the line sits in, whatever
+> **Problem:** A `§` with no file named on its line resolves against the file the line sits in, whatever
 > the surrounding prose says. When that file lacks the section, the checker reports the
 > citation `dangling`. When that file holds a section with the same number, the checker
 > reports `ok` against the wrong section, and nothing flags it. A pointer or compress
 > rewrite writes many cross-file citations at once, because it moves claims into a sibling
-> file, so each one is a candidate for this failure. Name the file next to every
+> file, so each one is a candidate for this failure. **Solution:** Name the file next to every
 > cross-file section citation.
 >
 > WRONG — the reader infers the file from context, and the checker binds the section to

@@ -75,18 +75,18 @@ The asymmetry is deliberate. Content-bearing artifacts must read as standalone r
 > WRONG — rule body cites the source lesson, leaving the lesson as a load-bearing reference:
 > ```markdown
 > ## §1. Schema Pin requirement
-> Per LL-X, every task file must include a Schema Pin (see LL-X for the
-> WRONG/CORRECT examples and the construction recipe).
+> Per LL-X, every task file must include a Schema Pin (see LL-X for
+> the paired examples and the construction recipe).
 > ```
 > CORRECT — rule body inlines every WRONG/CORRECT example, recipe, and command from the source lesson(s). The lesson file becomes archival and is NOT cited from the rule body:
 > ```markdown
 > ## §1. Schema Pin requirement
 > Every task file whose Required Context references a DB table MUST include
 > a Schema Pin section.
-> WRONG: the brief asserts column shapes from the author's mental model.
->     {full WRONG SQL example inlined verbatim from the lesson body}
-> CORRECT: the brief includes a Schema Pin section quoting actual columns.
->     {full CORRECT example inlined verbatim from the lesson body}
+> Failing form: the brief asserts column shapes from the author's mental model.
+>     {full failing SQL example inlined verbatim from the lesson body}
+> Passing form: the brief includes a Schema Pin section quoting actual columns.
+>     {full passing example inlined verbatim from the lesson body}
 > ```
 
 ### 3.2 CLAUDE.md callouts describe the reason, not the source ID
@@ -139,6 +139,8 @@ The asymmetry is deliberate. Content-bearing artifacts must read as standalone r
 
 Every BB that produces content-bearing artifacts MUST include a self-containment grep in its Acceptance Criteria. The grep covers ALL external-bookkeeping ID families — `LL-`, `BB-`, `BLI-`, `PLG-`, `D-` — across ALL content-bearing artifact paths the BB touched.
 
+The plugin script `scripts/check_identifier_leaks.py` runs this predicate over the paths or tree you pass. It exits 0 when clean, 1 on a candidate hit and 2 on an unreadable path.
+
 > [!constraint] Which Copy Is Canonical — This File's Own Double-Ship
 > This file itself ships twice on disk: an in-place reference copy (what you are reading)
 > and an installed, path-scoped copy that injects the discipline during artifact authoring.
@@ -158,18 +160,11 @@ Every BB that produces content-bearing artifacts MUST include a self-containment
 >   CLAUDE.md
 > # MUST return zero matches.
 > ```
->
-> ```powershell
-> # PowerShell (Windows shells):
-> Get-ChildItem -Path .claude/rules, .claude/agents, .claude/skills, .claude/commands, CLAUDE.md `
->   -Recurse -Include *.md `
->   | Select-String -Pattern '(LL-\d|BB-\d|BLI-\d|PLG-\d|\bD-\d|\b(LL|BB|BLI|PLG)([A-Z][a-z]|\d))'
-> # MUST return zero matches.
-> ```
+> On a Windows shell, run the plugin script over the same paths instead.
 
 If grep returns matches, the BB executor MUST inline the cited content into the rule body or remove the reference. The check is binary — any `LL-`, `BB-`, `BLI-`, `PLG-`, or `D-` reference in any content-bearing artifact is a fail.
 
-> [!important] A project's own isolation rule may be wider than this grep
+> [!hazard] A project's own isolation rule may be wider than this grep
 > This grep is the plugin's floor, not its ceiling. A consuming project's root instructions file, or a rule it loads, may widen the scope. For example, it may cover every file under the project's own plugin development tree, of any extension. It may also add patterns for a class of leak this grep does not check.
 >
 > For that project's own plugin-development sessions, the project rule takes precedence. Before you conclude that this narrower gate is enough, read the project's root instructions and rules for an isolation rule. If one exists, run its scope and its patterns as well as the grep above.
@@ -234,12 +229,10 @@ The §4 grep matches ID-shaped bookkeeping tokens (`LL-`, `BB-`, `BLI-`, `PLG-`,
 **Both gates above are `^\+`-filtered, and that filter has a second blind spot.** They answer "did this change introduce a leak" — they cannot answer "does a leak exist". Anything that predates the diff base is a context line, never an added line, so it is invisible by construction and stays invisible across every subsequent session that reuses the same gate shape. A whole-tree audit or a release battery therefore needs one companion sweep that reads **files on disk**, not a diff:
 
 > [!verify] Unfiltered On-Disk Sweep — Classify, Do Not Blanket-Fail
-> ```bash
-> # Whole-tree / release use. Reads the working tree, so pre-existing leaks are visible.
-> grep -rnE '(LL-[0-9]|BB-[0-9]|BLI-[0-9]|PLG-[0-9]|\bD-[0-9]|\b(LL|BB|BLI|PLG)([A-Z][a-z]|[0-9]))' plugins/planwise/
-> grep -rnE 'Sprint-[0-9]|Session-[0-9]|{PLAN_ABBREV}-' plugins/planwise/
 > ```
-> This sweep is expected to return hits, and a non-empty result is NOT automatically a failure. Classify every hit into exactly one bucket before deciding:
+> python -B {plugin_root}/scripts/check_identifier_leaks.py plugins/planwise
+> ```
+> It reads files on disk, not a diff, so pre-existing leaks are visible. This sweep is expected to return hits, and a non-empty result is NOT automatically a failure. Classify every hit into exactly one bucket before deciding:
 >
 > | Bucket | What it looks like | Disposition |
 > |--------|--------------------|-------------|
@@ -250,15 +243,14 @@ The §4 grep matches ID-shaped bookkeeping tokens (`LL-`, `BB-`, `BLI-`, `PLG-`,
 >
 > The distinguishing question for the last two rows is whether the token names an artifact that exists in some authoring repo. An invented sample abbreviation in a format example is vocabulary; a real project's abbreviation attached to that project's real file names is a citation wearing an example's clothes.
 
-Both sweeps above still carry `{PLAN_ABBREV}`, so neither is runnable at release time — that variable is bound only inside a plan session. Bind it **structurally** instead: match the *shape* of a plan-artifact name rather than one known abbreviation, and the pattern needs no substitution in any context.
+The diff battery above carries `{PLAN_ABBREV}`, so it is not runnable at release time — that variable is bound only inside a plan session. Bind it **structurally** instead: match the *shape* of a plan-artifact name rather than one known abbreviation, and the pattern needs no substitution in any context.
 
 > [!verify] Release-Time Plan-Structure Sweep — No Free Variable
 > ```
-> Grep  pattern='\b[A-Z]{2,5}-(META-S[0-9]|Consolidated-Context|S[0-9]{2}-[0-9]{2}-)'
->       path='plugins/planwise'  output_mode='content'  -o=true  -n=true
+> python -B {plugin_root}/scripts/check_identifier_leaks.py --plans-index {plans_dir}/00-Index-Plans.md plugins/planwise
 > ```
 >
-> This yields candidate abbreviations, not verdicts. **The classification step is the gate; the pattern alone is not.** Take the distinct abbreviations it returns and look each one up in the authoring project's own plans index:
+> Its plan-abbrev family matches the plan-artifact shape and yields candidate abbreviations, not verdicts. **The classification step is the gate; the pattern alone is not.** The plans-index lookup sets the verdict: each abbreviation is looked up in the authoring project's own plans index:
 >
 > | Abbreviation is in the plans index | What it is | Disposition |
 > |---|---|---|

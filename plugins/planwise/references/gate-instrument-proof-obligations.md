@@ -62,7 +62,7 @@ The runtime, verdict and baseline rules in `gate-runtime-boundary-evidence.md`, 
 > 4. **Write the live sweep into the next gate-repair item's acceptance criteria**, phrased so fixtures cannot satisfy it: *"after landing, run one unfiltered sweep for this pattern class across the guarded tree and paste the classified result."*
 > 5. **When the live sweep finds a defect class the item did not name, file it rather than absorbing it.**
 
-#### Extractor pitfalls: an assertion's extraction step is an instrument too
+### Extractor pitfalls: an assertion's extraction step is an instrument too
 
 Obligation C covers a matcher that cannot see a multi-line idiom. A gate also extracts before it asserts. It pulls identifiers into a list, filters a search's output, or slices source text. Each step can drop or truncate its subject without an error, and the assertion then compares the damaged result.
 
@@ -81,7 +81,7 @@ Obligation C covers a matcher that cannot see a multi-line idiom. A gate also ex
 
 Checks 36, 37 and 38 of `scripts/lint_gate_checks_verify.py` flag the three shapes statically and report at WARNING. They are heuristics. Run the command against a known-good and a known-bad input before you trust either verdict.
 
-#### Real-path pitfalls: a success signal that never ran the path it vouches for
+### Real-path pitfalls: a success signal that never ran the path it vouches for
 
 Obligation A asks whether a gate can fail. An instrument can pass that test on its own fixtures and still never run the path its claim is about. Each shape below produced a green signal from code the real run does not execute. The repair has one form in every row: run the instrument once on the real path, with a must-fail control beside it.
 
@@ -95,7 +95,7 @@ Obligation A asks whether a gate can fail. An instrument can pass that test on i
 | `node --check` passes an ES-module script | Nothing, because Node does not report the syntax error for that file shape |
 | A path gate passes its unit tests | Only the path form its synthetic fixtures use |
 
-#### A dry run versus the apply path
+### A dry run versus the apply path
 
 > [!constraint] A dry run proves only the dry-run path
 > A split tool refused an `--apply` run when a resulting file measured over its size warning. Before the apply-mode control was dispatched, the command ran without `--apply` on a scratch copy. It printed `status: planned` and exited 0, and that result was recorded as the control's premise. The control then ran with `--apply`. The size guard refused it with exit 1, because the guard runs only under `--apply`.
@@ -116,7 +116,7 @@ Obligation A asks whether a gate can fail. An instrument can pass that test on i
 >
 > The trigger is a pinned command that carries `--apply`, `--write` or `--force` while the check that proved it did not. The one alternative is to read the guard's code path and confirm that the dry run reaches it.
 
-#### Exit 0 and a shared version string
+### Exit 0 and a shared version string
 
 > [!constraint] Exit 0 does not prove the write, and a version string does not prove the code
 > A closeout called an installed backlog writer with `--resolution-file`. The writer exited 0, flipped the status and archived the item. The item had no `## Resolution` section afterward. The installed copy predated the flag and parsed with `parse_known_args()`, which drops an unknown flag without a word. The development tree carried the same version string and did support the flag.
@@ -138,7 +138,7 @@ Obligation A asks whether a gate can fail. An instrument can pass that test on i
 >
 > The plugin's backlog and plan writers now exit 2 on an undeclared flag, with `unrecognized arguments:` on stderr. The read-back still applies to an installed copy older than that change, and to any script that tolerates unknown arguments.
 
-#### A differential that counts the cases it could not compare
+### A differential that counts the cases it could not compare
 
 > [!constraint] A differential check counts the cases it could not compare
 > A config reader was extended, and the claim was that no existing reading changed. The old reader and the new reader ran over the two real config files, and the check printed `compared 2 files, 0 differ`. Both readers had raised the same `TypeError` on both files. Two equal errors compare equal, so the check examined nothing. Split into its 32 top-level blocks, the corpus gave 28 identical, 2 differ and 2 raised on both. The 2 differing blocks were a real defect that the item had never listed.
@@ -156,7 +156,7 @@ Obligation A asks whether a gate can fail. An instrument can pass that test on i
 >
 > Split a corpus that cannot be read whole at the unit the reader handles, such as one top-level block. The split also gives the check its denominator. This applies to any "the new code reads everything the old code did" claim: parsers, generators, migrators, index builders.
 
-#### A stand-in for a native tool
+### A stand-in for a native tool
 
 > [!constraint] A stand-in for a native tool refuses what the real tool rejects
 > A gate linter decides a native `Grep` call in-process with Python `re`. Its first design refused only a pattern that Python cannot compile. The tool runs the ripgrep engine, which rejects constructs that Python accepts. Python compiles each construct below, and the tool would have errored instead. An absence gate (`expect 0`) over any of them passes on every tree:
@@ -180,7 +180,7 @@ Obligation A asks whether a gate can fail. An instrument can pass that test on i
 >
 > `scripts/lint_gate_grep_tool.py` applies this scan, and its tests pass each refused construct. Any other checker or test double that re-implements `Grep` or `Glob` needs the same scan.
 
-#### A syntax gate on an ES-module script
+### A syntax gate on an ES-module script
 
 > [!constraint] A syntax gate on an ES-module script needs a parse that can fail
 > A plan pinned `node --check <workflow>.js` as the syntax gate for a Workflow script. A must-fail control ran first. On Node v22.20.0, a scratch file holding `export const meta = {` and `const x = ;` made `node --check` exit 0. The same file without the `export` line exited 1 with `SyntaxError`. Node detects the file as an ES module and does not report the error.
@@ -198,7 +198,7 @@ Obligation A asks whether a gate can fail. An instrument can pass that test on i
 >
 > The parameters are the script's runtime globals. This applies to any syntax gate on a Workflow script, and on any ES-module file without a `package.json` type hint.
 
-#### A path gate and the path form the tool reports
+### A path gate and the path form the tool reports
 
 > [!constraint] A path gate is proven on the path form the real tool reports
 > A lab driver passed `plugin_dir.as_posix()` (`C:/Users/<user>/.../<plugin>`) as the expected plugin path. The CLI's stream-json init event reported `C:\Users\<user>\...\<plugin>`. The gate matched on a path-segment boundary, so it failed although the plugin loaded from the right copy. The first paid run was graded VOID. Thirteen tests had passed, and every one used synthetic forward-slash paths.
@@ -216,7 +216,7 @@ Obligation A asks whether a gate can fail. An instrument can pass that test on i
 >
 > Capture the init event with a near-free load proof (`--max-budget-usd 0.001`), or take it from any earlier run on the same build. Keep the captured event as a permanent fixture. This applies to any gate that compares a path the harness reports (init plugins, cwd, tool inputs) with a path the driver built.
 
-#### Reviewer Check 087 — Bug-Fix Criteria With No Fixture and No Unfixed-Artifact Run
+### Reviewer Check 087 — Bug-Fix Criteria With No Fixture and No Unfixed-Artifact Run
 
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
 - **What:** A plan whose deliverable is a bug fix MUST carry at least one acceptance criterion phrased against a **fixture that reproduces the defect**, AND a requirement to run the same probe against the **unfixed artifact** and show it failing. Criteria phrased against live project data measure the data, not the code — they pass identically against fully-unfixed code whenever the triggering rows were reworded, worked around, or otherwise sanitised before triage. Without the failing run, "my code passes" has never been distinguished from "this gate detects the defect."
@@ -227,7 +227,7 @@ Obligation A asks whether a gate can fail. An instrument can pass that test on i
   4. Check the plan names which criterion is the **discriminating** one. Absent → WARNING (downgrade from BLOCKER when 2 and 3 both pass).
   5. Where a criterion is already satisfied at triage time, check the plan records that as a finding with its reason rather than as a satisfied box. Recorded as satisfied → BLOCKER.
 
-#### Reviewer Check 088 — Gate Asserts Format Where the Property Is Resolution, or Is Fixture-Satisfiable
+### Reviewer Check 088 — Gate Asserts Format Where the Property Is Resolution, or Is Fixture-Satisfiable
 
 - **Severity / Role / Type:** WARNING | Task Reviewer | NEW
 - **What:** Two instrument defects that ship together often enough to share a check. **(a)** A verification gate asserts a format or spelling pattern where the property at stake is **resolution or existence** — a citation gate matching punctuation rather than confirming the target file and section exist. Such a gate scores 0 on a correctly pinned citation written in the house style and scores 1 on a citation whose file does not exist, and it exerts pressure on the runner to reformat correct content. **(b)** A gate-repair deliverable whose acceptance criteria are satisfiable **entirely by fixtures**, with no live sweep of the guarded subject. A fixture dry-run proves the gate is not vacuous; only a live sweep proves the subject is clean, and the live sweep is the one that finds work no criterion could have named.

@@ -149,7 +149,7 @@ A file named in a task's `Output:` line is **owned by that runner** from the mom
 
 **Executing an artifact is a WRITE.** So are `{formatter}`, an in-place `{notebook-executor}`, an output-clear, and most build and lint commands. They *feel* like inspection because they answer a question; they answer it by rewriting the file. Running one against a file another agent is actively writing produces a two-writer measurement — and a two-writer measurement is indistinguishable from a settled one, because it yields a number, not an error.
 
-| Rule | |
+| Rule | n/a |
 |---|---|
 | **Establish ownership at dispatch** | Every file in the task's `Output:` line is the runner's until acceptance. State it explicitly in the Orchestration when several runners hold adjacent files. |
 | **Verify by reading; delegate the re-run** | If a mutating check is genuinely required — a notebook must actually execute to prove it works — `SendMessage` the owner to re-run it and report the result. Do not run it yourself in parallel. |
@@ -356,7 +356,7 @@ The plugin script `scripts/check_status_block.py` checks a returned status block
 > - New §1.28 landed at live-max+1; ceiling=18 derived from field enumeration
 > ```
 
-> [!note] Moved to Part 4
+> [!hazard] Moved to Part 4
 > - §1.29 A Subagent's World Is Its Definition Plus Its Prompt — held in [`agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md`](agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md)
 > - §1.30 Liveness — Establish Death Before Dispatching a Replacement — held in [`agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md`](agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md)
 > - §1.31 A Shared Precondition Belongs to the Orchestrator — held in [`agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md`](agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md)

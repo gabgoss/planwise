@@ -12,6 +12,8 @@ DO NOT add callouts to content that is already unambiguous from its structure (t
 
 ## 1. Callout Catalog
 
+The 19 type headings below are the closed list of types. `scripts/lint_markdown.py` reads them from this section at run time: its `callout-type` rule flags a callout outside the list, and its `pitfall-shape` rule flags a pitfall that lacks `Problem:` or `Solution:`. A plugin test runs it with `--strict` over the shipped `references/` and requires zero findings.
+
 ### `> [!constraint]` — Binding Rule with Comparison
 
 ```markdown
@@ -19,9 +21,9 @@ DO NOT add callouts to content that is already unambiguous from its structure (t
 > Content with WRONG/CORRECT or AVOID/PREFER examples
 ```
 
-WRAP content in `> [!constraint]` when it shows BOTH the wrong way and the right way, with enforcement language (MUST, NEVER, REQUIRED). The defining characteristic is paired comparison.
+WRAP content in `> [!constraint]` when it shows BOTH the wrong way and the right way, with enforcement language (MUST, NEVER, REQUIRED).
 
-DO NOT use for: anti-patterns alone (`> [!antipattern]`), advisory practices without enforcement (`> [!practice]`), or pure code examples without comparison (leave unmarked).
+DO NOT use for pure code examples without comparison (leave unmarked).
 
 ### `> [!pitfall]` — Pitfall with Solution
 
@@ -33,7 +35,7 @@ DO NOT use for: anti-patterns alone (`> [!antipattern]`), advisory practices wit
 
 WRAP content in `> [!pitfall]` when it pairs a known failure mode with its remediation. MUST have both Problem and Solution.
 
-DO NOT use for: binding rules with WRONG/CORRECT (`> [!constraint]`), general troubleshooting tables (leave as tables), or warnings without remediation (`> [!hazard]`).
+DO NOT use for: general troubleshooting tables (leave as tables), or warnings without remediation (`> [!hazard]`).
 
 ### `> [!binding]` — Binding Enforcement Policy
 
@@ -42,9 +44,9 @@ DO NOT use for: binding rules with WRONG/CORRECT (`> [!constraint]`), general tr
 > Enforcement description, mechanism, consequences
 ```
 
-WRAP content in `> [!binding]` when it declares an enforcement mechanism (hooks, gates, blocks) and what gets enforced. This is about the SYSTEM of enforcement, not a specific rule comparison.
+WRAP content in `> [!binding]` when it declares an enforcement mechanism (hooks, gates, blocks) and what gets enforced.
 
-DO NOT use for: individual WRONG/CORRECT rules (`> [!constraint]`), advisory recommendations (`> [!practice]`), or informational tables that happen to mention "blocked" (leave as tables).
+DO NOT use for informational tables that happen to mention "blocked" (leave as tables).
 
 ### `> [!protocol]` — Required Protocol Specification
 
@@ -53,9 +55,9 @@ DO NOT use for: individual WRONG/CORRECT rules (`> [!constraint]`), advisory rec
 > Numbered mandatory steps with confirmation template or gate
 ```
 
-WRAP content in `> [!protocol]` when it defines a multi-step protocol with REQUIRED emphasis, especially when it includes a confirmation template or output format. The key signal is numbered mandatory steps plus a template.
+WRAP content in `> [!protocol]` when it defines a multi-step protocol with REQUIRED emphasis, especially when it includes a confirmation template or output format.
 
-DO NOT use for: simple sequential workflows without enforcement (leave as numbered lists), decision trees (`> [!decide]`), or checklists (`> [!checklist]`).
+DO NOT use for simple sequential workflows without enforcement (leave as numbered lists).
 
 ### `> [!template]` — Output Format Template
 
@@ -66,7 +68,7 @@ DO NOT use for: simple sequential workflows without enforcement (leave as number
 
 WRAP content in `> [!template]` when it defines an output format with `{placeholder}` variables. This marks content that shows WHAT to produce, not HOW to behave.
 
-DO NOT use for: rule specifications with code fences (`> [!constraint]` or `> [!protocol]`), task file structure definitions (`> [!taskspec]`), or code examples for reference (leave unmarked).
+DO NOT use for: rule specifications with code fences (`> [!constraint]` or `> [!protocol]`), or code examples for reference (leave unmarked).
 
 ### `> [!decide]` — Decision Matrix or Flowchart
 
@@ -75,9 +77,9 @@ DO NOT use for: rule specifications with code fences (`> [!constraint]` or `> [!
 > If X → do Y; if Z → do W
 ```
 
-WRAP content in `> [!decide]` when it helps choose between options based on conditions. The defining feature is conditional branching.
+WRAP content in `> [!decide]` when it helps choose between options based on conditions.
 
-DO NOT use for: pure lookup tables without conditions (leave as tables), quick reference cards (leave as tables), or simple Yes/No gates (`> [!gate]`).
+DO NOT use for pure lookup tables without conditions or quick reference cards (leave as tables).
 
 ### `> [!gate]` — Execution Gate
 
@@ -86,9 +88,9 @@ DO NOT use for: pure lookup tables without conditions (leave as tables), quick r
 > Condition that MUST be met before proceeding
 ```
 
-WRAP content in `> [!gate]` when it defines a binary go/no-go condition. If the condition fails, execution MUST stop or redirect. This is a single checkpoint, not a multi-step process.
+WRAP content in `> [!gate]` when it defines a binary go/no-go condition. If the condition fails, execution MUST stop or redirect.
 
-DO NOT use for: multi-step protocols (`> [!protocol]`), approval workflows with rollback (`> [!protocol]`), or decision trees with multiple outcomes (`> [!decide]`).
+DO NOT use for approval workflows with rollback (`> [!protocol]`).
 
 ### `> [!checklist]` — Validation or Verification Checklist
 
@@ -98,9 +100,9 @@ DO NOT use for: multi-step protocols (`> [!protocol]`), approval workflows with 
 > - [ ] Item 2
 ```
 
-WRAP content in `> [!checklist]` when it uses `[ ]` checkbox items for verification. These are "did you do this?" lists, not "here is how to do this" workflows.
+WRAP content in `> [!checklist]` when it uses `[ ]` checkbox items for verification.
 
-DO NOT use for: numbered workflow steps (leave as numbered lists), decision tables (`> [!decide]`), or post-action verification with bash commands (`> [!verify]`).
+DO NOT use for numbered workflow steps (leave as numbered lists).
 
 ### `> [!verify]` — Verification Commands
 
@@ -110,9 +112,9 @@ DO NOT use for: numbered workflow steps (leave as numbered lists), decision tabl
 > **After:** bash commands
 ```
 
-WRAP content in `> [!verify]` when it provides concrete bash/CLI commands to verify an operation completed correctly. Distinguished from `> [!checklist]` by containing actual executable commands.
+WRAP content in `> [!verify]` when it provides concrete bash/CLI commands to verify an operation completed correctly.
 
-DO NOT use for: abstract checklists without commands (`> [!checklist]`), code examples showing how to DO something (leave unmarked or `> [!constraint]`), or troubleshooting steps (leave as tables).
+DO NOT use for: code examples showing how to DO something (leave unmarked or `> [!constraint]`), or troubleshooting steps (leave as tables).
 
 ### `> [!antipattern]` — Anti-Pattern Warning
 
@@ -121,9 +123,9 @@ DO NOT use for: abstract checklists without commands (`> [!checklist]`), code ex
 > Description of the bad pattern and why it fails
 ```
 
-WRAP content in `> [!antipattern]` when it lists things to AVOID without showing the correct alternative. The key distinction from `> [!constraint]` is that anti-patterns are one-sided — "don't do this" without a paired "do this instead."
+WRAP content in `> [!antipattern]` when it lists things to AVOID without showing the correct alternative.
 
-DO NOT use for: paired WRONG/CORRECT comparisons (`> [!constraint]`), pitfalls with explicit solutions (`> [!pitfall]`), or simple "When NOT to use" sections (leave inline).
+DO NOT use for simple "When NOT to use" sections (leave inline).
 
 ### `> [!hazard]` — Environment or Context Assertion
 
@@ -132,9 +134,9 @@ DO NOT use for: paired WRONG/CORRECT comparisons (`> [!constraint]`), pitfalls w
 > Critical environmental constraints
 ```
 
-WRAP content in `> [!hazard]` when it declares critical environmental context that constrains ALL subsequent behavior. Typically uses CRITICAL emphasis and describes platform, shell, or path constraints. This is "here is the world you operate in."
+WRAP content in `> [!hazard]` when it declares critical environmental context that constrains ALL subsequent behavior. Typically uses CRITICAL emphasis and describes platform, shell, or path constraints.
 
-DO NOT use for: specific rules about behavior in that environment (`> [!constraint]`), general informational context (leave as prose), or security warnings (`> [!security]`).
+DO NOT use for: specific rules about behavior in that environment (`> [!constraint]`), or general informational context (leave as prose).
 
 ### `> [!security]` — Security or Credential Constraint
 
@@ -145,7 +147,7 @@ DO NOT use for: specific rules about behavior in that environment (`> [!constrai
 
 WRAP content in `> [!security]` when it deals with credentials, authentication, authorization boundaries, or data exposure risks.
 
-DO NOT use for: general binding constraints that mention "never" (`> [!constraint]`), environment assertions (`> [!hazard]`), or permission tables without security implications (leave as tables).
+DO NOT use for: general binding constraints that mention "never" (`> [!constraint]`), or permission tables without security implications (leave as tables).
 
 ### `> [!delegate]` — Agent Assignment Rule
 
@@ -165,9 +167,9 @@ DO NOT use for: general role descriptions (leave as prose) or subagent type docu
 > Prioritized fallback steps
 ```
 
-WRAP content in `> [!escalation]` when it defines a prioritized sequence of fallback actions (A fails, try B; B fails, try C). The defining feature is an ordered priority chain.
+WRAP content in `> [!escalation]` when it defines a prioritized sequence of fallback actions (A fails, try B; B fails, try C).
 
-DO NOT use for: decision trees with independent branches (`> [!decide]`), error handling without escalation priority (leave as lists), or emergency procedures (`> [!hazard]` for trigger, this for response).
+DO NOT use for: error handling without escalation priority (leave as lists), or emergency procedures (`> [!hazard]` for trigger, this for response).
 
 ### `> [!practice]` — Best Practice or Convention
 
@@ -176,9 +178,9 @@ DO NOT use for: decision trees with independent branches (`> [!decide]`), error 
 > Advisory guidance using SHOULD/PREFER language
 ```
 
-WRAP content in `> [!practice]` when it recommends behavior using SHOULD/PREFER language but does NOT enforce it. Distinguished from `> [!constraint]` by lacking enforcement (MUST/NEVER/REQUIRED).
+WRAP content in `> [!practice]` when it recommends behavior using SHOULD/PREFER language but does NOT enforce it.
 
-DO NOT use for: binding rules with enforcement language (`> [!constraint]`), pure reference information (leave unmarked), or tool-specific recommendations (`> [!decide]`).
+DO NOT use for: pure reference information (leave unmarked), or tool-specific recommendations (`> [!decide]`).
 
 ### `> [!taskspec]` — Task File Template Specification
 
@@ -187,9 +189,9 @@ DO NOT use for: binding rules with enforcement language (`> [!constraint]`), pur
 > Structure that defines how to organize work documents
 ```
 
-WRAP content in `> [!taskspec]` when it defines the structure of task files, orchestration files, or other plan artifacts. This is "how to structure a work document" not "what to produce as output."
+WRAP content in `> [!taskspec]` when it defines the structure of task files, orchestration files, or other plan artifacts.
 
-DO NOT use for: output templates for deliverables (`> [!template]`), simple file naming conventions (leave as tables), or code templates (leave as code blocks).
+DO NOT use for: simple file naming conventions (leave as tables), or code templates (leave as code blocks).
 
 ### `> [!consequences]` — Rule Violation Consequences
 
@@ -200,7 +202,7 @@ DO NOT use for: output templates for deliverables (`> [!template]`), simple file
 
 WRAP content in `> [!consequences]` when it maps rule violations to their consequences.
 
-DO NOT use for: rules themselves (`> [!constraint]`, `> [!binding]`, etc.), error remediation tables (leave as tables), or general warnings (leave inline).
+DO NOT use for: error remediation tables (leave as tables), or general warnings (leave inline).
 
 ### `> [!tooldoc]` — Tool Documentation Block
 
@@ -213,7 +215,7 @@ DO NOT use for: rules themselves (`> [!constraint]`, `> [!binding]`, etc.), erro
 
 WRAP content in `> [!tooldoc]` when it documents a specific tool with Purpose, When to Use, and When NOT to Use sections.
 
-DO NOT use for: tool selection decisions (`> [!decide]`), anti-patterns about tool misuse (`> [!antipattern]`), or tool configuration details (leave as code blocks).
+DO NOT use for tool configuration details (leave as code blocks).
 
 ### `> [!followup]` — Follow-Up BLI Recommendation
 
@@ -268,16 +270,7 @@ CORRECT — halt rule encoded as a dedicated SC backed by an orchestration-level
 - [ ] `{lint}` clean
 ```
 
-Applies to:
-- Refactor pipelines where each stage depends on conventions established by prior stages
-- Multi-step data migrations where a partial failure leaves the data store in an inconsistent state
-- Schema evolution chains (Layer N → N+1 → N+2)
-- Build dependency trees where each artifact is consumed by the next
-
-NOT applicable to:
-- Parallel task groups (they are explicitly independent by construction)
-- Discovery-phase fan-out (each subagent reads sources independently)
-- Single-task sessions (no chain to halt)
+NOT applicable to parallel task groups (independent by construction), discovery-phase fan-out (each subagent reads sources independently) or single-task sessions (no chain to halt).
 
 ---
 
@@ -394,7 +387,7 @@ NEST callouts when a block contains multiple content types. The outer callout se
 > 3. Step three
 ```
 
-LIMIT nesting to 2 levels maximum. If deeper nesting is needed, split into separate sections.
+LIMIT nesting to 2 levels maximum. If deeper nesting is needed, split into separate sections. The `callout-nesting` rule of `scripts/lint_markdown.py` flags a callout nested deeper than 2 levels.
 
 ---
 

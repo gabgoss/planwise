@@ -161,6 +161,27 @@ def test_usage_control_exits_two(tmp_path, capsys):
     assert "Error:" in capsys.readouterr().err
 
 
+SHIPPED_REFERENCES = REAL_CATALOG.parent
+
+
+def test_shipped_references_lint_clean_under_strict(tmp_path, capsys):
+    # markdown-conventions.md section 1 (never skip heading levels) and
+    # callout-conventions.md section 1 (the catalogued types): every shipped
+    # reference passes the lint under --strict.
+    code = lm.main(["--strict", str(SHIPPED_REFERENCES)])
+    out = capsys.readouterr().out
+    findings = [line for line in out.splitlines() if ": " in line and "rule counts" not in line]
+    assert code == 0, "lint_markdown --strict findings:\n" + "\n".join(findings)
+    # positive control: a copy of one real reference with one heading level
+    # skipped must fail, so the clean reading above can fail too
+    source = (SHIPPED_REFERENCES / "auto-mode-policy.md").read_text(encoding="utf-8")
+    assert "\n## " in source
+    copy = tmp_path / "auto-mode-policy.md"
+    copy.write_text(source.replace("\n## ", "\n#### ", 1), encoding="utf-8")
+    assert lm.main(["--strict", "--catalog", str(REAL_CATALOG), str(copy)]) == 1
+    assert "heading-skip" in capsys.readouterr().out
+
+
 @pytest.mark.parametrize("flag", ["-h", "--help"])
 def test_help_exits_zero(flag, capsys):
     assert lm.main([flag]) == 0

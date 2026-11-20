@@ -92,7 +92,7 @@ How to apply:
 
 **Script:** `scripts/lint_execution_input.py` rule `severity-vocabulary` runs this check. It cannot see a tag written without brackets, and it still counts a tag inside a code fence.
 
-#### Reviewer Check 001 — EI Severity Tag Catalog Present
+### Reviewer Check 001 — EI Severity Tag Catalog Present
 
 - **Severity / Role / Type:** ERROR | EI Reviewer | NEW
 - **What:** Every EI body MUST declare the source severity tag catalog (BLOCKER/ERROR/WARNING/INFO/UNCONFIRMED vocabulary).
@@ -142,7 +142,7 @@ Two different retention percentages in the same task file are a red flag during 
 
 **Script:** `scripts/lint_execution_input_plan.py` rule `threshold-alignment`, registered through `scripts/lint_execution_input.py`, runs this check. It cannot see a percentage threshold, a figure that names no session, or a session the Sessions table does not list.
 
-#### Reviewer Check 002 — EI Threshold Alignment With Operational Dispatch Contracts
+### Reviewer Check 002 — EI Threshold Alignment With Operational Dispatch Contracts
 
 - **Severity / Role / Type:** BLOCKER | EI Reviewer | NEW
 - **What:** Numerical thresholds in an EI (retention bands, token budgets, `{numeric-threshold}` values) MUST match operational dispatch contracts in companion Sprint Plan / Orchestration.
@@ -278,7 +278,7 @@ A source or citation register whose rows carry a verification status (VERIFIED, 
 
 **Script:** `scripts/lint_execution_input.py` rule `four-site-caveat` runs this check over the four §4 sites. It reads a marker inside a code span or fence, or one followed by a word such as "caveat" or "claim", as a mention. It also reads an UNCONFIRMED table row under a register heading as a provenance label: it keys no site for the row and prints one ADVISORY per register with the row count, which never changes the exit code. Prose under a register heading and every other table keep the BLOCKER path. It cannot see a site that names the item in other words, or whether an Orchestration criterion really enforces the exclusion.
 
-#### Reviewer Check 004 — EI UNCONFIRMED Four-Site Enforcement
+### Reviewer Check 004 — EI UNCONFIRMED Four-Site Enforcement
 
 - **Severity / Role / Type:** BLOCKER | EI Reviewer | NEW
 - **What:** Every UNCONFIRMED claim MUST appear at all four §4 sites: (a) the EI primary section where the item first appears, (b) the EI Data Quality Caveats subsection, (c) a Session Orchestration success criterion, (d) a task file's Required Context or Success Criteria. The callout that carries it is `> [!constraint]` (NOT `> [!practice]`). A table row under a `Source Register`, `Citation Register`, `Literature Register` or `Reference Register` heading is a provenance label, not a claim, and is exempt.
@@ -324,7 +324,7 @@ A word like "reconfirmed" that survives compression while nothing records what r
 
 **Script:** `scripts/lint_execution_input.py` rule `hedge-preservation` prints candidates for this check. It is advisory and never changes the exit code. It cannot see a paraphrase sharing under 60 % of the content words, a source absent from the plan root, or a resolution cited without a date or the word "measured".
 
-#### Reviewer Check 080 — Hedge Preservation Through Compression
+### Reviewer Check 080 — Hedge Preservation Through Compression
 
 - **Severity / Role / Type:** ERROR | EI Reviewer | NEW
 - **What:** A compressed EI row, exit criterion, or Signoff anchor whose source sentence carried a hedge marker ("most likely", "probably", "appears to", "pending", "preliminary", "tentative", "subject to", "except X", "reconfirmed") MUST either preserve that hedge verbatim or cite the measurement that resolved it. A flat, unhedged claim compressed from hedged source prose, with no cited resolution, is an ERROR.
@@ -368,7 +368,7 @@ Fix: Restore the hedge or cite the resolving measurement, per references/ei-fide
 > SELECT COUNT(*) FROM {view} WHERE ISNULL(CAST(a AS INT), -1) <> ISNULL(CAST(b AS INT), -1);
 > ```
 
-#### Reviewer Check 117 — Executable EI Check Never Executed
+### Reviewer Check 117 — Executable EI Check Never Executed
 
 - **Severity / Role / Type:** ERROR | EI Reviewer | NEW
 - **What:** Every query, shell command, `Grep` call or assertion snippet in an EI that a later task or signoff runs verbatim MUST carry an `Executed {date} against {object}: returned {value}` stamp, or an UNVERIFIED mark that names the deploying task. A query that raised is an unrun gate, never a pass.

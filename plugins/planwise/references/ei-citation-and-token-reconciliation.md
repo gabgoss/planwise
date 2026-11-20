@@ -24,7 +24,7 @@ This file is segment B of the split of `ei-fidelity.md`, and its section numbers
 
 **Retention.** The same script's rule `retention-threshold` grades the EI's stated `Retention:` figure against the bands in [ei-fidelity.md](ei-fidelity.md) §3.1 (Algorithm-Sprint Retention-Band Calibration), which is the one home of those bands. It reads the stated figure and does not recompute it.
 
-#### Reviewer Check 005 — EI Cross-Tier Duplicate Preservation
+### Reviewer Check 005 — EI Cross-Tier Duplicate Preservation
 
 - **Severity / Role / Type:** ERROR | EI Reviewer | NEW
 - **What:** When the same finding appears at multiple Discovery tiers (Tier-1 raw / Tier-2 consolidated / Tier-3 final), EI MUST preserve cross-tier citations rather than dedup to one tier.
@@ -37,7 +37,7 @@ Issue: Finding appears only at {one_tier}; source map shows {multiple_tiers}
 Fix: Add tier-cross-cite per references/ei-citation-and-token-reconciliation.md §5 | Confidence: MEDIUM
 ```
 
-#### Reviewer Check 008 — EI Extraction Retention Threshold
+### Reviewer Check 008 — EI Extraction Retention Threshold
 
 - **Severity / Role / Type:** BLOCKER/WARNING (tiered) | EI Reviewer | NEW
 - **What:** Multi-tier Discovery extraction MUST meet the retention bands of [ei-fidelity.md](ei-fidelity.md) §3.1 (Algorithm-Sprint Retention-Band Calibration). Ratio = EI tokens / source tokens, measured over the whole EI.
@@ -112,7 +112,7 @@ Count-claim reconciliation grep — hunt for drift risk in scaffolded plans:
 
 `scripts/lint_execution_input.py` rule `count-claim` runs this pattern over sprint markdown and prints candidates (advisory, exit 0 always). It does not replace the rule above. It cannot see counts phrased with other nouns or in words, and any `§` on the line counts as a citation.
 
-#### Reviewer Check 006 — EI §-Citation Format Discipline
+### Reviewer Check 006 — EI §-Citation Format Discipline
 
 - **Severity / Role / Type:** BLOCKER | EI Reviewer | NEW
 - **What:** Every `Extracted from:` header entry and every Cross-References row MUST use canonical format `Spec #{N} ({filename})` with global numbering matching Master Plan Global Source Map. The filename carries whatever extension its Global Source Map row holds.
@@ -192,7 +192,7 @@ NOT applicable when there is only one token-estimate layer (no divergence possib
 
 **Check.** `scripts/lint_execution_input_plan.py` rule `token-reconciliation`, loaded by `scripts/lint_execution_input.py`, exits 1 when the EI total deviates from the Sprint total by more than 0.10, or when task estimates do not sum to the Orchestration and Sprint totals. It cannot see the Master Plan Sprint Overview row, a figure stated in other words, or a task file without an `Estimated Tokens:` header line.
 
-#### Reviewer Check 007 — EI Token Reconciliation Gate
+### Reviewer Check 007 — EI Token Reconciliation Gate
 
 - **Severity / Role / Type:** BLOCKER | EI Reviewer | NEW
 - **What:** EI section token totals MUST reconcile with Sprint Plan Sessions Est. Tokens AND Master Plan Sprint Overview row tokens, deviation ≤10%. Algorithm-sprint EIs additionally MUST recompute numerical exemplars rather than verbatim-copy from source.

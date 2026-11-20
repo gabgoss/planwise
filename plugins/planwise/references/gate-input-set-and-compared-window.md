@@ -116,7 +116,7 @@ A task often defines its own scope with a query. It pulls every entry of one kin
 
 **Applies to** any task whose scope is the result of its own query and whose acceptance check is measured against that same result. Cross-reference: [gate-predicate-discrimination.md](gate-predicate-discrimination.md) covers the dry-run pair for a pass or refute predicate. This section extends the pair to the predicate that selects the work.
 
-#### Reviewer Check 104 — Self-Derived Count Compared With No Independent Non-Empty Assertion
+### Reviewer Check 104 — Self-Derived Count Compared With No Independent Non-Empty Assertion
 
 - **Severity / Role / Type:** WARNING (HIGH confidence) | Verification-Gate Reviewer | NEW
 - **What:** A task whose success criterion compares an output count to a count the task derived itself by query MUST also assert, from an independent source, that the input set is non-empty. Flag a task that has no such assertion.
@@ -180,7 +180,7 @@ A fixed `-B N` or `-A N` window pulls the lines around a match. It captures a st
 
 **Applies to** any pull that captures a structured entry with a fixed number of context lines. Cross-reference: [gate-command-semantics.md](gate-command-semantics.md) §10.8 covers how `-B1` and `-A1` print the match line itself. This section covers how large the window must be.
 
-#### Reviewer Check 105 — Fixed Context Window Not Sized From the Schema Maximum
+### Reviewer Check 105 — Fixed Context Window Not Sized From the Schema Maximum
 
 - **Severity / Role / Type:** WARNING (MEDIUM confidence) | Verification-Gate Reviewer | NEW
 - **What:** A task that pulls a structured entry with a fixed `-B N` or `-A N` window MUST derive N from the schema's own maximum for the variable-length fields inside the entry. Flag a window whose N is not derived.
@@ -229,7 +229,7 @@ A task's comment or criterion often names a population: four files, every row, f
 
 **Applies to** any Verification Command whose comment, criterion or headline count names a population the command's own pattern, path or glob must reach. Cross-reference: [gate-denominator-integrity.md](gate-denominator-integrity.md) covers the external denominator a coverage gate takes. This section covers the narrower case where the task states the population in prose and the command reaches less.
 
-#### Reviewer Check 110 — Match Set Narrower Than the Population Its Criterion Names
+### Reviewer Check 110 — Match Set Narrower Than the Population Its Criterion Names
 
 - **Severity / Role / Type:** WARNING (HIGH confidence) | Verification-Gate Reviewer | NEW
 - **What:** A Verification Command whose match set is narrower than the population its adjacent comment or criterion names passes without checking the rest. Flag a command whose pattern, path or glob reaches fewer members than the text names.
