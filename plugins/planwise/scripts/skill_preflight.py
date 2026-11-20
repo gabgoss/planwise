@@ -202,8 +202,8 @@ def feedback_next_lines(count: int, ids: list[str], state: str) -> list[str]:
         f"- Done by this block: the card listed {count} queued draft(s) ({listed}), read the posting state ({state}) and printed each queued draft's body above. Do not list, check the state or read a draft again.",
         "- Check the `ARGUMENTS:` line, then take exactly one branch:",
         f"  - `--post <id>`: use that draft's body from the card above. If the id is not one of {listed}, say that no queued draft has that id and stop.",
-        f"  - `--drafts`: ask the user one question per queued draft, for {count} question(s), naming each draft by id and title from the card above.",
-        "  - any other `feedback` form: ignore this block and follow the feedback handler.",
+        f"  - `--drafts` without `--all`: ask the user one question per queued draft, for {count} question(s), naming each draft by id and title from the card above.",
+        "  - any other `feedback` form, `--drafts --all` included: ignore this block and follow the feedback handler.",
         "- Do not Read the feedback handler on the `--post` and `--drafts` branches. Do not run `list`. Do not Read a draft file. Do not run `promote`. Do not call `gh`.",
     ]
 

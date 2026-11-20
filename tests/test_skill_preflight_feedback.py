@@ -124,8 +124,8 @@ class TestFeedbackBlock(FeedbackFixture):
         self.assertIn("posting state (absent)", nxt)
         self.assertIn("`--post <id>`", nxt)
         self.assertIn("If the id is not one of d-0002, d-0001, d-0003, say that no queued draft has that id and stop.", nxt)
-        self.assertIn("`--drafts`: ask the user one question per queued draft, for 3 question(s)", nxt)
-        self.assertIn("any other `feedback` form: ignore this block and follow the feedback handler", nxt)
+        self.assertIn("`--drafts` without `--all`: ask the user one question per queued draft, for 3 question(s)", nxt)
+        self.assertIn("any other `feedback` form, `--drafts --all` included: ignore this block and follow the feedback handler", nxt)
         for forbidden in ("Do not Read the feedback handler", "Do not run `list`", "Do not Read a draft file", "Do not run `promote`", "Do not call `gh`"):
             self.assertIn(forbidden, nxt)
 
@@ -267,6 +267,24 @@ class TestNextBlockMatchesTheCardRoute(unittest.TestCase):
             with self.subTest(item=item):
                 self.assertNotIn(call, self.handler_route)
                 self.assertNotIn(call, self.part2_route)
+
+    def test_drafts_all_follows_the_handler_and_no_card_branch_takes_it(self):
+        branches = [ln for ln in self.next_lines if ln.startswith("  - ")]
+        handler_branch = [ln for ln in branches if "follow the feedback handler" in ln]
+        self.assertEqual(len(handler_branch), 1)
+        self.assertIn("`--drafts --all`", handler_branch[0])
+        # Every line that sends `--drafts` to the card excludes `--all`.
+        card_drafts = [ln for ln in self.next_lines if "--drafts" in ln and ln not in handler_branch and ln.startswith("  - ")]
+        self.assertEqual(len(card_drafts), 1)
+        self.assertIn("`--drafts` without `--all`", card_drafts[0])
+        for line in self.next_lines:
+            if line not in handler_branch:
+                with self.subTest(line=line[:40]):
+                    self.assertNotIn("--drafts --all", line)
+        # The handler and Part 2 agree: `--drafts --all` takes the engine route.
+        self.assertIn("`--drafts` without `--all`", self.handler_route)
+        self.assertIn("`--drafts --all` take the engine route", self.handler_route)
+        self.assertIn("`--drafts` without `--all`", self.part2_route)
 
     def test_the_card_route_makes_one_call_per_answer(self):
         for route in (self.handler_route, self.part2_route):
