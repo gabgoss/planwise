@@ -75,9 +75,15 @@ ALL gates below MUST pass, in this order, before a post is attempted:
    - Exit 1 (config missing or unreadable) — the gate is unmet. The pipeline stops at the draft.
    A model draft's **Review and post** option sets the key to `true` when chosen, and says so in
    its option text first (see Reviewing Model Drafts, in [Part 2](feedback-submission-Part-2-LocalDraftPipelines.md#reviewing-model-drafts)).
-2. **Interactive session or unattended context.** The pipeline takes one of two branches.
+2. **Interactive session, card press or unattended context.** The pipeline takes one of three branches.
    The three unattended contexts are Auto Mode, a /planwise backlog loop session, and /planwise harvest in any session.
-   - **Interactive session.** Gates 3-5 run as written below.
+   - **Interactive session.** Gates 3-5 run as written below. The typed `--post` and `--drafts`
+     routes ask the per-draft question in place of gate 5 (see Reviewing Model Drafts, in [Part 2](feedback-submission-Part-2-LocalDraftPipelines.md#reviewing-model-drafts)).
+   - **Card press.** A press on the draft card's **Post** button is the consent for that draft,
+     and no question follows it. The card runs `scripts/feedback_post.py post` on the draft.
+     When posting is off, the press clears the card, prints
+     `Posting stays off. The draft was saved, and the next feedback flow asks again.` and
+     enables nothing.
    - **Unattended context.** When gate 1 reads `enabled`, the pipeline posts with no question.
      It runs gates 3, 4 and 4.5, then the privacy gate on the draft, then the route under
      [The Unattended Post Path](#the-unattended-post-path):
@@ -95,26 +101,29 @@ ALL gates below MUST pass, in this order, before a post is attempted:
 5. **Explicit `AskUserQuestion`** — one call, three outcomes. It shows the duplicate-scan
    result (caveat line, then the ranked candidate table if any), then the rendered body
    **verbatim**, then offers: **post as a new issue**, **comment on #{NN}**, or **cancel**.
-   The user approves the exact text that will be published, not a summary of it. This is
-   the post pipeline's only consent site — the comment outcome rides this same call and MUST
-   NOT be implemented as a second prompt. (The sweep pipeline in Part 2 has its own, separate,
+   The user approves the exact text that will be published, not a summary of it. Gate 5 is
+   the consent site of the manual `/planwise feedback` route and of every other consumer listed
+   at the top of this file. The comment outcome rides this same call and MUST NOT be
+   implemented as a second prompt. The typed `--post` and `--drafts` routes take their consent
+   from the per-draft question, and a card press is its own consent, so neither asks gate 5.
+   (The sweep pipeline in Part 2 has its own, separate,
    single consent site; the two are never shared or duplicated.) The gate 1 enable offer is a
-   setting selection and not a second consent site: it sends nothing and never replaces this
-   call. See [The Enable Offer](#the-enable-offer-gate-1-absent-and-disabled-state).
+   setting selection and not a second consent site: it sends nothing and never replaces a
+   route's consent site. See [The Enable Offer](#the-enable-offer-gate-1-absent-and-disabled-state).
 
 <!-- AUTO-MODE: critical -->
 
 **Quick reference:**
 
-| # | Gate | On Auto Mode or another unattended context |
-|---|------|---------------|
-| 1 | `feedback.enabled: true` | An interactive session raises the Enable Offer in the `absent` and the `disabled` state. An unattended context asks no question and stops at the draft with the unattended message under The Enable Offer. |
-| 2 | Interactive session | With gate 1 `enabled`, an unattended context runs gates 3, 4 and 4.5, then `prepare-post`, then posts with no question. With gate 1 not `enabled`, it writes the draft and skips gates 3-5. |
-| 3 | `gh` resolvable (PATH, then known install locations) | Evaluated in an interactive session, and in an unattended context with gate 1 `enabled`. Unmet → draft kept, one line, exit 0. |
-| 4 | `{gh_path} auth status` exits 0 | Evaluated in an interactive session, and in an unattended context with gate 1 `enabled`. Unmet → draft kept, one line, exit 0. |
-| 4.5 | Duplicate scan (step, not gate) | Runs opportunistically; the result is written into the draft. No consent site. With gate 1 `enabled`, its outcome picks the route (see Unattended Routing). |
-| after 4.5 | `prepare-post` (privacy gate of an unattended post) | Runs on the exact file the route posts, after the last write to it. `clean` → post. A block or exit 1 → draft kept, one line, exit 0. |
-| 5 | Explicit consent (`AskUserQuestion`) | An unattended context with gate 1 `enabled` replaces it with `prepare-post` and the automatic route. Otherwise auto-deny → draft written **with the possible-duplicates block**, exit 0 (see the Auto Mode deviation in Part 3, not a fail-loud STOP). |
+| # | Gate | On Auto Mode or another unattended context | On a card press |
+|---|------|---------------|-----------------|
+| 1 | `feedback.enabled: true` | An interactive session raises the Enable Offer in the `absent` and the `disabled` state. An unattended context asks no question and stops at the draft with the unattended message under The Enable Offer. | No Enable Offer. The card clears, prints the keep line and enables nothing. |
+| 2 | Interactive session | With gate 1 `enabled`, an unattended context runs gates 3, 4 and 4.5, then `prepare-post`, then posts with no question. With gate 1 not `enabled`, it writes the draft and skips gates 3-5. | The press is its own context. The card runs `scripts/feedback_post.py post` on the draft. |
+| 3 | `gh` resolvable (PATH, then known install locations) | Evaluated in an interactive session, and in an unattended context with gate 1 `enabled`. Unmet → draft kept, one line, exit 0. | The card does not run it itself. Any exit but 0, 3 or 4 keeps the card and prints one line. |
+| 4 | `{gh_path} auth status` exits 0 | Evaluated in an interactive session, and in an unattended context with gate 1 `enabled`. Unmet → draft kept, one line, exit 0. | The card does not run it itself. Any exit but 0, 3 or 4 keeps the card and prints one line. |
+| 4.5 | Duplicate scan (step, not gate) | Runs opportunistically; the result is written into the draft. No consent site. With gate 1 `enabled`, its outcome picks the route (see Unattended Routing). | The card does not run it itself. |
+| after 4.5 | `prepare-post` (privacy gate of an unattended post) | Runs on the exact file the route posts, after the last write to it. `clean` → post. A block or exit 1 → draft kept, one line, exit 0. | The card does not run it itself. Exit 3 clears the card and prints that nothing was posted. |
+| 5 | Explicit consent (`AskUserQuestion`) | An unattended context with gate 1 `enabled` replaces it with `prepare-post` and the automatic route. Otherwise auto-deny → draft written **with the possible-duplicates block**, exit 0 (see the Auto Mode deviation in Part 3, not a fail-loud STOP). | The press is the consent. No question is asked. |
 
 Row 4.5 is a **step**, not a gate — the "ALL gates below MUST pass" rule above governs
 gates 1–5 only, and a scan that fails never stops the pipeline.
@@ -137,9 +146,9 @@ takes the keep branch. The question is: `Posting to GitHub is off in this projec
 Two rules bound the offer:
 
 - **It is a selection, not consent to post.** It changes one config key and sends nothing.
-  Gate 5 still shows the exact body and asks before anything is published, and enabling
-  posting never skips it. This is the same posture as the model-draft **Review and post**
-  option under Reviewing Model Drafts (Part 2).
+  Each route still asks for its own consent before anything is published: gate 5 on the
+  manual route, and the per-draft question on the typed `--post` and `--drafts` routes.
+  Enabling posting never skips that consent.
 - **It runs once per invocation.** The pipeline does not ask again after a keep answer or a
   failed enable.
 

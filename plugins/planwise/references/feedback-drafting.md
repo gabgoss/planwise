@@ -7,7 +7,7 @@ consult-when: Drafting a planwise feedback file silently during `/planwise` work
 
 ## Purpose and scope
 
-Claude may draft a feedback file when planwise itself misbehaves during `/planwise` work. The user reviews queued drafts with `/planwise feedback --drafts`. In an interactive session, a draft posts only after the user approves it at that review. In an unattended context with `feedback.enabled: true`, an admitted draft posts once the privacy check passes, as [Auto Mode](#auto-mode) describes.
+Claude may draft a feedback file when planwise itself misbehaves during `/planwise` work. The user reviews queued drafts with `/planwise feedback --drafts`. In an interactive session, a draft posts only after the user approves it. On the typed `--post` and `--drafts` routes, the per-draft question is the consent, and gate 5 is not asked. A press on the draft card's **Post** button is the consent for that draft, and no question follows it. In an unattended context with `feedback.enabled: true`, an admitted draft posts once the privacy check passes, as [Auto Mode](#auto-mode) describes.
 
 A model draft asks no posting question when it is written. The /planwise feedback --drafts review asks it once, while posting is off.
 
