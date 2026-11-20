@@ -894,6 +894,45 @@ class TestCheck2PreEditSpellings(unittest.TestCase):
     def test_a_value_that_merely_mentions_execution_is_silent(self):
         self.assertEqual(self._check2("# pre-edit: 0 (measured before execution) -> expect 2"), [])
 
+    def _check_for_fence_line(self, fence_line, check, execute=False):
+        """Lint a task whose After block is the one ``fence_line``, no annotation line."""
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_root = Path(tmp)
+            (plan_root / "target.txt").write_text("foo\n", encoding="utf-8")
+            _write_task(plan_root, [fence_line])
+            findings = lint_plan(plan_root, execute=execute)
+        return [f for f in findings if f["check"] == check]
+
+    def test_trailing_comment_pre_edit_is_accepted(self):
+        findings = self._check_for_fence_line("grep -c 'foo' target.txt   # expect 2  pre-edit: 0", 2)
+        self.assertEqual(findings, [])
+
+    def test_trailing_comment_deferral_warns(self):
+        findings = self._check_for_fence_line("grep -c 'foo' target.txt   # expect 2  pre-edit: TBD", 2)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "WARNING")
+        self.assertIn("defers its pre-edit", findings[0]["message"])
+
+    def test_missing_annotation_message_names_the_trailing_comment(self):
+        findings = self._check2(None)
+        self.assertEqual(len(findings), 1)
+        self.assertIn("trailing comment", findings[0]["message"])
+        self.assertIn("pre-edit: {value}", findings[0]["message"])
+
+    def test_trailing_invariant_note_is_exempt_from_check_1(self):
+        # The measured count is 1 and the stated expectation is 1, so Check 1
+        # flags the gate as vacuous unless the invariant token exempts it.
+        exempt = self._check_for_fence_line(
+            "grep -c 'foo' target.txt   # invariant: pre-edit: 1 -> expect 1", 1, execute=True
+        )
+        self.assertEqual(exempt, [])
+        # Control: the same gate without the invariant token is flagged, so the
+        # empty result above comes from the exemption and not from a blind check.
+        flagged = self._check_for_fence_line(
+            "grep -c 'foo' target.txt   # pre-edit: 1 -> expect 1", 1, execute=True
+        )
+        self.assertEqual(len(flagged), 1)
+
 
 class TestMultiLineQuotedCommand(unittest.TestCase):
     """A quoted argument that spans lines is one command, not one per line."""

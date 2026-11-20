@@ -44,6 +44,7 @@ paths: {planwise_root}/{plans_dir}/**
 > - [ ] Every gate carries its measured pre-edit value inline, and that value contradicts the expectation — or the gate is marked `invariant:` (`gate-pre-edit-baseline.md` §10.1-§10.3, lint Checks 1, 2 and 7).
 > - [ ] Every per-task gate is scoped to its task's files. Each whole-population baseline is measured once per plan with its tree identity recorded (`gate-pre-edit-baseline.md` §10.1.1).
 > - [ ] Every gate target is classified session-owned or shared, and a shared target asserts a delta from a Before derived in the same invocation (`gate-pre-edit-baseline.md` §10.1.2).
+> - [ ] Every gate that counts rows by a stored task id measures its Before on the live table and carries a second key, a session-date bound or a session-unique key prefix (`gate-pre-edit-baseline.md` §10.1.2).
 > - [ ] Every anchor's accepted-outcome set diffed against its owning task's terminal branches, and the count carried inline (`gate-anchor-outcome-set.md` §10.7).
 > - [ ] Every anchor names the phase that produces its subject, a closeout-phase anchor is marked post-verdict with a bound re-run, and a stale anchor pattern is widened, never satisfied by editing a committed artifact of record (`gate-anchor-outcome-set.md` §10.7.1-§10.7.2).
 > - [ ] All four command-semantics traps checked: `grep -c` counts lines, `-B1` emits the match, set membership is not count equality, every path resolves from the declared cwd (`gate-command-semantics.md` §10.8, lint Checks 3 and 14 for the first two; the last two have no check).

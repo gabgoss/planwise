@@ -267,6 +267,15 @@ def test_keys_refuses_a_spec_with_a_lint_error(tmp_path):
     assert not any(ln.startswith("doc ") for ln in result.stdout.splitlines())
 
 
+def test_keys_refuses_a_task_title_that_repeats_the_task_name(tmp_path):
+    spec = make_spec()
+    spec["sprints"][0]["sessions"][0]["tasks"][0]["title"] = "ParseRows: Step 1 of the ledger"
+    result = run_script("keys", "--spec", str(_write_spec(tmp_path, spec)))
+    assert result.returncode == 2
+    assert "'title' repeats the task name" in result.stdout
+    assert not any(ln.startswith("doc ") for ln in result.stdout.splitlines())
+
+
 def test_keys_refuses_an_unreadable_spec(tmp_path):
     assert run_script("keys", "--spec", str(tmp_path / "absent.json")).returncode == 2
 
@@ -373,7 +382,9 @@ def test_lint_counts_a_plan_document_marker_in_the_plan_group(tmp_path, capsys, 
     marker = index["MASTER"]["markers"][0][0]
     code, out = run_lint(tmp_path, capsys, bodies_set(index, skip={("MASTER", marker)}))
     assert code == 1
-    assert out.splitlines()[0] == "plan missing=1 errors=0"
+    lines = out.splitlines()
+    assert lines[0].startswith(f"MISSING: doc=MASTER marker={marker} [1] under ")
+    assert next(ln for ln in lines if not ln.startswith("MISSING: ")) == "plan missing=1 errors=0"
     assert summary(out) == {"S01-01": (0, 0), "S01-02": (0, 0)}
 
 
@@ -381,6 +392,40 @@ def test_lint_missing_counts_occurrences_not_names(tmp_path, capsys, index):
     code, out = run_lint(tmp_path, capsys, bodies_set(index, skip={(TASK_DOC, TWICE)}))
     assert code == 1
     assert summary(out)["S01-01"] == (2, 0)
+
+
+def test_lint_names_each_missing_marker_before_the_summary(tmp_path, capsys, index):
+    code, out = run_lint(tmp_path, capsys, bodies_set(index, skip={(TASK_DOC, TWICE)}))
+    lines = out.splitlines()
+    named = [ln for ln in lines if ln.startswith("MISSING: ")]
+    assert code == 1
+    assert len(named) == 2
+    assert named[0].startswith(f"MISSING: doc={TASK_DOC} marker={TWICE} [1] under ")
+    assert named[1].startswith(f"MISSING: doc={TASK_DOC} marker={TWICE} [2] under ")
+    first_summary = next(i for i, ln in enumerate(lines) if PLAN_RE.match(ln))
+    assert max(lines.index(ln) for ln in named) < first_summary
+    assert summary(out)["S01-01"] == (2, 0)
+
+
+def test_lint_caps_missing_lines_per_group(tmp_path, capsys, index, monkeypatch):
+    monkeypatch.setattr(pb, "DETAIL_LIMIT", 1)
+    code, out = run_lint(tmp_path, capsys, {})
+    lines = out.splitlines()
+    assert code == 1
+    shown, more, group = {}, {}, None
+    for ln in (ln for ln in lines if ln.startswith("MISSING: ")):
+        doc = re.match(r"MISSING: doc=(\S+) marker=", ln)
+        if doc:
+            group = pb.session_of(doc.group(1))
+            shown[group] = shown.get(group, 0) + 1
+        else:
+            more[group] = int(re.fullmatch(r"MISSING: \+(\d+) more", ln).group(1))
+    totals = {pb.PLAN_GROUP: int(PLAN_RE.search(out).group(1)), **{g: n for g, (n, _e) in summary(out).items()}}
+    assert more, "no group had more than one gap, so the cap was never exercised"
+    assert shown == {g: 1 for g, n in totals.items() if n}
+    assert more == {g: n - 1 for g, n in totals.items() if n > 1}
+    first_summary = next(i for i, ln in enumerate(lines) if PLAN_RE.match(ln))
+    assert all(i < first_summary for i, ln in enumerate(lines) if ln.startswith("MISSING: "))
 
 
 def test_lint_empty_folder_reports_every_marker_missing(tmp_path, capsys, index):
@@ -704,7 +749,11 @@ def test_lint_session_still_reports_its_own_missing_marker(tmp_path, capsys, ind
     bodies = bodies_set(index, skip={("S01-02-01", OBJECTIVE)})
     code, out = run_lint(tmp_path, capsys, bodies, "--session", "S01-02")
     assert code == 1
-    assert out.splitlines() == ["session=S01-02 keys_missing=1 errors=0"]
+    _name, h2, h3 = next(m for m in index["S01-02-01"]["markers"] if m[0] == OBJECTIVE)
+    assert out.splitlines() == [
+        f"MISSING: doc=S01-02-01 marker={OBJECTIVE} [1] under {h2 or 'none'}/{h3 or 'none'}",
+        "session=S01-02 keys_missing=1 errors=0",
+    ]
 
 
 def test_lint_session_not_in_the_spec_exits_2(tmp_path, capsys, index):

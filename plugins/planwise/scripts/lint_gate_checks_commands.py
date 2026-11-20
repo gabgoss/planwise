@@ -28,6 +28,7 @@ import shlex
 import subprocess
 from pathlib import Path
 
+from lint_gate_grep_tool import locate_relative_path
 from lint_gate_tool_calls import iter_tool_calls
 
 SEVERITY_ERROR = "ERROR"
@@ -365,16 +366,6 @@ def _checkable_path(token: str) -> bool:
     return not any(char in _UNCHECKABLE_PATH_CHARS for char in token)
 
 
-def _path_base(path: str, plan_root: Path):
-    """The first of the plan root and its parents under which ``path`` exists,
-    or None. A gate with no ``-C`` runs from a directory the plan does not
-    state, usually the project root, so the path itself locates it."""
-    for base in (plan_root, *plan_root.parents):
-        if (base / path).exists():
-            return base
-    return None
-
-
 def _resolve_repo(repo_dir, plan_root: Path):
     candidate = Path(repo_dir)
     if candidate.is_absolute():
@@ -484,7 +475,7 @@ def _tracking_findings(context, command, repo_dir, paths) -> list:
             ))]
     findings = []
     for path in paths:
-        base = repo if repo is not None else _path_base(path, plan_root)
+        base = repo if repo is not None else locate_relative_path(path, plan_root)
         if base is None:
             findings.append(make(SEVERITY_UNCERTAIN, (
                 f"The path {path!r} does not exist under the plan root or any parent, "

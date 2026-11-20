@@ -214,7 +214,7 @@ const BODIES_GRAMMAR = [
   'A section that no template heading covers goes in the body of ## Plan-Specific Sections as an ### H3, only when keys lists that heading for the document.',
 ].join('\n')
 
-const LINT_LINE = 'The lint prints one LINT: line per error, then the line session=SXX-YY keys_missing=<n> errors=<n>. It exits 0 clean, 1 when a marker has no body, and 2 on any error or refusal.'
+const LINT_LINE = 'The lint prints one LINT: line per error. Then it prints one MISSING: doc=<ID> marker=<name> [k] under <H2>/<H3> line per marker occurrence with no body, at most 20, followed by a MISSING: +<n> more line when more remain. The last line is session=SXX-YY keys_missing=<n> errors=<n>. It exits 0 clean, 1 when a marker has no body, and 2 on any error or refusal.'
 
 const NO_QUESTIONS = 'You cannot ask the user anything and no step may wait on a user answer. A choice that belongs to the user goes into open_questions in your result, with status BLOCKED.'
 

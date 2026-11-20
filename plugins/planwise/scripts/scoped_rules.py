@@ -72,6 +72,8 @@ _CREATE_CUE_RE = re.compile(
 # A segment boundary inside one line: a table cell bar, or a sentence end
 # (`.`, `!`, `?`, `;`) followed by whitespace or the line end.
 _SEGMENT_BREAK_RE = re.compile(r"\||[.!?;](?=\s|$)")
+# A numbered list line. In such a line only the lead path can propose creation.
+_STEP_LINE_RE = re.compile(r"^\s*\d+\.\s")
 _FILES_TOUCHED_RE = re.compile(r"^##\s+Files Touched\s*$")
 _LINE_SUFFIX_RE = re.compile(r":\d+(?:-\d+)?$")
 _WIN_ABS_RE = re.compile(r"^[A-Za-z]:/")
@@ -642,7 +644,9 @@ def extract_destinations(body: str, project_root: Path) -> tuple[list[Destinatio
     `project_root` is `EDIT`. A body path that does not exist is `CREATE`
     only when some occurrence of it sits in a sentence or table cell with a
     creation cue (`_CREATE_CUE_RE`), else `READ`: the body cites it and
-    proposes nothing. Absolute paths under the root are relativized and
+    proposes nothing. On a numbered step line only the first path span can
+    propose creation, so a fixture or evidence path quoted later in the step
+    is a cited `READ`. Absolute paths under the root are relativized and
     others dropped. At most `MAX_DESTINATIONS` body paths are kept, and
     `truncated` says the cap cut the list. Nothing found: `([], "none", False)`.
     """
@@ -654,12 +658,20 @@ def extract_destinations(body: str, project_root: Path) -> tuple[list[Destinatio
         return table, "files-touched", False
     seen: list[str] = []
     proposed: set[str] = set()
+    lead_by_line: dict[int, int] = {}
     for match in _SPAN_RE.finditer(text):
         path = _body_candidate(match.group(1), project_root)
         if not path:
             continue
         if path not in seen:
             seen.append(path)
+        line_start = text.rfind("\n", 0, match.start()) + 1
+        lead = lead_by_line.setdefault(line_start, match.start())
+        if lead != match.start():
+            line_end = text.find("\n", line_start)
+            line = text[line_start:line_end if line_end != -1 else len(text)]
+            if _STEP_LINE_RE.match(line):
+                continue
         if path not in proposed and _proposes_creation(text, match.start(), match.end()):
             proposed.add(path)
     if not seen:
