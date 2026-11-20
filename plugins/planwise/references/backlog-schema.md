@@ -144,6 +144,8 @@ The generator never edits an item. A person decides which side is right, because
 
 The direction check reads only the `## Summary`, `## Problem`, `## Resolution`, `## Dependencies` and `## Related` sections. It reads the phrases "blocked by", "depends on", "lands after" and "waits for", followed within the same sentence by a `BB-` id. It skips a quoted line, a fenced block and an `**Evidence:**` paragraph. Each run prints how many item files it scanned.
 
+The generator also reports an item whose `title` names a file under `.claude/rules/planwise/`, such as `.claude/rules/planwise/name.md`. That folder holds the plugin's installed rules, and an upgrade replaces them, so the title names a destination that will not stay. The report behaves like an inverted edge: report modes exit 1, and `--write` reports it, then writes. A title that names only the folder raises nothing. Name the file the item actually produces instead.
+
 | Field | Type | Required | Used By |
 |-------|------|----------|---------|
 | `id` | integer | Yes | Row identity; Score/File cell derivation |
