@@ -187,7 +187,7 @@ or
 - `critical` sites emit a `[!gate] User Decision Required` block, still attempt `AskUserQuestion`, and FAIL LOUD if the harness auto-denies it — the user must re-issue the command with the answer inline.
 - `convenience` sites skip `AskUserQuestion`, apply the inferred default, log `Auto-Mode inference: {variable}={inferred_value} (reason: {brief rationale})`, and continue without waiting.
 
-In the plugin's own repository, `tests/test_auto_mode_call_sites.py` fails on an untagged `AskUserQuestion` line in the shipped `handlers/*.md` that its reviewed list does not classify.
+In plugin development, the plugin repo's test `tests/test_auto_mode_call_sites.py` fails on an untagged `AskUserQuestion` line in the shipped `handlers/*.md` that its reviewed list does not classify.
 
 > Full taxonomy, gate-behavior matrix, inference defaults and worked examples:
 > [auto-mode-policy.md](auto-mode-policy.md) — a plugin reference file, not part of an

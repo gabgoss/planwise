@@ -117,8 +117,8 @@ that is the house style, and the compliance check allows for it.
 > After any edit near a tagged site, run the check below before and after the edit and
 > compare the two outputs. A line that appears only in the second output is the regression.
 
-This placement lets a reviewer agent check compliance mechanically. The plugin repository's
-test `tests/test_auto_mode_call_sites.py` runs the check over `handlers/*.md`. It reports
+This placement lets a reviewer agent check compliance mechanically. In plugin development,
+the plugin repo's test `tests/test_auto_mode_call_sites.py` runs the check over `handlers/*.md`. It reports
 every `AskUserQuestion` mention whose own line, and the two lines above it,
 carry no AUTO-MODE marker, unless its closed list classifies that line.
 
