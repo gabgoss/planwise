@@ -40,6 +40,8 @@ lint_rule_overscope, DESCOPED_RULES, RESCOPE_MIGRATION_VERSION, or the trimmed
 INSTALLED_RULES). That is the intended TDD red state, not a fixture bug.
 """
 
+import json
+import shutil
 import sys
 import unittest
 from pathlib import Path
@@ -48,8 +50,10 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
+import doctor_sweeps
 import init_project as ip
 import rule_descope_migration
+from rule_divergence import _extract_paths_value, rule_history_digest
 from upgrade_io import _installed_hash
 
 from conftest import (
@@ -957,5 +961,281 @@ def test_style_rule_verdict_ignores_consult_when_key(tmp_path):
     installed.write_text("---\ndescription: x\n---\n# H\nbody\n", encoding="utf-8")
     assert style_rules._verdict(shipped, installed) == "identical"
     assert style_rules._body_differs(shipped, installed) is False
+
+
+# -- Real released bodies of the four {all_paths} de-scoped rules -------------
+#
+# A consumer who installed from a release below RESCOPE_MIGRATION_VERSION holds
+# that release's body of each rule_registry.DESCOPED_RULES file. Once the shipped
+# reference changes, the copy fails the normalized-identical fast path, so its
+# removal rests on manifests/rule-history.json: rule_divergence._classify_diverged
+# returns SUBSET at exact confidence for a listed body. The cases below drive the
+# real release 1.0.2 bodies (tests/fixtures/descoped_prior_bodies/, frozen) through
+# both callers: migrate_installed_rules and the doctor stale-rule sweep.
+
+_SCRIPTS_DIR = Path(ip.__file__).resolve().parent
+_SHIPPED_REFERENCES = _SCRIPTS_DIR.parent / "references"
+_RULE_HISTORY_JSON = _SCRIPTS_DIR.parent / "manifests" / "rule-history.json"
+_PRIOR_BODY_DIR = Path(__file__).resolve().parent / "fixtures" / "descoped_prior_bodies"
+_PRIOR_RELEASE = "1.0.2"
+
+# rule_history_digest of every released or recorded prior body of the four
+# rule_registry.DESCOPED_RULES {all_paths} files. Copied once from the release
+# tags and commit 2977a46; never read from git at test time.
+# agent-orchestration-delegated.md did not exist at release 1.0.1.
+_PRIOR_BODY_DIGESTS = (
+    # (filename, source, digest)
+    ("agent-orchestration.md", "release 1.0.1",
+     "5b58b9004091c3dc07fe6256efb34be11fb1de3ee981c8b3c5d58f1e1f0aa714"),
+    ("agent-orchestration.md", "release 1.0.2",
+     "6680ef4c63ecf0c28578a457b75953cfb287adbfebc4b0716ea6c714763d449c"),
+    ("agent-orchestration.md", "commit 2977a46",
+     "4c49cb6661107e7a1e7e761e85bb66fb1751631bff79baa134adb24fc69320b4"),
+    ("agent-orchestration-delegated.md", "release 1.0.2",
+     "dfb7cb548f3012063825ab52c82a6bb0e6a1f6a38a950c6c635693e9583e593b"),
+    ("agent-orchestration-delegated.md", "commit 2977a46",
+     "07a2f8dd9bead65a9f91f01b6ed4481fbf9e80b892e99a9d18bdb7821adb54a9"),
+    ("callout-conventions.md", "release 1.0.1",
+     "ccc5df0394b51e436a18b883ac9bf3810b2e9fef7d6210d20985bcacadb225a0"),
+    ("callout-conventions.md", "release 1.0.2",
+     "e109fb2e82852bbe8f0732262baa87beb7dc965da249995823eba81880962b82"),
+    ("callout-conventions.md", "commit 2977a46",
+     "093943b8cbdbb20f40b317f2445a0eb93a8b71d42a584ea353a7f23a8e5f074e"),
+    # markdown-conventions.md shipped one body in releases 1.0.1 and 1.0.2.
+    ("markdown-conventions.md", "release 1.0.1",
+     "efd65b520f26a26f1afb9fc88c17b84b501be01abab4f398b33118112275c0a7"),
+    ("markdown-conventions.md", "release 1.0.2",
+     "efd65b520f26a26f1afb9fc88c17b84b501be01abab4f398b33118112275c0a7"),
+    ("markdown-conventions.md", "commit 2977a46",
+     "9b230c14c29d23682da6eb49cefb23ba3f710e84dad9fe78636825fcfac1e356"),
+)
+
+# One added non-blank body line that is neither `paths:` nor `consult-when:`.
+_ADDED_LINE = "\nA project-local note the user added to this rule.\n"
+
+
+class TestReleasedPriorBodies(_MigrationFixtureBase):
+    """Each release 1.0.2 body of the four {all_paths} DESCOPED_RULES files,
+    through migrate_installed_rules and sweep_stale_descoped_rules."""
+
+    FROM_VERSION = _PRIOR_RELEASE
+
+    def setUp(self):
+        super().setUp()
+        self.to_version = str(ip.RESCOPE_MIGRATION_VERSION)
+        self.history = json.loads(_RULE_HISTORY_JSON.read_text(encoding="utf-8"))["rules"]
+
+    # -- helpers ----------------------------------------------------------
+
+    def _prior(self, filename: str) -> str:
+        return (_PRIOR_BODY_DIR / f"{filename}@{_PRIOR_RELEASE}.md").read_text(encoding="utf-8")
+
+    def _shipped(self, filename: str) -> str:
+        return (_SHIPPED_REFERENCES / filename).read_text(encoding="utf-8-sig")
+
+    def _fresh_tree(self, filename: str) -> None:
+        """Copy the current shipped reference in; clear installed rules and backups."""
+        for stale in self.rules_dir.iterdir():
+            stale.unlink()
+        shutil.rmtree(self.project_root / self.cfg.planwise_root / "upgrade-backups",
+                      ignore_errors=True)
+        (self.refs_dir / filename).write_text(self._shipped(filename), encoding="utf-8")
+
+    def _install(self, filename: str, body: str, paths_value: "str | None" = None) -> Path:
+        """Write the copy the installer writes: the body with its paths: resolved."""
+        value = self.all_paths_value if paths_value is None else paths_value
+        dst = self.rules_dir / filename
+        dst.write_text(ip.update_frontmatter(body, value), encoding="utf-8")
+        return dst
+
+    def _backup_of(self, installed: Path) -> Path:
+        return (self.project_root / self.cfg.planwise_root / "upgrade-backups"
+                / f"{self.FROM_VERSION}-to-{self.to_version}"
+                / installed.relative_to(self.project_root))
+
+    def _migrate(self) -> dict:
+        return ip.migrate_installed_rules(self.cfg, self.FROM_VERSION, self.to_version)
+
+    def _doctor_finding(self, filename: str) -> dict:
+        found = [f for f in ip.sweep_stale_descoped_rules(self.cfg) if f["filename"] == filename]
+        self.assertEqual(len(found), 1, f"doctor must report {filename} once")
+        return found[0]
+
+    # -- the fixtures and the manifest ---------------------------------------
+
+    def test_fixture_set_covers_every_all_paths_descoped_rule(self):
+        all_paths_rules = {name for name, template in ip.DESCOPED_RULES
+                           if template == "{all_paths}"}
+        self.assertEqual(all_paths_rules, EXPECTED_DESCOPED_ALL)
+        on_disk = {p.name.split("@")[0] for p in _PRIOR_BODY_DIR.glob(f"*@{_PRIOR_RELEASE}.md")}
+        self.assertEqual(on_disk, EXPECTED_DESCOPED_ALL)
+        self.assertEqual({row[0] for row in _PRIOR_BODY_DIGESTS}, EXPECTED_DESCOPED_ALL)
+        self.assertEqual(len(_PRIOR_BODY_DIGESTS), 11)
+
+    def test_every_prior_digest_is_listed_in_the_rule_history_manifest(self):
+        for filename, source, digest in _PRIOR_BODY_DIGESTS:
+            with self.subTest(filename=filename, source=source):
+                self.assertIn(digest, self.history.get(filename, []))
+
+    def test_fixture_bodies_match_their_release_digests(self):
+        for filename in sorted(EXPECTED_DESCOPED_ALL):
+            with self.subTest(filename=filename):
+                prior = self._prior(filename)
+                self.assertEqual(prior.count("\r"), 0, "fixtures are LF bytes")
+                pinned = {d for f, s, d in _PRIOR_BODY_DIGESTS
+                          if f == filename and s == f"release {_PRIOR_RELEASE}"}
+                self.assertEqual({rule_history_digest(prior)}, pinned)
+                # The installed copy digests the same as the released body.
+                self.assertEqual(
+                    rule_history_digest(ip.update_frontmatter(prior, self.all_paths_value)),
+                    rule_history_digest(prior))
+                # The prior body is not the current shipped body, so the fast
+                # path cannot be what removes it below.
+                self.assertNotEqual(ip.normalize_rule_for_diff(prior),
+                                    ip.normalize_rule_for_diff(self._shipped(filename)))
+
+    def test_fixture_config_has_no_upgrade_block_so_handoff_is_report(self):
+        self.assertFalse((self.project_root / self.cfg.planwise_root / "config.yaml").exists())
+        upgrade = rule_descope_migration.get_upgrade_config(
+            rule_descope_migration._load_raw_config(self.cfg))
+        self.assertEqual(upgrade["customization_handoff"], "report")
+        # The absent-key default keeps a paths: edit; the installer's own
+        # paths: value matches, so the untouched cases below are not affected.
+        self.assertTrue(upgrade["descope_preserve_paths_edits"])
+
+    # -- positive: an untouched prior copy is removed / REMOVABLE ------------
+
+    def test_untouched_prior_copy_is_removed_by_migration_with_backup(self):
+        for filename in sorted(EXPECTED_DESCOPED_ALL):
+            with self.subTest(filename=filename):
+                self._fresh_tree(filename)
+                prior = self._prior(filename)
+                installed = self._install(filename, prior)
+                self.assertEqual(_extract_paths_value(installed.read_text(encoding="utf-8")),
+                                 self.all_paths_value)
+                original = installed.read_bytes()
+                verdict = rule_descope_migration._classify_diverged(
+                    ip.normalize_rule_for_diff(prior),
+                    ip.normalize_rule_for_diff(self._shipped(filename)))
+                self.assertEqual(
+                    (verdict.classification, verdict.confidence, verdict.source, verdict.notes),
+                    ("SUBSET", "exact", "shipped-history", ""))
+
+                report = self._migrate()
+
+                self.assertFalse(installed.exists())
+                self.assertTrue(any(filename in e and "stale subset" in e
+                                    for e in report["removed"]), report)
+                self.assertEqual(report["acted_on"], [filename])
+                self.assertEqual(self._backup_of(installed).read_bytes(), original)
+
+    def test_untouched_prior_copy_is_removable_in_the_doctor_sweep(self):
+        for filename in sorted(EXPECTED_DESCOPED_ALL):
+            with self.subTest(filename=filename):
+                self._fresh_tree(filename)
+                installed = self._install(filename, self._prior(filename))
+                before = installed.read_bytes()
+
+                finding = self._doctor_finding(filename)
+
+                self.assertEqual(finding["verdict"], "REMOVABLE")
+                self.assertEqual(finding["confidence"], "exact")
+                self.assertTrue(finding["reason"].startswith("stale subset"), finding)
+                self.assertEqual(installed.read_bytes(), before, "the sweep is read-only")
+
+    # -- mutation: one added line defeats the history match -----------------
+
+    def test_prior_copy_with_one_added_line_is_kept_by_both_callers(self):
+        for filename in sorted(EXPECTED_DESCOPED_ALL):
+            with self.subTest(filename=filename):
+                self._fresh_tree(filename)
+                prior = self._prior(filename)
+                mutated = prior + _ADDED_LINE
+                self.assertNotEqual(rule_history_digest(mutated), rule_history_digest(prior))
+                self.assertNotIn(rule_history_digest(mutated), self.history[filename])
+                installed = self._install(filename, mutated)
+                before = installed.read_bytes()
+
+                finding = self._doctor_finding(filename)
+                self.assertNotEqual(finding["verdict"], "REMOVABLE", finding)
+
+                report = self._migrate()
+                self.assertEqual(installed.read_bytes(), before)
+                self.assertFalse(any(filename in e for e in report["removed"]), report)
+                self.assertTrue(any(filename in e for e in report["preserved"]), report)
+
+    # -- regression: the current shipped body still takes the fast path ------
+
+    def test_current_shipped_copy_takes_the_fast_path_in_both_callers(self):
+        no_primitive = AssertionError("fast path must not consult the primitive")
+        for filename in sorted(EXPECTED_DESCOPED_ALL):
+            with self.subTest(filename=filename):
+                self._fresh_tree(filename)
+                installed = self._install(filename, self._shipped(filename))
+
+                with mock.patch.object(doctor_sweeps, "_classify_diverged",
+                                       side_effect=no_primitive):
+                    finding = self._doctor_finding(filename)
+                self.assertEqual(finding["verdict"], "REMOVABLE")
+                self.assertTrue(finding["reason"].startswith("untouched"), finding)
+
+                with mock.patch.object(rule_descope_migration, "_classify_diverged",
+                                       side_effect=no_primitive):
+                    report = self._migrate()
+                self.assertFalse(installed.exists())
+                self.assertTrue(any(filename in e and "untouched" in e
+                                    for e in report["removed"]), report)
+
+    # -- report+relocate ------------------------------------------------------
+
+    def test_report_relocate_removes_prior_copy_and_transfers_mutated_copy(self):
+        self.write_upgrade_config(customization_handoff="report+relocate")
+        for filename in sorted(EXPECTED_DESCOPED_ALL):
+            with self.subTest(filename=filename, copy="untouched"):
+                self._fresh_tree(filename)
+                installed = self._install(filename, self._prior(filename))
+                report = self._migrate()
+                self.assertFalse(installed.exists())
+                self.assertTrue(any(filename in e and "stale subset" in e
+                                    for e in report["removed"]), report)
+            with self.subTest(filename=filename, copy="mutated"):
+                self._fresh_tree(filename)
+                installed = self._install(filename, self._prior(filename) + _ADDED_LINE)
+                original = installed.read_bytes()
+                report = self._migrate()
+                self.assertFalse(installed.exists())
+                self.assertTrue(any(filename in e and "customization transferred" in e
+                                    for e in report["removed"]), report)
+                self.assertEqual(self._backup_of(installed).read_bytes(), original)
+
+    # -- protective cases ------------------------------------------------------
+
+    def test_paths_edited_prior_copy_is_kept_under_the_preserve_opt_out(self):
+        self.write_upgrade_config(descope_preserve_paths_edits=True)
+        for filename in sorted(EXPECTED_DESCOPED_ALL):
+            with self.subTest(filename=filename):
+                self._fresh_tree(filename)
+                installed = self._install(filename, self._prior(filename),
+                                          self.all_paths_value + ", custom/**")
+                before = installed.read_bytes()
+                report = self._migrate()
+                self.assertEqual(installed.read_bytes(), before)
+                self.assertTrue(any(filename in e and "preserve opt-out" in e
+                                    for e in report["preserved"]), report)
+
+    def test_failed_disposition_record_leaves_the_prior_copy_in_place(self):
+        for filename in sorted(EXPECTED_DESCOPED_ALL):
+            with self.subTest(filename=filename):
+                self._fresh_tree(filename)
+                installed = self._install(filename, self._prior(filename))
+                before = installed.read_bytes()
+                with mock.patch.object(rule_descope_migration, "_record_disposition",
+                                       return_value=False):
+                    report = self._migrate()
+                self.assertEqual(installed.read_bytes(), before)
+                self.assertTrue(any(filename in e and "backup write failed" in e
+                                    for e in report["skipped"]), report)
+                self.assertEqual(report["acted_on"], [])
+                self.assertFalse(self._backup_of(installed).exists())
 
 

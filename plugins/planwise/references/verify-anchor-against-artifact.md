@@ -143,7 +143,7 @@ Trace every figure derived from it — output-file count, per-file size gates, r
 
 One orchestrator reached for `lines per design`, compared it against a sibling task, and inferred a fidelity squeeze that was not real — because 24.6% of the sibling's lines were full-factorial cell tables its modality mandates and this one's does not. The direct measurements refuted it:
 
-| | The task under suspicion | The sibling it was compared to |
+| n/a | The task under suspicion | The sibling it was compared to |
 |---|---|---|
 | Lines used | 1,094 of 1,500 — **406 spare** | 761 |
 | Lines per design | 12.9 | 20.0 raw / **16.9 excluding cell tables** |

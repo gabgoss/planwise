@@ -199,7 +199,7 @@ grep -nE "ALTER TABLE {table}|DROP CONSTRAINT.*{table}|ADD CONSTRAINT.*{table}" 
 > [!gate] Pin Required for SQL-Bearing Task Files
 > A task file whose Required Context contains inline SQL OR references a DB table by name MUST include a Schema Pin section. Plan-review fails on absence; DELEGATED execution MUST NOT dispatch a task that lacks a required Pin.
 
-#### Reviewer Check 022 — Task Schema Pin Pre-Execution Form
+### Reviewer Check 022 — Task Schema Pin Pre-Execution Form
 
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
 - **What:** DB-write tasks MUST include Schema Pin section in pre-execution form per `references/schema-pin-requirement.md` §4.
@@ -212,7 +212,7 @@ Issue: DB-write task lacks Schema Pin section
 Fix: Add Schema Pin per references/schema-pin-requirement.md §4 | Confidence: HIGH
 ```
 
-#### Reviewer Check 107 — Schema Pin Absence Claim Without an Executed, Dated, Unscoped Command and Output
+### Reviewer Check 107 — Schema Pin Absence Claim Without an Executed, Dated, Unscoped Command and Output
 
 - **Severity / Role / Type:** ERROR | Task Reviewer | NEW
 - **What:** A Schema Pin row that asserts an absence MUST carry an Absence claim block with the executed command, its date, its output and a control, per `references/schema-pin-requirement.md` §2 and §3. The command MUST run over `{schema_glob_path}` and name no single file.
@@ -432,7 +432,7 @@ Three operative points:
 - **Keep the DB-free suite as a shape pin.** It is the wrong instrument for semantics, and it is not redundant. Both checks stay.
 - **Move corpus-level facts into the run.** Per-book row counts and which source arm won a contested row belong in the validation step of the job that later runs the module. They become flags there.
 
-#### Reviewer Check 115 — Generated-Query Review Task With No Read-Only Execution Against a Named Row Set
+### Reviewer Check 115 — Generated-Query Review Task With No Read-Only Execution Against a Named Row Set
 
 - **Severity / Role / Type:** ERROR | Task Reviewer | NEW
 - **What:** A review task for a module that generates SQL MUST name a read-only execution of the generated statement against a named row set, per `references/schema-pin-requirement.md` §6. A test run or a paper trace alone does not satisfy it.

@@ -27,7 +27,7 @@ Detailed reference material for this project. Documents with a **Must Read** con
 
 | Category | Document | Purpose | Must Read | Last Verified |
 |----------|----------|---------|-----------|---------------|
-| | | Add your project's reference documents here. Use paths from config.yaml. | | |
+| n/a | n/a | Add your project's reference documents here. Use paths from config.yaml. | n/a | n/a |
 
 **Staleness Thresholds:**
 
@@ -334,7 +334,7 @@ The four sub-rules below share one property: in every originating case **the edi
 > [!constraint] Sub-rule B — measure copy count before and after an extraction
 > An extraction has done its job only if the number of implementations goes **DOWN**. One dedup task extracted duplicated config-block surgery into a shared home, reported COMPLETE with every declared gate green — both pin suites byte-unmodified, full suite green, a real discrimination proof — and filled both consumers' import-guard fallbacks with full-fidelity duplicates of the logic just extracted:
 >
-> | | Implementations | Lines |
+> | n/a | Implementations | Lines |
 > |---|---|---|
 > | Before | 2 | baseline |
 > | After | **3** | **+124** |

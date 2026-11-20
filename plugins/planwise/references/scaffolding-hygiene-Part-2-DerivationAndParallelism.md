@@ -6,7 +6,7 @@ consult-when: Closing a multi-sprint scaffold — derive a retirement deletion s
 
 **Purpose:** Enforce five mechanical hygiene rules covering what a multi-sprint scaffold must **compute** before it closes — a derived deletion set, a permission round-trip, a diff baseline, and two write-set intersections. Each rule has been re-derived in independent planning sessions; review-cycle tokens are wasted relitigating the same recurring issues.
 
-> [!important] This reference is split across two files — §1–§12 live in Part 1
+> [!hazard] This reference is split across two files — §1–§12 live in Part 1
 > This part carries §13–§19. The nine binding rules and three advisory practices governing what the scaffold **emits** — Meta-Plan source detection, folder naming, abbreviation validation, status defaults, `Outputs/` creation, sequential-sprint prerequisites, no-improvisation of artifact types, deviation classes, plan sizing, cohort token uplift, the mega-scaffold review gate, and run-time-sound verification commands — live in [scaffolding-hygiene.md](scaffolding-hygiene.md), which keeps the original filename.
 >
 > Section numbers are continuous across the two files: §13 here follows §12 there, and a section keeps its `§N` wherever it lands. A citation naming §13–§19 resolves to this file; one naming §1–§12 resolves to Part 1.
@@ -343,7 +343,7 @@ A `∥` in a Master Plan's ordering is not a scheduling preference — it is a c
 
 The mechanical enforcement of 16.3 is Check S05 in `agents/structural-reviewer.md`, which detects the file-under-two-parallel-sprints contradiction during the structural pass. This section owns **what** must be declared, computed, and shown; that check owns the detection procedure, and neither restates the other.
 
-#### Reviewer Check 078 — Declared Parallelism Without a Computed Intersection
+### Reviewer Check 078 — Declared Parallelism Without a Computed Intersection
 
 - **Severity / Role:** BLOCKER | Scaffolding Hygiene Reviewer | NEW
 - **What:** A Master Plan declaring any sprint pair parallel without a computed write-set intersection shown for that pair; or a sprint named on the ordering line with no declared write-set; or a gate marker that is an assertion rather than a runnable command; or (§16, rule 16.6) a path appearing in two sprints' write-sets with no `## Cross-Sprint File Touches` row in either Sprint Plan and no ordering edge or `MUST NOT run concurrently` row closing the pair.
@@ -546,7 +546,7 @@ An Orchestration or Post-Dispatch Checklist item that says "re-run X yourself" o
 
 **Applies to** DELEGATED sessions whose orchestration must re-verify a runner's own verdict. It applies most to gate-building tasks, dry-runs and planted-defect tables. It also applies to any check whose fixtures live in a temp directory.
 
-#### Reviewer Check 099 — Orchestrator Re-Verify Item With No Shipped Replay Command
+### Reviewer Check 099 — Orchestrator Re-Verify Item With No Shipped Replay Command
 
 - **Severity / Role:** WARNING | Scaffolding Hygiene Reviewer | NEW
 - **What:** An Orchestration or Post-Dispatch Checklist item of the form "re-run X yourself" or "independently re-verify X" whose producing task's Output names no replay command. The item's only source is a procedure the runner performs and then cleans up.

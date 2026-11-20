@@ -61,7 +61,7 @@ Declaring DELEGATED is a PLANNING decision (made in the Orchestration file), not
 > Trigger: Task 03 estimates >50K context load (output-chaining to Task 04)
 > ```
 
-#### Reviewer Check 010 — Task DELEGATED Mandatory Triggers Honored
+### Reviewer Check 010 — Task DELEGATED Mandatory Triggers Honored
 
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
 - **What:** When task meets DELEGATED trigger (2+ Opus tasks per session, META Discovery phase, single task >50K context, output-chaining), parent Orchestration MUST declare Execution Strategy = DELEGATED.
@@ -153,7 +153,7 @@ When Execution Strategy is DELEGATED:
 > (Task 03 Required Context loads schema.sql + research-part-1.md in its own section)
 > ```
 
-#### Reviewer Check 012 — Orchestration Context Boundary Callout Present
+### Reviewer Check 012 — Orchestration Context Boundary Callout Present
 
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
 - **What:** DELEGATED Orchestration MUST contain `> [!constraint] Context Boundary` callout naming which files appear in Orchestration vs Task file Required Context.
@@ -166,7 +166,7 @@ Issue: DELEGATED mode requires Context Boundary callout
 Fix: Add > [!constraint] Context Boundary per references/agent-orchestration-delegated.md §1.3 | Confidence: HIGH
 ```
 
-#### Reviewer Check 023 — Task DELEGATED Context Boundary Leak
+### Reviewer Check 023 — Task DELEGATED Context Boundary Leak
 
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
 - **What:** In DELEGATED mode, Orchestration Required Context MUST contain ONLY plan files. Heavy context (sources, EIs, references) lives in task file Required Context only.

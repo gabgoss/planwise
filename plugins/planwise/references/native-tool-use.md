@@ -284,6 +284,12 @@ exactly:
 - Bare **`cd`**, used to change the working directory before further file
   operations — see [Paths, Not `cd`](#paths-not-cd) below.
 
+The plugin hook `hooks/agent-guard.ts` checks a dispatched task-runner's Bash
+calls for these verbs, but never the main session's calls. It skips `cp` and a
+verb that a pipe feeds, and counts `sed` only with `-n`. The plugin option
+`agent_guard` sets its action: `report`, the default, logs the call, and
+`deny` refuses it.
+
 ### Named Exceptions
 
 The list above is closed, and each exception below is named because it falls
@@ -326,6 +332,11 @@ Destructive operations in particular should stand alone in their own command
 rather than being chained behind a `cd` and other setup — a step buried in a
 longer chain is effectively invisible in the one place a human can still stop
 it.
+
+The same hook, `hooks/agent-guard.ts`, flags a bare directory change in a
+dispatched task-runner's Bash call, never in the main session. Its action
+follows the `agent_guard` option: `report`, the default, logs the call, and
+`deny` refuses it.
 
 ---
 

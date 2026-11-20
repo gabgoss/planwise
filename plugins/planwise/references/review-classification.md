@@ -304,7 +304,7 @@ Only the first is verified. The other two ride along on the finding's credibilit
 > ```
 > **A procedural finding is "low urgency" only after step B.1 has been run and its output is harmless.** Before that, the severity is unassessed, not low.
 
-#### Reviewer Check 091 — Procedural Finding Deferred on Unassessed Severity
+### Reviewer Check 091 — Procedural Finding Deferred on Unassessed Severity
 
 - **Severity / Role / Type:** WARNING | Coverage Reviewer | NEW
 - **What:** A plan or review deliverable that **defers a finding on stated low severity**, where the finding's subject is a **documented procedure, worked example, or recipe**, MUST show evidence the procedure was executed to determine its current output. Without that run the severity describes the finding's *surface form* ("a stale example in a docs file"), not its *consequence* ("the documented procedure now emits a duplicate"). Those two descriptions point at identical bytes and imply opposite dispositions, and the missing step is skipped precisely when a finding looks minor — a systematic bias, not an occasional slip. The same check covers a deferred finding whose attached **remedy** was verified only against the site that produced it, with no census of the surface the fix will touch.

@@ -456,7 +456,7 @@ So the upstream Recovery sweep in §1.4.A is not a convenience. It is the only p
 >
 > Both searches are correct. Both return what they should. The referent table is what makes the failure legible:
 >
-> | | The claim | What was checked | Verdict |
+> | n/a | The claim | What was checked | Verdict |
 > |---|---|---|---|
 > | Referent | "the agent is dispatched from nowhere" | the one handler the claim named | correctly identified as dispatching nothing |
 > | Referent actually needed | the same agent | the *other* handler, carrying its own route of the same name | never looked at |

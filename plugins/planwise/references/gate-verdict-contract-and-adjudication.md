@@ -79,7 +79,7 @@ The contract covers every gate a verification task carries. That includes dry-ru
 >    - **Denominator inflation** (`gate-heuristic-verifier-patterns.md` §4) — the site is prose / table / fenced code, not a real call site; rewrite the denominator, do NOT route to rework.
 > 3. If ≥1 site is a format gap or denominator inflation, the verification step is defective — block the task chain on fixing the verifier, not on rework.
 
-#### Reviewer Check 060 — Verification Task Verdict-Arithmetic Contract
+### Reviewer Check 060 — Verification Task Verdict-Arithmetic Contract
 
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
 - **What:** A verification task spec MUST require the verifier to return FAIL or `[UNCERTAIN]` when Actual contradicts Expected per the comparison operator — never PASS. The spec MUST also declare an orchestrator adjudication path for BLOCKER-from-heuristic findings (the orchestrator validates flagged sites against source before routing rework, per the rules above).

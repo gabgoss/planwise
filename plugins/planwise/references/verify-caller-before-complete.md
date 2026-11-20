@@ -147,7 +147,7 @@ An `**Output:**` line is the author's decomposition of the change. The live tree
 > Output: scripts/report_cli.py, scripts/report_model.py, tests/test_report_cli.py, docs/usage.md, manifests/notes.yaml
 > ```
 
-#### Reviewer Check 103 — Named Definition Site Missing From the Task's Output Line
+### Reviewer Check 103 — Named Definition Site Missing From the Task's Output Line
 
 - **Severity / Role / Type:** ERROR (HIGH confidence) | Task Reviewer | NEW
 - **What:** A task that adds a parameter, flag or field, or changes a shared function's side effect, MUST carry a Change-Surface Census, and every definition site its Execution Steps name MUST appear on its `**Output:**` line.
@@ -226,7 +226,7 @@ A default value is shipped behaviour, not only API surface. A record, dataclass 
 > Success Criteria: [ ] Existing tests pass with only the opt-outs the Default blast radius row lists (`min_length_mm=None` in tests/test_export.py)
 > ```
 
-#### Reviewer Check 130 — Unmodified-Tests Criterion Beside a Behaviour-Changing Default
+### Reviewer Check 130 — Unmodified-Tests Criterion Beside a Behaviour-Changing Default
 
 - **Severity / Role / Type:** ERROR (HIGH confidence) | Task Reviewer | NEW
 - **What:** A task whose new option has a default that differs from the no-op value MUST NOT carry an "existing tests pass unmodified" criterion, and MUST carry a Default blast radius row in its Change-Surface Census, per `references/verify-caller-before-complete.md` §7.

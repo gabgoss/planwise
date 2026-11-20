@@ -101,11 +101,18 @@ def test_skills_mutation_agent_without_fork(tmp_path, capsys):
     assert code == 1 and "agent is set without context: fork" in out
 
 
-def test_skills_mutation_bash_without_glob(tmp_path, capsys):
-    # breaks skill-authoring.md section 7b: a Bash pattern ends in a glob
-    text = CLEAN_SKILL.replace("Bash(git *)", "Bash(git)")
+def test_skills_exact_command_passes(tmp_path, capsys):
+    # skill-authoring.md section 7 shows an exact command with arguments as valid
+    text = CLEAN_SKILL.replace("Bash(git *)", "Bash(git *), Bash(npm test)")
     code, out = _run(capsys, "skills", str(_write(tmp_path, "SKILL.md", text)))
-    assert code == 1 and "Bash(git)" in out
+    assert code == 0 and "0 finding(s)" in out
+
+
+def test_skills_mutation_bash_without_glob(tmp_path, capsys):
+    # breaks skill-authoring.md section 7b: a bare command name with no glob allows no subcommand
+    text = CLEAN_SKILL.replace("Bash(git *)", "Bash(npm test), Bash(git)")
+    code, out = _run(capsys, "skills", str(_write(tmp_path, "SKILL.md", text)))
+    assert code == 1 and "Bash(git)" in out and "Bash(npm test)" not in out
 
 
 def test_skills_mutation_501_lines(tmp_path, capsys):

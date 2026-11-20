@@ -48,7 +48,9 @@ def convenience_sites(text: str) -> list[str]:
 def policy_rows(text: str) -> list[str]:
     """Return the first cell of each Inference Defaults row."""
     text = text.replace("\r\n", "\n")
-    start = text.index("### § Inference Defaults")
+    heading = re.search(r"(?m)^#{2,3} § Inference Defaults", text)
+    assert heading is not None, "auto-mode-policy.md has no § Inference Defaults heading"
+    start = heading.start()
     end = text.find("\n## ", start)
     section = text[start : end if end != -1 else len(text)]
     firsts = []

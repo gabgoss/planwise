@@ -66,6 +66,8 @@ Keep SKILL.md under 500 lines. Move detailed content to supporting files:
 | Example outputs | `examples/` |
 | Validation/helper scripts | `scripts/` |
 
+`scripts/lint_authoring_frontmatter.py skills <path>` reports a `SKILL.md` of 500 lines or more.
+
 ### Scope Levels
 
 | Location | Path | Applies To |
@@ -100,6 +102,8 @@ Keep SKILL.md under 500 lines. Move detailed content to supporting files:
 | `hooks` | object | none | Skill-scoped lifecycle hooks |
 
 The `description` field is the primary auto-triggering signal. Include trigger conditions and task domains to drive correct automatic delegation. Including "Use proactively" signals Claude to auto-invoke without explicit user prompting.
+
+`scripts/lint_authoring_frontmatter.py skills <path>` checks the `name` row of this table and reports a missing `description`.
 
 ---
 
@@ -183,6 +187,8 @@ or
 - `critical` sites emit a `[!gate] User Decision Required` block, still attempt `AskUserQuestion`, and FAIL LOUD if the harness auto-denies it — the user must re-issue the command with the answer inline.
 - `convenience` sites skip `AskUserQuestion`, apply the inferred default, log `Auto-Mode inference: {variable}={inferred_value} (reason: {brief rationale})`, and continue without waiting.
 
+In the plugin's own repository, `tests/test_auto_mode_call_sites.py` fails on an untagged `AskUserQuestion` line in the shipped `handlers/*.md` that its reviewed list does not classify.
+
 > Full taxonomy, gate-behavior matrix, inference defaults and worked examples:
 > [auto-mode-policy.md](auto-mode-policy.md) — a plugin reference file, not part of an
 > installed rule set. The summary above is complete for authoring skills; the full
@@ -238,26 +244,9 @@ Both receive the full CC system prompt. `agent-orchestration.md` §1 (Runtime Co
 
 ## 5b. Forked Execution Mistakes
 
-> [!constraint] `context: fork` Requires Valid `agent:` Value
-> WRONG — `agent:` omitted; forks to `general-purpose` when `Explore` is intended:
-> ```yaml
-> ---
-> name: deep-research
-> description: Research a topic across the codebase. Use when exploring unfamiliar modules.
-> context: fork
-> allowed-tools: Read, Grep, Glob
-> ---
-> ```
-> CORRECT — explicitly declare the agent type to match the tool restriction:
-> ```yaml
-> ---
-> name: deep-research
-> description: Research a topic across the codebase. Use when exploring unfamiliar modules.
-> context: fork
-> agent: Explore
-> allowed-tools: Read, Grep, Glob
-> ---
-> ```
+With `context: fork`, declare `agent:` explicitly so the fork runs the agent type that matches the tool restriction. An omitted `agent:` forks to `general-purpose`, even where `Explore` is intended. The §5 example shows the declared form.
+
+`agent:` is meaningful only with `context: fork`. `scripts/lint_authoring_frontmatter.py skills <path>` reports an `agent:` key set without `context: fork`.
 
 > [!constraint] `context: inline` with `allowed-tools` Cannot Spawn Subagents
 > WRONG — `agent:` is meaningless when `context: inline` is set; the skill runs in-session:
@@ -389,6 +378,8 @@ Skill(review-pr *)    # Prefix match — disable skill with any arguments
 
 ## 7b. Tool Restriction Mistakes
 
+A bare command name in a `Bash(...)` pattern matches only that literal command and allows no subcommand. Write a glob to allow subcommands. An exact command with its arguments, such as `Bash(npm test)`, is valid (§7). `scripts/lint_authoring_frontmatter.py skills <path>` reports a bare one-word `Bash(...)` entry with no glob.
+
 > [!constraint] Bash Pattern Must Use Glob Syntax
 > WRONG — `Bash(dotnet)` does not allow subcommands; only the literal string `dotnet` would match:
 > ```yaml
@@ -407,25 +398,7 @@ Skill(review-pr *)    # Prefix match — disable skill with any arguments
 > ---
 > ```
 
-> [!constraint] `disable-model-invocation` vs `user-invocable` Confusion
-> WRONG — using `user-invocable: false` to prevent accidental Claude invocation of a deploy skill:
-> ```yaml
-> ---
-> name: deploy
-> description: Deploy application to staging or production environment
-> user-invocable: false
-> ---
-> ```
-> This hides the skill from the `/` menu (user can't invoke it) but Claude can still auto-trigger it.
-> CORRECT — use `disable-model-invocation: true` to block autonomous Claude invocation:
-> ```yaml
-> ---
-> name: deploy
-> description: Deploy application to staging or production environment. Use when deploying code changes.
-> disable-model-invocation: true
-> user-invocable: true
-> ---
-> ```
+To stop Claude from invoking a skill on its own, set `disable-model-invocation: true`. `user-invocable: false` only hides the skill from the `/` menu, so the user cannot invoke it and Claude can still auto-trigger it (§3). A deploy skill that must stay user-only sets `disable-model-invocation: true` and `user-invocable: true`.
 
 ---
 

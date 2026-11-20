@@ -50,7 +50,7 @@ A rollup artifact is the typical case. The Sprint Plan lists it as a headline De
 
 **The producer step is not optional prose.** A checklist line that says "assemble the rollup" names the work and omits the record format and the merge rule. It is a producer in name only. The consumers still guess, and a reviewer cannot check an anchor against a format that no document states.
 
-#### Reviewer Check 111 — Consumed Artifact With No Declared Producer
+### Reviewer Check 111 — Consumed Artifact With No Declared Producer
 
 - **Severity / Role / Type:** BLOCKER when a Signoff anchor or a gate-defining exit criterion reads the artifact, ERROR otherwise | Scaffolding Hygiene Reviewer | NEW
 - **What:** Every artifact named by two or more consuming documents MUST resolve to exactly one producer. The producer MUST state the record format and the merge rule. A name with zero producers, or two, is a finding.

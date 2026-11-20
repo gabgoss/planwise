@@ -128,7 +128,7 @@ Fix: Measure with measure_files.py and write the numeric value per references/ta
 > | Content class | Bytes/token | Heuristic |
 > |---------------|-------------|-----------|
 > | Dense markdown (tables, link-heavy rows) | ~2.6 | Gate-conservative default — use when unsure |
-> | Prose / typical markdown | ~2.9 | |
+> | Prose / typical markdown | ~2.9 | none |
 > | Docs with code blocks / source code | ~2.7 | Code tokenizes DENSER than prose, not lighter |
 > | Wide-line reference docs | ~4.1+ | Light — measure, never assume |
 > | Jupyter notebook (`.ipynb`, outputs cleared) | ~2.3 | Auto-detected by extension. The Read tool renders a notebook as cells and counts tokens on the rendering; an uncleared notebook's large outputs are elided, so measure the cleared file |

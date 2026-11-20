@@ -10,7 +10,7 @@ paths: {planwise_root}/{plans_dir}/**
 
 ---
 
-### 8.10 A recorded delta states both endpoints and says whether it is net or set size
+## 8.10 A recorded delta states both endpoints and says whether it is net or set size
 
 A delta written "+A/−R" in prose can mean two things: the sizes of the added and removed sets, or the net change with the removals broken out. A spec that does not say which is read the convenient way by whoever writes the assertion. A transform between the measurement and the return value (rename pairing, deduplication, normalisation) makes it worse. A set-difference figure taken before pairing and a return value taken after pairing are both true. They differ by exactly the paired count. Assertions copied from such a figure can contradict each other, and a correct implementation then fails tests written against a correct spec.
 
@@ -38,7 +38,7 @@ A delta written "+A/−R" in prose can mean two things: the sizes of the added a
 
 Applies to any task brief whose success criterion is a literal count or list copied from a spec, a finding document or an addendum table, especially a `+N/−M` shape. It also applies to diff tooling with rename or move detection.
 
-### 8.11 A pinned count names the artifact and version it was read from
+## 8.11 A pinned count names the artifact and version it was read from
 
 A literal count depends on the exact artifact and version it was read from. When the artifact is regenerated, the dependency moves and the number does not. The pin in a test fails loudest and latest. The task that regenerates the artifact may not be allowed to edit the test, so a green session ends with a red tier and a round-trip to widen the write-set.
 
@@ -75,7 +75,7 @@ git diff -- <path> | grep -E '^\+' | grep -vE '^\+\+\+' | wc -l      # added lin
 
 Applies to test assertions that pin the row, line or entry count of a committed report, fixture or snapshot. It also applies to backlog items and design-spec rows that quote a figure from one build.
 
-#### A stamp carries the commit, a summary match tolerates its tail, and an annotation copies its command
+### A stamp carries the commit, a summary match tolerates its tail, and an annotation copies its command
 
 A date does not identify a tree, because several commits land on one day. A pytest summary line has a variable tail, so a rigid match breaks when a subtest or skip count appears. A dry-run annotation that records a variant of the pinned command states a figure the pinned command never produced. The re-pin step is in the `scaffolding-hygiene.md` section "Re-Measure Every Gate-Bound Figure at Preflight, Before Dispatch".
 
@@ -92,7 +92,7 @@ A date does not identify a tree, because several commits land on one day. A pyte
 > pin: git log --since=<d1> ...   # Dry-run <date>, this exact command at <sha>: 31 lines
 > ```
 
-### 8.12 A byte pin names its instrument: blob bytes and checkout bytes differ under autocrlf
+## 8.12 A byte pin names its instrument: blob bytes and checkout bytes differ under autocrlf
 
 A byte count from a blob and a byte count from the checkout are two instruments. Under `core.autocrlf=true` a blob holds LF line endings and the checkout holds CRLF. The two counts differ by exactly the number of lines. A pin taken from one instrument and compared to the other reads as drift. The gap is large enough to look like a missing row, and it grows with the file, so it is not noise.
 
@@ -123,7 +123,7 @@ Check 53 of `scripts/lint_gate_checks_measure.py` warns on a gate that compares 
 
 Applies to any byte pin, size gate, or conservation identity on a Windows checkout with `core.autocrlf=true`. It applies whenever one operand comes from `git show`, `git cat-file`, or a diff stat and another comes from the working tree.
 
-### 8.13 A size estimate for a compress, collapse or split has three terms
+## 8.13 A size estimate for a compress, collapse or split has three terms
 
 A plan that compresses, collapses or splits references often forecasts each result from a heading count. A flat per-heading figure leaves out three terms. The forecast then sets expectations wrong by 3 to 6 times, even when no runner pads or cuts to reach it.
 
