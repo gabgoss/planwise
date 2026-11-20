@@ -37,7 +37,7 @@ The injected line above also prints a `planwise: …` version notice when the co
 | `backlog` | Read [handlers/backlog.md](../../handlers/backlog.md) |
 | `list` | Follow [List](#list) below (normally zero tool calls) |
 | `lessons` | Read [handlers/lessons.md](../../handlers/lessons.md) |
-| `feedback` | Read [handlers/feedback.md](../../handlers/feedback.md) |
+| `feedback` | Follow [Feedback](#feedback) below (a preflight card when drafts are queued, otherwise Read [handlers/feedback.md](../../handlers/feedback.md)) |
 | `harvest` | Read [handlers/harvest.md](../../handlers/harvest.md) |
 | `help` | Display the Help section below (inline) |
 
@@ -72,6 +72,12 @@ If a `<!-- planwise:plan:begin -->` block above carries a `NEXT:` line, the plan
 If a `<!-- planwise:upgrade:begin -->` block appears above, follow its NEXT block exactly and read nothing else.
 
 Read [handlers/upgrade.md](../../handlers/upgrade.md) instead when the block is absent, when the line reads `[shell command execution disabled by policy]`, or when a `PLANWISE_UPGRADE_FALLBACK:` line appears.
+
+## Feedback
+
+If a `<!-- planwise:feedback:begin -->` block appears above, it carries the card of every queued draft and a NEXT list. Follow the NEXT list exactly. Take the branch that matches the `ARGUMENTS:` line, and read nothing else on the `--post` and `--drafts` branches.
+
+Read [handlers/feedback.md](../../handlers/feedback.md) instead when no block appears above, when the line reads `[shell command execution disabled by policy]`, when a `PLANWISE_FEEDBACK_FALLBACK:` line appears, or when the `ARGUMENTS:` line holds any other `feedback` form. No block means no draft is queued.
 
 ## Help
 

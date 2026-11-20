@@ -294,8 +294,19 @@ exit 0. No question is asked.
 ### Posting One Draft by Id
 
 `/planwise feedback --post {draft_id}` acts on one named draft. `{draft_id}` is the
-`draft_id` frontmatter value, the same id `discard` and `promote` take. Resolve it from
-`list --json`: the row whose `draft_id` equals it and whose `status` is `queued`. On a match,
+`draft_id` frontmatter value, the same id `discard` and `promote` take.
+
+**Card route.** While drafts are queued, the skill's preflight prints a block between
+`<!-- planwise:feedback:begin -->` and `<!-- planwise:feedback:end -->`. When that block is
+present with no `PLANWISE_FEEDBACK_FALLBACK:` line, take the id from the `ARGUMENTS:` line and
+look it up among the block's rows. The block never carries the id itself. On a match, ask the
+per-draft question of the card route below for that draft only, with the body from the block.
+When no row carries the id, print `Model draft {draft_id} was not found among queued drafts.`
+and stop.
+
+**Without the block.** An empty queue prints no block, and a failed preflight prints the
+fallback line. Resolve the id from `list --json`: the row whose `draft_id` equals it and whose
+`status` is `queued`. On a match,
 show that draft's full body, then ask the per-draft question for that draft only, with the
 same marker and the same three options. Otherwise print one line:
 
@@ -307,7 +318,48 @@ per-draft question.
 
 ### Per-Draft Action
 
-After the listing, `--drafts` asks the per-draft question once for each Queued draft, in
+#### Card Route
+
+This route runs when the preflight block is present with no `PLANWISE_FEEDBACK_FALLBACK:` line,
+and the `ARGUMENTS:` line is `--post {draft_id}` or `--drafts` without `--all`. The block holds
+a `Queued drafts (N) in {folder}:` header, the queued rows, a `Posting state:` line and each
+body under `--- draft {id}: {title} ---`. The
+block already did the listing, the state check and the draft reads, so the route repeats none
+of them. Expired drafts are not in the block.
+
+When the `Posting state:` line is not `enabled`, ask the posting question of the fallback below
+once, before the first draft. On Enable, run `enable-posting` and print its one line.
+
+One `AskUserQuestion` per draft: the named draft on `--post`, each row in block order on
+`--drafts`. The question shows the draft's id, title and body verbatim from the block. It says
+that **Post** publishes the shown body with no further question. Three options:
+
+| Option | What it does |
+|---|---|
+| **Post** | The steps below. While posting is still off, the option text adds `(this sets feedback.enabled to true in config.yaml)`. |
+| **Discard** | One call: `python -B "{plugin_root}/scripts/feedback_drafts.py" discard {draft_id} --config "{planwise_root}/config.yaml"`. Exit 1 prints `Model draft {draft_id} was not found.` |
+| **Keep** (pre-selected) | Nothing. The draft stays queued. Any other or unparseable answer is Keep. |
+
+**Post** runs these steps:
+
+1. When posting is still off, run `enable-posting --config "{planwise_root}/config.yaml"` and
+   print its one line. On exit 1, print its stderr line and stop.
+2. Run one call:
+   `python -B "{plugin_root}/scripts/feedback_post.py" post --config "{planwise_root}/config.yaml" --draft-id {draft_id}`.
+3. The driver runs the post checks itself, on the exact file it posts. It reads the posting
+   state, finds `gh` and checks its sign-in, runs the duplicate scan and picks the route by
+   Unattended Routing in [Part 1](feedback-submission.md#unattended-routing), and runs
+   `prepare-post` before it posts. The route makes no other call for these checks.
+4. The **Post** answer is the consent, so gate 5 is not asked. Route on the driver's exit code.
+   Exit 0 posted: print its last stdout line. Exit 3 kept the draft and posted nothing: print
+   its last stdout line. Exit 4 means posting is off: print
+   `Posting stays off. The draft was saved, and the next feedback flow asks again.` Any other
+   exit: print its last stderr line. The draft stays queued.
+
+#### Fallback: Without the Preflight Block
+
+An absent block, a block with the fallback line, and `--drafts --all` take this route. After
+the listing, `--drafts` asks the per-draft question once for each Queued draft, in
 listing order. An expired draft is listed only, and is never offered for posting.
 
 <!-- AUTO-MODE: critical -->
@@ -372,8 +424,11 @@ promoted or discarded.
 ### Gating
 
 The listing, Discard and Keep are local and not gated on `feedback.enabled`, as `--sweep` is
-not. The post branch, from either route, inherits gates 1 to 4.5 of the post pipeline. The
-per-draft question takes the place of gate 5, so neither route adds a consent site.
+not. On the card route, **Post** runs the driver's checks: the posting state, `gh` found and
+signed in, the duplicate scan with Unattended Routing, and `prepare-post` on the exact file it
+posts. On the fallback route, **Review and post** runs the post pipeline from gate 1 on the
+promoted file. On both routes, from `--post` and `--drafts` alike, the per-draft answer is the
+consent and gate 5 is not asked, so no route adds a consent site.
 
 ---
 
