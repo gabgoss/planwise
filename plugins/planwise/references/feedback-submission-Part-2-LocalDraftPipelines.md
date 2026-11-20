@@ -303,7 +303,7 @@ same marker and the same three options. Otherwise print one line:
 
 `{reason}` is the row's `status` in `list --json --all`, or `unknown` when no row carries the
 id. The route then falls through to `--drafts`, starting at the Listing. It never skips the
-per-draft question and never skips gate 5.
+per-draft question.
 
 ### Per-Draft Action
 
@@ -330,7 +330,8 @@ and offers three options:
 | **Discard** | Runs `discard {draft_id}`. The status becomes `discarded`. It never deletes the file. Exit 1 prints `Model draft {draft_id} was not found.` |
 | **Keep** (pre-selected) | Nothing. The draft stays queued. Any other or unparseable answer is Keep. |
 
-The per-draft question is a selection, not consent. **Review and post** runs these steps:
+On the `--post` and `--drafts` routes, the per-draft question is the consent for the post.
+**Review and post** runs these steps:
 
 1. When `feedback.enabled` is not `true`, run `enable-posting --config "{planwise_root}/config.yaml"`
    and print its one line. On exit 1, print its stderr line and stop. `config.yaml` is
@@ -343,8 +344,11 @@ The per-draft question is a selection, not consent. **Review and post** runs the
 3. Run the post pipeline from gate 1 on the promoted file, duplicate scan included. The
    promoted file is the draft the pipeline posts from, so its draft-first write is done.
    `{title}` and `{kind}` come from the model draft's frontmatter.
-4. Gate 5 stays the only consent for the post. A cancel at gate 5 or a failed post leaves the
-   promoted draft on disk, as On Any Gate Failure or Post Failure (Part 3) specifies.
+4. The **Review and post** answer is the consent, so gate 5 is not asked. The duplicate-scan
+   outcome picks the route with no question, by the rules of Unattended Routing in
+   [Part 1](feedback-submission.md#unattended-routing): a ranked candidate takes a comment on
+   the top-ranked issue, and a clear or incomplete scan takes a new issue. A failed post leaves
+   the promoted draft on disk, as On Any Gate Failure or Post Failure (Part 3) specifies.
 
 ### Auto Mode
 
@@ -368,8 +372,8 @@ promoted or discarded.
 ### Gating
 
 The listing, Discard and Keep are local and not gated on `feedback.enabled`, as `--sweep` is
-not. The post branch, from either route, inherits every gate of the post pipeline. Neither
-route adds a consent site.
+not. The post branch, from either route, inherits gates 1 to 4.5 of the post pipeline. The
+per-draft question takes the place of gate 5, so neither route adds a consent site.
 
 ---
 

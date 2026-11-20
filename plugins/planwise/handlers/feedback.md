@@ -147,15 +147,18 @@ ever removes or moves a draft or its marker; the only command that relocates one
 Planwise may **draft** a local feedback file during any `/planwise` work, per
 `references/feedback-drafting.md` or through the hooks-module tool when function hooks are
 enabled. Drafting is not filing. In an interactive session, Planwise posts a model draft
-through `--drafts` or `--post <draftId>`, and both ride the engine's gate chain. In an
-unattended context with `feedback.enabled: true`, the engine posts it through its unattended
-post path. Detecting a possible bug, lesson, or idea elsewhere in planwise is **offer-only** —
-surfacing this handler as an option a user can take, never invoking it on their behalf. The
-unattended contexts are Auto Mode, a backlog loop session, and harvest in any session. Every
-post outside those three contexts rides the engine's own gate 5 explicit consent — this handler
-introduces no second consent site. Every post inside them rides the engine's privacy gate
-`prepare-post` on the exact file it posts, in place of gate 5. The engine's gate 1 enable offer for an `absent`
-key is a setting selection, owned by the engine, and it never replaces gate 5.
+through `--drafts` or `--post <draftId>`. On those typed routes, the per-draft question is the
+consent, and gate 5 is not asked. The duplicate-scan outcome follows Unattended Routing with no
+question, as on a card press. A press on the draft card's **Post** button is the consent for
+that draft, and no question follows it. In an unattended context with `feedback.enabled: true`,
+the engine posts it through its unattended post path. Detecting a possible bug, lesson, or idea
+elsewhere in planwise is **offer-only** — surfacing this handler as an option a user can take,
+never invoking it on their behalf. The unattended contexts are Auto Mode, a backlog loop
+session, and harvest in any session. The manual `/planwise feedback` route keeps gate 5 as its
+only consent site, and this handler introduces no second consent site. An unattended context
+asks no question and posts only behind `prepare-post`, the engine's privacy gate, run on the
+exact file it posts. The engine's gate 1 enable offer for an `absent` key is a setting
+selection, owned by the engine, and it never replaces a route's consent site.
 
 ---
 
