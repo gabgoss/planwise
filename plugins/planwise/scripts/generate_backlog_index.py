@@ -45,6 +45,7 @@ their own without any item file changing:
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -272,7 +273,8 @@ class Disposition:
     `DRIFT_OR_ANOMALY` (1) naming it; only `--write` treats it as `REFUSED` (2)
     and writes nothing. An inverted edge (prose waits on an id the item's own
     `blocks:` lists) is a plain anomaly: it exits 1 in a report mode, and
-    `--write` reports it and still writes.
+    `--write` reports it and still writes. A title that names a file under
+    `.claude/rules/planwise/` (the installed-rules folder) is the same kind.
     Ordinary drift or a row/file anomaly found by `--check` is 1.
     `stale-score` alone never fails the exit code -- see the module
     docstring's carve-outs.
@@ -409,6 +411,34 @@ def _graph_anomalies(items: list) -> dict:
     }
 
 
+# A file under the folder where the plugin installs its machine-managed rules. An upgrade
+# replaces or removes every file there, so an item title naming one names a dead destination.
+# The bare folder alone is not matched: an item about the folder itself is legitimate.
+INSTALLED_RULE_PATH_RE = re.compile(r"\.claude/rules/planwise/[^/\s\"`]+\.md")
+
+
+def _installed_rule_path_anomalies(items: list) -> list:
+    """One anomaly entry per item whose title names a file under the installed-rules folder.
+
+    It only reports, like an inverted edge: the title is the item's own text, and refusing
+    `--write` over it would block every unrelated index refresh.
+    """
+    entries = []
+    for item in items:
+        found = list(dict.fromkeys(INSTALLED_RULE_PATH_RE.findall(item["title"])))
+        if found:
+            entries.append({
+                "id": item["id"],
+                "reason": (
+                    f"installed-rule destination -- {item['id']} ({item['_path']}) names "
+                    f"{', '.join(found)} in its title. Files under .claude/rules/planwise/ are "
+                    f"machine-managed and an upgrade replaces them, so name the file the item "
+                    f"actually produces instead"
+                ),
+            })
+    return entries
+
+
 def _direction_summary(graph: dict) -> str:
     return (
         f"Direction check: scanned {graph['scanned']} items, {len(graph['inverted'])} inverted edge(s), "
@@ -495,8 +525,9 @@ def _cmd_write(
         for entry in graph["cycles"]:
             print(f"Anomaly: {entry['reason']}. Refusing to write.", file=sys.stderr)
         return Disposition.REFUSED
-    # An inverted edge may be stale prose, so `--write` reports it and still writes.
-    for entry in graph["inverted"]:
+    # An inverted edge may be stale prose, and an installed-rule title is the item's own text,
+    # so `--write` reports both and still writes.
+    for entry in graph["inverted"] + _installed_rule_path_anomalies(items):
         print(f"Anomaly: {entry['reason']}.", file=sys.stderr)
 
     compute_scores_for_items(items, archive_dir, config)
@@ -583,7 +614,7 @@ def _cmd_check(
 
     graph = _graph_anomalies(items)
     reciprocal_anomalies = _reciprocal_anomalies(items, reciprocal) + graph["cycles"]
-    graph_anomalies = reciprocal_anomalies + graph["inverted"]
+    graph_anomalies = reciprocal_anomalies + graph["inverted"] + _installed_rule_path_anomalies(items)
     for entry in graph_anomalies:
         print(f"Anomaly: {entry['reason']}.", file=sys.stderr)
 
@@ -696,13 +727,14 @@ def main() -> int:
 
     graph = _graph_anomalies(items)
     reciprocal_anomalies = _reciprocal_anomalies(items, reciprocal) + graph["cycles"]
-    for entry in reciprocal_anomalies + graph["inverted"]:
+    report_only = graph["inverted"] + _installed_rule_path_anomalies(items)
+    for entry in reciprocal_anomalies + report_only:
         print(f"Anomaly: {entry['reason']}.", file=sys.stderr)
 
     code = exit_code_for(
         write_mode=False,
         reciprocal_edge=bool(reciprocal_anomalies),
-        drift_or_anomaly=bool(graph["inverted"]),
+        drift_or_anomaly=bool(report_only),
     )
     if args.json:
         print(json.dumps(_file_summary(report), indent=2))
