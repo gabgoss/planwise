@@ -31,7 +31,12 @@ Commands (run with `python -B`):
 
     lint --spec SPEC.json --bodies-dir DIR [--session SXX-YY] [--templates DIR] [--config FILE]
         Check the bodies files in DIR against the rendered skeleton. Prints one
-        `LINT: doc=<ID> key=<key>: <reason>` line per error, then the summary lines:
+        `LINT: doc=<ID> key=<key>: <reason>` line per error. Then it prints one
+        `MISSING: doc=<ID> marker=<name> [<k>] under <H2>/<H3>` line per marker
+        occurrence with no body, where <k> counts the occurrence in that document and
+        <H2> or <H3> reads `none` when the marker has no such heading. Each group
+        (the plan documents, then each session) prints at most 20 of these lines
+        followed by `MISSING: +<n> more` when more remain. The summary lines follow:
           plan missing=<n> errors=<n>
           session=<SXX-YY> keys_missing=<n> errors=<n>
         The `plan` line comes first and covers the MASTER and sprint documents, which
@@ -804,14 +809,15 @@ def overlap_errors(doc, body, info):
 
 
 def missing_keys(body, info):
-    """The number of marker occurrences in this document with no body."""
+    """One (name, occurrence, h2, h3) per marker occurrence in this document with no body."""
     fills = body["fills"] if body else {}
     sections = {h for h, text in body["sections"].items() if text} if body else set()
-    missing, seen = 0, {}
+    missing, seen = [], {}
     for name, h2, h3 in info["markers"]:
         seen[name] = seen.get(name, 0) + 1
         covered = fills.get((name, seen[name])) or fills.get((name, None)) or h2 in sections or h3 in sections
-        missing += 0 if covered else 1
+        if not covered:
+            missing.append((name, seen[name], h2, h3))
     return missing
 
 
@@ -852,10 +858,13 @@ def load_all_bodies(spec_path, bodies_dir, core, index, spec=None):
 
 
 def lint_bodies(index, docs, load_errors=(), session=None):
-    """Return (error lines, summary rows {group, keys_missing, errors}) in report order."""
-    groups = {PLAN_GROUP: 0}
+    """Return (error lines, summary rows {group, keys_missing, errors, missing}) in report order.
+
+    `missing` holds one line per marker occurrence with no body, and `keys_missing` is its length.
+    """
+    groups = {PLAN_GROUP: []}
     for doc in index:
-        groups.setdefault(session_of(doc), 0)
+        groups.setdefault(session_of(doc), [])
     errors = list(load_errors)
     for doc, body in docs.items():
         if doc in index:
@@ -863,12 +872,15 @@ def lint_bodies(index, docs, load_errors=(), session=None):
         else:
             errors.append((session_of(doc), f"doc={doc} key=doc: the doc is not in the rendered tree"))
     for doc, info in index.items():
-        groups[session_of(doc)] += missing_keys(docs.get(doc), info)
+        groups[session_of(doc)].extend(
+            f"doc={doc} marker={name} [{k}] under {h2 or 'none'}/{h3 or 'none'}"
+            for name, k, h2, h3 in missing_keys(docs.get(doc), info))
     for group, _msg in errors:
-        groups.setdefault(group, 0)
+        groups.setdefault(group, [])
     wanted = [g for g in groups if session in (None, g)]
     lines = [msg for group, msg in errors if group in wanted]
-    rows = [{"group": g, "keys_missing": groups[g], "errors": sum(1 for e, _m in errors if e == g)} for g in wanted]
+    rows = [{"group": g, "keys_missing": len(groups[g]), "missing": groups[g],
+             "errors": sum(1 for e, _m in errors if e == g)} for g in wanted]
     return lines, rows
 
 
@@ -1093,6 +1105,11 @@ def cmd_lint(args):
     lines, rows = lint_bodies(index, docs, load_errors, args.session)
     for line in lines:
         print(f"LINT: {line}")
+    for row in rows:
+        for line in row["missing"][:DETAIL_LIMIT]:
+            print(f"MISSING: {line}")
+        if len(row["missing"]) > DETAIL_LIMIT:
+            print(f"MISSING: +{len(row['missing']) - DETAIL_LIMIT} more")
     for row in rows:
         if row["group"] == PLAN_GROUP:
             print(f"plan missing={row['keys_missing']} errors={row['errors']}")

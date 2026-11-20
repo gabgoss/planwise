@@ -466,5 +466,51 @@ class TestLinterEndToEnd(unittest.TestCase):
         self.assertNotIn("Grep", linter.ALLOWED_EXECUTABLES)
 
 
+class TestRelativePathBase(unittest.TestCase):
+    """A relative Grep path resolves against the plan root, then each parent."""
+
+    RELATIVE = "cloned-repos/r/hooks/register.ts"
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.project = Path(tmp.name)
+        self.plan_root = self.project / "planwise" / "Plans" / "P"
+        self.plan_root.mkdir(parents=True)
+        self.target = self.project / self.RELATIVE
+        self.target.parent.mkdir(parents=True)
+        self.target.write_text("needle\nhay\nneedle\n", encoding="utf-8")
+
+    def _count(self, relative):
+        params = _params("pattern=needle", f"path={relative}", "output_mode=count")
+        result, refusal = run_grep_call(params, cwd=self.plan_root)
+        self.assertIsNone(refusal)
+        return measured_value(params, result["stdout"])
+
+    def test_a_project_root_relative_path_is_found_in_a_parent(self):
+        self.assertEqual(self._count(self.RELATIVE), 2)
+
+    def test_execute_command_runs_a_project_root_relative_gate(self):
+        command = ExtractedCommand(
+            file="t.md", path=self.plan_root / "t.md", line=1, block="After",
+            command=f"Grep pattern='needle' path='{self.RELATIVE}' output_mode='count'",
+            comment="# expect 2",
+        )
+        result = execute_command(command, plan_root=self.plan_root)
+        self.assertTrue(result["executed"], result.get("reason"))
+
+    def test_the_plan_root_wins_over_a_parent(self):
+        nearer = self.plan_root / self.RELATIVE
+        nearer.parent.mkdir(parents=True)
+        nearer.write_text("needle\n", encoding="utf-8")
+        self.assertEqual(self._count(self.RELATIVE), 1)
+
+    def test_a_path_absent_everywhere_is_still_refused(self):
+        params = _params("pattern=needle", "path=cloned-repos/r/hooks/absent.ts", "output_mode=count")
+        result, refusal = run_grep_call(params, cwd=self.plan_root)
+        self.assertIsNone(result)
+        self.assertIn("does not exist", refusal)
+
+
 if __name__ == "__main__":
     unittest.main()

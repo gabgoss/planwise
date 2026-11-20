@@ -13,6 +13,7 @@ import pytest
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
+import lint_plan_strategy as lps
 import scaffold_plan as sp
 
 TEMPLATES = sp.DEFAULT_TEMPLATES
@@ -165,6 +166,19 @@ def test_lint_rejects_missing_field_bad_agent_and_heading_keys():
     assert "'agent' must be Opus, Sonnet or Haiku" in errors
     assert "unknown key 'extra_sections'" in errors
     assert '"Risk Mitigation" is not an OPTIONAL section' in errors
+
+
+def test_lint_rejects_a_title_that_repeats_the_task_name():
+    spec = make_spec()
+    task = spec["sprints"][0]["sessions"][0]["tasks"][0]
+    assert task["name"] == "ParseRows"
+    task["title"] = "ParseRows: Step 1 of the ledger"
+    errors = sp.lint_spec(spec, TEMPLATES)
+    assert len(errors) == 1
+    assert "'title' repeats the task name" in errors[0]
+    for title in ("Parse the ParseRows input", "IndexRows: hand-off"):
+        task["title"] = title
+        assert sp.lint_spec(spec, TEMPLATES) == [], title
 
 
 def test_cli_lint_exit_codes(tmp_path):
@@ -343,6 +357,42 @@ def test_check_scope_line_skips_a_direct_orchestration_and_reports_a_missing_pat
     assert sp.check_scope_lines([direct]) == []
     assert sp.main(["check-scope-line", str(direct)]) == 0
     assert sp.main(["check-scope-line", str(tmp_path / "no-such-folder")]) == 2
+
+
+# ---- orchestration Required Context by mode
+
+REFERENCE_DOCS = ("session-planning-protocol.md", "session-context-budget.md", "session-plan-requirements.md")
+
+
+def _required_context_files(text):
+    section = text.split("## Required Context Files", 1)[1].split("\n---", 1)[0]
+    return re.findall(r"^\| \d \| `([^`]+)` \|", section, flags=re.MULTILINE)
+
+
+def test_delegated_orchestration_lints_clean_and_lists_plan_files_only(tmp_path, rendered):
+    out = _write(tmp_path, rendered)
+    assert lps.main([str(out / ORCH_DELEGATED)]) == 0
+    text = (out / ORCH_DELEGATED).read_text(encoding="utf-8")
+    assert _required_context_files(text) == ["QZX-Master-Plan.md", "QZX-S01-01-Recovery.md"]
+    assert not any(name in text.split("## Execution Strategy", 1)[0] for name in REFERENCE_DOCS)
+
+
+def test_direct_orchestration_keeps_the_reference_doc_rows_and_lints_clean(tmp_path, rendered):
+    out = _write(tmp_path, rendered)
+    assert lps.main([str(out / ORCH_DIRECT)]) == 0
+    text = (out / ORCH_DIRECT).read_text(encoding="utf-8")
+    assert _required_context_files(text) == [*REFERENCE_DOCS, "QZX-Master-Plan.md", "QZX-S01-02-Recovery.md"]
+
+
+def test_delegated_known_bad_unfiltered_table_fails_the_linter(tmp_path, rendered):
+    out = _write(tmp_path, rendered)
+    target = out / ORCH_DELEGATED
+    direct = (out / ORCH_DIRECT).read_text(encoding="utf-8")
+    table = direct.split("## Required Context Files", 1)[1].split("\n---", 1)[0]
+    text = target.read_text(encoding="utf-8")
+    old = text.split("## Required Context Files", 1)[1].split("\n---", 1)[0]
+    target.write_text(text.replace(old, table), encoding="utf-8", newline="\n")
+    assert lps.main([str(target)]) == 1
 
 
 # ---- file set

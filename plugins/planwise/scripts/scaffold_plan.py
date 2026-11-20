@@ -136,7 +136,9 @@ and either it has no path separator (/ or \\) and no extension, or
 `token_saver_scan.unresolved_reason` classes it as not a path (prose or command
 output). A one-word value is always a path, so `Makefile`, `Dockerfile`,
 `src/orchard/` and `src/output_writer.py` pass. A command-corpus row belongs in
-kind "command", never in a plain row's path.
+kind "command", never in a plain row's path. A task title that starts with the
+task's own name and a colon is also an error, because the task tables render
+the cell as name, colon, title.
 
 Rendering rules: the body is the text between a template's first ```markdown
 line and its last fence line, so reference text after the closing fence (the
@@ -164,6 +166,7 @@ from types import SimpleNamespace
 sys.dont_write_bytecode = True  # a direct run must not grow scripts/__pycache__
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from lint_plan_strategy import plan_file_cell
 from markdown_parser import split_row_cells
 from read_limits import estimate_tokens
 from token_saver_scan import content_class_for, unresolved_reason
@@ -781,7 +784,27 @@ def o_task_files(lines, i, env):
     return (rows, n)
 
 
+def o_required_context(lines, i, env):
+    """Fill the Required Context table. A DELEGATED session keeps only the rows the linter accepts.
+
+    The renderer calls lint_plan_strategy's own plan_file_cell, so the two share one boundary
+    predicate and cannot drift. A DIRECT session keeps every row.
+    """
+    n = table_run(lines, i)
+    rows = [sub_line(row, env) for row in lines[i:i + n]]
+    if env.session["mode"] != "DELEGATED":
+        return (rows, n)
+    names = {task_filename(env.spec, env.sprint, env.session, t) for t in env.session["tasks"]}
+    kept = rows[:2]
+    for row in rows[2:]:
+        cells = split_row_cells(row)
+        if len(cells) > 1 and plan_file_cell(cells[1], names)[0]:
+            kept.append(row)
+    return (kept, n)
+
+
 ORCH = [
+    H(r"\| Priority \| File \| Purpose \|", o_required_context),
     H(r"\| 1 \| \{Task 1\} \| [A-Z][a-z]+ \|", task_rows),
     H(r"\*\*Total Estimated:\*\* ~\{XX\}K", h_derived("XX", lambda env: session_total(env.session))),
     H(r"\*\*Declared layers:\*\*", o_layers),
@@ -1232,6 +1255,12 @@ def _lint_tasks(tasks, ew, opt, root, errors):
             continue
         _number(t, "task", tw, errors, task_numbers)
         _name(t, "name", tw, errors)
+        if str(t["title"]).lstrip().startswith(f"{t['name']}:"):
+            errors.append(
+                f"{tw}: 'title' repeats the task name {json.dumps(t['name'] + ':')}; "
+                f"the task tables render '{{name}}: {{title}}', so drop the prefix from the title, "
+                f"got {json.dumps(t['title'], ensure_ascii=False)}"
+            )
         _optional(t, ("task",), opt, tw, errors)
         if t["agent"] not in AGENTS:
             errors.append(f"{tw}: 'agent' must be Opus, Sonnet or Haiku, got {json.dumps(t['agent'])}")

@@ -1,6 +1,6 @@
 ---
-description: Every Before/After gate records its measured pre-edit value inline beside its post-edit expectation, written from a run against the live pre-edit tree (§10.1); a gate whose pre-edit value already satisfies its expectation is vacuous by construction and is rewritten, never shipped with a caveat (§10.2); a gate target is classified session-owned or shared, and a shared target asserts a delta from a Before derived in the same invocation, a roster count is a shared target, and a planning-time ceiling on a write-set file that a peer commit moved is re-measured at each CONFIRM, traced per commit and put to the user (§10.1.2); a Before reading finishes in the foreground before the first edit and a snapshot file lands on its own side of the snapshot (§10.1.3); a preservation gate is marked `invariant:` on the annotation line (§10.3); why the annotation and not only the discipline, and the WARNING/ERROR split (§10.4); Reviewer Check 082.
-consult-when: Writing or reviewing an After-block gate — every gate records its measured pre-edit value (§10.1), a gate target is classified session-owned or shared and a shared target asserts a delta from a Before derived in the same run, a roster count is a shared target, and a planning-time ceiling on a write-set file a peer commit moved is re-measured at each CONFIRM, traced per commit and put to the user (§10.1.2), a Before reading finishes in the foreground before the first edit and a snapshot file lands on its own side of the snapshot (§10.1.3), a value that already satisfies the expectation is vacuous and is rewritten (§10.2), a preservation gate is marked `invariant:` (§10.3), Check 082
+description: Every Before/After gate records its measured pre-edit value inline beside its post-edit expectation, written from a run against the live pre-edit tree (§10.1); a gate whose pre-edit value already satisfies its expectation is vacuous by construction and is rewritten, never shipped with a caveat (§10.2); a gate target is classified session-owned or shared, and a shared target asserts a delta from a Before derived in the same invocation, a roster count is a shared target, and a planning-time ceiling on a write-set file that a peer commit moved is re-measured at each CONFIRM, traced per commit and put to the user, and a gate that counts rows by a stored task id measures the live table and adds a second key (§10.1.2); a Before reading finishes in the foreground before the first edit and a snapshot file lands on its own side of the snapshot (§10.1.3); a preservation gate is marked `invariant:` on the annotation line (§10.3); why the annotation and not only the discipline, and the WARNING/ERROR split (§10.4); Reviewer Check 082.
+consult-when: Writing or reviewing an After-block gate — every gate records its measured pre-edit value (§10.1), a gate target is classified session-owned or shared and a shared target asserts a delta from a Before derived in the same run, a roster count is a shared target, and a planning-time ceiling on a write-set file a peer commit moved is re-measured at each CONFIRM, traced per commit and put to the user, a gate that counts rows by a stored task id measures the live table and adds a second key (§10.1.2), a Before reading finishes in the foreground before the first edit and a snapshot file lands on its own side of the snapshot (§10.1.3), a value that already satisfies the expectation is vacuous and is rewritten (§10.2), a preservation gate is marked `invariant:` (§10.3), Check 082
 paths: {planwise_root}/{plans_dir}/**
 ---
 
@@ -45,7 +45,7 @@ The defect is invisible on the page. The command is well-formed, the expectation
 > ```
 > The annotation is written **from a run against the live pre-edit tree**, never from intent. A value recalled from memory, inferred from the task's own objective, or copied from a sibling gate is not a measurement and does not satisfy this rule.
 
-The annotation's grammar is one comment line adjacent to the command it annotates:
+The annotation's grammar is the command's trailing comment or the comment line directly below it, and the linter reads the two together as one annotation:
 
 ```
 # pre-edit: {measured value} → expect {post-edit expectation}
@@ -129,6 +129,29 @@ On a disagreement, trace the cause per commit with `git log -- <path>`. Take eac
 > WRONG — the earlier CONFIRM re-measured only its own files. Task 2 keeps the criterion `<file> <= 22,278` from planning. The file reads 22,583 before any edit, so the gate fails correct work.
 >
 > CORRECT — `measure_files <file>` reads 22,583 against a plan figure of 22,278. The blob trace, bytes plus lines, gives 22,278 at planning and 22,583 from `<sha>`. CONFIRM offers Option A, re-pin to the start figure, and Option B, keep the criterion and absorb the 305 bytes.
+
+#### A gate that counts rows by a stored task id carries a second key
+
+A Meta plan and its Exec plan share one abbreviation and one task-id format, `{Abbrev}-S{XX}-{YY}-{NN}`. The Meta build renames only the plan files, with the `-META-` infix. Task ids stay plain. A table that both trees write under a `task_id` column is therefore a shared target (§10.1.2).
+
+In the measured case, a Before gate scaffolded as 0 read 26 at run time. The Meta plan had already written rows under the same task id. The After expectation could never pass.
+
+Two rules follow:
+
+- **Measure the Before on the live table at scaffold time.** Never assume 0 for a new task.
+- **Add a second key that this task's own rows carry.** Use a session-date bound or a session-unique key prefix.
+
+> [!constraint] A row count by task id needs a second key and a measured Before
+> WRONG — the gate counts by the task id alone and assumes the table holds no rows for it:
+> ```bash
+> {count-cmd} "SELECT COUNT(*) FROM {table} WHERE task_id = '{task_id}'"
+> # pre-edit: 0 (assumed) → expect 1       # the Meta plan's rows make it read 26
+> ```
+> CORRECT — the gate adds a second key, and the Before is the live reading:
+> ```bash
+> {count-cmd} "SELECT COUNT(*) FROM {table} WHERE task_id = '{task_id}' AND created_at >= '{session_start}'"
+> # pre-edit: 0 (live table, both keys) → expect 1
+> ```
 
 #### 10.1.3 A Before reading finishes on the unedited tree before the first edit
 
@@ -225,13 +248,14 @@ Without the recorded value, vacuity is **unknowable** from the artifact, so the 
 - **What:** Every After-block gate MUST record its measured pre-edit value inline beside its post-edit expectation. A gate whose recorded pre-edit value already satisfies its expectation is vacuous by construction — it passes with zero work done, so it cannot answer whether the work happened — and MUST be rewritten before it ships. An After-gate carrying no pre-edit annotation is a WARNING: the value was never recorded, so vacuity is unknowable from the artifact.
 - **Detection:**
   1. Open the task file's Verification Commands After block, plus every Success Criteria item stating an expectation over a measured value.
-  2. For each command, look for an inline pre-edit annotation on an adjacent line (`# pre-edit: {N} → expect …`, or an equivalent recording of the measured pre-edit value). Absent → WARNING.
+  2. For each command, look for an inline pre-edit annotation in the command's trailing comment or on the comment line below it (`# pre-edit: {N} → expect …`, or an equivalent recording of the measured pre-edit value). Absent → WARNING.
   3. Annotation present: evaluate the recorded pre-edit value against the stated expectation using the gate's own comparator. If the pre-edit value already satisfies it → ERROR (vacuous by construction).
   4. An author-marked invariant/preservation gate — the annotation line reads `invariant:` rather than `expect`, and `pre == post` is the intended outcome — is exempt and MUST NOT be flagged by steps 2 or 3.
   5. Where the pre-edit tree state is still reachable, re-measure and compare against the recorded value; a recorded baseline that disagrees with the measured one → ERROR (the annotation was authored from intent, not from a run).
   6. A gate whose subject is a report the same work produces: if it greps a bare token the report's own template emits, rather than the machine-readable verdict line or the status-cell row pattern → WARNING.
   7. A gate target other sprints' work regenerates (a shared target, §10.1.2) that pins an absolute magnitude from plan time, or a halt message that names another session instead of the write-set test → ERROR. Fix: derive BEFORE in the same invocation and assert `AFTER == BEFORE + {n}`.
-- **Enforced by script:** steps 2, 3 and 5 are tested by Checks 2, 1 and 7 of `scripts/lint_verification_gates.py`. Step 7 has no script check. The reviewer reads it.
+  8. A gate that counts rows by a stored task id with no second key, or whose Before was not measured on the live table → ERROR. Fix: add a session-date bound or a session-unique key prefix, and re-measure the Before (§10.1.2).
+- **Enforced by script:** steps 2, 3 and 5 are tested by Checks 2, 1 and 7 of `scripts/lint_verification_gates.py`. Steps 7 and 8 have no script check. The reviewer reads them.
 - **Finding template:**
 ```
 [ERROR] Verification gate is vacuous — pre-edit value already satisfies its expectation

@@ -9,7 +9,7 @@ the search itself. The one subprocess it may start is the read-only ``git``
 query that lists a directory's files, and that query goes through the same
 policy and hardening as every other ``git`` gate.
 
-Three functions, none of which writes anything:
+Four functions, none of which writes anything:
 
 ``parse_grep_call(argv)``
     Turns the argument vector of a ``Grep name=value ...`` line into a
@@ -26,8 +26,15 @@ Three functions, none of which writes anything:
 ``measured_value(params, stdout)``
     Reads the single number the call's output represents.
 
+``locate_relative_path(path, base)``
+    Returns the first of ``base`` and its parents under which a relative path
+    exists, or None. Check 18 of the linter shares it.
+
 Measured semantics the module reproduces:
 
+* A relative ``path`` resolves against the first of the working directory and
+  its parents under which it exists, the same rule the linter's Check 18 uses
+  for a diff gate's path. ``locate_relative_path`` holds that rule.
 * A file ``path`` searches that file, and ``glob`` does not filter it.
 * A directory inside a git work tree searches the files git lists with
   ``ls-files -co --exclude-standard``: hidden files are searched and ignored
@@ -380,13 +387,34 @@ def _matches_in(text, params):
     return count, [(n, lines[n - 1]) for n in sorted(spanned) if n <= len(lines)]
 
 
+def locate_relative_path(path, base):
+    """Return the first of ``base`` and its parents under which ``path`` exists.
+
+    Returns None when the path exists under none of them. A gate with no
+    stated directory runs from one the plan does not name, usually the project
+    root, so the path itself locates the directory it is relative to. The
+    nearest directory wins, so a path that resolves under ``base`` never moves.
+    """
+    base = Path(base)
+    for candidate in (base, *base.parents):
+        if (candidate / path).exists():
+            return candidate
+    return None
+
+
 def run_grep_call(params, cwd=None, timeout=DEFAULT_TIMEOUT_SECONDS):
     """Search and return ``(result, refusal)``; exactly one is None."""
     base = Path(cwd) if cwd is not None else Path.cwd()
     target = Path(params["path"]) if params["path"] else base
     if not target.is_absolute():
-        target = base / target
-    if not target.exists():
+        located = locate_relative_path(target, base)
+        if located is None:
+            return None, (
+                f"the Grep path {params['path']!r} does not exist "
+                f"under {base} or any parent"
+            )
+        target = located / target
+    elif not target.exists():
         return None, f"the Grep path {params['path']!r} does not exist"
 
     deadline = time.monotonic() + timeout

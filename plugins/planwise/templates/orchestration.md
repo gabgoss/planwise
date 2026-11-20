@@ -28,7 +28,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 ## Required Context Files <!-- REQUIRED -->
 
 <!-- DIRECT mode: list all context files needed for the session -->
-<!-- DELEGATED mode: list ONLY plan files (Orchestration, Recovery, task files) -->
+<!-- DELEGATED mode: list ONLY plan files (Orchestration, Recovery, task files); scaffold_plan.py drops the three reference-doc rows below -->
 <!-- Heavy context files go in individual task file Required Context sections -->
 
 | Priority | File | Purpose |

@@ -572,6 +572,46 @@ class TestClassify(_ScratchProject):
         })
         self.assertNotEqual(block["verdict"], "placement")
 
+    def test_body_fixture_path_inside_numbered_step_is_not_create(self):
+        self.write_rule("behaviour-rule.md", 'paths: ".claude/**"')
+        self.touch("tests/test_gen.py")
+        lines = [
+            "# Item",
+            "",
+            "## Resolution",
+            "",
+            (
+                "1. `tests/test_gen.py` -- add a case that writes a planted title naming "
+                "`.claude/rules/planwise/x.md` into a temp tree."
+            ),
+            (
+                "2. `tests/test_gen.py` -- run it; the evidence page "
+                "`planwise/Backlog/Archive/00-Index-Archive.md` is new."
+            ),
+        ]
+        block = scoped_rules_block("001", "\n".join(lines) + "\n", self.config())
+        self.assertEqual(block["source"], "body")
+        roles = {d["path"]: d["role"] for d in block["destinations"]}
+        self.assertEqual(roles, {
+            "tests/test_gen.py": "EDIT",
+            ".claude/rules/planwise/x.md": "READ",
+            "planwise/Backlog/Archive/00-Index-Archive.md": "READ",
+        })
+        self.assertNotEqual(block["verdict"], "placement")
+        # Must-fail control: a step-lead path with a cue, and a prose line, still read CREATE.
+        control = (
+            "# Item\n\n## Resolution\n\n"
+            "3. `.claude/rules/new-rule.md` -- create the rule.\n\n"
+            "Add `.claude/rules/other.md` as well.\n"
+        )
+        kept = scoped_rules_block("002", control, self.config())
+        kept_roles = {d["path"]: d["role"] for d in kept["destinations"]}
+        self.assertEqual(kept_roles, {
+            ".claude/rules/new-rule.md": "CREATE",
+            ".claude/rules/other.md": "CREATE",
+        })
+        self.assertEqual(kept["verdict"], "placement")
+
     def test_body_proposing_new_content_tree_file_is_placement(self):
         self.write_rule("behaviour-rule.md", 'paths: ".claude/**"')
         body = "# Item\n\nCreate `.claude/rules/new-rule.md` to hold the guidance.\n"

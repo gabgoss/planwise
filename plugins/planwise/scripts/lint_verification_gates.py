@@ -1114,7 +1114,7 @@ def _check1_vacuous_after_gate(context: LintContext) -> list:
     for command in context.commands:
         if command.block != BLOCK_AFTER or command.is_placeholder or not command.is_gate:
             continue
-        if _INVARIANT_TOKEN in command.annotation:
+        if _INVARIANT_TOKEN in _note_for(command):
             continue
         expectation = _parse_expectation(_note_for(command))
         if expectation is None:
@@ -1144,16 +1144,19 @@ def _check1_vacuous_after_gate(context: LintContext) -> list:
 def _check2_missing_pre_edit_baseline(context: LintContext) -> list:
     """Check 2 -- an After-block gate with no inline pre-edit annotation
     beside its expectation, or whose annotation defers the measurement
-    ("measure at execution", "TBD"). The gate may be fine; nothing in the
-    artifact establishes that, which is indistinguishable from an author who
-    never measured at all.
+    ("measure at execution", "TBD"). The annotation is read from the
+    command's trailing comment and the comment line below it together, as
+    every other annotation check reads it. The gate may be fine; nothing in
+    the artifact establishes that, which is indistinguishable from an author
+    who never measured at all.
     """
     findings = []
     for command in context.commands:
         if command.block != BLOCK_AFTER or command.is_placeholder or not command.is_gate:
             continue
-        match = _PRE_EDIT_RE.search(command.annotation)
-        if match and _PRE_EDIT_DEFERRAL_RE.match(command.annotation, match.end()):
+        note = _note_for(command)
+        match = _PRE_EDIT_RE.search(note)
+        if match and _PRE_EDIT_DEFERRAL_RE.match(note, match.end()):
             findings.append(
                 make_finding(
                     check=2,
@@ -1184,8 +1187,9 @@ def _check2_missing_pre_edit_baseline(context: LintContext) -> list:
                 message=(
                     "This After-block gate carries no inline pre-edit "
                     "annotation beside its expectation (write it as "
-                    "'pre-edit: {value}'), so whether it could ever have "
-                    "failed is unknowable from the artifact"
+                    "'pre-edit: {value}' in the command's trailing comment "
+                    "or on the comment line below it), so whether it could "
+                    "ever have failed is unknowable from the artifact"
                 ),
             )
         )
@@ -1717,7 +1721,7 @@ def _check10_single_term_coverage_count(context: LintContext) -> list:
     for command in context.commands:
         if command.is_placeholder or not command.is_gate:
             continue
-        if _INVARIANT_TOKEN in command.annotation:
+        if _INVARIANT_TOKEN in _note_for(command):
             continue
         stage, stages = _first_grep_stage(command)
         if stage is None or stage[0] != "grep" or len(stages) != 1:
@@ -1941,7 +1945,7 @@ def _check15_anchored_aggregate_threshold(context: LintContext) -> list:
     for command in context.commands:
         if command.is_placeholder or not command.is_gate:
             continue
-        if _INVARIANT_TOKEN in command.annotation:
+        if _INVARIANT_TOKEN in _note_for(command):
             continue
         stage, stages = _first_grep_stage(command)
         if stage is None or stage[0] != "grep" or len(stages) != 1:

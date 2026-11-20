@@ -84,7 +84,7 @@ Author the whole session into `{Abbrev}-bodies-S{XX}-{YY}.md` and its `-part{n}`
    ```
    python -B "{plugin_root}/scripts/plan_build.py" lint --spec {spec_path} --bodies-dir {bodies_dir} --session S{XX}-{YY}
    ```
-   It prints one `LINT:` line per error, then the line `session=S{XX}-{YY} keys_missing=<n> errors=<n>`. It exits 0 clean, 1 when a marker has no body, and 2 on any error or refusal.
+   It prints one `LINT:` line per error. Then it prints one `MISSING: doc=<ID> marker=<name> [k] under <H2>/<H3>` line per marker occurrence with no body, at most 20, followed by a `MISSING: +<n> more` line when more remain. The last line is `session=S{XX}-{YY} keys_missing=<n> errors=<n>`. It exits 0 clean, 1 when a marker has no body, and 2 on any error or refusal.
 8. Read that line. `keys_missing=0` and `errors=0` mean the session is authored. Otherwise rewrite the file of each block the lint names, whole, and run the lint again. A `REFUSED:` line is a `BLOCKED` return that names the input.
 
 The agent cannot see its turn count, so these budget rules stand in for a counter:
