@@ -10,6 +10,7 @@ that file.
 | Command | Behaviour | Exit |
 |---|---|---|
 | `scan --config C --draft PATH [--title T] [--json]` | Resolves `gh`, builds the search keys of Step 4.5 from the draft's title and body, runs one `gh issue list` per key, merges and ranks the rows, and prints the result. Writes nothing | 0 the scan ran, whatever it found; 1 the config or draft cannot be read; 2 argparse usage error |
+| `card --config C [--draft-id ID] [--all]` | Lists the queued model drafts (id, kind, title, age), prints the posting state line, then each queued draft's body under a header line. `--draft-id` narrows it to one queued draft; `--all` also lists the other drafts without bodies. Expiry is computed in memory with the shared predicate, so an expired draft is left as it is on disk. Writes nothing and runs no `gh` | 0 printed; 1 the config or feedback directory cannot be read; 2 no queued draft has that id, or an argparse usage error |
 | `post --config C --draft-id ID` | The unattended post path: gate 1, then the queued model draft is promoted (a promoted draft with no `.posted` sidecar is retried as it is), then gates 3 and 4, the scan, Unattended Routing, `prepare_post` on the exact file the route posts, one `gh issue create` or `gh issue comment`, and the `.posted` sidecar. Prints one result line | 0 posted; 3 the draft was kept and nothing was posted, or a timed-out post may have happened; 4 posting is off; 1 the config cannot be read or the promote failed; 2 no queued draft has that id, or an argparse usage error |
 
 Exit 0 and exit 3 are both definite results, and the parent flow continues on either. A post whose outcome
@@ -788,6 +789,82 @@ def cmd_post(args: argparse.Namespace) -> int:
     return EXIT_POSTED
 
 
+# ---------------------------------------------------------------- the card
+
+EXIT_CARD_UNKNOWN = 2
+
+
+def _age(draft: "feedback_drafts.Draft", now: datetime) -> str:
+    """Whole days since `created_at`, as `{n}d`, or `unknown` when it does not parse."""
+    created = feedback_drafts._parse_created(draft.fm.get("created_at", ""))
+    if created is None:
+        return "unknown"
+    return f"{max(0, (now - created).days)}d"
+
+
+def _card_status(draft: "feedback_drafts.Draft", now: datetime) -> str:
+    """The status `list` would show, computed in memory: a queued draft past expiry reads `expired`. Writes nothing."""
+    if draft.status == "queued" and feedback_drafts.is_expired(draft, now):
+        return "expired"
+    return draft.status
+
+
+def _card_body(draft: "feedback_drafts.Draft") -> str:
+    """The draft text below its frontmatter, line endings as LF, outer blank lines dropped."""
+    text = draft.raw.replace("\r\n", "\n")
+    parts = frontmatter_parser.split_frontmatter_block(text)
+    return (parts[1] if parts is not None else text).strip("\n")
+
+
+def _card_row(draft: "feedback_drafts.Draft", now: datetime, status: "str | None" = None) -> str:
+    kind = feedback_drafts._name_kind(draft.path.name) or draft.fm.get("kind", "")
+    cells = [draft.draft_id, kind, " ".join(draft.fm.get("title", "").split()), _age(draft, now)]
+    if status is not None:
+        cells.insert(1, status)
+    return "\t".join(cells)
+
+
+def cmd_card(args: argparse.Namespace) -> int:
+    """Print the queued drafts, the posting state and each queued body. Local-only and read-only: no file, no gh."""
+    config = Path(args.config)
+    if not config.is_file():
+        print(f"feedback_post: config.yaml not found at {config}", file=sys.stderr)
+        return EXIT_FAILED
+    with contextlib.redirect_stderr(io.StringIO()) as err:
+        directory, _code = feedback_drafts._need_dir(argparse.Namespace(feedback_dir=None, config=str(config)))
+    if directory is None:
+        print(f"feedback_post: {' '.join(err.getvalue().split())}", file=sys.stderr)
+        return EXIT_FAILED
+    now = feedback_drafts._now()
+    drafts = feedback_drafts._iter_drafts(directory)
+    statuses = {id(draft): _card_status(draft, now) for draft in drafts}
+    queued = [draft for draft in drafts if statuses[id(draft)] == "queued"]
+    if args.draft_id is not None:
+        queued = [draft for draft in queued if draft.draft_id == args.draft_id]
+        if not queued:
+            print(f"No queued draft with id {args.draft_id}.")
+            return EXIT_CARD_UNKNOWN
+    try:
+        state = feedback_drafts.read_posting_state(config)
+    except (OSError, ValueError) as exc:
+        state = f"unreadable ({' '.join(str(exc).split())})"
+
+    print(f"Queued drafts ({len(queued)}) in {directory}:")
+    for draft in queued:
+        print(_card_row(draft, now))
+    if args.all and args.draft_id is None:
+        others = [draft for draft in drafts if statuses[id(draft)] != "queued"]
+        print(f"Other drafts ({len(others)}):")
+        for draft in others:
+            print(_card_row(draft, now, statuses[id(draft)]))
+    print(f"Posting state: {state}")
+    for draft in queued:
+        print()
+        print(f"--- draft {draft.draft_id}: {' '.join(draft.fm.get('title', '').split())} ---")
+        print(_card_body(draft))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="feedback_post", description="Scan for and post feedback drafts to GitHub.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -801,6 +878,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_post.add_argument("--config", required=True, help="path to config.yaml")
     p_post.add_argument("--draft-id", required=True, help="the draft_id of a queued model draft")
     p_post.set_defaults(func=cmd_post)
+    p_card = sub.add_parser("card", help="list the queued drafts, the posting state and each queued body; local-only, read-only")
+    p_card.add_argument("--config", required=True, help="path to config.yaml")
+    p_card.add_argument("--draft-id", help="show only this queued draft")
+    p_card.add_argument("--all", action="store_true", help="also list the expired, discarded and promoted drafts, without bodies")
+    p_card.set_defaults(func=cmd_card)
     return parser
 
 

@@ -1,4 +1,4 @@
-"""Tests for the `scan` and `post` subcommands of scripts/feedback_post.py.
+"""Tests for the `scan`, `post` and `card` subcommands of scripts/feedback_post.py.
 
 Every case runs the script in a subprocess with `-B` against the fake `gh` in tests/fake_gh/, with
 every file under pytest's tmp_path. No case can reach an installed `gh`: the known-location list is
@@ -8,6 +8,7 @@ Each expected key list is written from the tier table of Step 4.5 in
 references/feedback-submission.md, not from the script's output.
 """
 
+import hashlib
 import json
 import os
 import shutil
@@ -691,3 +692,133 @@ def test_a_missing_config_exits_1(tmp_path):
     result = post(tmp_path / "absent.yaml", env)
     assert result.returncode == 1
     assert count_calls(log) == 0
+
+
+# ---------------------------------------------------------------- the card
+#
+# The card is local-only and read-only. Every case hashes the Feedback folder before and after, and runs
+# with the fake gh resolvable, so a call would show in its log.
+
+CARD_DRAFTS = (
+    # (file name, draft_id, kind, title, age in days, status, body)
+    ("2026-01-01-draft-bug-list-skips.md", "d-0001", "bug", "List skips a queued draft", 2, "queued",
+     "### What happened\n\nThe list command skipped a draft.\n"),
+    ("2026-01-02-draft-lesson-name-the-key.md", "d-0002", "lesson", "Name the key the class uses", 5, "queued",
+     "### Lesson\n\nCount by the key citers use.\n"),
+    ("2026-01-03-draft-idea-card-preview.md", "d-0003", "idea", "Preview the card body", 0, "queued",
+     "### Idea\n\nShow the body in the card.\n"),
+)
+
+
+def card_setup(tmp_path: Path, drafts=CARD_DRAFTS, posting: "str | None" = "true") -> "tuple[Path, Path]":
+    """A config and a Feedback folder of model drafts. `posting` None leaves `feedback.enabled` out."""
+    config = tmp_path / "config.yaml"
+    enabled = f"  enabled: {posting}\n" if posting is not None else ""
+    config.write_bytes(f"feedback:\n{enabled}  repo: {REPO}\n".encode())
+    folder = tmp_path / "Feedback"
+    folder.mkdir(exist_ok=True)
+    for name, draft_id, kind, title, days, status, body in drafts:
+        created = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - days * 86400 - 60))
+        (folder / name).write_bytes((f"---\ndraft_id: {draft_id}\ncreated_at: {created}\ndrafted_by: model\nkind: {kind}\n"
+                                     f"title: {title}\nstatus: {status}\n---\n\n{body}").encode())
+    return config, folder
+
+
+def folder_hashes(folder: Path) -> dict:
+    return {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(folder.iterdir())}
+
+
+def card(config: Path, env: dict, *extra: str) -> "subprocess.CompletedProcess":
+    argv = [sys.executable, "-B", str(SCRIPT), "card", "--config", str(config), *extra]
+    return subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", env=env, cwd=config.parent, timeout=120, check=False)
+
+
+def test_card_lists_three_drafts_the_state_and_each_body(tmp_path):
+    config, folder = card_setup(tmp_path)
+    before = folder_hashes(folder)
+    env, log = gh_env(tmp_path, route="override")
+    result = card(config, env)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == (
+        f"Queued drafts (3) in {folder}:\n"
+        "d-0001\tbug\tList skips a queued draft\t2d\n"
+        "d-0002\tlesson\tName the key the class uses\t5d\n"
+        "d-0003\tidea\tPreview the card body\t0d\n"
+        "Posting state: enabled\n"
+        "\n--- draft d-0001: List skips a queued draft ---\n### What happened\n\nThe list command skipped a draft.\n"
+        "\n--- draft d-0002: Name the key the class uses ---\n### Lesson\n\nCount by the key citers use.\n"
+        "\n--- draft d-0003: Preview the card body ---\n### Idea\n\nShow the body in the card.\n")
+    assert folder_hashes(folder) == before and count_calls(log) == 0
+
+
+def test_card_draft_id_narrows_to_one_draft(tmp_path):
+    config, folder = card_setup(tmp_path)
+    env, log = gh_env(tmp_path, route="override")
+    result = card(config, env, "--draft-id", "d-0002")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == (
+        f"Queued drafts (1) in {folder}:\n"
+        "d-0002\tlesson\tName the key the class uses\t5d\n"
+        "Posting state: enabled\n"
+        "\n--- draft d-0002: Name the key the class uses ---\n### Lesson\n\nCount by the key citers use.\n")
+    assert count_calls(log) == 0
+
+
+@pytest.mark.parametrize("draft_id", ["d-9999", "d-0004"], ids=["unknown-id", "expired-id"])
+def test_card_unknown_id_prints_one_line_and_exits_2(tmp_path, draft_id):
+    old = ("2025-01-01-draft-bug-old.md", "d-0004", "bug", "An old draft", 60, "queued", "Old.\n")
+    config, folder = card_setup(tmp_path, drafts=CARD_DRAFTS + (old,))
+    before = folder_hashes(folder)
+    env, log = gh_env(tmp_path, route="override")
+    result = card(config, env, "--draft-id", draft_id)
+    assert result.returncode == 2
+    assert result.stdout == f"No queued draft with id {draft_id}.\n"
+    assert folder_hashes(folder) == before and count_calls(log) == 0
+
+
+def test_card_omits_an_expired_draft_and_leaves_its_bytes(tmp_path):
+    old = ("2025-01-01-draft-bug-old.md", "d-0004", "bug", "An old draft", 31, "queued", "Old body.\n")
+    config, folder = card_setup(tmp_path, drafts=CARD_DRAFTS + (old,))
+    expired = folder / old[0]
+    before = folder_hashes(folder)
+    env, log = gh_env(tmp_path, route="override")
+    result = card(config, env)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith(f"Queued drafts (3) in {folder}:\n")
+    assert "d-0004" not in result.stdout and "Old body." not in result.stdout
+    assert folder_hashes(folder) == before and "status: queued" in expired.read_text(encoding="utf-8")
+    # --all lists it as expired, computed in memory, and still writes nothing.
+    listed = card(config, env, "--all")
+    assert listed.returncode == 0, listed.stderr
+    assert "Other drafts (1):\nd-0004\texpired\tbug\tAn old draft\t31d\n" in listed.stdout
+    assert "Old body." not in listed.stdout
+    assert folder_hashes(folder) == before and count_calls(log) == 0
+
+
+@pytest.mark.parametrize("posting,state", [("true", "enabled"), ("false", "disabled"), (None, "absent")])
+def test_card_prints_the_posting_state_line(tmp_path, posting, state):
+    config, _folder = card_setup(tmp_path, posting=posting)
+    config_before = config.read_bytes()
+    env, log = gh_env(tmp_path, route="override")
+    result = card(config, env)
+    assert result.returncode == 0, result.stderr
+    assert f"\nPosting state: {state}\n" in result.stdout
+    assert config.read_bytes() == config_before and count_calls(log) == 0
+
+
+def test_card_makes_no_gh_call_and_no_subprocess(tmp_path, monkeypatch, capsys):
+    config, folder = card_setup(tmp_path)
+    before = folder_hashes(folder)
+    # Control: the fake's log records a call when one is made, so the zero counts in the other card cases can see a call.
+    env, log = gh_env(tmp_path, route="override")
+    subprocess.run([sys.executable, "-B", str(FAKE), "--version"], env=env, capture_output=True, timeout=60, check=False)
+    assert count_calls(log, "--version") == 1
+
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("the card ran a subprocess")
+
+    monkeypatch.setattr(fp.subprocess, "run", refuse)
+    monkeypatch.setattr(fp, "resolve_gh", refuse)
+    assert fp.main(["card", "--config", str(config)]) == 0
+    assert capsys.readouterr().out.count("\n--- draft ") == 3
+    assert folder_hashes(folder) == before

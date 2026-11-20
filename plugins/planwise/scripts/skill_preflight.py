@@ -34,6 +34,15 @@ cannot be read or parsed, or anything else fails, the block holds one
 `PLANWISE_PLAN_FALLBACK: <type>: <message>` line and the end marker. Extra
 words after `plan` are ignored.
 
+`feedback` runs `feedback_post.py card --config <config>` (read-only, local) and
+prints its output between `<!-- planwise:feedback:begin -->` and
+`<!-- planwise:feedback:end -->`, followed by a NEXT block. The NEXT block
+branches on the `ARGUMENTS:` line the model reads: `--post <id>`, `--drafts`, or
+any other form. When the card lists no queued draft, nothing prints, so the
+handler's own route runs. A non-zero card exit, a missing config or any other
+failure prints one `PLANWISE_FEEDBACK_FALLBACK: <cause>` line and the end
+marker.
+
 For every input, a `planwise: ...` version notice line prints first when the
 config pin differs from this plugin. It prints before the BEGIN marker, never
 raises and never changes the exit code.
@@ -41,6 +50,9 @@ raises and never changes the exit code.
 CLI: python -B skill_preflight.py <sub> <flag1> <flag2>
 """
 
+import os
+import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -55,6 +67,11 @@ UPGRADE_END = "<!-- planwise:upgrade:end -->"
 PLAN_BEGIN = "<!-- planwise:plan:begin -->"
 PLAN_END = "<!-- planwise:plan:end -->"
 PLAN_FALLBACK = "PLANWISE_PLAN_FALLBACK:"
+FEEDBACK_BEGIN = "<!-- planwise:feedback:begin -->"
+FEEDBACK_END = "<!-- planwise:feedback:end -->"
+FEEDBACK_FALLBACK = "PLANWISE_FEEDBACK_FALLBACK:"
+CARD_HEADER_RE = re.compile(r"^Queued drafts \((\d+)\) in ")
+CARD_STATE_PREFIX = "Posting state:"
 
 
 def normalise(argv: list[str]) -> list[str]:
@@ -177,6 +194,63 @@ def plan_gate(root: Path) -> tuple[list[str], Path | None, dict | None, str | No
     return lines, path, config, plans_path
 
 
+def feedback_next_lines(count: int, ids: list[str], state: str) -> list[str]:
+    """The NEXT block. Every "done" claim names a value the card computed in this run."""
+    listed = ", ".join(ids)
+    return [
+        "NEXT:",
+        f"- Done by this block: the card listed {count} queued draft(s) ({listed}), read the posting state ({state}) and printed each queued draft's body above. Do not list, check the state or read a draft again.",
+        "- Check the `ARGUMENTS:` line, then take exactly one branch:",
+        f"  - `--post <id>`: use that draft's body from the card above. If the id is not one of {listed}, say that no queued draft has that id and stop.",
+        f"  - `--drafts` without `--all`: ask the user one question per queued draft, for {count} question(s), naming each draft by id and title from the card above.",
+        "  - any other `feedback` form, `--drafts --all` included: ignore this block and follow the feedback handler.",
+        "- Do not Read the feedback handler on the `--post` and `--drafts` branches. Do not run `list`. Do not Read a draft file. Do not run `promote`. Do not call `gh`.",
+    ]
+
+
+def feedback_block(root: Path) -> list[str] | None:
+    """Return the feedback block lines, or None when the queue is empty and nothing should print."""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import config_loader  # lazy: nothing loads for other subcommands
+
+        path = plan_config_path(root, config_loader)
+        if path is None:
+            raise FileNotFoundError("config.yaml not found")
+        proc = subprocess.run(  # fixed argv, no shell; the card is read-only and local
+            [sys.executable, "-B", str(Path(__file__).resolve().parent / "feedback_post.py"), "card", "--config", str(path)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            timeout=60,
+            check=False,
+        )
+        if proc.returncode != 0:
+            detail = _one_line(RuntimeError(proc.stdout or proc.stderr))
+            raise RuntimeError(f"feedback_post.py card exited {proc.returncode}: {detail}")
+        lines = proc.stdout.splitlines()
+        header = CARD_HEADER_RE.match(lines[0]) if lines else None
+        if header is None:
+            raise ValueError("card output has no 'Queued drafts (N) in' header line")
+        count = int(header.group(1))
+        if count == 0:
+            return None
+        ids: list[str] = []
+        state = None
+        for line in lines[1:]:
+            if line.startswith(CARD_STATE_PREFIX):
+                state = line[len(CARD_STATE_PREFIX):].strip()
+                break
+            ids.append(line.split("\t", 1)[0])
+        if state is None or len(ids) != count:
+            raise ValueError("card output rows do not match its header count or lack the posting state line")
+        return [FEEDBACK_BEGIN, *lines, "", *feedback_next_lines(count, ids, state), FEEDBACK_END]
+    except Exception as exc:  # noqa: BLE001 - contract: one fallback line, exit 0
+        return [FEEDBACK_BEGIN, f"{FEEDBACK_FALLBACK} {type(exc).__name__}: {_one_line(exc)}", FEEDBACK_END]
+
+
 def run(argv: list[str]) -> int | None:
     print_version_notice()
     tokens = normalise(argv)
@@ -204,6 +278,11 @@ def run(argv: list[str]) -> int | None:
             except Exception as exc:  # noqa: BLE001 - the eight gate lines survive a card failure
                 lines = [*lines, f"plan_card: (unavailable: {type(exc).__name__})"]
         _write_utf8([PLAN_BEGIN, *lines, PLAN_END])
+        return 0
+    if tokens and tokens[0] == "feedback":
+        block = feedback_block(Path.cwd())
+        if block is not None:
+            _write_utf8(block)
         return 0
     if not tokens or tokens[0] != "list":
         return

@@ -89,8 +89,8 @@ Read `$1`. Five modes, mutually exclusive:
 | absent, or `bug` \| `lesson` \| `idea` | **post** (default) | `kind` defaults to `bug` when omitted and no mode flag is given. Anything else here: ask the user to pick one of the three. |
 | `--status` | **status** | Takes no further argument. |
 | `--sweep` | **sweep** | Takes no further argument. |
-| `--drafts` | **drafts** | Takes no `kind`. Takes `--all` (read from `$2`) as its only optional argument, and passes it to the engine. |
-| `--post <draftId>` | **post-draft** | Takes exactly one value, read from `$2`: the `draft_id` of a queued model draft. Takes no `kind`. The name `post-draft` keeps it distinct from the default **post** mode. |
+| `--drafts` | **drafts** | Takes no `kind`. Takes `--all` (read from `$2`) as its only optional argument, and passes it to the engine. Without `--all`, it takes the card route below when the preflight block is present. |
+| `--post <draftId>` | **post-draft** | Takes exactly one value, read from `$2`: the `draft_id` of a queued model draft. Takes no `kind`. The name `post-draft` keeps it distinct from the default **post** mode. It takes the card route below when the preflight block is present. |
 | `--post` with no value | none | Reject: `--post needs a draft id. Run /planwise feedback --drafts to list the queued drafts.` Do nothing, exit 0. |
 | any two of `--status`, `--sweep`, `--drafts`, `--post` | none | Reject: `--status, --sweep, --drafts and --post cannot be combined. Run one at a time.` Do nothing, exit 0. |
 | a mode flag plus a `kind` | none | Reject: `--status, --sweep, --drafts and --post take no kind argument.` Do nothing, exit 0 — a `kind` is meaningless to all four, and silently ignoring it would hide a typo. |
@@ -100,6 +100,30 @@ Read `$1`. Five modes, mutually exclusive:
 Every rejection prints one line and exits 0. None of them raises a prompt, and none falls
 through to the post flow — a mistyped flag must never begin collecting a report the user did
 not ask for.
+
+#### Card Route for `--drafts` and `--post`
+
+While model drafts are queued, the skill's preflight prints a block between
+`<!-- planwise:feedback:begin -->` and `<!-- planwise:feedback:end -->`. It holds the queued
+rows, a `Posting state:` line and each draft's body under `--- draft {id}: {title} ---`. The
+card route runs when that block is present with no `PLANWISE_FEEDBACK_FALLBACK:` line, and the
+`ARGUMENTS:` line is `--post <draftId>` or `--drafts` without `--all`:
+
+1. Take the flag and the id from the `ARGUMENTS:` line, never from the block.
+2. On `--post <draftId>`, find the id among the block's rows. When no row carries it, print
+   `Model draft {draft_id} was not found among queued drafts.` and stop.
+3. When the `Posting state:` line is not `enabled`, ask the posting question once, before the
+   first draft, as the Per-Draft Action section of Part 2 describes.
+4. Ask one per-draft question: the named draft on `--post`, each row in block order on
+   `--drafts`. Show the body verbatim from the block, and offer **Post**, **Discard** and
+   **Keep** (pre-selected). The question says that Post publishes the shown body with no
+   further question.
+5. On Post, run one `feedback_post.py post` call. On Discard, run one `feedback_drafts.py discard`
+   call. On Keep, run nothing. The Per-Draft Action section of Part 2 holds the commands and
+   the exit codes.
+
+An absent block, a block with the fallback line, and `--drafts --all` take the engine route of
+Step 4. Every other mode ignores the block.
 
 ### Step 3: Collect the Report (post mode only)
 
@@ -122,8 +146,8 @@ shortcut, or duplicate any part of any of them — it supplies inputs and report
   draft-first write, post-or-fallback, posted-draft marking, and Auto-Mode deviation.
 - **sweep** — hand off with no arguments to the engine's `## Sweeping Posted Drafts` pipeline, in `references/feedback-submission-Part-2-LocalDraftPipelines.md`. The engine prints the helper's `sweep-list` listing verbatim before any question.
 - **status** — hand off with no arguments to the engine's `## Reporting Draft Status` pipeline, in the same Part-2 file.
-- **drafts** — hand off to the engine's `## Reviewing Model Drafts` pipeline, in the same Part-2 file, with `--all` when given and with no arguments otherwise. The engine prints the helper's `list --table` listing verbatim before any question.
-- **post-draft** — hand off with the draft id to the engine's `## Reviewing Model Drafts` route `Post one draft`, in the same Part-2 file.
+- **drafts** — with the preflight block present, follow the Card Route in Step 2. Otherwise hand off to the engine's `## Reviewing Model Drafts` pipeline, in the same Part-2 file, with `--all` when given and with no arguments otherwise. The engine prints the helper's `list --table` listing verbatim before any question.
+- **post-draft** — with the preflight block present, follow the Card Route in Step 2. Otherwise hand off with the draft id to the engine's `## Reviewing Model Drafts` route `Post one draft`, in the same Part-2 file.
 
 ### Step 5: Report the Outcome
 
@@ -169,8 +193,8 @@ selection, owned by the engine, and it never replaces a route's consent site.
 | **post** (default) | Step 3 (Collect) → Step 4 (delegate to the post pipeline) → Step 5 | Part 1, plus Part 3 for the body spec, fallback and Auto Mode |
 | **status** | Step 4 (delegate to `## Reporting Draft Status`) → Step 5 — Step 3 is skipped | Part 2 |
 | **sweep** | Step 4 (delegate to `## Sweeping Posted Drafts`) → Step 5 — Step 3 is skipped | Part 2 |
-| **drafts** | Step 4 (delegate to `## Reviewing Model Drafts`) → Step 5 — Step 3 is skipped | Part 2 |
-| **post-draft** | Step 4 (delegate to the `Post one draft` route of `## Reviewing Model Drafts`) → Step 5 — Step 3 is skipped | Part 2, then Part 1 for the post |
+| **drafts** | Preflight block present, no `PLANWISE_FEEDBACK_FALLBACK:` line, no `--all`: the Card Route in Step 2 → Step 5. Otherwise: Step 4 (delegate to `## Reviewing Model Drafts`) → Step 5. Step 3 is skipped | Part 2 |
+| **post-draft** | Preflight block present, no `PLANWISE_FEEDBACK_FALLBACK:` line: the Card Route in Step 2 → Step 5. Otherwise: Step 4 (delegate to the `Post one draft` route of `## Reviewing Model Drafts`) → Step 5. Step 3 is skipped | Part 2, then Part 1 for the post on the engine route |
 
 ## Notes
 
