@@ -17,6 +17,7 @@ declare module 'claude-code' {
       cardsShown: number
       dismissals: number
       hidden: boolean
+      posting: boolean
     }
   }
 }

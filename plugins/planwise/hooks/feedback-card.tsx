@@ -8,10 +8,11 @@ import type { EngineInterface, On, PluginOptions } from 'claude-code'
 
 import { clearIfSame, fitTitle, isStalePress, kindLabel, previewLines, previewRows, shouldAskTurnOff } from './feedback/card-preview.ts'
 import { PYTHON_CANDIDATES } from './feedback/names.ts'
+import { pressPost } from './feedback/post-press.ts'
 import { failureText } from './loop/boundary.ts'
 import { skillNameOf } from './loop/reentry.ts'
 
-// The state scan reads an atom only when it is written in this file, so the four atoms sit here.
+// The state scan reads an atom only when it is written in this file, so the five atoms sit here.
 /** The draft the card offers, or null when no draft is waiting. */
 const lastDraft = atom({ plugin: 'planwise', key: 'lastDraft' } as const, null)
 /** How many drafts this session admitted. The card yields after the third. */
@@ -20,6 +21,8 @@ const cardsShown = atom({ plugin: 'planwise', key: 'cardsShown' } as const, 0)
 const dismissals = atom({ plugin: 'planwise', key: 'dismissals' } as const, 0)
 /** True once the person turned drafting off from the card. */
 const hidden = atom({ plugin: 'planwise', key: 'hidden' } as const, false)
+/** True while a Post press runs the post script. A second press during that time does nothing. */
+const posting = atom({ plugin: 'planwise', key: 'posting' } as const, false)
 
 /** The card shows for the first three admitted drafts of a session. */
 const MAX_CARDS = 3
@@ -49,12 +52,14 @@ export function hostOf($: EngineInterface) {
     listCommands: () => $.command.list(),
     runCommand: (command: string, args: string) => $.command.run({ command, args }),
     ask: (question: string, options: readonly string[]) => $.ui.ask(question, options),
-    run: (argv: readonly string[]) => $.process.run(argv),
+    run: (argv: readonly string[], init?: { timeoutMs?: number }) => (init === undefined ? $.process.run(argv) : $.process.run(argv, init)),
     pluginRoot: () => $.plugin.root,
     uiLog: (text: string, to: 'debug' | 'transcript') => $.ui.log(text, { to }),
     readLast: () => read($, lastDraft),
     readShown: () => read($, cardsShown),
     readHidden: () => read($, hidden),
+    readPosting: () => read($, posting),
+    setPosting: (value: boolean) => update($, posting, () => value),
     clearLast: (draftId: string | null) => update($, lastDraft, (current) => clearIfSame(current, draftId)),
     bumpDismissals: () => update($, dismissals, (n) => n + 1),
     hide: () => update($, hidden, () => true),
@@ -91,11 +96,13 @@ const onReview = async (host: CardHost): Promise<void> => {
   await runAndSpend(host, 'feedback --drafts', draft === null ? null : draft.draftId)
 }
 
-/** Button 2: post the card's draft. The id is read fresh from the atom at press time. */
+/**
+ * Button 2: post the card's draft with no model turn. The id is read fresh from the atom at press
+ * time. The skill route is the fallback for when no python could start.
+ */
 const onPost = async (host: CardHost): Promise<void> => {
   const draft = await host.readLast()
-  if (isStalePress(draft)) return
-  await runAndSpend(host, 'feedback --post ' + draft.draftId, draft.draftId)
+  await pressPost({ ...host, fallback: (draftId: string) => runAndSpend(host, 'feedback --post ' + draftId, draftId) }, draft)
 }
 
 /**
@@ -153,6 +160,7 @@ export function register(on: On, options: PluginOptions) {
     const draft = await host.readLast()
     const isHidden = await host.readHidden()
     const shown = await host.readShown()
+    const isPosting = await host.readPosting()
     if (e.props.hasSurvey || e.props.isWorking) return next(e)
     if (draft === null || isHidden || shown > MAX_CARDS) return next(e)
     // The frame and the badge take their rows and columns first; the content gets what is left.
@@ -171,11 +179,17 @@ export function register(on: On, options: PluginOptions) {
         {rows.map((line, i) => (
           <Text key={String(i)}>{line}</Text>
         ))}
-        <Box gap={2} marginTop={1}>
-          <Button key="review" label="Review" hotkey="1" plain onPress={() => void onReview(host).catch((err: unknown) => host.uiLog('draft feedback: review press failed: ' + errText(err), 'debug'))} />
-          <Button key="post" label="Post" hotkey="2" plain onPress={() => void onPost(host).catch((err: unknown) => host.uiLog('draft feedback: post press failed: ' + errText(err), 'debug'))} />
-          <Button key="dismiss" label="Dismiss" hotkey="0" plain role="dismiss" onPress={() => void onDismiss(host).catch((err: unknown) => host.uiLog('draft feedback: dismiss press failed: ' + errText(err), 'debug'))} />
-        </Box>
+        {isPosting ? (
+          <Box marginTop={1}>
+            <Text color={ACCENT}>Posting…</Text>
+          </Box>
+        ) : (
+          <Box gap={2} marginTop={1}>
+            <Button key="review" label="Review" hotkey="1" plain onPress={() => void onReview(host).catch((err: unknown) => host.uiLog('draft feedback: review press failed: ' + errText(err), 'debug'))} />
+            <Button key="post" label="Post" hotkey="2" plain onPress={() => void onPost(host).catch((err: unknown) => host.uiLog('draft feedback: post press failed: ' + errText(err), 'debug'))} />
+            <Button key="dismiss" label="Dismiss" hotkey="0" plain role="dismiss" onPress={() => void onDismiss(host).catch((err: unknown) => host.uiLog('draft feedback: dismiss press failed: ' + errText(err), 'debug'))} />
+          </Box>
+        )}
       </Box>
     )
   }).catch(($, e, next) => {
