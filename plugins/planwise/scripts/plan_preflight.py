@@ -118,16 +118,18 @@ def index_abbreviations(config: dict, plans_shape: str) -> set[str]:
 
 def folder_abbreviations(plans_dir: Path) -> set[str]:
     """The `{Abbrev}` of every `*Master-Plan.md` file and `Meta-{Abbrev}` folder under the plans directory."""
+    from constants import PLAN_BUILD_DIRNAME
+
     found = set()
     if not plans_dir.is_dir():
         return found
     for path in plans_dir.rglob("*Master-Plan.md"):
         match = MASTER_PLAN_RE.match(path.name)
-        if match:
+        if match and PLAN_BUILD_DIRNAME not in path.relative_to(plans_dir).parts:
             found.add(match.group(1))
     for path in plans_dir.rglob("Meta-*"):
         match = META_FOLDER_RE.match(path.name)
-        if path.is_dir() and match:
+        if path.is_dir() and match and PLAN_BUILD_DIRNAME not in path.relative_to(plans_dir).parts:
             found.add(match.group(1))
     return found
 

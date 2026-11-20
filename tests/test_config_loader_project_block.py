@@ -66,7 +66,7 @@ class _LoadedConfigCase(unittest.TestCase):
         self.assertEqual(config["_plans_index"], root / "Plans" / "00-Index-Plans.md")
         self.assertIsNone(config["_lessons_dir"])
         self.assertIsNone(config["_lessons_index"])
-        self.assertEqual(config["_feedback_dir"], root / "Feedback")
+        self.assertEqual(config["_feedback_dir"], root / "Feedback" / "Feedback-Drafts")
 
 
 class TestNullProjectBlock(_LoadedConfigCase):

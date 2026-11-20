@@ -372,7 +372,7 @@ class InitConfig:
     plans_dir: str = "Plans"
     backlog_dir: str = "Backlog"
     lessons_dir: str = "LessonsLearned"
-    feedback_dir: str = "Feedback"
+    feedback_dir: str = "Feedback/Feedback-Drafts"
     install_scope: str = "project"
     plan_tier: str = "pro"
     plugin_version: str = "0.0.0"

@@ -55,6 +55,7 @@ if __name__ == "__main__":
 
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 
+import layout_migrate
 from constants import InstallScope
 from migration_answers import AnswersError, load_answers
 from pyyaml_remedy import pyyaml_install_command
@@ -311,6 +312,7 @@ def create_directories(cfg: InitConfig) -> list[str]:
     dirs = [
         *(root / config_loader.resolve_index_target(cfg, family)[0]
           for family in ("plans", "backlog", "lessons")),
+        root / config_loader.resolve_index_target(cfg, "plans")[0] / config_loader.PLAN_BUILD_DIRNAME,
         root / cfg.planwise_root / feedback_rel,
         root / ".claude" / "rules" / "planwise",
     ]
@@ -620,14 +622,14 @@ def _backfill_feedback_dir(cfg: InitConfig, config_path: Path) -> str | None:
 
     Purely additive, mirroring migrate_config's own contract: runs only when
     the key is absent from the config already on disk, and never overwrites
-    an existing value. When a pre-existing `feedback-drafts/` directory is
-    found non-empty, the key is pointed at it instead of the new default —
-    nothing is ever moved, renamed, copied, or deleted. The key is appended at
-    the end of the multi-line `project:` block, so the insert does not depend
-    on any other key (`lessons_dir` is an optional key). Returns a one-line
-    notice to print for the re-point case, or None when no notice is
-    warranted. None is also returned when nothing was written: the key was
-    already present, or the config has no multi-line `project:` block.
+    an existing value. The key gets the current default, `Feedback/Feedback-Drafts`.
+    Drafts an older install keeps in `feedback-drafts/` or loose in `Feedback/`
+    are moved there by `layout_migrate.migrate_feedback_drafts`, not here. The
+    key is appended at the end of the multi-line `project:` block, so the insert
+    does not depend on any other key (`lessons_dir` is an optional key).
+    Returns None: nothing here needs a notice. The return type stays `str | None`
+    for the callers that print a notice when one is returned. Nothing is written
+    when the key was already present or the config has no multi-line `project:` block.
     """
     if not HAS_YAML or not config_path.exists():
         return None
@@ -646,20 +648,35 @@ def _backfill_feedback_dir(cfg: InitConfig, config_path: Path) -> str | None:
         return None
     _header_idx, block_end, subkey_indent = block
 
-    legacy_dir = cfg.project_root / cfg.planwise_root / "feedback-drafts"
-    notice = None
-    if legacy_dir.is_dir() and any(legacy_dir.iterdir()):
-        value = "feedback-drafts"
-        notice = (
-            f"Found an existing '{legacy_dir.name}/' directory — pointed "
-            f"project.feedback_dir at it instead of the new default."
-        )
-    else:
-        value = "Feedback"
-
-    lines.insert(block_end, f'{subkey_indent}feedback_dir: "{value}"')
+    lines.insert(block_end, f'{subkey_indent}feedback_dir: "{layout_migrate.NEW_FEEDBACK_DIR}"')
     write_config_checked(config_path, "\n".join(lines))
-    return notice
+    return None
+
+
+def _apply_layout_migration(cfg: InitConfig, config_path: Path,
+                            create_plan_build: bool = True) -> list[layout_migrate.LayoutReport]:
+    """Move an older install's `plan-build/` and drafts folders into the current layout.
+
+    The one shared entry point for init, `--migrate` and `--upgrade`. The plans folder
+    comes from `resolve_index_target`, so a custom `project.plans_dir` is honoured. With
+    `create_plan_build` false, a missing `plan-build/` leaves the new folder to the caller.
+    """
+    planwise_dir = cfg.project_root / cfg.planwise_root
+    plans_dir = cfg.project_root / config_loader.resolve_index_target(cfg, "plans")[0]
+    reports = [layout_migrate.migrate_plan_build(planwise_dir, plans_dir, create_missing=create_plan_build)]
+    feedback = layout_migrate.migrate_feedback_drafts(planwise_dir, config_path)
+    if feedback is not None:
+        reports.append(feedback)
+    return reports
+
+
+def _print_layout_reports(reports: list[layout_migrate.LayoutReport], quiet_states: tuple[str, ...] = ()) -> None:
+    """Print each report that a caller has not already covered with its own line."""
+    for report in reports:
+        if report.state in quiet_states and not report.left and not report.note:
+            continue
+        for line in report.lines():
+            print(line)
 
 
 def _apply_init_feedback_answers(cfg: InitConfig, config_path: Path) -> str:
@@ -703,7 +720,7 @@ def _configured_feedback_rel(cfg: InitConfig, config_path: Path) -> str:
 
     When `config_path` exists, the answer comes from `config_loader.load_config`
     itself, with the loader's own parser and the loader's own rule: a non-empty
-    string `project.feedback_dir`, else "Feedback". That rule covers a missing
+    string `project.feedback_dir`, else the loader's default. That rule covers a missing
     key, a non-string value, and a `project:` block that is not a mapping. Only
     when the file does not exist yet, or the loader cannot read it, does the
     CLI value `cfg.feedback_dir` apply.
@@ -714,7 +731,8 @@ def _configured_feedback_rel(cfg: InitConfig, config_path: Path) -> str:
         except _CONFIG_READ_ERRORS:  # an unreadable config falls back to the CLI value
             return str(cfg.feedback_dir)
         project = config_loader._project_block(config)
-        return config_loader._nonempty_str(project.get("feedback_dir")) or "Feedback"
+        return (config_loader._nonempty_str(project.get("feedback_dir"))
+                or config_loader.PROJECT_DIR_DEFAULTS["feedback_dir"])
     return str(cfg.feedback_dir)
 
 
@@ -753,6 +771,7 @@ def _run_migrate(cfg: InitConfig) -> int:
 
     project_notice = backfill_project_dirs(cfg, Path(path))
     feedback_notice = _backfill_feedback_dir(cfg, Path(path))
+    layout_reports = _apply_layout_migration(cfg, Path(path))
 
     _ensure_draft_gitignore(cfg, _configured_feedback_rel(cfg, Path(path)))
 
@@ -771,6 +790,7 @@ def _run_migrate(cfg: InitConfig) -> int:
         print(project_notice)
     if feedback_notice:
         print(feedback_notice)
+    _print_layout_reports(layout_reports)
     print()
     print("Migration complete.")
     return 0
@@ -785,7 +805,8 @@ def main():
     parser.add_argument("--plans-dir", default="Plans", help="Plans subdirectory name")
     parser.add_argument("--backlog-dir", default="Backlog", help="Backlog subdirectory name")
     parser.add_argument("--lessons-dir", default="LessonsLearned", help="Lessons subdirectory name")
-    parser.add_argument("--feedback-dir", default="Feedback", help="Feedback subdirectory name")
+    parser.add_argument("--feedback-dir", default=layout_migrate.NEW_FEEDBACK_DIR,
+                        help="Drafts folder, relative to the planwise root")
     parser.add_argument("--scope", default=InstallScope.PROJECT,
                         choices=[s.value for s in InstallScope],
                         help="Install scope: project, user, or local (default: project)")
@@ -1033,6 +1054,15 @@ def main():
 
     print(f"Initializing planwise for '{cfg.project_name}'...")
     print()
+
+    # An existing install is moved into the current layout before any folder is created,
+    # so init never leaves an empty twin beside the old folder. The plan-build folder is
+    # created by create_directories below, so a state of "already present" prints nothing here.
+    _print_layout_reports(
+        _apply_layout_migration(cfg, cfg.project_root / cfg.planwise_root / "config.yaml",
+                                create_plan_build=False),
+        quiet_states=("already present",),
+    )
 
     dirs = create_directories(cfg)
     if dirs:

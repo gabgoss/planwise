@@ -139,7 +139,7 @@ test('buildplan keys call returns the known report through the injected runner',
   assert.ok(argv.includes('--spec'))
   assert.equal(w.runs[0]!.init.cwd, ROOT)
   assert.equal(w.runs[0]!.init.timeoutMs, 540_000)
-  assert.ok(w.writes.includes(ROOT + '/planwise/plan-build/Demo/QZX-build-spec.json'))
+  assert.ok(w.writes.includes(ROOT + '/planwise/Plans/Plan-Build/Demo/QZX-build-spec.json'))
 })
 
 test('buildplan non-zero exit is a result, not a deny', async () => {
@@ -226,8 +226,8 @@ test('buildplan build passes --config and --force, and lint passes neither', asy
   assert.ok(build.includes('--force'))
   assert.equal(lint.includes('--force'), false)
   assert.equal(lint.includes('--config'), false)
-  assert.equal(lint[lint.indexOf('--bodies-dir') + 1], ROOT + '/planwise/plan-build/Demo')
-  assert.ok(w.writes.includes(ROOT + '/planwise/plan-build/Demo/QZX-bodies-S01-01.md'))
+  assert.equal(lint[lint.indexOf('--bodies-dir') + 1], ROOT + '/planwise/Plans/Plan-Build/Demo')
+  assert.ok(w.writes.includes(ROOT + '/planwise/Plans/Plan-Build/Demo/QZX-bodies-S01-01.md'))
   const denied = (await dispatch(hooks, w.engine, REGISTERED, { ...KEYS_INPUT, action: 'lint', bodies: BODIES, force: true })) as { deny: string }
   assert.match(denied.deny, /force applies to build only/)
 })
@@ -303,19 +303,29 @@ test('buildplan a root that moves after session start re-resolves the config, th
   assert.equal(build[build.indexOf('--config') + 1], MOVED + '/planwise/config.yaml')
   assert.equal(build[build.indexOf('--out') + 1], MOVED + '/planwise/Plans/Demo')
   assert.equal(w.runs[0]!.init.cwd, MOVED)
-  assert.ok(w.writes.includes(MOVED + '/planwise/plan-build/Demo/QZX-bodies-S01-01.md'))
+  assert.ok(w.writes.includes(MOVED + '/planwise/Plans/Plan-Build/Demo/QZX-bodies-S01-01.md'))
 })
 
-test('buildplan the spec and bodies go to the plan-build folder beside the config, and --bodies-dir names it', async () => {
+test('buildplan the spec and bodies go to the Plan-Build folder inside the plans folder, and --bodies-dir names it', async () => {
   const w = world({ [ROOT + '/config.yaml']: CONFIG }, { exitCode: 0, stdout: KNOWN_REPORT, stderr: '' })
   await onSessionStart(w.host)
   await dispatch(capture(), w.engine, REGISTERED, { ...KEYS_INPUT, action: 'lint', bodies: BODIES })
   assert.equal(w.runs.length, 1)
   const lint = w.runs[0]!.argv
   const spec = lint[lint.indexOf('--spec') + 1]!
-  assert.equal(spec, ROOT + '/plan-build/Demo/QZX-build-spec.json')
+  assert.equal(spec, ROOT + '/Plans/Plan-Build/Demo/QZX-build-spec.json')
   assert.equal(lint[lint.indexOf('--bodies-dir') + 1], spec.slice(0, spec.lastIndexOf('/')))
-  assert.ok(w.writes.includes(ROOT + '/plan-build/Demo/QZX-bodies-S01-01.md'))
+  assert.ok(w.writes.includes(ROOT + '/Plans/Plan-Build/Demo/QZX-bodies-S01-01.md'))
+})
+
+test('buildplan a custom plans_dir in the config places Plan-Build inside it', async () => {
+  const custom = 'project:\n  name: demo\n  plans_dir: "MyPlans"\n'
+  const w = world({ [ROOT + '/config.yaml']: custom }, { exitCode: 0, stdout: KNOWN_REPORT, stderr: '' })
+  await onSessionStart(w.host)
+  await dispatch(capture(), w.engine, REGISTERED, { ...KEYS_INPUT, action: 'lint', bodies: BODIES })
+  const lint = w.runs[0]!.argv
+  assert.equal(lint[lint.indexOf('--spec') + 1], ROOT + '/MyPlans/Plan-Build/Demo/QZX-build-spec.json')
+  assert.ok(w.writes.includes(ROOT + '/MyPlans/Plan-Build/Demo/QZX-bodies-S01-01.md'))
 })
 
 test('buildplan a root that moves to a tree with no config is denied', async () => {

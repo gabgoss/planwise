@@ -281,6 +281,24 @@ def _draft_ignore_check(config: dict) -> tuple:
     return gitignore_entry.read_state(path, line), line, path
 
 
+def _legacy_layout_folders(config: dict) -> list:
+    """The older working folders still in use, as `(old path, new path)` pairs relative to the
+    planwise root. Read-only. A custom `project.feedback_dir` is the user's choice and is not listed."""
+    planwise_root = Path(config["_planwise_root"])
+    found = []
+    if (planwise_root / "plan-build").is_dir():
+        try:
+            plans_rel = Path(config["_plans_dir"]).relative_to(planwise_root).as_posix()
+        except ValueError:
+            plans_rel = Path(config["_plans_dir"]).as_posix()
+        found.append(("plan-build/", f"{plans_rel}/Plan-Build/"))
+    feedback_dir = Path(config["_feedback_dir"])
+    for old in ("feedback-drafts", "Feedback"):
+        if feedback_dir == planwise_root / old:
+            found.append((f"{old}/", "Feedback/Feedback-Drafts/"))
+    return found
+
+
 def _stage_17(config: dict) -> None:
     feedback_dir = Path(config["_feedback_dir"])
     exists = feedback_dir.is_dir()
@@ -316,6 +334,13 @@ def _stage_17(config: dict) -> None:
         print("      action: run /planwise init or /planwise upgrade (both add it),")
         print(f"              or add this line to {ignore[2].as_posix()}:")
         print(f"              {ignore[1]}")
+    legacy = _legacy_layout_folders(config)
+    if legacy:
+        print()
+        print("  ! an older folder layout is still in use:")
+        for old, new in legacy:
+            print(f"      {old} -> {new}")
+        print("      action: run /planwise upgrade, which moves the files and never overwrites one")
 
 
 # --------------------------------------------------------------------------

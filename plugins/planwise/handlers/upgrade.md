@@ -435,33 +435,32 @@ The measured overheads in `config.yaml` go **stale on upgrade**: a plugin update
 
 ---
 
-### Step 2.7 — Feedback directory backfill and creation
+### Step 2.7 — Working folders: move, backfill and creation
 
-Implemented inside Step 2.4's script invocation (`_apply_feedback_dir()` in
-`artifact_upgrade.py`), not as a separate handler-side procedure — called
-out as its own step here only because it closes a distinct half of the
-directory-creation contract; see [init.md](init.md) Step 10 and
-[doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md](doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md)
-Stage 17 for the other two entry points.
+Step 2.4's script invocation runs this step. The script functions are `_apply_layout_migration()` and `_apply_feedback_dir()` in `artifact_upgrade.py`. They are not a separate handler-side procedure. This step closes a distinct half of the directory-creation contract. See [init.md](init.md) Step 10 and [doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md](doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md) Stage 17 for the other two entry points.
 
-On every `--upgrade` run that reaches an existing `config.yaml` — including
-the already-up-to-date early return, so a re-run at a current pin still
-closes the gap for an install that predates the key — the script:
+On every `--upgrade` run that reaches an existing `config.yaml`, the script runs this step. That includes the already-up-to-date early return. The script reads the folders on disk and never the version pin. It therefore works from any starting version, and a re-run at a current pin finishes any move an earlier run left open.
 
-1. Backfills `project.feedback_dir` when absent, via the same
-   leave-and-re-point disposition `--migrate` uses: a pre-existing,
-   non-empty `{planwise_root}/feedback-drafts/` re-points the key there
-   (with a one-line notice); otherwise the key defaults to `Feedback`.
-   Nothing under `{planwise_root}` is ever moved, renamed, copied, or
-   deleted.
-2. Creates the resolved directory if it does not already exist — `project`
-   is not one of the top-level keys the config merge (item 1 above)
-   touches, so nothing else in Step 2.4 would otherwise create it.
+The current layout keeps two working folders one level down:
 
-Both are additive-only and non-interactive, matching the rest of Step 2.4's
-config merge. Pass the script's output through verbatim: `Feedback
-directory: {created | already present} ({path})`, plus the re-point notice
-when it fires.
+| Older location | Current location |
+|---|---|
+| `{planwise_root}/plan-build/` | `{planwise_root}/{plans_dir}/Plan-Build/` |
+| `{planwise_root}/feedback-drafts/` and the loose files in `{planwise_root}/Feedback/` | `{planwise_root}/Feedback/Feedback-Drafts/` |
+
+The script then does these things, in order:
+
+1. Creates `Plan-Build/` when no `plan-build/` exists. When `plan-build/` exists, it moves the folder and its files. When both exist, it moves file by file.
+2. Moves the drafts into `Feedback/Feedback-Drafts/`. This applies when `project.feedback_dir` is absent, `feedback-drafts` or `Feedback`. It then rewrites a present key to `Feedback/Feedback-Drafts`.
+3. Keeps a custom `project.feedback_dir` and moves nothing for it. The output says `custom project.feedback_dir kept`.
+4. Backfills `project.feedback_dir` as `Feedback/Feedback-Drafts` when the key is absent.
+5. Creates the resolved drafts directory if it does not already exist. `project` is not one of the top-level keys the config merge touches, so nothing else in Step 2.4 would create it.
+
+The move never overwrites and never deletes a file. A name clash, a locked file or a failed move leaves that file where it was. The output lists it as `left in place`. The upgrade still finishes with exit code 0. The step is non-interactive and asks nothing, so Auto Mode needs no inference for it.
+
+`feedback-intake/` is not part of this move.
+
+Pass the script's output through verbatim. The lines are `Plan-Build directory: {created | moved | merged | already present} ({path})`, `Feedback drafts: {moved | merged | already present | kept} ({path})` when drafts moved or a note applies, and `Feedback directory: {created | already present} ({path})`. Each may carry `moved N file(s)` and `left in place` lines under it.
 
 ---
 

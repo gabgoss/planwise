@@ -254,9 +254,10 @@ def test_ec_feedback_02(scratch, eval_keep_failed):
 
         # A3 -- draft-by-pattern: exactly one file, under a
         # `feedback-drafts/` directory, named `{date}-bug-{slug}.md`.
-        draft_matches = [p for p in case_dir.rglob("*.md") if "feedback-drafts" in p.parts]
+        draft_folders = {"feedback-drafts", "Feedback-Drafts"}  # the older and the current drafts folder
+        draft_matches = [p for p in case_dir.rglob("*.md") if draft_folders & set(p.parts)]
         assert len(draft_matches) == 1, (
-            f"expected exactly one feedback-drafts/*.md file, found "
+            f"expected exactly one feedback-drafts/ or Feedback-Drafts/ *.md file, found "
             f"{[str(p.relative_to(case_dir)) for p in draft_matches]}"
         )
         draft_path = draft_matches[0]

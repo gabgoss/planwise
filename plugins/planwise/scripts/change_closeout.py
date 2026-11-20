@@ -43,6 +43,7 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 from constants import OPEN_STATUSES as BACKLOG_OPEN_STATUSES
+from constants import PLAN_BUILD_DIRNAME
 from frontmatter_parser import parse_frontmatter_map, split_frontmatter_block
 from list_plans import ACTIVE_STATUSES as PLAN_OPEN_STATUSES
 
@@ -95,6 +96,8 @@ def find_plans(plans_dir: Path) -> dict[Path, str]:
     """Map each plan directory to the status read from its Master Plan."""
     plans: dict[Path, str] = {}
     for master in sorted(plans_dir.rglob(MASTER_PLAN_GLOB)):
+        if PLAN_BUILD_DIRNAME in master.relative_to(plans_dir).parts:
+            continue
         if is_master_plan(master):
             plans[master.parent] = master_plan_status(_read(master))
     return plans
@@ -125,6 +128,8 @@ def scan(changed: list[str], plans_dir: Path, backlog_dir: Path) -> dict:
     plan_dirs = list(plans)
     unowned = 0
     for path in sorted(plans_dir.rglob("*.md")):
+        if PLAN_BUILD_DIRNAME in path.relative_to(plans_dir).parts:
+            continue  # the build folder holds bodies files, not plan files
         owner = owning_plan(path, plan_dirs)
         if owner is None:
             unowned += 1

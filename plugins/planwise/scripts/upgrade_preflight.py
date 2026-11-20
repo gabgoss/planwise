@@ -140,6 +140,7 @@ def _mapping(value) -> dict:
 
 def build_cfg(config: dict, project_root: Path):
     import config_gen
+    import config_loader
 
     project = _mapping(config.get("project"))
     context = _mapping(config.get("context"))
@@ -152,7 +153,7 @@ def build_cfg(config: dict, project_root: Path):
         plans_dir=str(project.get("plans_dir") or "Plans"),
         backlog_dir=str(project.get("backlog_dir") or "Backlog"),
         lessons_dir=str(project.get("lessons_dir") or "LessonsLearned"),
-        feedback_dir=str(project.get("feedback_dir") or "Feedback"),
+        feedback_dir=str(project.get("feedback_dir") or config_loader.PROJECT_DIR_DEFAULTS["feedback_dir"]),
         install_scope=str(project.get("install_scope") or "project"),
         plan_tier=str(context.get("plan_tier") or "pro"),
         plugin_version=config_gen.read_plugin_version(plugin_root),
