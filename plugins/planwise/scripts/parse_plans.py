@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from constants import PLAN_BUILD_DIRNAME
 from markdown_parser import split_row_cells
 
 MASTER_PLAN_SUFFIX = "-Master-Plan.md"
@@ -191,7 +192,7 @@ def enumerate_master_plans(plans_dir: Path) -> list[PlanEntry]:
         return []
     entries: list[PlanEntry] = []
     for plan in sorted(plans_dir.iterdir()):
-        if not plan.is_dir():
+        if not plan.is_dir() or plan.name == PLAN_BUILD_DIRNAME:
             continue
         entries.extend(_entries_in_directory(plans_dir, plan, plan.name, allow_meta=False))
         for child in sorted(plan.iterdir()):

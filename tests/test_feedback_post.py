@@ -328,11 +328,11 @@ def url_env(tmp_path: Path, scenario: str = "empty", **extra: str) -> "tuple[dic
 
 def post_setup(tmp_path: Path, title: str = "List skips a queued draft", body: str = POST_BODY,
                enabled: str = "true", kind: str = "bug", status: str = "queued") -> "tuple[Path, Path]":
-    """A config with posting set, and one model draft in its Feedback folder. Returns (config, draft)."""
+    """A config with posting set, and one model draft in its Feedback/Feedback-Drafts folder. Returns (config, draft)."""
     config = tmp_path / "config.yaml"
     config.write_bytes(f"feedback:\n  enabled: {enabled}\n  repo: {REPO}\n".encode())
-    folder = tmp_path / "Feedback"
-    folder.mkdir(exist_ok=True)
+    folder = tmp_path / "Feedback" / "Feedback-Drafts"
+    folder.mkdir(parents=True, exist_ok=True)
     created = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     draft = folder / f"2026-01-01-draft-{kind}-example.md"
     draft.write_bytes((f"---\ndraft_id: {DRAFT_ID}\ncreated_at: {created}\ndrafted_by: model\nkind: {kind}\n"
@@ -346,7 +346,7 @@ def post(config: Path, env: dict, draft_id: str = DRAFT_ID) -> "subprocess.Compl
 
 
 def promoted_files(tmp_path: Path) -> "list[Path]":
-    return sorted(p for p in (tmp_path / "Feedback").glob("*.md") if "-draft-" not in p.name and "-comment-" not in p.name)
+    return sorted(p for p in (tmp_path / "Feedback" / "Feedback-Drafts").glob("*.md") if "-draft-" not in p.name and "-comment-" not in p.name)
 
 
 def posts(log: Path) -> "tuple[int, int]":
@@ -404,7 +404,7 @@ def test_a_ranked_candidate_is_answered_with_a_comment(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout == f"Feedback posted to {REPO} as a comment on #42: {COMMENT_URL}\n"
     assert posts(log) == (0, 1)
-    [comment_draft] = (tmp_path / "Feedback").glob("*-comment-42-*-bug-list-skips-a-queued-draft.md")
+    [comment_draft] = (tmp_path / "Feedback" / "Feedback-Drafts").glob("*-comment-42-*-bug-list-skips-a-queued-draft.md")
     [comment] = [argv for argv in read_calls(log) if argv[:2] == ["issue", "comment"]]
     assert comment == ["issue", "comment", "-R", REPO, "42", "--body-file", str(comment_draft)]
     text = comment_draft.read_text(encoding="utf-8")
@@ -426,7 +426,7 @@ def test_a_self_duplicate_posts_nothing(tmp_path):
     assert result.returncode == 3
     assert result.stdout == "This draft appears to have already been posted as #13 — check before posting again.\n"
     assert posts(log) == (0, 0)
-    assert not list((tmp_path / "Feedback").glob("*.posted"))
+    assert not list((tmp_path / "Feedback" / "Feedback-Drafts").glob("*.posted"))
 
 
 @pytest.mark.parametrize("ranked", [False, True], ids=["issue-route", "comment-route"])
@@ -440,12 +440,12 @@ def test_a_privacy_block_posts_nothing(tmp_path, ranked):
     result = post(config, env)
     assert result.returncode == 3
     assert posts(log) == before == (0, 0)
-    posted = next((tmp_path / "Feedback").glob("*-comment-42-*.md")) if ranked else promoted_files(tmp_path)[0]
+    posted = next((tmp_path / "Feedback" / "Feedback-Drafts").glob("*-comment-42-*.md")) if ranked else promoted_files(tmp_path)[0]
     line = result.stdout.strip()
     prefix = "Feedback draft kept, not posted: the privacy check blocked it (email at line "
     assert line.startswith(prefix) and line.endswith(f"). Draft: {posted.resolve()}"), line
     assert "someone@example.com" not in result.stdout
-    assert posted.is_file() and not list((tmp_path / "Feedback").glob("*.posted"))
+    assert posted.is_file() and not list((tmp_path / "Feedback" / "Feedback-Drafts").glob("*.posted"))
 
 
 def test_a_failed_post_keeps_the_draft_unmarked(tmp_path):
@@ -456,7 +456,7 @@ def test_a_failed_post_keeps_the_draft_unmarked(tmp_path):
     [promoted] = promoted_files(tmp_path)
     assert result.stdout == f"Feedback draft kept, not posted: the post to {REPO} failed. Draft: {promoted.resolve()}\n"
     assert posts(log) == (1, 0)
-    assert not list((tmp_path / "Feedback").glob("*.posted"))
+    assert not list((tmp_path / "Feedback" / "Feedback-Drafts").glob("*.posted"))
 
 
 def test_a_timed_out_post_exits_3_and_says_the_issue_may_exist(tmp_path):
@@ -468,7 +468,7 @@ def test_a_timed_out_post_exits_3_and_says_the_issue_may_exist(tmp_path):
     assert result.stdout == (f"Feedback draft kept, not confirmed: the post to {REPO} timed out, so the issue may exist. "
                              f"Check {REPO} before posting again. Draft: {promoted.resolve()}\n")
     assert posts(log) == (1, 0)
-    assert not list((tmp_path / "Feedback").glob("*.posted"))
+    assert not list((tmp_path / "Feedback" / "Feedback-Drafts").glob("*.posted"))
 
 
 def test_a_title_with_quotes_reaches_gh_as_one_argument(tmp_path):
@@ -556,7 +556,7 @@ def test_a_title_that_fails_the_privacy_rules_posts_nothing(tmp_path, title, fou
 
 def test_a_marker_that_cannot_be_written_still_exits_0(tmp_path):
     config, _draft = post_setup(tmp_path)
-    blocker = tmp_path / "Feedback" / today_name("bug-list-skips-a-queued-draft.md.posted")
+    blocker = tmp_path / "Feedback" / "Feedback-Drafts" / today_name("bug-list-skips-a-queued-draft.md.posted")
     blocker.mkdir()
     env, log = url_env(tmp_path)
     result = post(config, env)
@@ -636,7 +636,7 @@ def test_a_comment_draft_that_cannot_be_written_keeps_the_draft(tmp_path):
     scenario.write_text(json.dumps({"responses": [{"match": "feedback_drafts.py in:", "rows": [
         {"number": 42, "title": "Queue listing", "state": "OPEN", "url": "u42", "age_days": 200}]}]}), encoding="utf-8")
     config, _draft = post_setup(tmp_path)
-    (tmp_path / "Feedback" / today_name("comment-42-" + today_name("bug-list-skips-a-queued-draft.md"))).mkdir()
+    (tmp_path / "Feedback" / "Feedback-Drafts" / today_name("comment-42-" + today_name("bug-list-skips-a-queued-draft.md"))).mkdir()
     env, log = url_env(tmp_path, scenario=str(scenario))
     result = post(config, env)
     assert result.returncode == 3
@@ -684,7 +684,7 @@ def test_a_retry_is_matched_to_its_own_draft_not_its_title(tmp_path):
     retry = post(config, env, draft_id="d-0002")
     assert retry.returncode == 0, retry.stdout + retry.stderr
     assert posts(log) == (0, 2)
-    assert len(list((tmp_path / "Feedback").glob("*-comment-42-*.md.posted"))) == 2
+    assert len(list((tmp_path / "Feedback" / "Feedback-Drafts").glob("*-comment-42-*.md.posted"))) == 2
 
 
 def test_a_missing_config_exits_1(tmp_path):
@@ -715,8 +715,8 @@ def card_setup(tmp_path: Path, drafts=CARD_DRAFTS, posting: "str | None" = "true
     config = tmp_path / "config.yaml"
     enabled = f"  enabled: {posting}\n" if posting is not None else ""
     config.write_bytes(f"feedback:\n{enabled}  repo: {REPO}\n".encode())
-    folder = tmp_path / "Feedback"
-    folder.mkdir(exist_ok=True)
+    folder = tmp_path / "Feedback" / "Feedback-Drafts"
+    folder.mkdir(parents=True, exist_ok=True)
     for name, draft_id, kind, title, days, status, body in drafts:
         created = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - days * 86400 - 60))
         (folder / name).write_bytes((f"---\ndraft_id: {draft_id}\ncreated_at: {created}\ndrafted_by: model\nkind: {kind}\n"

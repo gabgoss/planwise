@@ -91,7 +91,7 @@ test('draftfeedback control: a call from the session-start root writes under tha
   const out = (await call(capture(), w.engine)) as { result: string }
   assert.equal(typeof out.result, 'string')
   assert.equal(w.writes.length, 1)
-  assert.ok(w.writes[0]!.startsWith(MAIN + '/planwise/Feedback/'))
+  assert.ok(w.writes[0]!.startsWith(MAIN + '/planwise/Feedback/Feedback-Drafts/'))
 })
 
 test('draftfeedback a root that moves after session start moves the draft, the card and the notice', async () => {
@@ -101,7 +101,7 @@ test('draftfeedback a root that moves after session start moves the draft, the c
   const out = (await call(capture(), w.engine)) as { result: string }
   assert.equal(typeof out.result, 'string')
 
-  const dir = WORKTREE + '/planwise/Feedback'
+  const dir = WORKTREE + '/planwise/Feedback/Feedback-Drafts'
   assert.equal(w.writes.length, 1)
   assert.ok(w.writes[0]!.startsWith(dir + '/'), w.writes[0])
 

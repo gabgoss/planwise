@@ -347,10 +347,13 @@ Scope: {install_scope}
 Directories created:
   ✓ {planwise_root}/
   ✓ {planwise_root}/{plans_dir}/
+  ✓ {planwise_root}/{plans_dir}/Plan-Build/
   ✓ {planwise_root}/{backlog_dir}/
   ✓ {planwise_root}/{lessons_dir}/
   ✓ {planwise_root}/{feedback_dir}/
   (list only the directories the script printed under "Directories created:"; a re-init where every directory existed prints "Directories: already exist, skipped" — relay that line, never this template's full list)
+
+On a re-init of an older install, the script first moves `{planwise_root}/plan-build/` into `{planwise_root}/{plans_dir}/Plan-Build/`. It also moves `{planwise_root}/feedback-drafts/` and the loose files in `{planwise_root}/Feedback/` into `{planwise_root}/Feedback/Feedback-Drafts/`. The default `{feedback_dir}` is `Feedback/Feedback-Drafts`. The move never overwrites a file. Relay the script's `Plan-Build directory:` and `Feedback drafts:` lines verbatim when they print.
 
 Seed files installed:
   ✓ {planwise_root}/{plans_dir}/{plans_index}

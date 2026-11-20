@@ -73,15 +73,30 @@ export const isPlanwiseConfig = (text: string): boolean =>
 
 /**
  * Resolve the drafts directory as the Python config loader does. The base is the directory that
- * holds the config file. The relative name is `project.feedback_dir`, or `Feedback` when it is
- * absent or blank. An absolute value is kept as given. Backslashes become forward slashes.
+ * holds the config file. The relative name is `project.feedback_dir`, or `Feedback/Feedback-Drafts`
+ * when it is absent or blank. An absolute value is kept as given. Backslashes become forward slashes.
  *
  * @param configDir the directory that holds config.yaml
  * @param feedbackDirScalar the unquoted `project.feedback_dir` value, or undefined
  * @returns the drafts directory
  */
 export const resolveDraftsDir = (configDir: string, feedbackDirScalar: string | undefined): string => {
-  const rel = (feedbackDirScalar ?? '').trim() === '' ? 'Feedback' : (feedbackDirScalar ?? '').trim()
+  const rel = (feedbackDirScalar ?? '').trim() === '' ? 'Feedback/Feedback-Drafts' : (feedbackDirScalar ?? '').trim()
+  const joined = /^([A-Za-z]:)?[\\/]/.test(rel) ? rel : configDir.replace(/[\\/]+$/, '') + '/' + rel
+  return joined.replace(/\\/g, '/')
+}
+
+/**
+ * Resolve the plans directory as the Python config loader does. The base is the directory that
+ * holds the config file. The relative name is `project.plans_dir`, or `Plans` when it is absent
+ * or blank. An absolute value is kept as given. Backslashes become forward slashes.
+ *
+ * @param configDir the directory that holds config.yaml
+ * @param plansDirScalar the unquoted `project.plans_dir` value, or undefined
+ * @returns the plans directory
+ */
+export const resolvePlansDir = (configDir: string, plansDirScalar: string | undefined): string => {
+  const rel = (plansDirScalar ?? '').trim() === '' ? 'Plans' : (plansDirScalar ?? '').trim()
   const joined = /^([A-Za-z]:)?[\\/]/.test(rel) ? rel : configDir.replace(/[\\/]+$/, '') + '/' + rel
   return joined.replace(/\\/g, '/')
 }

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { draftsMode, isPlanwiseConfig, readRawScalar, readScalar, resolveDraftsDir } from '../../plugins/planwise/hooks/feedback/config-read.ts'
+import { draftsMode, isPlanwiseConfig, readRawScalar, readScalar, resolveDraftsDir, resolvePlansDir } from '../../plugins/planwise/hooks/feedback/config-read.ts'
 import { CAP_TEXT, MAX_CALLS_PER_SESSION, MAX_QUEUED, NOTICE_TEXT, PYTHON_CANDIDATES, RESULT_TEXT, relativeDraftPath } from '../../plugins/planwise/hooks/feedback/names.ts'
 
 /** An excerpt shaped like the shipped config template. */
@@ -93,10 +93,18 @@ test('config-read: the drafts dir sits under the config directory, not planwise_
   assert.equal(resolveDraftsDir('C:\\proj\\planwise', 'Fb'), 'C:/proj/planwise/Fb')
 })
 
-test('config-read: an absent or blank feedback_dir falls back to Feedback', () => {
-  assert.equal(resolveDraftsDir('/proj/planwise', undefined), '/proj/planwise/Feedback')
-  assert.equal(resolveDraftsDir('/proj/planwise', ''), '/proj/planwise/Feedback')
-  assert.equal(resolveDraftsDir('/proj/planwise', '   '), '/proj/planwise/Feedback')
+test('config-read: an absent or blank feedback_dir falls back to Feedback/Feedback-Drafts', () => {
+  assert.equal(resolveDraftsDir('/proj/planwise', undefined), '/proj/planwise/Feedback/Feedback-Drafts')
+  assert.equal(resolveDraftsDir('/proj/planwise', ''), '/proj/planwise/Feedback/Feedback-Drafts')
+  assert.equal(resolveDraftsDir('/proj/planwise', '   '), '/proj/planwise/Feedback/Feedback-Drafts')
+})
+
+test('config-read: an absent or blank plans_dir falls back to Plans, and a set value is kept', () => {
+  assert.equal(resolvePlansDir('/proj/planwise', undefined), '/proj/planwise/Plans')
+  assert.equal(resolvePlansDir('/proj/planwise', '  '), '/proj/planwise/Plans')
+  assert.equal(resolvePlansDir('/proj/planwise/', 'MyPlans'), '/proj/planwise/MyPlans')
+  assert.equal(resolvePlansDir('C:\\proj\\planwise', 'MyPlans'), 'C:/proj/planwise/MyPlans')
+  assert.equal(resolvePlansDir('/proj/planwise', '/var/plans'), '/var/plans')
 })
 
 test('config-read: an absolute feedback_dir is kept as given', () => {

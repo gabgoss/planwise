@@ -19,6 +19,7 @@ import init_project as ip
 
 DATE_GLOB = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]"
 DRAFT_LINE = f"planwise/feedback-drafts/{DATE_GLOB}-draft-*.md"
+NEW_DRAFT_LINE = f"planwise/Feedback/Feedback-Drafts/{DATE_GLOB}-draft-*.md"
 
 
 class LineStateTest(unittest.TestCase):
@@ -280,7 +281,7 @@ class InitWiringTest(unittest.TestCase):
         patched.assert_called_once_with(self.root / ".gitignore", DRAFT_LINE)
 
     @unittest.skipUnless(ip.HAS_YAML, "requires PyYAML to read the config")
-    def test_migrate_flow_writes_the_draft_line_for_the_repointed_directory(self):
+    def test_migrate_flow_moves_the_old_drafts_and_writes_the_draft_line_for_the_new_folder(self):
         planwise_dir = self.root / "planwise"
         legacy = planwise_dir / "feedback-drafts"
         legacy.mkdir(parents=True)
@@ -298,9 +299,11 @@ class InitWiringTest(unittest.TestCase):
             self.assertEqual(ip._run_migrate(cfg), 0)
             first = (self.root / ".gitignore").read_bytes()
             self.assertEqual(ip._run_migrate(cfg), 0)
-        self.assertEqual(first, DRAFT_LINE.encode() + b"\n")
+        self.assertEqual(first, NEW_DRAFT_LINE.encode() + b"\n")
         self.assertEqual((self.root / ".gitignore").read_bytes(), first)
-
+        # The old drafts moved into the new folder, and the key points there.
+        self.assertTrue((planwise_dir / "Feedback" / "Feedback-Drafts" / "note.md").is_file())
+        self.assertFalse(legacy.exists())
 
     def test_an_unrepresentable_feedback_dir_warns_and_writes_nothing(self):
         cfg = _make_cfg(self.root)
@@ -347,12 +350,12 @@ class ConfiguredFeedbackDirTest(unittest.TestCase):
         planwise_dir.mkdir()
         (planwise_dir / "config.yaml").write_text(
             'project:\n  name: "TestProject"\n  lessons_dir: LessonsLearned\n'
-            '  feedback_dir: "feedback-drafts"\n',
+            '  feedback_dir: "my-drafts"\n',
             encoding="utf-8",
         )
         self._run_init()
         text = (self.root / ".gitignore").read_text(encoding="utf-8")
-        self.assertIn(DRAFT_LINE, text.splitlines())
+        self.assertIn(f"planwise/my-drafts/{DATE_GLOB}-draft-*.md", text.splitlines())
         self.assertNotIn("planwise/Feedback/", text)
 
     @unittest.skipUnless(ip.HAS_YAML, "requires PyYAML to read the config")
@@ -364,7 +367,7 @@ class ConfiguredFeedbackDirTest(unittest.TestCase):
         )
         self._run_init()
         text = (self.root / ".gitignore").read_text(encoding="utf-8")
-        self.assertIn(f"planwise/Feedback/{DATE_GLOB}-draft-*.md", text.splitlines())
+        self.assertIn(NEW_DRAFT_LINE, text.splitlines())
         self.assertNotIn("2026", text)
 
     @unittest.skipUnless(ip.HAS_YAML, "requires PyYAML to read the config")
@@ -372,19 +375,19 @@ class ConfiguredFeedbackDirTest(unittest.TestCase):
         cfg = _make_cfg(self.root, feedback_dir="cli-dir")
         config_path = self.root / "config.yaml"
         cases = (
-            ("feedback_dir: 2026", "Feedback"),
-            ("feedback_dir: [a, b]", "Feedback"),
-            ('feedback_dir: ""', "Feedback"),
-            ("feedback_dir: ", "Feedback"),
+            ("feedback_dir: 2026", "Feedback/Feedback-Drafts"),
+            ("feedback_dir: [a, b]", "Feedback/Feedback-Drafts"),
+            ('feedback_dir: ""', "Feedback/Feedback-Drafts"),
+            ("feedback_dir: ", "Feedback/Feedback-Drafts"),
             ("feedback_dir: mydir", "mydir"),
-            ("name: x", "Feedback"),
+            ("name: x", "Feedback/Feedback-Drafts"),
         )
         for line, expected in cases:
             with self.subTest(line=line):
                 config_path.write_text(f"project:\n  {line}\n", encoding="utf-8")
                 self.assertEqual(ip._configured_feedback_rel(cfg, config_path), expected)
         config_path.write_text("project: just-a-string\n", encoding="utf-8")
-        self.assertEqual(ip._configured_feedback_rel(cfg, config_path), "Feedback")
+        self.assertEqual(ip._configured_feedback_rel(cfg, config_path), "Feedback/Feedback-Drafts")
 
     def test_resolver_equals_the_loader_for_every_readable_config(self):
         import config_loader
@@ -466,10 +469,10 @@ class UpgradeWiringTest(unittest.TestCase):
             au._apply_feedback_dir(cfg, config_path)
         # A scalar `project:` block gives the loader's default directory, so the
         # upgrade creates and ignores the directory the drafts helper will use.
-        self.assertTrue((planwise_dir / "Feedback").is_dir())
+        self.assertTrue((planwise_dir / "Feedback" / "Feedback-Drafts").is_dir())
         self.assertEqual(
             (self.root / ".gitignore").read_bytes(),
-            f"planwise/Feedback/{DATE_GLOB}-draft-*.md\n".encode(),
+            NEW_DRAFT_LINE.encode() + b"\n",
         )
 
     @unittest.skipUnless(au.HAS_YAML, "requires PyYAML to read the config")
@@ -483,11 +486,11 @@ class UpgradeWiringTest(unittest.TestCase):
         cfg = _make_cfg(self.root)
         with contextlib.redirect_stdout(io.StringIO()):
             au._apply_feedback_dir(cfg, config_path)
-        self.assertTrue((planwise_dir / "Feedback").is_dir())
+        self.assertTrue((planwise_dir / "Feedback" / "Feedback-Drafts").is_dir())
         self.assertFalse((planwise_dir / "2026").exists())
         self.assertEqual(
             (self.root / ".gitignore").read_bytes(),
-            f"planwise/Feedback/{DATE_GLOB}-draft-*.md".encode() + b"\n",
+            NEW_DRAFT_LINE.encode() + b"\n",
         )
 
     @unittest.skipUnless(au.HAS_YAML, "requires PyYAML to read the config")

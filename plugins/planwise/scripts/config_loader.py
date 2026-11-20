@@ -54,8 +54,12 @@ DEFAULT_LESSON_CHECK_KINDS = ("hook", "test", "lint", "script")
 PROJECT_DIR_DEFAULTS = {
     "plans_dir": "Plans",
     "backlog_dir": "Backlog",
-    "feedback_dir": "Feedback",
+    "feedback_dir": "Feedback/Feedback-Drafts",
 }
+
+# The build folder for plan bodies sits inside the plans folder. It has no
+# config key: it derives from `project.plans_dir`.
+PLAN_BUILD_DIRNAME = "Plan-Build"
 
 
 # Every planwise config.yaml opens with a top-level `project:` mapping (the
@@ -775,6 +779,7 @@ def load_config(script_path: Path | None = None, *, config_path: Path | None = N
     # Resolve plans path
     plans_rel = _nonempty_str(project.get("plans_dir")) or PROJECT_DIR_DEFAULTS["plans_dir"]
     config["_plans_dir"] = planwise_root / plans_rel
+    config["_plan_build_dir"] = config["_plans_dir"] / PLAN_BUILD_DIRNAME
     config["_plans_index"] = config["_plans_dir"] / resolve_index_name(config, "plans")
 
     # The simple parser turns an empty top-level key into {}, so anything that

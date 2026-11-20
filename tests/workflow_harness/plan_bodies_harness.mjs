@@ -56,8 +56,8 @@ report(phaseTitles.length >= 4, 'meta.phases', `object entries with a title: [${
 // ---- 3. logic against stub agents
 const GOOD_ARGS = {
   planwise_root: 'C:/fx/planwise', plan_name: 'ArmFixture', abbrev: 'AFX',
-  spec_path: 'C:/fx/planwise/plan-build/ArmFixture/AFX-spec.json',
-  notes_path: 'C:/fx/planwise/plan-build/ArmFixture/AFX-PlanNotes.md',
+  spec_path: 'C:/fx/planwise/Plans/Plan-Build/ArmFixture/AFX-spec.json',
+  notes_path: 'C:/fx/planwise/Plans/Plan-Build/ArmFixture/AFX-PlanNotes.md',
   timestamp: '2026-01-31 05:00', sessions: ['S01-01', 'S01-02'],
 }
 const ROOT = 'C:/loaded/plugin'

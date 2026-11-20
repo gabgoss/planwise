@@ -86,8 +86,8 @@ class FeedbackFixture(unittest.TestCase):
         self.root = Path(self._tmp.name)
         (self.root / "planwise").mkdir()
         (self.root / "planwise" / "config.yaml").write_text(CONFIG_YAML, encoding="utf-8")
-        self.folder = self.root / "planwise" / "Feedback"
-        self.folder.mkdir()
+        self.folder = self.root / "planwise" / "Feedback" / "Feedback-Drafts"
+        self.folder.mkdir(parents=True)
 
     def queue_three(self):
         _write_draft(self.folder, 1, "bug", "List skips a queued draft", "### What happened\n\nThe list command skipped a draft.")

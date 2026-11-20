@@ -311,7 +311,7 @@ def test_stage_16_timeout_on_auth_is_not_reported_as_not_authenticated(tmp_path)
 
 def test_stage_17_directory_present(tmp_path):
     config = _project(tmp_path)
-    Path(config["_feedback_dir"]).mkdir()
+    Path(config["_feedback_dir"]).mkdir(parents=True)
     out = _run(dp._stage_17, config)
     assert "exists:               yes" in out
     assert "— present." in out
@@ -354,7 +354,7 @@ def _queue_fixture(tmp_path, queued, *, feedback=None):
     a non-matching name and an expired-by-age model draft."""
     config = _project(tmp_path, feedback=feedback)
     directory = Path(config["_feedback_dir"])
-    directory.mkdir()
+    directory.mkdir(parents=True)
     for index in range(queued):
         _write_draft(directory, f"2026-01-{index + 1:02d}-draft-bug-queued-{index}.md")
     _write_draft(directory, "2026-02-01-draft-bug-hand.md", drafted_by="user")
@@ -441,7 +441,7 @@ def test_stage_17_count_matches_the_helper_list_at_the_expiry_boundary(tmp_path)
     now = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
     config = _project(tmp_path)
     directory = Path(config["_feedback_dir"])
-    directory.mkdir()
+    directory.mkdir(parents=True)
     limit = timedelta(days=fd.EXPIRY_DAYS)
     _write_draft(directory, "2026-01-01-draft-bug-at-limit.md", created_at=now - limit)
     _write_draft(directory, "2026-01-02-draft-bug-past-limit.md", created_at=now - limit - timedelta(seconds=1))
@@ -468,7 +468,7 @@ def _gitignore(config):
 def _expected_ignore_line(config):
     """The line init writes, built from the fixture's own layout: the project
     root holds `planwise/`, and the feedback directory sits inside it."""
-    return ge.model_draft_line("planwise", Path(config["_feedback_dir"]).name)
+    return ge.model_draft_line("planwise", Path(config["_feedback_dir"]).relative_to(config["_planwise_root"]).as_posix())
 
 
 def test_stage_17_reports_an_absent_ignore_line_and_names_the_fix(tmp_path):

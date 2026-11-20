@@ -1105,7 +1105,11 @@ def cmd_lint(args):
 
 def build_inputs_refusal(args):
     """The refusal line of a bad `build` argument, or None."""
+    from constants import PLAN_BUILD_DIRNAME
+
     checks = [
+        (Path(args.out).name == PLAN_BUILD_DIRNAME,
+         f"{PLAN_BUILD_DIRNAME} is the folder that holds the plan bodies, so no plan may use that name. Fix: pass a different plan folder name."),
         (args.date and not sp.DATE_RE.match(args.date), f"--date {args.date} is not YYYY-MM-DD. Fix: pass a date such as 2026-01-31."),
         (not Path(args.config).is_file(), f"{args.config} is not a file. Fix: pass the project's config file."),
         (not Path(args.bodies_dir).is_dir(), f"{args.bodies_dir} is not a folder. Fix: pass the folder that holds the bodies files."),

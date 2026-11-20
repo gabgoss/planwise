@@ -1,10 +1,10 @@
 // Plan building, composed into the one hooks module (register.ts). Its session.start work
 // registers the build_plan tool, and a tool.call hook serves it: validate the input, write the
-// spec and the bodies files to {planwise_root}/plan-build/<plan folder name>/, run scripts/plan_build.py, and return the
+// spec and the bodies files to {planwise_root}/{plans_dir}/Plan-Build/<plan folder name>/, run scripts/plan_build.py, and return the
 // script's exit code and report. The tool is an accelerator: the plan handler works without it.
 import type { EngineInterface, On, PluginOptions, ToolSpec } from 'claude-code'
 
-import { isPlanwiseConfig } from './feedback/config-read.ts'
+import { isPlanwiseConfig, readScalar, resolvePlansDir } from './feedback/config-read.ts'
 import { PYTHON_CANDIDATES } from './feedback/names.ts'
 import { failureText } from './loop/boundary.ts'
 import { permit } from './permission.ts'
@@ -37,7 +37,7 @@ const DESCRIPTION =
   'action=keys prints every document id with its fill markers and headings. ' +
   'action=lint checks the bodies files against those keys. ' +
   'action=build lints, writes the plan tree to `out`, and runs the post-build gates; force=true overwrites files a hand edit changed. ' +
-  'Every action first writes the spec to {planwise_root}/plan-build/<plan folder name>/<abbrev>-build-spec.json and each bodies file to that same folder, ' +
+  'Every action first writes the spec to {planwise_root}/{plans_dir}/Plan-Build/<plan folder name>/<abbrev>-build-spec.json and each bodies file to that same folder, ' +
   'so a file name must read <abbrev>-bodies-plan.md or <abbrev>-bodies-SXX-YY<suffix>.md. ' +
   'The script reads every bodies file in that folder, including files an earlier call wrote, and build writes its manifest there too. ' +
   'Returns text: the first line reads exitCode: N, the script report follows, and stderr follows a --- stderr --- line when it holds text. ' +
@@ -59,7 +59,7 @@ const INPUT_SCHEMA: Record<string, unknown> = {
     },
     out: {
       type: 'string',
-      description: 'The plan folder, relative to the project root or absolute inside it. Its last segment names the plan; the spec and bodies go in {planwise_root}/plan-build/<that name>/.',
+      description: 'The plan folder, relative to the project root or absolute inside it. Its last segment names the plan; the spec and bodies go in {planwise_root}/{plans_dir}/Plan-Build/<that name>/.',
     },
     force: { type: 'boolean', description: 'build only: overwrite files that changed since the last build.' },
   },
@@ -105,13 +105,15 @@ type Session = {
   projectRoot: string
   /** The path of the planwise config file, which `build` passes to the script. */
   configPath: string
+  /** The unquoted `project.plans_dir` value of that config, or undefined when absent. */
+  plansDirScalar: string | undefined
   /** True once the config was resolved in this process. A module reload resets it. */
   resolved: boolean
   /** True when a planwise config was found at resolution. */
   found: boolean
 }
 
-const session: Session = { projectRoot: '', configPath: '', resolved: false, found: false }
+const session: Session = { projectRoot: '', configPath: '', plansDirScalar: undefined, resolved: false, found: false }
 
 const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err))
 
@@ -156,6 +158,7 @@ async function resolveSession(host: Host): Promise<void> {
   session.found = configPath !== null
   session.projectRoot = normPath(root)
   session.configPath = configPath ?? ''
+  session.plansDirScalar = configPath === null ? undefined : readScalar(String(await host.read(configPath)), ['project', 'plans_dir'])
   session.resolved = true
 }
 
@@ -245,13 +248,14 @@ export function validateInput(input: Record<string, unknown>, projectRoot: strin
 }
 
 /**
- * The durable build folder for one plan: `<planwise root>/plan-build/<plan folder name>`. The
- * planwise root is the folder of the config file. The plan folder name is the last segment of `out`.
- * The plan handler binds the same folder as its bodies folder, so both routes share one manifest.
+ * The durable build folder for one plan: `<plans dir>/Plan-Build/<plan folder name>`. The plans
+ * dir is `project.plans_dir` (default `Plans`) under the folder of the config file. The plan folder
+ * name is the last segment of `out`. The plan handler binds the same folder as its bodies folder,
+ * so both routes share one manifest.
  */
-export const buildDirOf = (configPath: string, out: string): string => {
+export const buildDirOf = (configPath: string, out: string, plansDirScalar?: string): string => {
   const planwiseRoot = configPath.slice(0, configPath.lastIndexOf('/'))
-  return planwiseRoot + '/plan-build/' + out.slice(out.lastIndexOf('/') + 1)
+  return resolvePlansDir(planwiseRoot, plansDirScalar) + '/Plan-Build/' + out.slice(out.lastIndexOf('/') + 1)
 }
 
 /** The script arguments after the action, for each action. */
@@ -328,7 +332,7 @@ export function register(on: On, options: PluginOptions) {
     )
     if (refusal !== null) return { deny: 'build_plan: ' + refusal }
 
-    const buildDir = buildDirOf(session.configPath, checked.out)
+    const buildDir = buildDirOf(session.configPath, checked.out, session.plansDirScalar)
     const specPath = buildDir + '/' + checked.abbrev + '-build-spec.json'
     // fs.write creates missing parent directories.
     await host.write(specPath, checked.specText)

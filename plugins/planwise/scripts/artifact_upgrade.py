@@ -775,15 +775,32 @@ def _apply_project_dirs(cfg: "InitConfig", config_path: Path) -> None:
         print(notice)
 
 
+def _apply_layout_migration(cfg: "InitConfig", config_path: Path) -> None:
+    """Create or move the Plan-Build folder and the drafts folder into the current layout.
+
+    An older install keeps `plan-build/` and `feedback-drafts/` at the top of the planwise
+    folder. `layout_migrate` creates the new folders or moves the old ones and their files,
+    never overwriting a file. It reads the folders on disk, not the version pin, so it runs
+    correctly from any starting version. Both exits of `_run_upgrade` call it, before
+    `_apply_feedback_dir`, which then reads the rewritten `project.feedback_dir`.
+
+    Deferred import, for the same reason as `_apply_feedback_dir`.
+    """
+    from init_project import _apply_layout_migration as apply_layout
+    from init_project import _print_layout_reports
+
+    _print_layout_reports(apply_layout(cfg, config_path))
+
+
 def _apply_feedback_dir(cfg: "InitConfig", config_path: Path) -> None:
     """Backfill `project.feedback_dir` and create the resolved directory.
 
     Delegates the key backfill to init_project's own `_backfill_feedback_dir`
-    (the leave-and-re-point disposition already implements the never-moves
-    guarantee there — this function does not reimplement it) and then closes
-    the second half of the contract that helper does not cover: creating the
-    resolved directory when it is still absent, the same way
-    `create_directories()` does for a fresh `/planwise init`. Runs on every
+    and then closes the second half of the contract that helper does not
+    cover: creating the resolved directory when it is still absent, the same
+    way `create_directories()` does for a fresh `/planwise init`. Moving the
+    drafts of an older install is `_apply_layout_migration`'s job, which runs
+    first. Runs on every
     `--upgrade` path that reaches an existing config, including the
     already-up-to-date early return, so a re-run at a current pin still
     closes the gap for an install that predates the key.
@@ -998,6 +1015,7 @@ def _run_upgrade(
         # The refresh happens on an ACTUAL upgrade below (2d) and once at
         # /planwise init — both real recalibration points.
         _apply_project_dirs(cfg, config_path)
+        _apply_layout_migration(cfg, config_path)
         _apply_feedback_dir(cfg, config_path)
         # Honor --feedback-drafts / --feedback-enabled here too, and backfill a missing
         # feedback.drafts key. real_upgrade=False keeps a config with no feedback block
@@ -1102,13 +1120,15 @@ def _run_upgrade(
         lessons_boot = bootstrap_lessons_artifacts(cfg)
         _emit_lessons_bootstrap_banner(lessons_boot)
 
-        # 2c. Backfill project.feedback_dir (leave-and-re-point disposition)
-        # and create the resolved directory if absent. `project` is not one
+        # 2c. Move an older install's plan-build and drafts folders into the
+        # current layout, backfill project.feedback_dir, and create the resolved
+        # directory if absent. `project` is not one
         # of MIGRATABLE_TOP_LEVEL_KEYS, so the migrate_config() call above
         # never touches it and never creates the directory either — this is
         # the only place in the --upgrade path that closes both gaps. The
         # path keys (planwise_root, plans_dir, backlog_dir) ride the same call.
         _apply_project_dirs(cfg, config_path)
+        _apply_layout_migration(cfg, config_path)
         _apply_feedback_dir(cfg, config_path)
         # Runs after migrate_config, so a config with no feedback block already carries the
         # template's block and the banner reports the value the template wrote.

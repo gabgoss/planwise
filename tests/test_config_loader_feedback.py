@@ -232,8 +232,8 @@ class TestFeedbackDirDerivation(unittest.TestCase):
 
             self.assertEqual(
                 config["_feedback_dir"],
-                planwise_root / "Feedback",
-                "absent project.feedback_dir must derive to {planwise_root}/Feedback",
+                planwise_root / "Feedback" / "Feedback-Drafts",
+                "absent project.feedback_dir must derive to {planwise_root}/Feedback/Feedback-Drafts",
             )
 
     def test_feedback_dir_honors_explicit_value(self):
@@ -289,7 +289,7 @@ class TestFeedbackDirCreationAndBackfill(unittest.TestCase):
             "plans_dir": "Plans",
             "backlog_dir": "Backlog",
             "lessons_dir": "LessonsLearned",
-            "feedback_dir": "Feedback",
+            "feedback_dir": "Feedback/Feedback-Drafts",
             "install_scope": ip.InstallScope.PROJECT,
             "plan_tier": "pro",
             "plugin_version": "0.0.0",
@@ -305,7 +305,7 @@ class TestFeedbackDirCreationAndBackfill(unittest.TestCase):
 
             created = ip.create_directories(cfg)
 
-            feedback_dir = project_root / "planwise" / "Feedback"
+            feedback_dir = project_root / "planwise" / "Feedback" / "Feedback-Drafts"
             self.assertTrue(feedback_dir.is_dir())
             self.assertIn(str(feedback_dir.relative_to(project_root)), created)
 
@@ -340,10 +340,10 @@ class TestFeedbackDirCreationAndBackfill(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project_root = Path(tmp)
             cfg = self._make_cfg(project_root)
-            self.assertEqual(len(ip.create_directories(cfg)), 5)
+            self.assertEqual(len(ip.create_directories(cfg)), 6)
             self.assertEqual(ip.create_directories(cfg), [])
-            for rel in ("planwise/Plans", "planwise/Backlog", "planwise/LessonsLearned",
-                        "planwise/Feedback", ".claude/rules/planwise"):
+            for rel in ("planwise/Plans", "planwise/Plans/Plan-Build", "planwise/Backlog", "planwise/LessonsLearned",
+                        "planwise/Feedback/Feedback-Drafts", ".claude/rules/planwise"):
                 self.assertTrue((project_root / rel).is_dir(), rel)
 
     def test_create_directories_omits_a_pre_existing_directory(self):
@@ -352,12 +352,13 @@ class TestFeedbackDirCreationAndBackfill(unittest.TestCase):
             (project_root / "planwise" / "Plans").mkdir(parents=True)
             created = ip.create_directories(self._make_cfg(project_root))
             self.assertNotIn(str(Path("planwise/Plans")), created)
-            expected = {str(Path(rel)) for rel in ("planwise/Backlog", "planwise/LessonsLearned",
-                                                   "planwise/Feedback", ".claude/rules/planwise")}
+            expected = {str(Path(rel)) for rel in ("planwise/Plans/Plan-Build", "planwise/Backlog",
+                                                   "planwise/LessonsLearned",
+                                                   "planwise/Feedback/Feedback-Drafts", ".claude/rules/planwise")}
             self.assertEqual(set(created), expected)
 
     @unittest.skipUnless(ip.HAS_YAML, "requires PyYAML to parse/write the config")
-    def test_backfill_feedback_dir_defaults_to_Feedback_when_no_legacy_dir(self):
+    def test_backfill_feedback_dir_defaults_to_the_nested_drafts_folder_when_no_legacy_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_root = Path(tmp)
             planwise_dir = project_root / "planwise"
@@ -374,10 +375,12 @@ class TestFeedbackDirCreationAndBackfill(unittest.TestCase):
 
             self.assertIsNone(notice, "no legacy directory present -- no notice expected")
             text = config_path.read_text(encoding="utf-8")
-            self.assertIn('feedback_dir: "Feedback"', text)
+            self.assertIn('feedback_dir: "Feedback/Feedback-Drafts"', text)
 
     @unittest.skipUnless(ip.HAS_YAML, "requires PyYAML to parse/write the config")
-    def test_backfill_feedback_dir_repoints_to_nonempty_legacy_dir_with_notice(self):
+    def test_backfill_feedback_dir_writes_the_new_default_beside_a_nonempty_legacy_dir(self):
+        """The backfill only writes the key. `layout_migrate` moves the old drafts, so the
+        legacy folder is no longer a reason to point the key at it."""
         with tempfile.TemporaryDirectory() as tmp:
             project_root = Path(tmp)
             planwise_dir = project_root / "planwise"
@@ -395,11 +398,10 @@ class TestFeedbackDirCreationAndBackfill(unittest.TestCase):
 
             notice = ip._backfill_feedback_dir(cfg, config_path)
 
-            self.assertIsNotNone(notice, "a non-empty legacy feedback-drafts/ must print a notice")
-            self.assertIn("feedback-drafts", notice)
+            self.assertIsNone(notice, "the backfill prints no re-point notice any more")
             text = config_path.read_text(encoding="utf-8")
-            self.assertIn('feedback_dir: "feedback-drafts"', text)
-            # Never-moves guarantee: the legacy draft is untouched.
+            self.assertIn('feedback_dir: "Feedback/Feedback-Drafts"', text)
+            # The backfill itself moves nothing: the legacy draft is untouched.
             self.assertTrue((legacy_dir / "draft.md").exists())
             self.assertEqual((legacy_dir / "draft.md").read_text(encoding="utf-8"), "hi")
 
@@ -427,15 +429,15 @@ class TestFeedbackDirCreationAndBackfill(unittest.TestCase):
         return self._make_cfg(project_root), config_path, legacy_dir
 
     @unittest.skipUnless(ip.HAS_YAML, "requires PyYAML to parse/write the config")
-    def test_backfill_without_lessons_dir_writes_legacy_value_and_notice_is_true(self):
+    def test_backfill_without_lessons_dir_writes_the_new_default_beside_a_legacy_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
             cfg, config_path, legacy_dir = self._backfill_fixture(tmp, self._NO_LESSONS_DIR, True)
 
             notice = ip._backfill_feedback_dir(cfg, config_path)
 
-            self.assertIsNotNone(notice, "the key was written, so the re-point notice is true")
+            self.assertIsNone(notice)
             parsed = ip.yaml.safe_load(config_path.read_text(encoding="utf-8"))
-            self.assertEqual(parsed["project"]["feedback_dir"], "feedback-drafts")
+            self.assertEqual(parsed["project"]["feedback_dir"], "Feedback/Feedback-Drafts")
             # The key landed inside project:, not after the following top-level block.
             self.assertEqual(parsed["context"], {"window": 200000})
             self.assertNotIn("feedback_dir", parsed["context"])
@@ -443,16 +445,16 @@ class TestFeedbackDirCreationAndBackfill(unittest.TestCase):
             self.assertEqual((legacy_dir / "draft.md").read_text(encoding="utf-8"), "hi")
 
     @unittest.skipUnless(ip.HAS_YAML, "requires PyYAML to parse/write the config")
-    def test_backfill_without_lessons_dir_defaults_to_Feedback_without_legacy_dir(self):
+    def test_backfill_without_lessons_dir_defaults_to_the_nested_drafts_folder_without_legacy_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
             cfg, config_path, _legacy_dir = self._backfill_fixture(tmp, self._NO_LESSONS_DIR, False)
 
             notice = ip._backfill_feedback_dir(cfg, config_path)
 
             self.assertIsNone(notice)
-            self.assertIn('  feedback_dir: "Feedback"\n', config_path.read_text(encoding="utf-8"))
+            self.assertIn('  feedback_dir: "Feedback/Feedback-Drafts"\n', config_path.read_text(encoding="utf-8"))
             parsed = ip.yaml.safe_load(config_path.read_text(encoding="utf-8"))
-            self.assertEqual(parsed["project"]["feedback_dir"], "Feedback")
+            self.assertEqual(parsed["project"]["feedback_dir"], "Feedback/Feedback-Drafts")
 
     @unittest.skipUnless(ip.HAS_YAML, "requires PyYAML to parse/write the config")
     def test_backfill_leaves_config_with_existing_feedback_dir_byte_identical(self):

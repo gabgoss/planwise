@@ -49,7 +49,7 @@ function readArgs(raw) {
 
 function checkArgs(a) {
   if (a === undefined || a === null || typeof a !== 'object' || Array.isArray(a)) {
-    return ['args is missing or is not an object: pass a JSON object with the required fields planwise_root, plan_name, abbrev, spec_path, notes_path, timestamp and sessions, and the optional fields bodies_dir and clusters']
+    return ['args is missing or is not an object: pass a JSON object with the required fields planwise_root, plan_name, abbrev, spec_path, notes_path, timestamp and sessions, and the optional fields bodies_dir, plans_dir and clusters']
   }
   const problems = []
   for (const key of REQUIRED_ARGS) {
@@ -73,7 +73,10 @@ if (argProblems.length > 0) {
 }
 
 const planwiseRoot = trimSlash(input.planwise_root)
-const bodiesDir = trimSlash(input.bodies_dir || (planwiseRoot + '/plan-build/' + input.plan_name))
+// The build folder sits inside the plans folder. The caller normally passes bodies_dir. When it
+// does not, plans_dir (default Plans, relative to planwise_root) places Plan-Build.
+const plansDir = trimSlash(input.plans_dir || 'Plans')
+const bodiesDir = trimSlash(input.bodies_dir || (planwiseRoot + '/' + plansDir + '/Plan-Build/' + input.plan_name))
 const planBodiesPath = bodiesDir + '/' + input.abbrev + '-bodies-plan.md'
 const specPath = input.spec_path
 const notesPath = input.notes_path
