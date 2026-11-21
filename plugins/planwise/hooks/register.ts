@@ -7,6 +7,8 @@ import { register as registerAgentGuard } from './agent-guard.ts'
 import { hostOf as buildPlanHostOf, onSessionStart as buildPlanStart, register as registerBuildPlan } from './build-plan.ts'
 import { hostOf as draftFeedbackHostOf, onSessionStart as draftFeedbackStart, register as registerDraftFeedback } from './draft-feedback.ts'
 import { register as registerFeedbackCard } from './feedback-card.tsx'
+import { register as registerUpdateBanner } from './update-banner.tsx'
+import { hostOf as updateCheckHostOf, onSessionStart as updateCheckStart } from './update-check.ts'
 import { failureText, isCurrent, keyOf, releaseLatch, stepOf } from './loop/boundary.ts'
 import type { BoundaryStep } from './loop/boundary.ts'
 import { decide } from './loop/decide.ts'
@@ -54,6 +56,8 @@ export function register(on: On, options: PluginOptions) {
   registerDraftFeedback(on, options)
   registerBuildPlan(on, options)
   registerFeedbackCard(on, options)
+  // After the feedback card, so the feedback card is the outer AbovePrompt hook.
+  registerUpdateBanner(on, options)
   registerAgentGuard(on, options)
   // `interactive` starts true: a module reload re-runs register() without a new session.start.
   const session: Session = {
@@ -132,6 +136,8 @@ export function register(on: On, options: PluginOptions) {
   }
 
   on('session.start', async ($, e, next) => {
+    // Arms a timer and returns: the network and the upgrade run after session.start.
+    updateCheckStart(updateCheckHostOf($), e.isInteractive !== false, options)
     await draftFeedbackStart(draftFeedbackHostOf($))
     await buildPlanStart(buildPlanHostOf($))
     session.interactive = e.isInteractive !== false

@@ -483,6 +483,12 @@ When a new plugin version is published, upgrading happens in two stages:
 
 **A note on "already up to date":** this comparison is entirely local — it checks your pinned `plugin_version:` against the plugin files already sitting in your local cache, never the marketplace source directly. If you haven't run Stage 1's refresh in a while, `/planwise upgrade` can report "already up to date" even though a newer release exists upstream, because fetching new versions into the local cache is Claude Code's own job, not this plugin's. Run `/plugin marketplace update` + `/plugin install planwise@planwise-marketplace` periodically so the comparison has something current to compare against.
 
+**The update banner.** With the hooks module loaded, each interactive session start checks whether the running plugin, the installed copy or your project's `plugin_version:` pin is behind. When one is, a banner appears above the prompt with three buttons. `Update Now` runs the plugin update, or `/planwise upgrade` when only the project pin is behind. `Later` hides the banner for now and `Dismiss` closes it. After a plugin update the banner offers `Reload` in place of `Update Now`. The check reads local files and asks GitHub for the release list at most once every 6 hours.
+
+Set the `update_check` plugin option with `/plugin configure`. `on` runs the check and shows the banner. `offline` makes no GitHub request and still compares local files. `off` runs nothing. An unset value reads as `on`.
+
+Without the hooks module, update by hand. Run `claude plugin update planwise@planwise-marketplace`, restart Claude Code, then run `/planwise upgrade`.
+
 ---
 
 ## 11. `/planwise help`
@@ -684,7 +690,7 @@ planwise/                           # Plugin root
   manifests/                        # Artifact manifest and agent history
   seed/                             # Index file seeds for init
   scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py, list_plans.py, skill_preflight.py (the zero-call list, the upgrade card and the plan Config Gate) and scaffold_plan.py (the plan skeleton render), plan_build.py (the plan build driver: keys, lint, build))
-  hooks/                            # hooks.json and register.ts — the backlog loop's compaction-and-re-entry module; agent-guard.ts — the task-runner dispatch guard (plugin option agent_guard: reports by default, refuses when set to deny)
+  hooks/                            # hooks.json and register.ts — the backlog loop's compaction-and-re-entry module; agent-guard.ts — the task-runner dispatch guard (plugin option agent_guard: reports by default, refuses when set to deny); update-check.ts and update-banner.tsx — the session update check and its banner (plugin option update_check: on, offline or off)
   examples/                         # Sample outputs
   config.yaml.template              # Config template
 ```
