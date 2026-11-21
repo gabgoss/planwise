@@ -121,6 +121,40 @@ test('mutation, Bash-verb: a bare file read and a bare cd are denied inside a ru
   }
 })
 
+test('mutation, git-verb: each tree-rewriting git verb is denied and named inside a runner in deny mode', async () => {
+  for (const [command, verb] of [
+    ['git stash', 'git stash'],
+    ['git -C repo stash pop', 'git stash'],
+    ['git checkout -- a.md', 'git checkout'],
+    ['git switch main', 'git switch'],
+    ['git reset --hard', 'git reset'],
+    ['git restore a.md', 'git restore'],
+    ['git clean -fd', 'git clean'],
+    ['git add a.md', 'git add'],
+    ['git commit -m x', 'git commit'],
+    // Global options, a pipe stage and a later stage of a list all reach the verb.
+    ['git -c core.autocrlf=false --no-pager commit -m x', 'git commit'],
+    ['git --git-dir=.git --work-tree=. reset HEAD', 'git reset'],
+    ['echo msg | git commit -F -', 'git commit'],
+    ['git status && git stash push -m x', 'git stash'],
+  ]) {
+    const h = harness({ agent_guard: 'deny' })
+    await h.spawnRunner('a1')
+    const result = (await h.run('tool.call', { tool: 'Bash', agentId: 'a1', command })) as { deny?: string }
+    assert.equal(typeof result.deny, 'string', command)
+    assert.ok(result.deny!.includes(verb!), `${verb} not named in: ${result.deny}`)
+    assert.deepEqual(bareVerbs(command).filter((v: string) => v.startsWith('git ')), [verb], command)
+  }
+})
+
+test('mutation, git-verb: report mode logs the verb and lets the call proceed', async () => {
+  const h = harness({ agent_guard: 'report' })
+  await h.spawnRunner('a1')
+  assert.equal(await h.run('tool.call', { tool: 'Bash', agentId: 'a1', command: 'git reset --hard' }), h.passed)
+  assert.equal(h.logs.length, 1)
+  assert.match(h.logs[0]!, /^agent guard \(report\): git reset rewrites the shared working tree or index/)
+})
+
 // --- scope controls ---
 
 test('scope: another plugin\'s Agent call passes untouched, even in the background and with no clauses', async () => {
@@ -177,6 +211,34 @@ test('over-correction, Bash-verb: ordinary commands inside a runner pass in deny
     'wc -l a.md',
   ]) {
     assert.equal(await h.run('tool.call', { tool: 'Bash', agentId: 'a1', command }), h.passed, command)
+  }
+  assert.deepEqual(h.logs, [])
+})
+
+test('over-correction, git-verb: read-only git, the two carve-outs and other subcommands pass in deny mode', async () => {
+  const h = harness({ agent_guard: 'deny' })
+  await h.spawnRunner('a1')
+  for (const command of [
+    'git stash list',
+    'git stash show -p',
+    'git add -N a.md',
+    'git add --intent-to-add a.md',
+    'git clean -n',
+    'git clean -nd',
+    'git clean --dry-run -fd',
+    'git show "$BASE:a.md" > /tmp/a.md',
+    'git worktree add ../wt abc',
+    'git -C repo log',
+    'git --no-pager log -3',
+    'git --exec-path',
+    'git -c core.quotepath=false diff --stat',
+    'git diff --cached --name-only | wc -l',
+    'git rev-parse HEAD',
+    'git',
+    'echo "git commit -m x"',
+  ]) {
+    assert.equal(await h.run('tool.call', { tool: 'Bash', agentId: 'a1', command }), h.passed, command)
+    assert.deepEqual(bareVerbs(command), [], command)
   }
   assert.deepEqual(h.logs, [])
 })
@@ -299,6 +361,28 @@ test('refusal text: a deny carries the reason the model reads as the error resul
   assert.match(bg.deny, /^agent guard: .*run_in_background: true.*foreground/)
   const bash = (await h.run('tool.call', { tool: 'Bash', agentId: 'a1', command: 'head -5 a.md' })) as { deny: string }
   assert.match(bash.deny, /^agent guard: head in command position; use Read, Grep or Glob/)
+  // A git hit has its own text: it names the verb and the git show read, and keeps no read-verb prefix.
+  const git = (await h.run('tool.call', { tool: 'Bash', agentId: 'a1', command: 'git stash' })) as { deny: string }
+  assert.match(git.deny, /^agent guard: git stash rewrites the shared working tree or index/)
+  assert.ok(git.deny.includes('git show "<rev>:<path>" > <copy>'), git.deny)
+  assert.ok(!git.deny.includes('in command position'), git.deny)
+  // A command that holds both kinds of hit carries both texts, the read-verb text first.
+  const both = (await h.run('tool.call', { tool: 'Bash', agentId: 'a1', command: 'cat a.md; git commit -m x' })) as { deny: string }
+  assert.match(both.deny, /^agent guard: cat in command position; .*; git commit rewrites the shared/)
+})
+
+// --- manifest description control ---
+
+test('manifests: hooks.json and plugin.json describe the git check', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const hooks = JSON.parse(await readFile(new URL('../../plugins/planwise/hooks/hooks.json', import.meta.url), 'utf8'))
+  assert.match(hooks.description, /git verbs that rewrite the shared working tree or index/)
+  const plugin = JSON.parse(await readFile(new URL('../../plugins/planwise/.claude-plugin/plugin.json', import.meta.url), 'utf8'))
+  const text: string = plugin.userConfig.agent_guard.description
+  assert.match(text, /refuse a git verb that rewrites the shared working tree or index/)
+  for (const verb of ['stash', 'checkout', 'switch', 'reset', 'restore', 'clean', 'add', 'commit']) {
+    assert.ok(text.includes(verb), `${verb} not named in the agent_guard description`)
+  }
 })
 
 // --- pure helpers ---

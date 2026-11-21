@@ -53,6 +53,7 @@ import os
 import re
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 # Fix Windows cp1252 stdout encoding
@@ -66,6 +67,7 @@ from config_loader import load_config
 from parse_lessons import (
     LESSON_FILE_RE,
     LESSON_ROW_RE,
+    collect_all_known_ids,
     detect_index_shape,
     duplicate_ids,
     format_id,
@@ -74,6 +76,15 @@ from parse_lessons import (
     parse_legacy_master_table,
 )
 from parse_lessons import compute_next_id as _parse_lessons_compute_next_id
+from reconcile_common import (
+    AnchoredEdit,
+    AnchoredWriteError,
+    Rename,
+    apply_anchored_edits,
+    prose_mentions,
+    read_text_preserving_newlines,
+    regenerate_index,
+)
 
 # Re-exported for backward-compatible external access (a caller or test that
 # still reads reconcile_lessons.LESSON_FILE_RE) even though this module no
@@ -84,6 +95,7 @@ __all__ = [
     "compute_next_id",
     "detect_drift",
     "reconcile",
+    "renumber",
 ]
 
 # Import-bound alias — the single ID-cell regex is defined once, in
@@ -350,13 +362,131 @@ def reconcile(config: dict) -> dict:
     if stated >= expected:
         return {"written": False, "from": format_id(stated), "to": format_id(stated)}
 
-    start, end = match.span()
-    updated = content[:start] + match.group(1) + format_id(expected) + content[end:]
-
-    with open(index_path, "w", encoding="utf-8", newline="") as fh:
-        fh.write(updated)
+    # One anchored edit pinned at the counter line's offset. The helper
+    # re-reads the file and refuses, writing nothing, when a concurrent
+    # writer moved the counter between the read above and the write.
+    apply_anchored_edits(
+        [AnchoredEdit(index_path, match.group(0), match.group(1) + format_id(expected), at=match.start())]
+    )
 
     return {"written": True, "from": format_id(stated), "to": format_id(expected)}
+
+
+class RenumberRefused(Exception):
+    """A renumber was refused before any file changed. `main()` exits 2."""
+
+
+# The frontmatter block, the `id:` line inside it, and the first H1 after it.
+_FRONTMATTER_RE = re.compile(r"\A---[ \t]*\r?\n(.*?)^---[ \t]*\r?$", re.DOTALL | re.MULTILINE)
+_FRONTMATTER_ID_RE = re.compile(r"^(id:[ \t]*)LL-(\d+)", re.MULTILINE)
+_FIRST_H1_RE = re.compile(r"^# [^\r\n]*", re.MULTILINE)
+_H1_ID_RE = re.compile(r"# LL-(\d+)")
+
+
+def _parse_lesson_id(text: str) -> int:
+    match = re.fullmatch(r"(?:LL-)?(\d+)", text.strip())
+    if match is None:
+        raise RenumberRefused(f"{text!r} is not a lesson id (write LL-NNN or NNN)")
+    return int(match.group(1))
+
+
+def _lesson_id_fields(text: str) -> tuple[re.Match | None, re.Match | None, int | None]:
+    """Locate the frontmatter `id:` match, the H1 id match and the H1's offset."""
+    frontmatter = _FRONTMATTER_RE.match(text)
+    if frontmatter is None:
+        return None, None, None
+    id_match = _FRONTMATTER_ID_RE.search(text, frontmatter.start(1), frontmatter.end(1))
+    h1 = _FIRST_H1_RE.search(text, frontmatter.end())
+    if h1 is None:
+        return id_match, None, None
+    return id_match, _H1_ID_RE.match(h1.group(0)), h1.start()
+
+
+def _plan_lesson_renumber(path: Path, old: int, new: int) -> tuple[list[AnchoredEdit], Rename, Callable]:
+    """Plan the edits, the rename and the invariant that move one lesson file."""
+    # Raw read: the pinned offsets below must match the bytes the helper reads.
+    text = read_text_preserving_newlines(path)
+    id_match, h1_match, h1_start = _lesson_id_fields(text)
+    if id_match is None or int(id_match.group(2)) != old:
+        raise RenumberRefused(f"{path.name}: frontmatter has no `id: LL-{old:03d}` line")
+    if h1_match is None or h1_start is None or int(h1_match.group(1)) != old:
+        raise RenumberRefused(f"{path.name}: the first H1 does not start `# LL-{old:03d}`")
+    new_name = LESSON_FILE_RE.sub(format_id(new), path.name, count=1)
+    edits = [
+        AnchoredEdit(path, id_match.group(0), id_match.group(1) + format_id(new), at=id_match.start()),
+        AnchoredEdit(path, h1_match.group(0), "# " + format_id(new), at=h1_start),
+    ]
+
+    def invariant(planned: dict) -> str | None:
+        after_id, after_h1, _ = _lesson_id_fields(planned[path])
+        filename = LESSON_FILE_RE.match(new_name)
+        numbers = {
+            "id:": int(after_id.group(2)) if after_id else None,
+            "H1": int(after_h1.group(1)) if after_h1 else None,
+            "filename": int(filename.group(1)) if filename else None,
+        }
+        wrong = [field for field, number in numbers.items() if number != new]
+        return f"{path.name}: {', '.join(wrong)} would not equal {format_id(new)}" if wrong else None
+
+    return edits, Rename(path, path.with_name(new_name)), invariant
+
+
+def renumber(config: dict, old: int, new: int, file_name: str | None = None) -> list[str]:
+    """Move one lesson from id `old` to id `new` as one verified transaction.
+
+    Refuses, writing nothing, when the index is a legacy Master Table, when
+    `new` is below the next free id or already claimed, when `old` matches
+    no file, or when several files claim `old` and `file_name` does not pick
+    one. Rewrites the frontmatter `id:`, the H1 and the filename, then
+    regenerates the index. Returns the moved-location lines followed by the
+    prose-mention rows that still name the old id.
+    """
+    lessons_dir = config.get("_lessons_dir")
+    index_path = config.get("_lessons_index")
+    if lessons_dir is None or index_path is None:
+        raise RenumberRefused("config.yaml declares no project.lessons_dir")
+    content = index_path.read_text(encoding="utf-8") if index_path.exists() else ""
+    if detect_index_shape(content) == "legacy":
+        raise RenumberRefused("the lessons index is a legacy Master Table; run /planwise upgrade first")
+    floor = compute_next_id(config)["next"]
+    if new < floor:
+        raise RenumberRefused(f"{format_id(new)} is below the next free id {format_id(floor)}; an id never moves backward")
+    known = collect_all_known_ids(config)
+    if new in known["disk"] or new in known["index"] or new in known["legacy"]:
+        raise RenumberRefused(f"{format_id(new)} is already claimed by a file or an index row")
+
+    archive_dir = lessons_dir / "Archive"
+    claimants = [path for number, path in lesson_files(lessons_dir, archive_dir) if number == old]
+    if not claimants:
+        raise RenumberRefused(f"no lesson file claims {format_id(old)}")
+    if file_name is not None:
+        claimants = [path for path in claimants if path.name == file_name]
+        if not claimants:
+            raise RenumberRefused(f"no file named {file_name} claims {format_id(old)}")
+    elif len(claimants) > 1:
+        names = ", ".join(path.name for path in claimants)
+        raise RenumberRefused(f"{len(claimants)} files claim {format_id(old)}: {names}. Name one with --file")
+
+    chosen = claimants[0]
+    edits, rename, invariant = _plan_lesson_renumber(chosen, old, new)
+    try:
+        apply_anchored_edits(edits, [rename], invariant)
+    except AnchoredWriteError as exc:
+        raise RenumberRefused(str(exc)) from exc
+
+    moved = [
+        f"{rename.dst}: id: {format_id(old)} -> {format_id(new)}",
+        f"{rename.dst}: H1 {format_id(old)} -> {format_id(new)}",
+        f"{rename.src.name} -> {rename.dst.name}: filename",
+    ]
+    code = regenerate_index("generate_lessons_index.py", config)
+    if code != 0:
+        raise RuntimeError(f"the files moved, but generate_lessons_index.py --write exited {code}")
+    mentions = prose_mentions(config["_planwise_root"], format_id(old))
+    if mentions:
+        moved.append(f"Prose still naming {format_id(old)} (left unchanged):")
+        moved.extend(f"  {row}" for row in mentions)
+    return moved
 
 
 def _format_report(result: dict) -> str:
@@ -408,7 +538,15 @@ def main():
     parser.add_argument("--json", action="store_true", help="Additionally write a JSON temp file and print its path.")
     parser.add_argument("--next-id", action="store_true", help="Print the true next lesson ID (computed from the union of all sources, NOT read from the counter line) and exit.")
 
+    parser.add_argument("--renumber", nargs=2, metavar=("OLD", "NEW"), default=None, help="Move lesson OLD to the free id NEW (NEW must be at or above the next id): frontmatter id, H1 and filename in one verified transaction, then regenerate the index.")
+    parser.add_argument("--file", type=str, default=None, help="With --renumber: the filename to move when several files claim OLD.")
+
     args = parser.parse_args()
+
+    if args.renumber and (args.write or args.next_id):
+        parser.error("--renumber cannot be combined with --write or --next-id")
+    if args.file and not args.renumber:
+        parser.error("--file is only valid with --renumber")
 
     config = load_config(Path(__file__))
     lessons_dir = config.get("_lessons_dir")
@@ -425,12 +563,29 @@ def main():
         print(f"Error: Lessons index not found at {index_path}", file=sys.stderr)
         sys.exit(1)
 
+    if args.renumber:
+        try:
+            old, new = (_parse_lesson_id(value) for value in args.renumber)
+            for line in renumber(config, old, new, args.file):
+                print(line)
+        except RenumberRefused as exc:
+            print(f"Refused: {exc}. Nothing was written.", file=sys.stderr)
+            sys.exit(2)
+        except RuntimeError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
+        return
+
     if args.next_id:
         print(compute_next_id(config)["next_id"])
         return
 
     if args.write:
-        outcome = reconcile(config)
+        try:
+            outcome = reconcile(config)
+        except AnchoredWriteError as exc:
+            print(f"Error: the counter write was refused and nothing was written: {exc}", file=sys.stderr)
+            sys.exit(1)
         if outcome["written"]:
             print(f"Reconciled the counter: {outcome['from']} → {outcome['to']}.")
         elif outcome.get("regenerate_command"):

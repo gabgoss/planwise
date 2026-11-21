@@ -42,7 +42,8 @@ Use this template when creating `{Abbrev}-S{XX}-Sprint-Plan.md`.
 List every directory or file this sprint **EDITS** — not the ones it merely
 reads. The read/edit distinction is the whole point: an intersection computed
 over read-sets is meaningless, since nearly every sprint reads broadly but only
-a handful of paths are ever written to.
+a handful of paths are ever written to. Each row's paths also appear on the named
+task's `**Output:**` line, and lint Check 59 reconciles the two.
 
 | Path | Task |
 |------|------|

@@ -12,8 +12,12 @@
 //   checked here.
 // - Bash-verb: a Bash call made inside a planwise:task-runner that runs a bare `cd`, or a
 //   file-tree read verb (cat, head, tail, sed -n, awk, find, ls -R) in command position, not fed
-//   by a pipe (references/native-tool-use.md, Forbidden Verbs for File Operations). A
-//   here-document body is not a command, and a command the parser cannot read passes.
+//   by a pipe (references/native-tool-use.md, Forbidden Verbs for File Operations), or a git
+//   verb that rewrites the shared working tree or index, in any pipe stage: stash (not list or
+//   show), checkout, switch, reset, restore, clean (not -n or --dry-run), add (not -N or
+//   --intent-to-add) and commit. Git global options (-C, -c, --git-dir, --work-tree, --no-pager)
+//   are skipped first. A here-document body is not a command, and a command the parser cannot
+//   read passes.
 //
 // Config key: the plugin option `agent_guard`, read from register()'s options.
 //   absent, or any value but "deny"  -> report-only: log one line and let the call proceed.
@@ -140,9 +144,41 @@ function wordsOf(stage: string): string[] {
   return words
 }
 
+// Git global options that take a separate value word, and the ones that stand alone.
+const GIT_VALUE_OPTIONS = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace'])
+// Git subcommands that rewrite the shared working tree or index, whatever their arguments.
+const GIT_REWRITE_SUBS = new Set(['checkout', 'switch', 'reset', 'restore', 'commit'])
+
 /**
- * The verbs of `command` the Bash-verb check reports, in order. A pipe-fed stage never counts,
- * and a command the parser cannot read with confidence reports nothing.
+ * The `git <sub>` the git check reports for one stage, or null. The words start at `git`. Global
+ * options are skipped first. A read-only call, and the two carve-outs (`add -N`, `clean -n`),
+ * report nothing.
+ */
+function gitVerbOf(words: string[]): string | null {
+  let i = 1
+  while (i < words.length && words[i]!.startsWith('-')) {
+    i += GIT_VALUE_OPTIONS.has(words[i]!) ? 2 : 1
+  }
+  const sub = words[i]
+  if (sub === undefined) return null
+  const rest = words.slice(i + 1)
+  if (GIT_REWRITE_SUBS.has(sub)) return `git ${sub}`
+  if (sub === 'stash') return rest[0] === 'list' || rest[0] === 'show' ? null : 'git stash'
+  if (sub === 'clean') {
+    const dry = rest.some((w) => w === '--dry-run' || /^-[A-Za-z]*n/.test(w))
+    return dry ? null : 'git clean'
+  }
+  if (sub === 'add') {
+    const intent = rest.some((w) => w === '-N' || w === '--intent-to-add')
+    return intent ? null : 'git add'
+  }
+  return null
+}
+
+/**
+ * The verbs of `command` the Bash-verb check reports, in order. A read verb or a bare cd
+ * counts only as the first stage of a sequence, and a git verb counts in any pipe stage. A command the parser
+ * cannot read with confidence reports nothing.
  */
 export function bareVerbs(command: unknown): string[] {
   if (typeof command !== 'string') return []
@@ -152,13 +188,33 @@ export function bareVerbs(command: unknown): string[] {
   for (const seq of seqs) {
     const words = wordsOf(seq[0] ?? '')
     const verb = words[0]
-    if (verb === undefined) continue
     if (verb === 'cd') found.push('cd')
-    else if (READ_VERBS.has(verb)) found.push(verb)
+    else if (verb !== undefined && READ_VERBS.has(verb)) found.push(verb)
     else if (verb === 'sed' && words.includes('-n')) found.push('sed -n')
     else if (verb === 'ls' && words.some((w) => /^-[A-Za-z]*R/.test(w))) found.push('ls -R')
+    for (const stage of seq) {
+      const stageWords = wordsOf(stage)
+      if (stageWords[0] !== 'git') continue
+      const hit = gitVerbOf(stageWords)
+      if (hit !== null) found.push(hit)
+    }
   }
   return found
+}
+
+/** The refusal or report text for the verbs `bareVerbs` returned. Read verbs keep their text. */
+export function verbReason(verbs: string[]): string {
+  const git = verbs.filter((v) => v.startsWith('git '))
+  const read = verbs.filter((v) => !v.startsWith('git '))
+  const parts: string[] = []
+  if (read.length > 0) parts.push(`${read.join(', ')} in command position; use Read, Grep or Glob for files, and absolute paths instead of cd`)
+  if (git.length > 0) {
+    parts.push(
+      `${git.join(', ')} rewrites the shared working tree or index; the orchestrator stages and commits. ` +
+        'To read an old revision, run git show "<rev>:<path>" > <copy>',
+    )
+  }
+  return parts.join('; ')
 }
 
 // A message that reports the status block delivered: a runner told to send it by SendMessage
@@ -236,7 +292,7 @@ export function register(on: On, options: PluginOptions) {
     if (e.tool === 'Bash' && e.agentId !== undefined && runners.has(e.agentId)) {
       const verbs = bareVerbs(e['command'])
       if (verbs.length > 0) {
-        const why = `${verbs.join(', ')} in command position; use Read, Grep or Glob for files, and absolute paths instead of cd`
+        const why = verbReason(verbs)
         if (mode === 'deny') return { deny: `agent guard: ${why}` }
         host.log(`agent guard (report): ${why}`)
       }

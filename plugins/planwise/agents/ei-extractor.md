@@ -146,6 +146,8 @@ Run the four-step EI consistency procedure on every EI file before the measureme
 
 One exemption applies. A source used only for background, and the source of no extracted section, may stay out of the header when its row carries the `(informational-only)` annotation, for example the Source cell `Spec #{N} ({filename.md}) (informational-only)`, with `§{n}` in the Source Section(s) cell.
 
+**Cross-tier Note.** Group the Cross-References rows by their Section cell. When two or more rows of one Section cell cite sources of different tiers, write one `**Note (cross-tier duplicate preserved):**` paragraph in the same Part that holds those rows. The Note names every one of those sources as `Spec #{N} ({filename.md})`. Write it as one paragraph with no blank line inside, because the lint rule `cross-tier-note` reads each Part on its own and stops at the first blank line. A section cited by one source, or by sources of one tier, takes no Note. `references/ei-citation-and-token-reconciliation.md` section 5 gives the Note's template. A Note that declares a `Consumed by:` clause also makes the lint rule `cross-tier-propagation` check the task files and the signoff, so write that clause only when those files will cite the sources.
+
 Any change this step forces is one `Edit` of the affected section, or a whole-file `Write` of an affected part. Before the measurement, count `EI-PENDING` over `sprint_folder` with `Grep` (`output_mode='count'`). The count must read 0. A marker that remains is a section not yet written, so write it first.
 
 Then compute the retention. Measure the final EI file or parts and the Deferred log in one call:

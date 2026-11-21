@@ -727,16 +727,47 @@ def owning_lessons(item_id: str, lessons_dir: Path | None) -> list[str] | None:
     return stems
 
 
-def classify(destinations: list[Destination], rules: list[RuleScope], owned: bool) -> str:
+def _approved_paths(value: Any, project_root: Path) -> frozenset[str]:
+    """Normalize a `placement_approved` value into a set of project-relative paths.
+
+    `value` is a list, a flow or block list string, or None. Each entry goes
+    through the same normalization as a destination, so a `./`-prefixed, a
+    backslash and an absolute in-root spelling all match. An absolute path
+    outside the root is dropped.
+    """
+    if value is None:
+        return frozenset()
+    if isinstance(value, str):
+        tokens = _list_tokens(value)
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        tokens = [str(t) for t in value]
+    else:
+        return frozenset()
+    out: set[str] = set()
+    for token in tokens:
+        path = _normalize_path(token.replace("\\", "/"), project_root)
+        if path:
+            out.add(path)
+    return frozenset(out)
+
+
+def classify(
+    destinations: list[Destination],
+    rules: list[RuleScope],
+    owned: bool,
+    approved: frozenset[str] = frozenset(),
+) -> str:
     """Classify each destination in place and return the item's overall verdict.
 
     For an `EDIT` or `CREATE` destination, `rules` lists every matching rule,
     `placement_rules` those declaring `placement: true`, and `content_tree`
     says the path sits under a content tree. Its verdict is `placement` for a
-    `CREATE` that is not owned and matches a placement rule or sits in a
-    content tree, else `inject` when any rule matches, else `none`. A `READ`
-    row is always `none` with empty rule lists. The item verdict is the
-    strongest destination verdict: `placement`, then `inject`, then `none`.
+    `CREATE` that is not owned, not in `approved` and matches a placement rule
+    or sits in a content tree, else `inject` when any rule matches, else
+    `none`. A `READ` row is always `none` with empty rule lists. The item
+    verdict is the strongest destination verdict: `placement`, then `inject`,
+    then `none`. `approved` holds the normalized paths the user approved for
+    creation, so an approved `CREATE` skips the placement branch.
     """
     verdicts: set[str] = set()
     for dest in destinations:
@@ -747,7 +778,12 @@ def classify(destinations: list[Destination], rules: list[RuleScope], owned: boo
         matched = [r for r in rules if r.matches(dest.path)]
         dest.rules = [r.rel for r in matched]
         dest.placement_rules = [r.rel for r in matched if r.placement]
-        if dest.role == "CREATE" and not owned and (dest.placement_rules or dest.content_tree):
+        if (
+            dest.role == "CREATE"
+            and not owned
+            and dest.path not in approved
+            and (dest.placement_rules or dest.content_tree)
+        ):
             dest.verdict = VERDICT_PLACEMENT
         elif dest.rules:
             dest.verdict = VERDICT_INJECT
@@ -760,8 +796,13 @@ def classify(destinations: list[Destination], rules: list[RuleScope], owned: boo
     return VERDICT_NONE
 
 
-def scoped_rules_block(item_id: str, body: str, config: dict) -> dict[str, Any]:
+def scoped_rules_block(item_id: str, body: str, config: dict, approved: Any = None) -> dict[str, Any]:
     """Compute the scoped-rule block for one item: the single entry point.
+
+    `approved` is the item's `placement_approved` frontmatter value (a list, a
+    flow or block list string, or None). The block lists its normalized paths
+    under `placement_approved`, and an approved `CREATE` no longer reads
+    `placement`.
 
     Reads `config["_project_root"]` and `config.get("_lessons_dir")`, loads
     the rules once (or takes them from `config[RULE_SCOPES_KEY]` when a
@@ -784,7 +825,8 @@ def scoped_rules_block(item_id: str, body: str, config: dict) -> dict[str, Any]:
     scanned, _ = strip_sections(body, SIGNAL_EXCLUDED_HEADINGS)
     destinations, source, truncated = extract_destinations(scanned, project_root)
     lessons = owning_lessons(item_id, Path(lessons_dir) if lessons_dir else None) or []
-    verdict = classify(destinations, scopes, bool(lessons))
+    approved_set = _approved_paths(approved, project_root)
+    verdict = classify(destinations, scopes, bool(lessons), approved_set)
     by_rel = {s.rel: s for s in scopes}
     rules_to_inject = sorted({rel for d in destinations for rel in d.rules})
     rules_bytes = sum(by_rel[rel].path.stat().st_size for rel in rules_to_inject)
@@ -799,6 +841,7 @@ def scoped_rules_block(item_id: str, body: str, config: dict) -> dict[str, Any]:
         "source": source,
         "rules_scanned": len(scopes),
         "owning_lessons": lessons,
+        "placement_approved": sorted(approved_set),
         "destinations": [asdict(d) for d in destinations],
         "rules_to_inject": rules_to_inject,
         "rules_bytes": rules_bytes,

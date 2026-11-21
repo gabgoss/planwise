@@ -104,6 +104,7 @@ Use standard templates with the following overrides:
 
 **Task design rules:**
 - Tasks are **reading and consolidation** tasks, not implementation tasks
+- A meta spec sets `omit_code_sections: true` at plan level. The task template's code-only sections then drop in one setting, and Verification Commands stays. The key is build-only, so `plan_build.py` reads it and the core `lint-spec` does not
 - Each task reads a subset of source files and produces organized findings
 - The **final task** in a session (or a dedicated consolidation session) combines findings into Consolidated Context Parts
 - Agent assignments: Use **Opus** for cross-referencing and consolidation tasks (complex analysis); use **Sonnet** for straightforward reading tasks

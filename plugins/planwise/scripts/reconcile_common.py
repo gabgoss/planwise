@@ -28,6 +28,12 @@ such script lives in this module:
     translation, so a CRLF file's `\\r\\n` round-trips byte-for-byte
     instead of being rewritten to the platform's `os.linesep` on every
     line, including ones the caller never touched.
+  - `AnchoredEdit` / `Rename` / `apply_anchored_edits`: a verified write
+    transaction. Every anchor must match exactly once (or sit at a pinned
+    offset), an optional pre-state check and a caller invariant must hold,
+    and any refusal writes nothing. `prose_mentions` lists the `*.md`
+    lines that still name a token, for a caller that reports instead of
+    rewriting prose.
 
 Stdlib-only.
 """
@@ -35,10 +41,12 @@ Stdlib-only.
 import argparse
 import json
 import os
+import re
 import stat
 import sys
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -77,6 +85,208 @@ def write_text_preserving_newlines(path: Path, content: str) -> None:
         except OSError:
             pass
         raise
+
+
+class AnchoredWriteError(Exception):
+    """An anchored write was refused before any file changed.
+
+    Raised by `apply_anchored_edits` for a zero-match or multi-match anchor,
+    an anchor not at its pinned offset, a failed pre-state or invariant
+    check, an overlapping edit, a missing rename source or an existing
+    rename target. It is also re-raised after an I/O failure, once the
+    helper has rolled every written file and rename back.
+    """
+
+
+@dataclass(frozen=True)
+class AnchoredEdit:
+    """One text replacement in one file.
+
+    `anchor` must occur exactly once in the file's text. When `at` is set,
+    the anchor must instead sit at that character offset, so a strip of a
+    line whose text also repeats elsewhere (for example inside a code
+    fence) stays legal. `expect_pre`, when set, receives the file's text
+    before any edit and returns True when the file is in the expected
+    state. A file's edits are all located against its original text and
+    must not overlap.
+    """
+
+    path: Path
+    anchor: str
+    replacement: str
+    at: int | None = None
+    expect_pre: Callable[[str], bool] | None = None
+
+
+@dataclass(frozen=True)
+class Rename:
+    """Move `src` to `dst` after the edits are written. `dst` must be free."""
+
+    src: Path
+    dst: Path
+
+
+def _locate_edit(text: str, edit: AnchoredEdit) -> int:
+    """Return the offset where `edit.anchor` applies, or raise."""
+    if not edit.anchor:
+        raise AnchoredWriteError(f"{edit.path}: empty anchor")
+    if edit.at is not None:
+        if text[edit.at : edit.at + len(edit.anchor)] != edit.anchor:
+            raise AnchoredWriteError(f"{edit.path}: anchor {edit.anchor!r} is not at offset {edit.at}")
+        return edit.at
+    count = text.count(edit.anchor)
+    if count != 1:
+        raise AnchoredWriteError(f"{edit.path}: anchor {edit.anchor!r} matches {count} times, expected exactly 1")
+    return text.index(edit.anchor)
+
+
+def _plan_edits(edits: Sequence[AnchoredEdit]) -> tuple[dict[Path, str], dict[Path, str]]:
+    """Phase 1: read each file once, validate every edit, return (original, planned) texts."""
+    by_path: dict[Path, list[AnchoredEdit]] = {}
+    for edit in edits:
+        by_path.setdefault(Path(edit.path), []).append(edit)
+    originals: dict[Path, str] = {}
+    planned: dict[Path, str] = {}
+    for path, group in by_path.items():
+        try:
+            text = read_text_preserving_newlines(path)
+        except OSError as exc:
+            raise AnchoredWriteError(f"{path}: cannot read ({exc})") from exc
+        for edit in group:
+            if edit.expect_pre is not None and not edit.expect_pre(text):
+                raise AnchoredWriteError(f"{path}: pre-state check failed")
+        spans = sorted(((_locate_edit(text, e), e) for e in group), key=lambda span: span[0])
+        end_of_previous = 0
+        for start, edit in spans:
+            if start < end_of_previous:
+                raise AnchoredWriteError(f"{path}: two edits overlap at offset {start}")
+            end_of_previous = start + len(edit.anchor)
+        out = text
+        for start, edit in reversed(spans):
+            out = out[:start] + edit.replacement + out[start + len(edit.anchor) :]
+        originals[path] = text
+        planned[path] = out
+    return originals, planned
+
+
+def _check_renames(renames: Sequence[Rename]) -> None:
+    targets: set[str] = set()
+    for rename in renames:
+        src, dst = Path(rename.src), Path(rename.dst)
+        if not src.exists():
+            raise AnchoredWriteError(f"{src}: rename source does not exist")
+        if os.path.lexists(dst):
+            raise AnchoredWriteError(f"{dst}: rename target already exists")
+        key = os.path.normcase(str(dst))
+        if key in targets:
+            raise AnchoredWriteError(f"{dst}: two renames share this target")
+        targets.add(key)
+
+
+def apply_anchored_edits(
+    edits: Sequence[AnchoredEdit],
+    renames: Sequence[Rename] = (),
+    invariant: Callable[[dict[Path, str]], str | None] | None = None,
+) -> list[str]:
+    """Apply anchored edits and renames as one verified transaction.
+
+    Phase 1 reads each file once and plans every edit in memory. An
+    unpinned anchor must occur exactly once, a pinned anchor must sit at
+    its offset, and an `expect_pre` check must hold. Phase 2 runs
+    `invariant(planned)`, where `planned` maps each edited path to its
+    post-edit text. The invariant returns None when the planned state is
+    sound, or a message when it is not. Any refusal raises
+    `AnchoredWriteError` having written nothing.
+
+    Phase 3 writes each changed file once through
+    `write_text_preserving_newlines`, then runs the renames. On an I/O
+    error the helper reverses the renames, restores each written file from
+    memory and re-raises the error. Cross-file atomicity is therefore
+    per-file `os.replace` plus in-memory rollback, not one OS transaction.
+
+    Returns one report line per changed file and per rename.
+    """
+    originals, planned = _plan_edits(edits)
+    _check_renames(renames)
+    if invariant is not None:
+        problem = invariant(dict(planned))
+        if problem:
+            raise AnchoredWriteError(f"invariant failed: {problem}")
+
+    written: list[Path] = []
+    renamed: list[Rename] = []
+    report: list[str] = []
+    try:
+        for path, text in planned.items():
+            if text == originals[path]:
+                continue
+            write_text_preserving_newlines(path, text)
+            written.append(path)
+            report.append(f"{path}: edited")
+        for rename in renames:
+            os.rename(rename.src, rename.dst)
+            renamed.append(rename)
+            report.append(f"{rename.src} -> {rename.dst}")
+    except BaseException:
+        for rename in reversed(renamed):
+            try:
+                os.rename(rename.dst, rename.src)
+            except OSError:
+                pass
+        for path in written:
+            try:
+                write_text_preserving_newlines(path, originals[path])
+            except OSError:
+                pass
+        raise
+    return report
+
+
+def prose_mentions(root: Path, token: str) -> list[str]:
+    """List `path:line` rows for each `*.md` line under `root` that names `token`.
+
+    The match is `(?<![\\w-])TOKEN(?!\\d)`, so the token `ID-12` does not
+    match `ID-123` or `XID-12`. Paths print relative to `root` with forward
+    slashes. A file that is not valid UTF-8 is skipped.
+    """
+    pattern = re.compile(r"(?<![\w-])" + re.escape(token) + r"(?!\d)")
+    root = Path(root)
+    rows: list[str] = []
+    for md in sorted(root.rglob("*.md")):
+        try:
+            text = read_text_preserving_newlines(md)
+        except (OSError, UnicodeDecodeError):
+            continue
+        rel = md.relative_to(root).as_posix()
+        for number, line in enumerate(text.splitlines(), start=1):
+            if pattern.search(line):
+                rows.append(f"{rel}:{number}")
+    return rows
+
+
+def regenerate_index(script_name: str, config: dict) -> int:
+    """Run a sibling index generator with `--write` and return its exit code.
+
+    `script_name` is a file beside this module, for example
+    `generate_lessons_index.py`. The config path is the `config.yaml` that
+    sits in the planwise root, which is where `config_loader` reads it.
+    The generator's output is printed so the caller's report carries it.
+    """
+    import subprocess
+
+    script = Path(__file__).resolve().parent / script_name
+    config_file = Path(config["_planwise_root"]) / "config.yaml"
+    done = subprocess.run(
+        [sys.executable, "-B", str(script), "--config", str(config_file), "--write"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    for stream in (done.stdout, done.stderr):
+        if stream.strip():
+            print(stream.rstrip())
+    return done.returncode
 
 
 def write_json_result(result: dict, prefix: str) -> str:

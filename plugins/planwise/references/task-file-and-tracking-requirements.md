@@ -289,6 +289,44 @@ Issue: Required Context cites {cross_session_file} but Depends On lacks cross-se
 Fix: Add "cross-session: {Abbrev}-S{XX}-{YY}" per references/task-file-and-tracking-requirements.md §9 | Confidence: HIGH
 ```
 
+**Cross-layer Depends On reconciliation:**
+
+Four layers state a task's dependency: the task-file header, its Required Context, the Orchestration `**Prerequisite:**` header and the Sprint Plan cell. The task-file layer is the one written with the task's Required Context in front of the author, so it is the source. The Orchestration `Session Task List` cell and the Sprint Plan `Session Details` cell only restate it. A restated cell drifts when the header changes and nobody re-copies it.
+
+The authoring step closes the loop at write time:
+
+1. Finish the task headers first.
+2. Copy each header's `Depends On` value verbatim into that task's Orchestration `Session Task List` cell and its Sprint Plan `Session Details` cell. Do not re-derive the value from the Required Context a second time.
+3. Re-read each Orchestration `**Prerequisite:**` line. Compare it with the `cross-session:` and `cross-sprint:` entries of the session's tasks, and with the Orchestration one session earlier. The line is free text with no parseable set, so no script can check it. It stays a hand check.
+
+`Cross-Sprint Refs` is not an alternate convention for the `Depends On` prefixes. The task-file template makes the `**Cross-Sprint Refs:**` field conditional on a Required Context row that cites a file in another sprint. The field names the files. The producer's Task ID still goes in `Depends On` with the `cross-sprint:` prefix. A plan that records cross-sprint reads only in `Cross-Sprint Refs` is a Check 037 and Check 038 finding on every such task.
+
+#### Reviewer Check 137 — Depends On Layers Disagree
+
+- **Severity / Role / Type:** ERROR | Dependency Reviewer | NEW
+- **What:** One task's `Depends On` differs across the task-file header, the Orchestration `Session Task List` cell and the Sprint Plan `Session Details` cell (lint Check 57).
+- **Detection:** For each task, read the three values and compare them as sets. Drop backticks and bold. Read `-`, `None` and an empty cell as the empty set. Read `01` and `1` as the same number. Compare a prefixed entry as the pair of its prefix and its full Task ID. Any difference is a finding. A layer that is missing, or has no row for the task, is not compared.
+- **Finding template:**
+```
+[ERROR] Depends On differs across layers
+File: {task file path} | Location: Depends On field
+Issue: the task header says {value}; the Orchestration cell says {value}; the Sprint Plan cell says {value}
+Fix: Copy the task header's value into the other layers, or correct the header, per references/task-file-and-tracking-requirements.md §9 | Confidence: HIGH
+```
+
+#### Reviewer Check 138 — Cross-Sprint Read With No Cross-Sprint Refs Field
+
+- **Severity / Role / Type:** WARNING | Dependency Reviewer | NEW
+- **What:** A Required Context row names a file under another sprint's folder, and the task header has no `**Cross-Sprint Refs:**` field (lint Check 58).
+- **Detection:** For each task, take the `Sprint-NN` folder of its own path. Flag each Required Context path whose `Sprint-NN` folder carries another number when the header has no `**Cross-Sprint Refs:**` line. Skip a path with a placeholder or a glob.
+- **Finding template:**
+```
+[WARNING] Cross-sprint read with no Cross-Sprint Refs field
+File: {task file path} | Location: task header
+Issue: Required Context cites {cross_sprint_file} and the header has no Cross-Sprint Refs field
+Fix: Add the field listing the file, and keep the producer's Task ID in Depends On, per references/task-file-and-tracking-requirements.md §9 | Confidence: HIGH
+```
+
 **Cross-sprint consumed values:**
 
 A value a later sprint consumes from an earlier sprint is a row in the sprint plan's `## Consumes` table with a runnable Read Command. The run handler fills the row at session start (Step 1.1e) and injects the value as a literal. A pointer to the producing task is not a value, and a literal written at scaffold time predates the producer. A plan with a promote sprint followed by a verify sprint shows the gap. The verify sprint needed the commit the promoted code descends from, the exact line the code prints on a missing config, a side effect the promoted writer gained, and the transcript facts its grader reads. Each of these exists only after the promote sprint lands, so a pointer gives the verify sprint nothing to read.

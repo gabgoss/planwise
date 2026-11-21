@@ -3,11 +3,16 @@
 
 Two subcommands share one directory listing as their denominator.
 
-  named  --outputs DIR --tasks FILE... --side producer|receiver
+  named  --outputs DIR --tasks FILE... --side producer|receiver [--terminal NAME...]
       Every file in DIR must be named by explicit path in a Required Context
       table row of at least one task file. An unnamed file is a finding.
       producer: exit 1 when any file is unnamed. receiver: print the same list
-      and exit 0, because the preflight side is advisory.
+      and exit 0, because the preflight side is advisory. A file listed after
+      --terminal is an Output that no later session consumes. It prints as
+      "terminal: NAME" and is never counted as unnamed. A --terminal name that
+      is absent from the listing exits 2, so a stale exemption cannot pass
+      silently. Exit codes: 0 every non-terminal file is named (or receiver
+      side), 1 a producer run found an unnamed file, 2 the gate did not run.
 
   count  --outputs DIR --tasks FILE...
       A count claim such as "the eleven outputs" (digits or spelled out) must
@@ -108,7 +113,15 @@ def find_claims(task_files: list[str]) -> list[tuple[str, int, str, int]]:
 def cmd_named(args: argparse.Namespace) -> int:
     names = list_outputs(args.outputs)
     print(f"listing: {len(names)} files in {args.outputs}; task files: {len(args.tasks)}")
-    unnamed = find_unnamed(names, args.tasks)
+    terminal = list(dict.fromkeys(args.terminal))
+    absent = [t for t in terminal if t not in names]
+    if absent:
+        for t in absent:
+            print(f"error: --terminal name not in the listing: {t}")
+        return 2
+    for t in terminal:
+        print(f"terminal: {t}")
+    unnamed = find_unnamed([n for n in names if n not in terminal], args.tasks)
     for n in unnamed:
         print(f"unnamed: {n}")
     if not unnamed:
@@ -136,6 +149,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--outputs", required=True)
     p.add_argument("--tasks", nargs="+", required=True)
     p.add_argument("--side", choices=("producer", "receiver"), required=True)
+    p.add_argument("--terminal", nargs="+", default=[], metavar="NAME",
+                   help="Outputs no later session consumes: listed, never counted as unnamed")
     p.set_defaults(func=cmd_named)
     c = sub.add_parser("count", help="count claims equal the file count")
     c.add_argument("--outputs", required=True)
