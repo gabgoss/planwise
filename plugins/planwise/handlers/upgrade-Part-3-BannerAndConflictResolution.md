@@ -1,6 +1,6 @@
 # Handler: /planwise upgrade — Part 3: Banner Rendering and Conflict Resolution
 
-**Part 3 of [upgrade.md](upgrade.md).** Part 1 carries the Config Gate and Steps 1-2.7 of the Workflow, and is the file `/planwise upgrade` dispatches to; this part carries Step 3 (Render the banner) through Step 4.7 (Thrifty-sonic env var offer) — the banner the upgrade script emits, and every conflict-resolution and post-upgrade offer step that follows it. [`upgrade-Part-2-RecoveryAndReference.md`](upgrade-Part-2-RecoveryAndReference.md) (Part 2) carries the scenario table this file's Step 4 dispositions point back to, and the recovery procedures for a run — or the Config Gate — that cannot complete. Split at this section boundary so each part stays within one Read-tool page.
+**Part 3 of [upgrade.md](upgrade.md).** Part 1 carries the Config Gate and Steps 1-2.4 of the Workflow, and is the file `/planwise upgrade` dispatches to; this part carries Step 3 (Render the banner) through Step 4.7 (Thrifty-sonic env var offer) — the banner the upgrade script emits, and every conflict-resolution and post-upgrade offer step that follows it. [`upgrade-Part-2-RecoveryAndReference.md`](upgrade-Part-2-RecoveryAndReference.md) (Part 2) carries the scenario table this file's Step 4 dispositions point back to, and the recovery procedures for a run — or the Config Gate — that cannot complete. Split at this section boundary so each part stays within one Read-tool page.
 
 ## Table of Contents
 
@@ -545,4 +545,4 @@ The **write happens only on approval**: `AskUserQuestion` (`<!-- AUTO-MODE: conv
 
 ---
 
-*Cross-reference: [upgrade.md](upgrade.md) (Part 1 — Config Gate and Steps 1-2.7), [upgrade-Part-2-RecoveryAndReference.md](upgrade-Part-2-RecoveryAndReference.md) (Part 2 — Conflict Resolution Reference and Recovery), [init.md](init.md), [references/feedback-submission.md](../references/feedback-submission.md), [references/do-the-hard-things.md](../references/do-the-hard-things.md).*
+*Cross-reference: [upgrade.md](upgrade.md) (Part 1 — Config Gate and Steps 1-2.4), [upgrade-Part-2-RecoveryAndReference.md](upgrade-Part-2-RecoveryAndReference.md) (Part 2 — Conflict Resolution Reference and Recovery), [init.md](init.md), [references/feedback-submission.md](../references/feedback-submission.md), [references/do-the-hard-things.md](../references/do-the-hard-things.md).*

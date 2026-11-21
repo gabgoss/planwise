@@ -66,7 +66,6 @@ WARN_ALLOWLIST = frozenset({
     "scaffolding-hygiene-Part-2-DerivationAndParallelism.md",  # 23,457
     "review.md",                                               # about 22,052; crossed the warn line at commit 6c713ab
     "task-content-fidelity.md",                                # 22,615
-    "upgrade.md",                                              # about 22,538; crossed the warn line through the posting-consent question and notice edits
     "verify-before-cite.md",                                   # about 22,558; crossed the warn line when section 9.B.29 was added
     "agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md",  # about 22,362; crossed the warn line when the launch-mode paragraph was added to section 1.21
     "gate-predicate-discrimination.md",                        # about 23,651; crossed the warn line when section 19 was added

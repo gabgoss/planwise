@@ -234,7 +234,7 @@ class TestUpgradeAndInitHandlersBacklogMigration(unittest.TestCase):
 
     def test_upgrade_step_2_4_calls_migrate_backlog_if_legacy(self):
         text = UPGRADE_HANDLER.read_text(encoding="utf-8-sig")
-        span = _span_between(text, "### Step 2.4", "### Step 2.5")
+        span = _span_between(text, "### Step 2.4", "## Part 4")
         self.assertIn("migrate_backlog_if_legacy", span)
 
     def test_upgrade_step_3_banner_contains_migration_block(self):
@@ -262,7 +262,7 @@ class TestUpgradeAndInitHandlersBacklogMigration(unittest.TestCase):
         # The handler's command never passes the flag, so naming it in the
         # prose documents an option the run cannot reach.
         text = UPGRADE_HANDLER.read_text(encoding="utf-8-sig")
-        span = _span_between(text, "### Step 2.4", "### Step 2.5")
+        span = _span_between(text, "### Step 2.4", "## Part 4")
         self.assertNotIn("--backlog-reconcile", span)
 
     def test_upgrade_step_3_backlog_block_lists_parked_units(self):
@@ -297,7 +297,7 @@ class TestUpgradeAndInitHandlersBacklogMigration(unittest.TestCase):
 
     def test_upgrade_step_2_4_passes_the_answers_file(self):
         text = UPGRADE_HANDLER.read_text(encoding="utf-8-sig")
-        span = _span_between(text, "### Step 2.4", "### Step 2.5")
+        span = _span_between(text, "### Step 2.4", "## Part 4")
         self.assertIn('--migration-answers "{answers_path}"', span)
 
     def test_upgrade_step_4_3_prunes_through_the_writer(self):
@@ -418,7 +418,7 @@ class TestIndexShapeGateIsDefinedOnce(unittest.TestCase):
     def test_reference_binds_every_placeholder_of_the_step_2_4_command(self):
         # Derive the placeholder set from the Step 2.4 code fence at test time.
         upgrade = UPGRADE_HANDLER.read_text(encoding="utf-8-sig")
-        step = _span_between(upgrade, "### Step 2.4", "### Step 2.5")
+        step = _span_between(upgrade, "### Step 2.4", "## Part 4")
         fence = re.search(r"```bash\n(.*?)```", step, re.DOTALL)
         self.assertIsNotNone(fence)
         placeholders = set(re.findall(r"\{([a-z_]+)\}", fence.group(1)))
