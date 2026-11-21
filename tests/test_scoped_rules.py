@@ -518,6 +518,65 @@ class TestClassify(_ScratchProject):
         self.assertEqual(dest["placement_rules"], [PLACEMENT_RULE])
         self.assertFalse(dest["content_tree"])
 
+    def test_approved_create_under_placement_rule_is_inject(self):
+        self.write_rule("placement-rule.md", 'paths: "src/**"\nplacement: true')
+        body = self.table(("src/new_module.py", "CREATE"))
+        # Control: without the approval the same item reads placement.
+        self.assertEqual(scoped_rules_block("001", body, self.config())["verdict"], "placement")
+        block = scoped_rules_block("001", body, self.config(), approved=["src/new_module.py"])
+        self.assertEqual(block["verdict"], "inject")
+        self.assertEqual(block["destinations"][0]["verdict"], "inject")
+        self.assertEqual(block["rules_to_inject"], [PLACEMENT_RULE])
+        self.assertEqual(block["placement_approved"], ["src/new_module.py"])
+
+    def test_approved_create_in_content_tree_without_rule_is_none(self):
+        self.write_rule("behaviour-rule.md", 'paths: "src/**"')
+        body = self.table((".claude/rules/new-rule.md", "CREATE"))
+        block = scoped_rules_block("001", body, self.config(), approved=[".claude/rules/new-rule.md"])
+        self.assertEqual(block["verdict"], "none")
+        self.assertTrue(block["destinations"][0]["content_tree"])
+
+    def test_unapproved_sibling_create_stays_placement(self):
+        self.write_rule("placement-rule.md", 'paths: "src/**"\nplacement: true')
+        body = self.table(("src/approved.py", "CREATE"), ("src/sibling.py", "CREATE"))
+        block = scoped_rules_block("001", body, self.config(), approved=["src/approved.py"])
+        verdicts = {d["path"]: d["verdict"] for d in block["destinations"]}
+        self.assertEqual(verdicts, {"src/approved.py": "inject", "src/sibling.py": "placement"})
+        self.assertEqual(block["verdict"], "placement")
+
+    def test_approval_for_another_path_does_not_clear_placement(self):
+        self.write_rule("placement-rule.md", 'paths: "src/**"\nplacement: true')
+        body = self.table(("src/new_module.py", "CREATE"))
+        block = scoped_rules_block("001", body, self.config(), approved=["src/other.py"])
+        self.assertEqual(block["verdict"], "placement")
+        self.assertEqual(block["placement_approved"], ["src/other.py"])
+
+    def test_approved_spellings_all_match_and_normalize(self):
+        self.write_rule("placement-rule.md", 'paths: "src/**"\nplacement: true')
+        body = self.table(("src/a.py", "CREATE"), ("src/b.py", "CREATE"), ("src/c.py", "CREATE"))
+        outside = Path(self.root.anchor) / "elsewhere" / "src" / "d.py"
+        spellings = [
+            "./src/a.py",
+            (self.root / "src" / "b.py").as_posix(),
+            "src\\c.py",
+            outside.as_posix(),
+        ]
+        block = scoped_rules_block("001", body, self.config(), approved=spellings)
+        self.assertEqual(block["verdict"], "inject")
+        # The absolute path outside the root is dropped; the rest are project-relative.
+        self.assertEqual(block["placement_approved"], ["src/a.py", "src/b.py", "src/c.py"])
+
+    def test_approved_accepts_flow_and_block_list_strings_and_none(self):
+        self.write_rule("placement-rule.md", 'paths: "src/**"\nplacement: true')
+        body = self.table(("src/a.py", "CREATE"), ("src/b.py", "CREATE"))
+        flow = scoped_rules_block("001", body, self.config(), approved="[src/a.py, src/b.py]")
+        self.assertEqual(flow["verdict"], "inject")
+        block_form = scoped_rules_block("001", body, self.config(), approved="- src/a.py\n- src/b.py")
+        self.assertEqual(block_form["placement_approved"], ["src/a.py", "src/b.py"])
+        none = scoped_rules_block("001", body, self.config(), approved=None)
+        self.assertEqual(none["placement_approved"], [])
+        self.assertEqual(none["verdict"], "placement")
+
     def test_create_under_behaviour_only_rule_is_inject(self):
         self.write_rule("behaviour-rule.md", 'paths: "src/**"')
         block = scoped_rules_block("001", self.table(("src/new_module.py", "CREATE")), self.config())

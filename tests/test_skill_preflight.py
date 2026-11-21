@@ -33,6 +33,7 @@ SKILL_MD = REPO_DIR / "plugins" / "planwise" / "skills" / "planwise" / "SKILL.md
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import config_loader
+import feedback_drafts as fd
 import skill_preflight
 from generate_plans_index import TABLE_SEPARATOR, render_plans_index
 
@@ -659,6 +660,111 @@ class TestVersionNoticeRoute(_Fixture):
             "import sys\n"
             f"sys.path.insert(0, {str(SCRIPTS_DIR)!r})\n"
             "sys.modules['version_notice'] = None\n"
+            "import skill_preflight\n"
+            "sys.exit(skill_preflight.main(['run']))\n"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-B", "-c", code], capture_output=True, text=True,
+            encoding="utf-8", cwd=str(self.tmp), timeout=60, check=False)
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout, "")
+        self.assertNotIn("Traceback", proc.stderr)
+
+
+class TestBlockedNoticeRoute(_Fixture):
+    """The injected line also carries the blocked-draft notice while an undismissed block exists."""
+
+    NOTICE = (
+        "planwise: 1 feedback draft(s) were blocked by the privacy check"
+        " — review with /planwise feedback --status"
+    )
+
+    def setUp(self):
+        super().setUp()
+        config = config_loader.load_config(config_path=self.planwise_dir / "config.yaml")
+        self.feedback_dir = Path(config["_feedback_dir"])
+        self.feedback_dir.mkdir(parents=True)
+
+    def promoted(self, name):
+        """A promoted draft, written as the promote step writes it: no frontmatter."""
+        path = self.feedback_dir / name
+        path.write_bytes(
+            f"### What happened\n\nThe report quotes someone@example.test.\n\n{fd.PROVENANCE_LINE}\n".encode())
+        return path
+
+    def run_draft_command(self, argv):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(fd.main(argv), 0)
+
+    def block(self, name):
+        """Record a block through the real producer, and return the draft path."""
+        draft = self.promoted(name)
+        self.run_draft_command(["mark-blocked", "--draft", str(draft), "--class", "email", "--line", "3", "--route", "issue"])
+        return draft
+
+    def dismiss(self, draft):
+        self.run_draft_command(["dismiss-blocked", "--draft", str(draft)])
+
+    def post(self, draft):
+        (self.feedback_dir / (draft.name + ".posted")).write_text(
+            "posted: 2026-11-19\nurl: u\nroute: issue\n", encoding="utf-8")
+
+    def pin(self, version):
+        (self.planwise_dir / "config.yaml").write_text(
+            CONFIG_YAML + f'plugin_version: "{version}"\n', encoding="utf-8")
+
+    def test_an_undismissed_block_prints_the_notice_on_every_route(self):
+        self.build_plans([("AAA", "Alpha", "COMPLETE")])
+        self.block("2026-11-18-bug-a.md")
+        for args in (["run", "", ""], ["", "", ""], ["feedback", "", ""]):
+            with self.subTest(args=args):
+                proc = run_router(args, self.tmp)
+                self.assertEqual(proc.returncode, 0)
+                self.assertEqual(proc.stdout, self.NOTICE + "\n")
+                self.assertEqual(proc.stderr, "")
+        for args, marker in ((["list", "", ""], BEGIN), (["plan", "", ""], PLAN_BEGIN)):
+            with self.subTest(args=args):
+                proc = run_router(args, self.tmp)
+                self.assertEqual(proc.returncode, 0)
+                lines = proc.stdout.split("\n")
+                self.assertEqual(lines[0], self.NOTICE)
+                self.assertEqual(lines[1], marker)
+
+    def test_the_notice_counts_only_active_blocks_and_goes_silent_when_none_remain(self):
+        active = self.block("2026-11-18-bug-active.md")
+        self.dismiss(self.block("2026-11-18-bug-dismissed.md"))
+        self.post(self.block("2026-11-18-bug-posted.md"))
+        self.block("2026-11-18-bug-orphan.md").unlink()
+        proc = run_router(["run", "", ""], self.tmp)
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout, self.NOTICE + "\n")
+        self.dismiss(active)
+        proc = run_router(["run", "", ""], self.tmp)
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout, "")
+
+    def test_the_blocked_notice_follows_the_version_notice(self):
+        self.pin("0.0.1")
+        self.block("2026-11-18-bug-a.md")
+        proc = run_router(["run", "", ""], self.tmp)
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(
+            proc.stdout,
+            f"planwise: dispatching from {TestVersionNoticeRoute.shipped()}, config pins 0.0.1"
+            " — run /planwise upgrade to refresh\n" + self.NOTICE + "\n",
+        )
+
+    def test_a_failing_count_prints_nothing_and_exits_zero(self):
+        self.block("2026-11-18-bug-a.md")
+        control = run_router(["run", "", ""], self.tmp)
+        self.assertEqual(control.stdout, self.NOTICE + "\n")  # the fixture can produce the line
+        code = (
+            "import sys\n"
+            f"sys.path.insert(0, {str(SCRIPTS_DIR)!r})\n"
+            "import feedback_drafts\n"
+            "def broken(directory):\n"
+            "    raise OSError('sidecar unreadable')\n"
+            "feedback_drafts.count_blocked = broken\n"
             "import skill_preflight\n"
             "sys.exit(skill_preflight.main(['run']))\n"
         )

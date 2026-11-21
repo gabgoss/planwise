@@ -3,9 +3,10 @@
 
 `read_item_frontmatter` reads an item file once and returns its frontmatter
 as a dict, with the item body and the file's line count riding along. The
-keys `id`, `created`, `blocks`, `refined` and `needs_plan` are overlaid from
-a text-level read, because YAML's implicit typing mangles a zero-padded id
-and the no-YAML fallback must still see the two route flags.
+keys `id`, `created`, `blocks`, `refined`, `needs_plan` and `placement_approved`
+are overlaid from a text-level read, because YAML's implicit typing mangles a
+zero-padded id and the no-YAML fallback must still see the two route flags
+and the approved-placement list.
 
 This is a library with no CLI. The backlog router (`score_backlog`) imports
 this module and re-exports its names, so `score_backlog.read_item_frontmatter`
@@ -91,10 +92,16 @@ def _parse_blocks_field(raw: str) -> list:
 # The route flags read at the text level for the no-YAML fallback only.
 _FLAG_KEYS: tuple[str, ...] = ("refined", "needs_plan")
 
+# The list keys read at the text level for the no-YAML fallback, parsed like
+# `blocks` (flow or block form). `placement_approved` lists the CREATE paths
+# the user approved, so the scoped-rule `placement` verdict can clear.
+_LIST_KEYS: tuple[str, ...] = ("placement_approved",)
+
 
 def _text_level_scoring_fields(raw: str) -> dict:
-    """Extract `id`, `created`, `blocks`, `refined` and `needs_plan` from
-    frontmatter text directly, bypassing YAML's implicit type resolvers.
+    """Extract `id`, `created`, `blocks`, `refined`, `needs_plan` and
+    `placement_approved` from frontmatter text directly, bypassing YAML's
+    implicit type resolvers.
 
     `yaml.safe_load` turns an unquoted zero-padded, all-octal-digit `id:`
     like "061" into the int 49 (YAML 1.1 reads a leading-zero digit string as
@@ -129,6 +136,9 @@ def _text_level_scoring_fields(raw: str) -> dict:
             candidate = _strip_quotes(_strip_inline_comment(fm_map[key]).strip())
             if candidate:
                 fields[key] = candidate
+    for key in _LIST_KEYS:
+        if key in fm_map:
+            fields[key] = _parse_blocks_field(_strip_inline_comment(fm_map[key]))
     return fields
 
 
@@ -142,10 +152,10 @@ def read_item_frontmatter(filepath: Path) -> dict:
     caller here reads scoring inputs off the result and must not have to
     distinguish "no data" from "bad data" mid-scoring.
 
-    `id`, `created`, `blocks`, `refined` and `needs_plan` are overlaid from
-    `_text_level_scoring_fields` after the YAML load (or read directly from it
-    when no YAML is available). `yaml.safe_load` mistypes the first three, and
-    the last two must survive the no-YAML fallback — see
+    `id`, `created`, `blocks`, `refined`, `needs_plan` and `placement_approved`
+    are overlaid from `_text_level_scoring_fields` after the YAML load (or read
+    directly from it when no YAML is available). `yaml.safe_load` mistypes the
+    first three, and the last three must survive the no-YAML fallback — see
     `_text_level_scoring_fields`'s docstring. The overlay costs no second file
     read: `raw` is the same frontmatter text already split out below.
 
@@ -177,10 +187,10 @@ def read_item_frontmatter(filepath: Path) -> dict:
             # dict" contract.
             return {}
         overlay = _text_level_scoring_fields(raw)
-        for key in _FLAG_KEYS:
+        for key in _FLAG_KEYS + _LIST_KEYS:
             if key in fm:
-                # PyYAML already typed it (`yes` and `on` are True); the raw
-                # text must not replace that typed value.
+                # PyYAML already typed it (`yes` and `on` are True, a list is
+                # a list); the raw text must not replace that typed value.
                 overlay.pop(key, None)
         fm.update(overlay)
     else:

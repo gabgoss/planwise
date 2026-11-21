@@ -3,6 +3,7 @@
 Shared helpers live in `tests/test_plan_build.py`.
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -216,6 +217,120 @@ def test_omit_stripper_removes_the_key_at_session_and_task_level():
     session = core["sprints"][0]["sessions"][0]
     assert "omit_sections" not in session
     assert "omit_sections" not in session["tasks"][0]
+
+
+# ---- omit_code_sections
+
+CODE_ONLY = ("Change-Surface Census", SCHEMA_PIN, "Cross-Sprint Prerequisite Grep Gate", "Field Mapping",
+             "USED-Helper Enumeration", "References Moved That May Now Be False", "Verbatim-Copy Line-Count Range")
+
+
+UNSET = object()
+
+
+def _code_spec(plan=UNSET, sprint=UNSET, session=UNSET, task=UNSET):
+    """The sample spec with `omit_code_sections` set at the named levels (session 1, its first task).
+
+    A level left out of the call carries no key, so a JSON null can be set on purpose.
+    """
+    spec = make_spec()
+    for target, value in ((spec, plan), (spec["sprints"][0], sprint),
+                          (spec["sprints"][0]["sessions"][0], session),
+                          (spec["sprints"][0]["sessions"][0]["tasks"][0], task)):
+        if value is not UNSET:
+            target["omit_code_sections"] = value
+    return spec
+
+
+def test_code_only_sections_are_the_seven_template_names_and_keep_the_two_shared_ones():
+    names = pb.omittable_names(TEMPLATES)["task"]
+    assert pb.CODE_ONLY_SECTIONS == CODE_ONLY
+    assert all(name in names for name in pb.CODE_ONLY_SECTIONS)
+    for kept in ("Verification Commands", "Comparison-Task Coverage Row"):
+        assert kept in names
+        assert kept not in pb.CODE_ONLY_SECTIONS
+
+
+def test_code_only_switch_is_a_build_key():
+    assert "omit_code_sections" in pb.BUILD_KEYS
+
+
+@pytest.mark.parametrize("level", ["plan", "sprint", "session", "task"])
+def test_code_only_switch_reaches_the_tasks_below_its_level(level):
+    plan, errors = pb.omit_plan(_code_spec(**{level: True}), pb.omittable_names(TEMPLATES))
+    assert errors == []
+    reached = {doc for doc, names in plan.items() if all(name in names for name in CODE_ONLY)}
+    assert reached == {
+        "plan": {"S01-01-01", "S01-01-02", "S01-02-01", "S01-02-02"},
+        "sprint": {"S01-01-01", "S01-01-02", "S01-02-01", "S01-02-02"},
+        "session": {"S01-01-01", "S01-01-02"},
+        "task": {"S01-01-01"},
+    }[level]
+    assert all(not names for doc, names in plan.items() if doc.endswith("-ORCH"))
+
+
+def test_code_only_switch_off_or_absent_adds_nothing():
+    for spec in (make_spec(), _code_spec(plan=False, session=False, task=False)):
+        plan, errors = pb.omit_plan(spec, pb.omittable_names(TEMPLATES))
+        assert errors == []
+        assert not any(plan.values())
+
+
+def test_code_only_a_false_below_a_true_does_not_undo_it():
+    plan, _errors = pb.omit_plan(_code_spec(plan=True, task=False), pb.omittable_names(TEMPLATES))
+    assert plan["S01-01-01"] == list(CODE_ONLY)
+
+
+def test_code_only_a_name_also_in_omit_sections_is_cut_once():
+    spec = _code_spec(plan=True)
+    spec["sprints"][0]["sessions"][0]["tasks"][0]["omit_sections"] = [SCHEMA_PIN, "Verification Commands"]
+    plan, _errors = pb.omit_plan(spec, pb.omittable_names(TEMPLATES))
+    assert plan["S01-01-01"] == [SCHEMA_PIN, "Verification Commands", *(n for n in CODE_ONLY if n != SCHEMA_PIN)]
+
+
+def test_code_only_plan_level_true_leaves_seven_omitted_lines_and_keeps_verification_commands(tmp_path, capsys):
+    spec = _code_spec(plan=True)
+    build = Build(tmp_path, capsys, bodies_set(index_of(tmp_path, spec)), spec)
+    code, out = build.run()
+    assert code == 0, out
+    for number in (1, 2):
+        text = build.task_file(number=number).read_text(encoding="utf-8")
+        lines = text.split("\n")
+        assert [ln for ln in lines if ln.startswith("<!-- OMITTED: ")] == [
+            f"<!-- OMITTED: {name} (spec omit_sections) -->" for name in CODE_ONLY]
+        assert any(ln.startswith("## Verification Commands") for ln in lines)
+    assert deviations(build.out) == []
+
+
+@pytest.mark.parametrize("value", ["yes", 1, None, ["Schema Pin"]], ids=["string", "number", "null", "list"])
+def test_code_only_a_value_that_is_no_boolean_refuses_and_writes_nothing(tmp_path, capsys, index, value):
+    build = Build(tmp_path, capsys, bodies_set(index), _code_spec(plan=value))
+    code, out = build.run()
+    assert code == 2
+    assert f"LINT: plan level: omit_code_sections must be true or false, got {json.dumps(value)}" in out.splitlines()
+    assert not build.out.exists()
+
+
+def test_code_only_lint_and_keys_refuse_a_bad_value_at_task_level(tmp_path, capsys, index):
+    spec_path = _write_spec(tmp_path, _code_spec(task="true"))
+    assert pb.main(["keys", "--spec", str(spec_path)]) == 2
+    bodies = _write_bodies(tmp_path, bodies_set(index))
+    assert pb.main(["lint", "--spec", str(spec_path), "--bodies-dir", str(bodies)]) == 2
+    assert capsys.readouterr().out.count("task S01-01-01: omit_code_sections must be true or false") == 2
+
+
+def test_code_only_a_bad_value_is_refused_under_a_true_above_it():
+    _plan, errors = pb.omit_plan(_code_spec(plan=True, session="no"), pb.omittable_names(TEMPLATES))
+    assert errors == ['session S01-01: omit_code_sections must be true or false, got "no"']
+
+
+def test_code_only_stripper_removes_the_key_at_every_level():
+    spec = _code_spec(plan=True, sprint=True, session=True, task=True)
+    core = pb.core_spec(spec)
+    sprint = core["sprints"][0]
+    for obj in (core, sprint, sprint["sessions"][0], sprint["sessions"][0]["tasks"][0]):
+        assert "omit_code_sections" not in obj
+    assert spec["omit_code_sections"] is True  # the caller's spec is a copy
 
 
 def test_omit_a_doc_without_the_heading_stays_as_it_is():

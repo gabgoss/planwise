@@ -173,6 +173,8 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 039 — Full Task ID Format in Cross-Sprint References → references/session-planning-protocol.md §2
 - Check 068 — Deferred Finding Owner Is a CLOSED Task → references/task-file-and-tracking-requirements.md §9 Cross-Sprint Deferred-Finding Ownership
 - Check 101 — Cross-Sprint Consumed Value Without a Read Command → references/task-file-and-tracking-requirements.md §9
+- Check 137 — Depends On Layers Disagree → references/task-file-and-tracking-requirements.md §9
+- Check 138 — Cross-Sprint Read With No Cross-Sprint Refs Field → references/task-file-and-tracking-requirements.md §9
 
 ### Coverage Reviewer
 

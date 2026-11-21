@@ -1098,7 +1098,9 @@ def _run_doctor(cfg: "InitConfig", verbose: bool = False) -> int:
             if f["verdict"] == "REMOVABLE":
                 print("      action:  remove with /planwise doctor --prune-stale")
             else:
-                print("      action:  keep in place — customization detected, do NOT delete")
+                print("      action:  keep in place — customization detected, do NOT delete. "
+                      "/planwise upgrade moves it to upgrade-transfers/ under "
+                      "customization_handoff: report+relocate")
         removable_agents = [f for f in orphaned_agents if f["verdict"] == "REMOVABLE"]
         print()
         print(f"Total REMOVABLE orphaned agent mirror(s): {len(removable_agents)} of "

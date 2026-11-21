@@ -315,8 +315,8 @@ def _kept_at(path: Path, backlog_dir: Path, report) -> str:
     if sibling:
         sibling_rel = Path(sibling).relative_to(report.backup_dir)
         extra = (f"; current bytes differed, also backed up to "
-                 f"upgrade-backups/{report.backup_dir.parent.name}/backlog/{sibling_rel.as_posix()}")
-    return (f"pre-image at upgrade-backups/{report.backup_dir.parent.name}/backlog/{rel.as_posix()}"
+                 f"upgrade-backups/{report.backup_dir.parent.name}/{report.backup_dir.name}/{sibling_rel.as_posix()}")
+    return (f"pre-image at upgrade-backups/{report.backup_dir.parent.name}/{report.backup_dir.name}/{rel.as_posix()}"
             + (earlier if str(dst) in report.kept else "") + extra)
 
 

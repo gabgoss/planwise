@@ -164,6 +164,25 @@ Example: an index row reads `IN_PROGRESS` and its Master Plan reads `READY_TO_EX
 - Each strip is an atomic write. The script writes a temporary file in the item's own directory, then replaces the item file with it (`os.replace`). A failed write removes the temporary file and leaves the item file unchanged.
 - The run prints `  + {file}: stripped line {n}` for each stripped file, or `  ! {file}: {error}` for a failed one, then `Stripped {N} body status line(s).` Any failed write makes the script exit 1 and name each failed file on stderr.
 - No index regeneration follows a strip. The index generator reads frontmatter only, and a strip never changes frontmatter.
+- The strip writes through the anchored-write helper in `scripts/reconcile_common.py`. It plans one edit pinned at the drifted line's offset with an empty replacement. The helper re-reads the file and refuses, writing nothing, when the line is no longer at that offset. The lessons counter write uses the same helper.
+
+### Renumbering an id — `reconcile_lessons.py` / `reconcile_backlog.py --renumber`
+
+- Purpose: move one lesson or one backlog item to a new id as one verified transaction. Generation removes three of the six hand-edited locations (the row's link text, the link target and the counter line). It does not check the H1 heading, another item's `blocks:` entry or a lesson's `promoted-to:` owner id. `--renumber` rewrites those fields and the filename.
+- Invocation, from the project root:
+
+  ```bash
+  python "{plugin_root}/scripts/reconcile_lessons.py" --config "{planwise_root}/config.yaml" --renumber OLD NEW [--file NAME]
+  python "{plugin_root}/scripts/reconcile_backlog.py" --config "{planwise_root}/config.yaml" --renumber OLD NEW [--file NAME]
+  ```
+
+  `OLD` and `NEW` take the bare number or the prefixed form (`LL-NNN`, `NNN`). The mode refuses `--write`, `--next-id` and `--body-status` beside it with exit 2.
+- The `NEW >= next id` rule. `NEW` must be at or above the next free id, and neither a file nor an index row may claim it. `OLD` is then retired, and an id skipped between the old maximum and `NEW` stays unused. This keeps the forward-only rule in [Monotonic Sequences Heal Forward Only](#monotonic-sequences-heal-forward-only): a renumber never lowers the counter and never reissues an id.
+- Fields rewritten: the frontmatter `id:` line, the first H1, and the filename, with the new number padded to the width of the one it replaces. For a backlog item the mode also rewrites every other item's `blocks:` entry that names `OLD`, in flow or block form, and every lesson's `promoted-to:` owner id that names `OLD`. It then regenerates the index with `generate_lessons_index.py --write` or `generate_backlog_index.py --write`.
+- Prose is never rewritten. The report ends with each `*.md` line under the planwise root that still names the old id, as `path:line`, so the caller decides each one.
+- The `--file NAME` selector. When several files claim `OLD`, the mode exits 2 and names every file. Rerun with `--file` set to the filename to move. For a backlog item, the other claimant keeps `OLD`, so every `blocks:` and `promoted-to:` reference to `OLD` is ambiguous. The mode leaves those references unchanged and reports them.
+- Refusals exit 2 and write nothing: a legacy lessons index (run `/planwise upgrade` first), `NEW` below the next free id, `NEW` already claimed, `OLD` with no file, an `id:` line or H1 that does not carry `OLD`, and an existing rename target.
+- The rollback residual. Every edit and rename is planned in memory, each anchor must match exactly once, and an invariant checks the planned id, H1 and filename before any write. The writes are one atomic `os.replace` per file followed by the renames. If a write or rename fails, the helper restores each written file from memory and reverses the renames. Cross-file atomicity is therefore per-file `os.replace` plus in-memory rollback, not one OS transaction. A crash between two replaces can leave a partial renumber. The lessons generator then reports it as `id-mismatch` or `duplicate-id` and refuses to write.
 
 ### Lessons — `generate_lessons_index.py --check`
 
@@ -177,8 +196,8 @@ Example: an index row reads `IN_PROGRESS` and its Master Plan reads `READY_TO_EX
   |---------|---------|---------------|
   | `extra-row` | A generated row names an id with no lesson file on disk (neither the lessons dir nor `Archive/`) | Yes — the next full `--write` rebuilds the index from lesson files, so the stray row does not survive |
   | `missing-row` | A lesson file exists with no generated row yet — the same off-capture authoring signal from the other direction | Yes — added on the next `--write` |
-  | `duplicate-id` | Two lesson files claim one id, or one id has two rows | No — `--write` refuses (exit 2) until resolved; deciding which file is correct needs a human |
-  | `id-mismatch` | A lesson file's filename number disagrees with its own frontmatter `id:` | No — `--write` refuses (exit 2) until resolved |
+  | `duplicate-id` | Two lesson files claim one id, or one id has two rows | No — `--write` refuses (exit 2) until resolved; deciding which file is correct needs a human. Resolve it with `reconcile_lessons.py --renumber OLD NEW --file NAME` (see [Renumbering an id](#renumbering-an-id--reconcile_lessonspy--reconcile_backlogpy---renumber)) |
+  | `id-mismatch` | A lesson file's filename number disagrees with its own frontmatter `id:` | No — `--write` refuses (exit 2) until resolved. A renumber that a crash left half applied lands here; finish it by hand or with `--renumber` |
   | `row-shape` | A row's cell count disagrees with the header | No — reported only |
   | `location-anomaly` | A lesson's directory disagrees with its status | No — location is never a routing input; the generator never moves a file |
   | `legacy-shape` | The index is still hand-authored | No — the generator exits 2 in every mode, and the fix is `/planwise upgrade`, which migrates the index |

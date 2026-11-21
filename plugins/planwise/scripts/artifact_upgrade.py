@@ -107,6 +107,17 @@ except ImportError:
     )
 
 try:
+    from migrate_backlog_items import (
+        _emit_backlog_items_banner,
+        migrate_backlog_items,
+    )
+except ImportError:
+    raise ImportError(
+        "migrate_backlog_items is required for artifact_upgrade's backlog item "
+        "shape repair; the scripts/ directory appears to be partially installed"
+    )
+
+try:
     from lessons_migration import (
         _emit_lessons_migration_banner,
         migrate_lessons_if_legacy,
@@ -849,6 +860,30 @@ def _apply_feedback_keys_banner(cfg: "InitConfig", config_path: Path, state_befo
         print(line)
 
 
+def _retire_verdicts_cache(verdicts_path: Path, note: str) -> None:
+    """Rename a staged verdict cache to `verdicts.json.consumed`, and say so.
+
+    Both exits of `_run_upgrade` call this: step 4b with the note `consumed`, and the
+    same-version branch with `retired unused ...`. It does nothing when the file is absent,
+    so a clean tree stays silent. A prior `.consumed` copy is replaced. An OSError prints a
+    warning to stderr and never changes the exit code.
+    """
+    if not verdicts_path.exists():
+        return
+    try:
+        consumed_path = verdicts_path.with_name("verdicts.json.consumed")
+        if consumed_path.exists():
+            consumed_path.unlink()
+        verdicts_path.rename(consumed_path)
+        print(f"Verdict cache {note}: renamed to {consumed_path.name}")
+        print()
+    except OSError as exc:
+        print(
+            f"  Warning: could not retire consumed verdict cache {verdicts_path}: {exc}",
+            file=sys.stderr,
+        )
+
+
 def _run_upgrade(
     cfg: "InitConfig",
     expected_pair: "tuple[str, str] | None" = None,
@@ -1024,6 +1059,12 @@ def _run_upgrade(
         report = migrate_backlog_if_legacy(
             cfg, pinned_version, target_version, reconcile=backlog_reconcile, answers=answers)
         _emit_backlog_migration_banner(report)
+        # Item-file shape repair, right after the index retrofit: it needs the generated index, and
+        # it never raises and never changes this branch's return code either.
+        try:
+            _emit_backlog_items_banner(migrate_backlog_items(cfg, pinned_version, target_version, answers))
+        except Exception as exc:  # noqa: BLE001 -- never change the exit code
+            print(f"  Warning: backlog item shape repair raised unexpectedly: {exc}", file=sys.stderr)
         # 2e. Lessons-index retrofit, same shape and same pair as the backlog
         # retrofit above -- never changes this branch's return code either.
         _lessons_report = migrate_lessons_if_legacy(
@@ -1051,6 +1092,12 @@ def _run_upgrade(
             cfg, sweep_orphaned_agent_mirrors,
             lambda c, findings: relocate_preserved_agent_mirrors(
                 c, findings, pinned_version, target_version))
+        # A same-version run refreshes no artifacts, so a cache staged for the
+        # `{v}-to-{v}` pair is retired unused, never consumed.
+        _retire_verdicts_cache(
+            verdicts_cache_path(cfg, pinned_version, target_version),
+            "retired unused (a same-version run refreshes no artifacts)",
+        )
         if needs_repoint:
             _repoint_plugin_root(config_path, cfg.plugin_root)
             print(f"Plugin version: {pinned_version}")
@@ -1156,6 +1203,16 @@ def _run_upgrade(
         except Exception as exc:  # noqa: BLE001 -- the retrofit must never abort an upgrade
             print(
                 f"  Warning: backlog index migration step raised unexpectedly: {exc}",
+                file=sys.stderr,
+            )
+
+        # Item-file shape repair, same contract: it needs the generated index the retrofit above
+        # leaves, never raises and never changes this run's exit code.
+        try:
+            _emit_backlog_items_banner(migrate_backlog_items(cfg, pinned_version, target_version, answers))
+        except Exception as exc:  # noqa: BLE001 -- the repair must never abort an upgrade
+            print(
+                f"  Warning: backlog item shape repair raised unexpectedly: {exc}",
                 file=sys.stderr,
             )
 
@@ -1283,19 +1340,7 @@ def _run_upgrade(
         # Renamed (not deleted) so the analysis remains inspectable next to
         # INDEX.md. `verdicts_path` is the single per-run resolution from the
         # banner above — the path the readers consumed, never re-derived.
-        if verdicts_path.exists():
-            try:
-                consumed_path = verdicts_path.with_name("verdicts.json.consumed")
-                if consumed_path.exists():
-                    consumed_path.unlink()
-                verdicts_path.rename(consumed_path)
-                print(f"Verdict cache consumed: renamed to {consumed_path.name}")
-                print()
-            except OSError as exc:
-                print(
-                    f"  Warning: could not retire consumed verdict cache {verdicts_path}: {exc}",
-                    file=sys.stderr,
-                )
+        _retire_verdicts_cache(verdicts_path, "consumed")
 
         # 4c. Orphaned agent mirrors still under .claude/agents/. Under
         # `report+relocate` this moves each customized mirror that has a

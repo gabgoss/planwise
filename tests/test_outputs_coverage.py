@@ -174,3 +174,68 @@ def test_orchestration_template_names_task_files_per_side():
     # (d) the no-consumer-yet skip rule is present
     assert "no consumer task file exists yet" in line.lower()
     assert "not applicable" in line.lower()
+
+
+def test_terminal_only_unnamed_file_exits_zero_and_prints_terminal_line(tmp_path):
+    out = _outputs(tmp_path, ["a.md", "b.md"])
+    t = _task(tmp_path / "t.md", ["a.md"])
+    r = _run("named", "--outputs", str(out), "--tasks", str(t), "--side", "producer", "--terminal", "b.md")
+    assert r.returncode == 0, r.stdout
+    assert "terminal: b.md" in r.stdout
+    assert "unnamed:" not in r.stdout
+    # the same run without the exemption is the known-bad reading: exit 1 on b.md
+    r = _run("named", "--outputs", str(out), "--tasks", str(t), "--side", "producer")
+    assert r.returncode == 1
+    assert "unnamed: b.md" in r.stdout
+
+
+def test_terminal_exempts_only_the_listed_file(tmp_path):
+    out = _outputs(tmp_path, ["a.md", "b.md", "c.md"])
+    t = _task(tmp_path / "t.md", ["a.md"])
+    r = _run("named", "--outputs", str(out), "--tasks", str(t), "--side", "producer", "--terminal", "b.md")
+    assert r.returncode == 1
+    assert "terminal: b.md" in r.stdout
+    assert "unnamed: c.md" in r.stdout
+    assert "unnamed: b.md" not in r.stdout
+
+
+def test_terminal_name_missing_from_listing_exits_two(tmp_path):
+    out = _outputs(tmp_path, ["a.md"])
+    t = _task(tmp_path / "t.md", ["a.md"])
+    for side in ("producer", "receiver"):
+        r = _run("named", "--outputs", str(out), "--tasks", str(t), "--side", side, "--terminal", "gone.md")
+        assert r.returncode == 2, r.stdout
+        assert "error: --terminal name not in the listing: gone.md" in r.stdout
+        assert "Traceback" not in r.stderr
+
+
+def test_terminal_accepts_several_names_and_the_receiver_still_exits_zero(tmp_path):
+    out = _outputs(tmp_path, ["a.md", "b.md", "c.md"])
+    t = _task(tmp_path / "t.md", ["a.md"])
+    r = _run("named", "--outputs", str(out), "--tasks", str(t), "--side", "producer", "--terminal", "b.md", "c.md")
+    assert r.returncode == 0, r.stdout
+    assert "terminal: b.md" in r.stdout and "terminal: c.md" in r.stdout
+    r = _run("named", "--outputs", str(out), "--tasks", str(t), "--side", "receiver", "--terminal", "b.md")
+    assert r.returncode == 0
+    assert "unnamed: c.md" in r.stdout
+
+
+def test_orchestration_template_states_exit_semantics_and_terminal_slot():
+    """The checklist line restates the exit codes per side and names the terminal slot."""
+    text = ORCHESTRATION_TEMPLATE.read_text(encoding="utf-8")
+    line = next(ln for ln in text.splitlines() if "outputs_coverage.py" in ln and " named " in ln)
+    spans = line.split("`")[1::2]
+    producer = [s for s in spans if "outputs_coverage.py" in s and "--side producer" in s]
+    receiver = [s for s in spans if "outputs_coverage.py" in s and "--side receiver" in s]
+    assert producer and receiver
+    for s in producer:
+        # the terminal slot follows the tasks slot, so the per-side tasks wording is untouched
+        assert s.index("--terminal {Outputs no later session consumes}") > s.index(
+            "--tasks {downstream consumer task files}"
+        )
+    for s in receiver:
+        assert "--terminal" not in s
+    low = line.lower()
+    assert "producer run exits 0" in low and "exits 1" in low
+    assert "receiver run always exits 0" in low
+    assert "exit 2 means the gate did not run" in low

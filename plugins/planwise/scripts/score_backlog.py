@@ -1057,7 +1057,13 @@ def compute_route_signals(item: dict, frontmatter: dict, config: dict | None = N
         "large_scope": large_scope,
         "branch": branch,
         "hint": hint,
-        "scoped_rules": None if config is None else scoped_rules_block(item["id"], raw_body, config),
+        "scoped_rules": (
+            None
+            if config is None
+            else scoped_rules_block(
+                item["id"], raw_body, config, approved=frontmatter.get("placement_approved")
+            )
+        ),
     }
 
 
