@@ -10,6 +10,16 @@ export type PlanwiseLastDraft = {
   configPath: string
 }
 
+/** What the update card offers. `NEEDS_CONFIRM` follows an Update Now press whose update needs a terminal. */
+export type PlanwiseUpdateOffer = {
+  verdict: 'RESTART' | 'PLUGIN_BEHIND' | 'PROJECT_BEHIND' | 'NEEDS_CONFIRM'
+  running: string | null
+  installed: string | null
+  latest: string | null
+  pin: string | null
+  confirmCommand: string | null
+}
+
 declare module 'claude-code' {
   interface PluginState {
     planwise: {
@@ -18,6 +28,9 @@ declare module 'claude-code' {
       dismissals: number
       hidden: boolean
       posting: boolean
+      updateOffer: PlanwiseUpdateOffer | null
+      updateHidden: boolean
+      updateBusy: boolean
     }
   }
 }

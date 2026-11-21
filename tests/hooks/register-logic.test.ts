@@ -10,10 +10,12 @@ const loaderSource = `
 const stubs = {
   'claude-code': ${JSON.stringify(stubUrl('export const atom = (ref, initial) => ({ ref, initial }); export const read = async () => undefined; export const update = async () => undefined'))},
   feedbackCard: ${JSON.stringify(stubUrl('export const register = () => {}'))},
+  updateBanner: ${JSON.stringify(stubUrl('export const register = () => {}'))},
 }
 export async function resolve(specifier, context, next) {
   if (specifier === 'claude-code') return { url: stubs['claude-code'], shortCircuit: true }
   if (specifier.endsWith('feedback-card.tsx')) return { url: stubs.feedbackCard, shortCircuit: true }
+  if (specifier.endsWith('update-banner.tsx')) return { url: stubs.updateBanner, shortCircuit: true }
   return next(specifier, context)
 }
 `
@@ -171,8 +173,9 @@ test('finding 5: a newer marker cancels the pending boundary, so only one re-ent
   await h.run('session.start', { isInteractive: true })
   h.complete(MARKER)
   h.complete(MARKER_B)
-  assert.equal(h.timers[0]?.cancelled, true)
-  h.timers[0]?.fn()
+  // timers[0] is the update check's session-start timer. The boundary timers follow it.
+  assert.equal(h.timers[1]?.cancelled, true)
+  h.timers[1]?.fn()
   await h.fire()
   assert.equal(h.calls.compact, 1)
   assert.equal(h.calls.runCommand, 1)
@@ -183,7 +186,7 @@ test('finding 5: a session end invalidates a pending boundary', async () => {
   await h.run('session.start', { isInteractive: true })
   h.complete(MARKER)
   h.run('classic.SessionEnd', {})
-  h.timers[0]?.fn()
+  h.timers[1]?.fn()
   await flush()
   assert.equal(h.calls.compact, 0)
 })

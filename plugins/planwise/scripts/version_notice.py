@@ -56,8 +56,40 @@ def _pinned_version(config: Path) -> str:
     return "" if pin is None else str(pin)
 
 
+def _project_root(config: Path) -> Path:
+    """The project root a config path implies: the parent of a `planwise/` folder, else its own folder."""
+    folder = Path(config).parent
+    return folder.parent if folder.name == "planwise" else folder
+
+
+def _plugin_behind_line(config: Path, plugin_root: Path) -> str:
+    """One line when update_check reads PLUGIN_BEHIND from files, else "". Never raises."""
+    try:
+        import update_check
+
+        result = update_check.check(plugin_root, _project_root(config))
+        if result.get("verdict") != update_check.PLUGIN_BEHIND:
+            return ""
+        latest, running = result.get("latest"), result.get("running")
+        marketplace = result.get("marketplace")
+        if not latest or not running or not marketplace:
+            return ""
+        return (
+            f"planwise: {latest} is available (installed {running})."
+            f" Run claude plugin update planwise@{marketplace}, restart, then /planwise upgrade."
+        )
+    except BaseException:  # noqa: BLE001 - a notice must never block a subcommand
+        return ""
+
+
 def notice(config: Path, plugin_root: Path) -> str:
-    """Return the notice line, or an empty string when there is nothing to say."""
+    """Return the notice lines joined by a newline, or "" when there is nothing to say."""
+    lines = [_pin_notice(config, plugin_root), _plugin_behind_line(config, plugin_root)]
+    return "\n".join(line for line in lines if line)
+
+
+def _pin_notice(config: Path, plugin_root: Path) -> str:
+    """Return the pin line, or an empty string when there is nothing to say."""
     try:
         shipped = _shipped_version(plugin_root)
         pinned = _pinned_version(config)

@@ -15,6 +15,13 @@
       "description": "Checks planwise:task-runner dispatches only; other agents and calls pass untouched. report (default): log each finding and let the call proceed. deny: refuse a background task-runner spawn, refuse a bare cd or file-read Bash verb inside a task-runner, and block a task-runner that stops unfinished. The spawn-prompt check only reports, at either value.",
       "default": "report",
       "options": ["report", "deny"]
+    },
+    "update_check": {
+      "type": "string",
+      "title": "Update check",
+      "description": "The session-start check for a newer planwise release. on (default): check the GitHub release list at most once every 6 hours and show a card above the prompt when the plugin or the project is behind. offline: check the local marketplace copy only, with no network call. off: no check and no card.",
+      "default": "on",
+      "options": ["on", "offline", "off"]
     }
   }
 }

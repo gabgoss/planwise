@@ -212,3 +212,74 @@ def test_skill_passes_the_injected_notice_through_before_routing_table():
     assert "verbatim" in before
     assert "version_notice.py" not in text
     assert not re.search(r"run `python[^`]*version_notice", text)
+
+
+# --- PLUGIN_BEHIND fallback line ------------------------------------------------
+
+BEHIND_LINE = (
+    "planwise: 1.1.0 is available (installed 1.0.0)."
+    " Run claude plugin update planwise@mp, restart, then /planwise upgrade."
+)
+PIN_BEHIND_LINE = "planwise: dispatching from 1.0.0, config pins 0.9.0 — run /planwise upgrade to refresh"
+
+
+def _install_world(tmp_path, monkeypatch, pin, latest, records=True):
+    """A fake config dir with a cache install of 1.0.0, a marketplace clone at `latest`, and a project."""
+    import version_notice
+
+    cfg = tmp_path / "cfg"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cfg))
+    root = cfg / "plugins" / "cache" / "mp" / "planwise" / "1.0.0"
+    (root / ".claude-plugin").mkdir(parents=True)
+    (root / ".claude-plugin" / "plugin.json").write_text(
+        json.dumps({"name": "planwise", "version": "1.0.0"}), encoding="utf-8")
+    clone = cfg / "clone"
+    (clone / "plugins" / "planwise" / ".claude-plugin").mkdir(parents=True)
+    (clone / "plugins" / "planwise" / ".claude-plugin" / "plugin.json").write_text(
+        json.dumps({"name": "planwise", "version": latest}), encoding="utf-8")
+    if records:
+        plugins = cfg / "plugins"
+        (plugins / "installed_plugins.json").write_text(json.dumps({"plugins": {"planwise@mp": [
+            {"scope": "user", "installPath": str(root), "version": "1.0.0"}]}}), encoding="utf-8")
+        (plugins / "known_marketplaces.json").write_text(json.dumps({"mp": {
+            "installLocation": str(clone)}}), encoding="utf-8")
+    config = _write(tmp_path / "proj" / "planwise" / "config.yaml",
+                    PLANWISE_CONFIG.replace('"1.0.0"', f'"{pin}"'))
+    return version_notice, config, root
+
+
+def test_plugin_behind_with_equal_pin_prints_the_new_line_alone(tmp_path, monkeypatch):
+    vn, config, root = _install_world(tmp_path, monkeypatch, pin="1.0.0", latest="1.1.0")
+    assert vn.notice(config, root) == BEHIND_LINE
+
+
+def test_plugin_behind_with_pin_behind_prints_both_lines(tmp_path, monkeypatch):
+    vn, config, root = _install_world(tmp_path, monkeypatch, pin="0.9.0", latest="1.1.0")
+    assert vn.notice(config, root) == PIN_BEHIND_LINE + "\n" + BEHIND_LINE
+
+
+def test_current_adds_no_new_line(tmp_path, monkeypatch):
+    vn, config, root = _install_world(tmp_path, monkeypatch, pin="1.0.0", latest="1.0.0")
+    assert vn.notice(config, root) == ""
+
+
+def test_project_behind_adds_no_new_line(tmp_path, monkeypatch):
+    vn, config, root = _install_world(tmp_path, monkeypatch, pin="0.9.0", latest="1.0.0")
+    assert vn.notice(config, root) == PIN_BEHIND_LINE
+
+
+def test_missing_install_records_add_no_line_and_raise_nothing(tmp_path, monkeypatch):
+    vn, config, root = _install_world(tmp_path, monkeypatch, pin="0.9.0", latest="1.1.0", records=False)
+    assert vn.notice(config, root) == PIN_BEHIND_LINE
+
+
+def test_a_check_that_raises_leaves_the_pin_line_unchanged(tmp_path, monkeypatch):
+    import update_check
+
+    vn, config, root = _install_world(tmp_path, monkeypatch, pin="0.9.0", latest="1.1.0")
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(update_check, "check", boom)
+    assert vn.notice(config, root) == PIN_BEHIND_LINE
