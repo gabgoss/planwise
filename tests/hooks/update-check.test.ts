@@ -18,7 +18,7 @@ registerLoader(stubUrl(loaderSource), import.meta.url)
 
 // The module under test. UPDATE_CHECK_URL points the same tests at another copy of the module.
 const target = process.env.UPDATE_CHECK_URL ?? new URL('../../plugins/planwise/hooks/update-check.ts', import.meta.url).href
-const { onSessionStart, checkNow, pressUpdateNow, CACHE_KEY, PENDING_KEY, CACHE_TTL_MS } = await import(target)
+const { onSessionStart, checkNow, pressUpdateNow, CACHE_KEY, PENDING_KEY, CACHE_TTL_MS, REDRAW_MS } = await import(target)
 
 const NOW = 1_700_000_000_000
 const ROOT = 'C:\\work\\proj'
@@ -53,6 +53,7 @@ const world = (
   const storeSets: { key: string; value: unknown }[] = []
   const logs: { text: string; to: string }[] = []
   const timers: { ms: number; fn: () => void }[] = []
+  const redraws: number[] = []
   let busy = false
   let offer: unknown = null
   const host = {
@@ -80,11 +81,12 @@ const world = (
     },
     setOffer: async (value: unknown) => void (offers.push(value), (offer = value)),
     uiLog: (text: string, to: string) => void logs.push({ text, to }),
+    redraw: () => void redraws.push(1),
     readOffer: async () => offer,
     readBusy: async () => busy,
     setBusy: async (value: boolean) => void (busy = value),
   }
-  return { host, store, runs, fetches, commands, offers, storeSets, logs, timers, setOffer: (v: unknown) => void (offer = v) }
+  return { host, store, runs, fetches, commands, offers, storeSets, logs, timers, redraws, setOffer: (v: unknown) => void (offer = v) }
 }
 
 const checkRuns = (w: ReturnType<typeof world>) => w.runs.filter((a) => a.includes('check'))
@@ -101,8 +103,24 @@ test('1 not interactive arms no timer', () => {
   onSessionStart(w.host as never, false, {})
   assert.equal(w.timers.length, 0)
   onSessionStart(w.host as never, true, {})
-  assert.equal(w.timers.length, 1)
-  assert.equal(w.timers[0]!.ms, 0)
+  // The check timer, then one redraw request once the start screen has settled.
+  assert.deepEqual(w.timers.map((t) => t.ms), [0, REDRAW_MS])
+  w.timers[1]!.fn()
+  assert.equal(w.redraws.length, 1)
+})
+
+test('1b an offer arms one redraw request; no offer arms none', async () => {
+  const behind = world({ check: () => ({ verdict: 'PROJECT_BEHIND', pin: '9.8.0', running: '9.9.0', installed: '9.9.0' }) })
+  await checkNow(behind.host as never, { update_check: 'offline' })
+  assert.equal(lastOffer(behind)?.verdict, 'PROJECT_BEHIND')
+  assert.deepEqual(behind.timers.map((t) => t.ms), [REDRAW_MS])
+  behind.timers[0]!.fn()
+  assert.equal(behind.redraws.length, 1)
+
+  const current = world()
+  await checkNow(current.host as never, { update_check: 'offline' })
+  assert.equal(lastOffer(current), null)
+  assert.equal(current.timers.length, 0)
 })
 
 test('2 opt-out off stops the timer body: no script, no fetch, no offer', async () => {

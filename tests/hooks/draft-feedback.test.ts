@@ -52,8 +52,12 @@ const world = (files: Record<string, string>) => {
         store.set(path, text)
         writes.push(path)
       },
-      list: async () => [],
-      exists: async (path: string) => store.has(path),
+      // A folder exists when a file sits under it, and lists the files directly in it.
+      list: async (path: string) =>
+        [...store.keys()]
+          .filter((key) => key.startsWith(path + '/') && !key.slice(path.length + 1).includes('/'))
+          .map((key) => ({ name: key.slice(path.length + 1), kind: 'file' })),
+      exists: async (path: string) => store.has(path) || [...store.keys()].some((key) => key.startsWith(path + '/')),
     },
     tool: { register: async () => undefined, check: async () => ({ decision: 'allow' }) },
     ui: { log: (text: string, init: { to: string }) => void logs.push({ text, to: init.to }) },
@@ -136,4 +140,94 @@ test('draftfeedback a root that moves to a tree with no config denies the call',
   const out = (await call(capture(), w.engine)) as { deny: string }
   assert.match(out.deny, /the tool is not active in this session/)
   assert.equal(w.writes.length, 0)
+})
+
+// A draft file as the producer wrote it on CLI 2.1.330 (the update banner smoke, row 7), copied
+// unedited. Its name and id are reused below.
+const REAL_DRAFT = `---
+draft_id: "f10a0cb0-a791-4119-b14d-f8c886f9e02a"
+created_at: "2026-11-22T03:31:30.676Z"
+drafted_by: "model"
+producer: "hooks-tool"
+trigger: "model_judgment"
+kind: "idea"
+title: "Add a hello world example to planwise"
+subcommand: "not command-specific"
+source_session_id: "535d4631-5374-49b3-9e4b-964887421207"
+plugin_version: "9.9.0"
+cli_version: "2.1.330"
+model: "claude-fable-5-2"
+os: "windows"
+status: "queued"
+---
+
+### What I learned
+
+Provide a minimal "hello world" plan: a one-sprint, one-session, one-task example that a new user can build and run end to end to see how planwise works.
+
+### Why it matters
+
+A tiny working example lowers the barrier to entry and lets users verify their setup before authoring a real plan.
+
+### Where it would apply
+
+Getting-started documentation and example plans (e.g. a sample build spec and bodies file for build_plan).
+
+### Environment
+
+- plugin version: 9.9.0
+- Claude Code version: 2.1.330
+- model: claude-fable-5-2
+- os: windows
+`
+const DRAFTS = MAIN + '/planwise/Feedback/Feedback-Drafts'
+const REAL_NAME = '2026-11-22-draft-idea-add-a-hello-world-example-to-planwise.md'
+
+test('draftfeedback session start offers a queued draft an earlier session wrote', async () => {
+  const w = world({ [MAIN + '/planwise/config.yaml']: NOTIFY, [DRAFTS + '/' + REAL_NAME]: REAL_DRAFT })
+  await onSessionStart(hostOf(w.engine as never))
+  assert.equal(w.drafts.length, 1)
+  const draft = w.drafts[0] as { draftId: string; kind: string; title: string; preview: string; feedbackDir: string; sessionId: string; configPath: string }
+  assert.equal(draft.draftId, 'f10a0cb0-a791-4119-b14d-f8c886f9e02a')
+  assert.equal(draft.kind, 'idea')
+  assert.equal(draft.title, 'Add a hello world example to planwise')
+  assert.ok(draft.preview.startsWith('Provide a minimal "hello world" plan'), draft.preview)
+  assert.equal(draft.feedbackDir, DRAFTS)
+  assert.equal(draft.sessionId, '535d4631-5374-49b3-9e4b-964887421207')
+  assert.equal(draft.configPath, MAIN + '/planwise/config.yaml')
+  assert.equal(w.writes.length, 0)
+  assert.equal(w.runs.length, 0)
+})
+
+test('draftfeedback session start skips a draft that is no longer queued', async () => {
+  const posted = REAL_DRAFT.replace('status: "queued"', 'status: "posted"')
+  const w = world({ [MAIN + '/planwise/config.yaml']: NOTIFY, [DRAFTS + '/' + REAL_NAME]: posted })
+  await onSessionStart(hostOf(w.engine as never))
+  assert.equal(w.drafts.length, 0)
+})
+
+test('draftfeedback session start offers the newest of two queued drafts', async () => {
+  const older = REAL_DRAFT.replace('f10a0cb0-a791-4119-b14d-f8c886f9e02a', 'old-id').replace('2026-11-22T03:31:30.676Z', '2026-11-20T09:00:00.000Z')
+  const w = world({
+    [MAIN + '/planwise/config.yaml']: NOTIFY,
+    [DRAFTS + '/2026-11-20-draft-idea-older.md']: older,
+    [DRAFTS + '/' + REAL_NAME]: REAL_DRAFT,
+  })
+  await onSessionStart(hostOf(w.engine as never))
+  assert.equal(w.drafts.length, 1)
+  assert.equal((w.drafts[0] as { draftId: string }).draftId, 'f10a0cb0-a791-4119-b14d-f8c886f9e02a')
+})
+
+test('draftfeedback session start leaves a draft already on the card in place', async () => {
+  const w = world({ [MAIN + '/planwise/config.yaml']: NOTIFY, [DRAFTS + '/' + REAL_NAME]: REAL_DRAFT })
+  w.drafts.push({ draftId: 'already-there' })
+  await onSessionStart(hostOf(w.engine as never))
+  assert.equal(w.drafts.length, 1)
+  assert.equal((w.drafts[0] as { draftId: string }).draftId, 'already-there')
+})
+
+test('draftfeedback session start offers nothing when drafting is off', async () => {
+  const w = world({ [MAIN + '/planwise/config.yaml']: OFF, [DRAFTS + '/' + REAL_NAME]: REAL_DRAFT })
+  await onSessionStart(hostOf(w.engine as never))
+  assert.equal(w.drafts.length, 0)
 })

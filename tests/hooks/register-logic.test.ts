@@ -168,14 +168,17 @@ test('finding 4: a reloaded module with no session.start still resolves the skil
   assert.equal(h.calls.runCommand, 1)
 })
 
+// timers[0] is the update check's session-start timer and timers[1] its redraw request. The
+// boundary timers follow them.
+const FIRST_BOUNDARY = 2
+
 test('finding 5: a newer marker cancels the pending boundary, so only one re-entry happens', async () => {
   const h = harness()
   await h.run('session.start', { isInteractive: true })
   h.complete(MARKER)
   h.complete(MARKER_B)
-  // timers[0] is the update check's session-start timer. The boundary timers follow it.
-  assert.equal(h.timers[1]?.cancelled, true)
-  h.timers[1]?.fn()
+  assert.equal(h.timers[FIRST_BOUNDARY]?.cancelled, true)
+  h.timers[FIRST_BOUNDARY]?.fn()
   await h.fire()
   assert.equal(h.calls.compact, 1)
   assert.equal(h.calls.runCommand, 1)
@@ -186,7 +189,8 @@ test('finding 5: a session end invalidates a pending boundary', async () => {
   await h.run('session.start', { isInteractive: true })
   h.complete(MARKER)
   h.run('classic.SessionEnd', {})
-  h.timers[1]?.fn()
+  assert.ok(h.timers[FIRST_BOUNDARY] !== undefined, 'the boundary timer must exist, or the absence below proves nothing')
+  h.timers[FIRST_BOUNDARY]?.fn()
   await flush()
   assert.equal(h.calls.compact, 0)
 })

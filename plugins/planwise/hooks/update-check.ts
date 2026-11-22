@@ -30,6 +30,13 @@ export const CHECK_TIMEOUT_MS = 30000
 /** The limit on one `update_check.py update` run, which updates the marketplace and the plugin. */
 export const UPDATE_TIMEOUT_MS = 300000
 
+/**
+ * The delay before a redraw request. On CLI 2.1.330 a card answered while the terminal was still
+ * drawing its start screen was not shown until a later redraw (a typed prompt). A fresh draw once
+ * the start screen settles puts the card on the screen.
+ */
+export const REDRAW_MS = 1500
+
 /** The skill arguments that migrate the project to the running plugin. */
 export const UPGRADE_ARGS = 'upgrade'
 
@@ -68,10 +75,12 @@ export type Host = {
   runCommand: (command: string, args?: string) => Promise<unknown>
   setOffer: (offer: PlanwiseUpdateOffer | null) => Promise<unknown>
   uiLog: (text: string, to: 'debug' | 'transcript') => void
+  /** Asks the engine for a fresh draw of every render hook. */
+  redraw: () => void
 }
 
 /** The engine calls a card press makes. update-banner.tsx builds it over its own atoms. */
-export type PressHost = Omit<Host, 'after' | 'fetch'> & {
+export type PressHost = Omit<Host, 'after' | 'fetch' | 'redraw'> & {
   readOffer: () => Promise<PlanwiseUpdateOffer | null>
   readBusy: () => Promise<boolean>
   setBusy: (value: boolean) => Promise<unknown>
@@ -96,6 +105,22 @@ export function hostOf($: EngineInterface): Host {
     // The card declares the atom. A literal ref, as `$.state` requires.
     setOffer: (offer: PlanwiseUpdateOffer | null) => $.state.set({ plugin: 'planwise', key: 'updateOffer' } as const, offer),
     uiLog: (text: string, to: 'debug' | 'transcript') => $.ui.log(text, { to }),
+    redraw: () => $.ui.invalidate('ui.render'),
+  }
+}
+
+/** Arms one redraw request. A failure is debug-logged; the card then draws at the next redraw. */
+const nudge = (host: Pick<Host, 'after' | 'redraw' | 'uiLog'>): void => {
+  try {
+    host.after(REDRAW_MS, () => {
+      try {
+        host.redraw()
+      } catch (err) {
+        host.uiLog('update check: redraw failed: ' + (err instanceof Error ? err.message : String(err)), 'debug')
+      }
+    })
+  } catch (err) {
+    host.uiLog('update check: redraw not armed: ' + (err instanceof Error ? err.message : String(err)), 'debug')
   }
 }
 
@@ -320,7 +345,10 @@ export async function checkNow(host: Host, options: PluginOptions): Promise<void
     delete pending[projectRoot]
     await host.storeSet(PENDING_KEY, pending)
   }
-  await host.setOffer(offerOf(check))
+  const offer = offerOf(check)
+  await host.setOffer(offer)
+  // The offer can land while the terminal still draws its start screen: ask for a fresh draw.
+  if (offer !== null) nudge(host)
 }
 
 /**
@@ -337,6 +365,8 @@ export function onSessionStart(host: Host, isInteractive: boolean, options: Plug
   } catch (err) {
     debug(host, 'timer not armed: ' + errText(err))
   }
+  // A review card set during session.start (a queued draft) meets the same start-screen draw.
+  nudge(host)
 }
 
 /** Update Now on `PROJECT_BEHIND`: run the upgrade. A rejected run keeps any marker and the card. */
