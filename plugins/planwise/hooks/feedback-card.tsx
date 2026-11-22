@@ -1,5 +1,7 @@
 // The review card above the prompt, composed into the one hooks module (register.ts). When the
-// draft_feedback tool admits a draft, the card offers Review, Post and Dismiss. It holds one
+// draft_feedback tool admits a draft, or session start finds a queued draft from an earlier
+// session (draft-feedback.ts), the card offers Review, Post and Dismiss. Dismiss hides the draft
+// for this session only: the file stays queued, so the next session offers it again. It holds one
 // ui.render hook and no session.start hook. The values it shows live in `$.state` under the name
 // `planwise`, declared by types/index.d.ts. A render hook cannot write state, so every write
 // happens in a button press.

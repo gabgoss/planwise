@@ -1,5 +1,6 @@
 // Feedback drafting, composed into the one hooks module (register.ts). Its session.start work
-// registers the draft_feedback tool, and a tool.call hook serves it: validate, render, write a
+// registers the draft_feedback tool and offers the newest queued draft on the review card, and a
+// tool.call hook serves the tool: validate, render, write a
 // draft file, then admit it through scripts/feedback_drafts.py. An admit exit other than
 // 0, 2 or 3 is debug-logged and the file is kept. The model never sees a permission dialog: the
 // hook asks the engine for its verdict first, refuses on a deny, and runs on an allow or an ask.
@@ -10,6 +11,7 @@ import { CAP_TEXT, DESCRIPTION, FULL_TOOL_NAME, INPUT_SCHEMA, MAX_CALLS_PER_SESS
 import { draftsMode, isPlanwiseConfig, readRawScalar, readScalar, resolveDraftsDir } from './feedback/config-read.ts'
 import type { DraftsMode } from './feedback/config-read.ts'
 import { previewSourceOf } from './feedback/card-preview.ts'
+import { isDraftFileName, newestQueued } from './feedback/queued.ts'
 import { renderDraft, scrub } from './feedback/render.ts'
 import { draftFileName, slugOf } from './feedback/slug.ts'
 import { validateInput } from './feedback/validate.ts'
@@ -151,6 +153,33 @@ const noteCard = async (host: Host, draft: PlanwiseLastDraft): Promise<void> => 
 }
 
 /**
+ * Offers the newest queued draft on the review card at session start, so a draft an earlier
+ * session wrote draws before the update card (the review card is the outer card). It reads the
+ * drafts dir only and writes no file. A draft already on the card stays. A failure is
+ * debug-logged and draws no card.
+ */
+const offerQueued = async (host: Host): Promise<void> => {
+  try {
+    if (session.draftsDir === '' || !(await host.exists(session.draftsDir))) return
+    const names = (await host.list(session.draftsDir)).filter((entry) => entry.kind === 'file' && isDraftFileName(entry.name)).map((entry) => entry.name)
+    const texts = await Promise.all(names.map(async (name) => String(await host.read(session.draftsDir + '/' + name))))
+    const draft = newestQueued(texts)
+    if (draft === null || (await host.lastDraft()) !== null) return
+    await noteCard(host, {
+      draftId: draft.draftId,
+      kind: draft.kind,
+      title: draft.title,
+      preview: previewSourceOf(draft.kind, draft.fields, [session.projectRoot]),
+      feedbackDir: session.draftsDir,
+      sessionId: draft.sessionId,
+      configPath: session.configPath,
+    })
+  } catch (err) {
+    failed(host, 'queued draft load', errText(err))
+  }
+}
+
+/**
  * The session.start body. The loop module's own session.start hook calls it first, because a
  * module may register one session.start hook only. It logs every error itself and never throws.
  */
@@ -168,6 +197,7 @@ export async function onSessionStart(host: Host): Promise<void> {
     // isDeferred false puts the schema in the prompt's tool list, so the first call needs no search.
     await host.registerTool({ name: TOOL_NAME, description: DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false })
     host.uiLog(`draft feedback: registered ${FULL_TOOL_NAME}`, 'debug')
+    await offerQueued(host)
   } catch (err) {
     failed(host, 'session.start hook', errText(err))
   }

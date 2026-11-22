@@ -132,6 +132,9 @@ Read `{plugin_root}/.claude-plugin/plugin.json` and extract `version` — the li
 > [!note] "Already up to date" is a local comparison only
 > This check compares the pinned `plugin_version:` against the live plugin's own `.claude-plugin/plugin.json` in your local install cache — no step in this handler reads the marketplace source, so "already up to date" reflects your local cache, not necessarily the newest published release; keep the cache itself current with the two-stage refresh described in README.md's upgrade section.
 
+> [!note] The session banner may start this handler
+> The session `update banner` (the hooks module's start-of-session check) can start this handler when the project pin is behind the running plugin. The Step 1 comparison and every later step run as written.
+
 > [!practice] A `plugin_root` mismatch is itself upgrade-indicating
 > If the config's stored `plugin_root` differs from the live `{plugin_root}` resolved above, that is a defect to act on even when the version pin looks current: it means an earlier upgrade pinned the version without repointing the root (a config written before the writer's commit point started repointing both together), or the directory it still names was later removed. Left alone it does not heal — every handler that resolves scripts through the stored value keeps running a superseded install, or fails outright once that directory is reaped. The script's `--upgrade` invocation (Step 2.4) repoints `plugin_root` to the live root even when the version pin is already current, and does nothing else in that state, so the gate above routes this case to it rather than exiting.
 
