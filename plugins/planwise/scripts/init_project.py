@@ -55,6 +55,7 @@ if __name__ == "__main__":
 
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 
+import install_check
 import layout_migrate
 from constants import InstallScope
 from migration_answers import AnswersError, load_answers
@@ -450,9 +451,12 @@ def install_rules(cfg: InitConfig) -> list[str]:
 
 
 def get_settings_path(cfg: InitConfig) -> Path:
-    """Return the settings.json path based on install scope."""
+    """Return the settings.json path based on install scope.
+
+    The user scope reads the user config folder: `$CLAUDE_CONFIG_DIR` when set, else `~/.claude`.
+    """
     if cfg.install_scope == InstallScope.USER:
-        return Path.home() / ".claude" / "settings.json"
+        return install_check.default_config_dir() / "settings.json"
     elif cfg.install_scope == InstallScope.LOCAL:
         return cfg.project_root / ".claude" / "settings.local.json"
     else:  # project
@@ -556,13 +560,14 @@ def get_thrifty_sonic_paths(cfg: InitConfig) -> list[Path]:
     """Return the settings files that carry the standing session-behavior var.
 
     Always the project's .claude/settings.json and the user-global
-    ~/.claude/settings.json, whatever the install scope: the var is a
-    session toggle meant to apply everywhere, not to one install. The
-    settings.local.json file is never a target.
+    settings.json, whatever the install scope: the var is a session toggle
+    meant to apply everywhere, not to one install. The user-global file sits
+    in the user config folder, which is $CLAUDE_CONFIG_DIR when set, else
+    ~/.claude. The settings.local.json file is never a target.
     """
     return [
         cfg.project_root / ".claude" / "settings.json",
-        Path.home() / ".claude" / "settings.json",
+        install_check.default_config_dir() / "settings.json",
     ]
 
 

@@ -171,9 +171,12 @@ def test_read_only_proof_up_to_date_runs_every_report(tmp_path, capsys, monkeypa
     assert all("--check" in c for c in calls if c[0] in ("generate_plans_index.py", "generate_lessons_index.py"))
 
 
-def test_user_settings_line(tmp_path, capsys):
+def test_user_settings_line(tmp_path, capsys, monkeypatch):
     root = ucp.make_project(tmp_path)
     home = (Path.home() / ".claude" / "settings.json").as_posix()
+    # `_isolate` exports CLAUDE_CONFIG_DIR, and a set variable gets its own label. The home label needs it unset.
+    assert f"user settings: {home} (step 2: CLAUDE_CONFIG_DIR settings)" in run_card(capsys, root)
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR")
     assert f"user settings: {home} (step 2: home settings)" in run_card(capsys, root)
     flag = (tmp_path / "elsewhere" / "settings.json").as_posix()
     card = run_card(capsys, root, "--user-settings", flag)

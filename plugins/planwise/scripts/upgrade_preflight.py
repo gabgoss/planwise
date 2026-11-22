@@ -162,10 +162,19 @@ def build_cfg(config: dict, project_root: Path):
 
 
 def resolve_user_settings(flag) -> tuple[Path, str]:
-    """The two-step order: the --user-settings flag, then the home settings file."""
+    """The two-step order: the --user-settings flag, then the settings file in the user config folder.
+
+    The user config folder is `$CLAUDE_CONFIG_DIR` when that variable is set, else `~/.claude`. The
+    second label says which one applied. `upgrade_apply` and `upgrade_run` take this path from here.
+    """
+    import install_check
+
     if flag:
         return Path(flag), "step 1: --user-settings flag"
-    return Path.home() / ".claude" / "settings.json", "step 2: home settings"
+    path = install_check.default_config_dir() / "settings.json"
+    if os.environ.get("CLAUDE_CONFIG_DIR"):
+        return path, "step 2: CLAUDE_CONFIG_DIR settings"
+    return path, "step 2: home settings"
 
 
 def branch_of(pinned: str, shipped: str, stored_root, live_root) -> str:
