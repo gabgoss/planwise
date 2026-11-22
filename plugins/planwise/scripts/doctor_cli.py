@@ -877,8 +877,10 @@ def _sweep_settings_grants(cfg: "InitConfig") -> list[dict]:
 def _sweep_thrifty_sonic(cfg: "InitConfig") -> list[dict]:
     """Read-only sweep of the two settings files that should carry
     `env.CLAUDE_CODE_THRIFTY_SONIC` set to "false": the project's
-    `.claude/settings.json` and the user-global `~/.claude/settings.json`,
-    whatever the install scope. `settings.local.json` is never read.
+    `.claude/settings.json` and the user-global `settings.json`, whatever the
+    install scope. The user-global file sits in the user config folder, which
+    is `$CLAUDE_CONFIG_DIR` when set, else `~/.claude`. `settings.local.json`
+    is never read.
 
     Returns one finding per file that is NOT correct, each a dict with
     `settings_path`, `klass` and `detail`. Classes:
@@ -890,9 +892,11 @@ def _sweep_thrifty_sonic(cfg: "InitConfig") -> list[dict]:
     Doctor never imports the writer, so the two target paths are restated here
     rather than shared with init_project.py.
     """
+    import install_check
+
     targets = (
         cfg.project_root / ".claude" / "settings.json",
-        Path.home() / ".claude" / "settings.json",
+        install_check.default_config_dir() / "settings.json",
     )
     findings = []
     for settings_path in targets:

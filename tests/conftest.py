@@ -27,9 +27,12 @@ def _isolated_home(tmp_path_factory, monkeypatch):
 
     Redirects `Path.home()`, `HOME` and `USERPROFILE` to a fresh empty directory
     per test. Applies to `unittest.TestCase` methods as well. A test that sets
-    its own redirect nests inside this one.
+    its own redirect nests inside this one. It also unsets `CLAUDE_CONFIG_DIR`,
+    because the user-scope paths follow that variable and a developer shell that
+    exports it would otherwise send a home-redirected test into a real config folder.
     """
     home = tmp_path_factory.mktemp("home")
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("USERPROFILE", str(home))

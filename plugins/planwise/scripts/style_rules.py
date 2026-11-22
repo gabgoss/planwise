@@ -3,17 +3,21 @@
 This module is a leaf. It is imported by the init, upgrade and doctor modules,
 so it must never import any of them back, not even at module level. Importing
 one of them here would close a cycle, because each of them imports this module
-while it is still being initialised. The only sibling imports are `constants`
-and `upgrade_io` (neither imports an entry-point module) and lazy imports of
-`rule_divergence` and `read_limits` inside the functions that need them.
+while it is still being initialised. The only sibling imports are `constants`,
+`install_check` and `upgrade_io` (none imports an entry-point module) and lazy
+imports of `rule_divergence` and `read_limits` inside the functions that need
+them.
 
 Two global rules ship under `references/` without a `paths:` line. They install
-under `<.claude>/rules/planwise/`, where `<.claude>` is the user directory for
-the `user` install scope and the project directory otherwise. The `style:`
-config block switches each rule on or off, and an absent key means on.
+under `<.claude>/rules/planwise/`, where `<.claude>` is the user config folder
+for the `user` install scope and the project directory otherwise. The user
+config folder is `$CLAUDE_CONFIG_DIR` when that variable is set, else
+`~/.claude`. The `style:` config block switches each rule on or off, and an
+absent key means on.
 
 The duplicate search walks both `.claude/rules/` trees (project and home)
-recursively, at any depth, and matches the file name ignoring case. It excludes
+recursively, at any depth, and matches the file name ignoring case. The home
+tree is `<user config folder>/rules`. It excludes
 exactly one path, the install target itself, so a re-run never reports its own
 earlier copy as a duplicate. Every other same-named file counts, including one
 inside a subdirectory. The walk records which tree reached each hit, and that
@@ -37,6 +41,7 @@ deleted here, and every overwrite or delete follows a successful backup.
 import sys
 from pathlib import Path
 
+import install_check
 from constants import InstallScope
 from upgrade_io import _load_raw_config
 
@@ -53,11 +58,12 @@ _OFF = ("off", "false")
 def style_rule_dir(cfg) -> Path:
     """Directory that holds the managed copies for this install scope.
 
-    `Path.home()` is called on every call, never at import time, so a test can
-    redirect the home directory.
+    At the `user` scope the folder sits under the user config folder, which is
+    `$CLAUDE_CONFIG_DIR` when set, else `~/.claude`. The config folder is read on
+    every call, never at import time, so a test can redirect it.
     """
     if cfg.install_scope == InstallScope.USER:
-        return Path.home() / ".claude" / "rules" / "planwise"
+        return install_check.default_config_dir() / "rules" / "planwise"
     return cfg.project_root / ".claude" / "rules" / "planwise"
 
 
@@ -176,10 +182,14 @@ def _classify_copy(shipped: Path, found: Path) -> str:
 
 
 def _rules_trees(cfg) -> list[Path]:
-    """The two `.claude/rules/` trees to search: project first, then home."""
+    """The two `.claude/rules/` trees to search: project first, then home.
+
+    The home tree is `rules/` under the user config folder (`$CLAUDE_CONFIG_DIR`
+    when set, else `~/.claude`).
+    """
     return [
         cfg.project_root / ".claude" / "rules",
-        Path.home() / ".claude" / "rules",
+        install_check.default_config_dir() / "rules",
     ]
 
 
