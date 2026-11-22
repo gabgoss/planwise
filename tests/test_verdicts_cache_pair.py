@@ -278,6 +278,33 @@ class TestUpgradePairPin(_UpgradeArtifactsFixtureBase):
         self.assertEqual(out, "")
         self.assertEqual(self.config_path.read_bytes(), before)
 
+    def test_same_version_run_retires_its_cache_unused(self):
+        """A same-version run refreshes no artifacts, so a cache staged for the
+        `{v}-to-{v}` pair is renamed unused. Known-bad arm: on the script before
+        the same-version retirement, `verdicts.json` is still present."""
+        self.config_path.write_text(f'plugin_version: "{TO}"\n', encoding="utf-8")
+        cache = verdicts_cache_path(self.cfg, TO, TO)
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text("{}", encoding="utf-8")
+
+        code, out, _ = self._run((TO, TO))
+
+        self.assertEqual(code, 0)
+        self.assertFalse(cache.exists(), "no verdicts.json remains at the pair")
+        self.assertTrue(cache.with_name("verdicts.json.consumed").exists())
+        self.assertIn("retired unused", out)
+        self.assertEqual(out.strip().splitlines()[-1], "Already up to date.")
+
+    def test_same_version_clean_tree_writes_no_cache_file(self):
+        """The helper is a no-op when no cache is staged."""
+        self.config_path.write_text(f'plugin_version: "{TO}"\n', encoding="utf-8")
+
+        code, out, _ = self._run((TO, TO))
+
+        self.assertEqual(code, 0)
+        self.assertFalse(self.conflict_dir(TO, TO).exists())
+        self.assertNotIn("Verdict cache", out)
+
 
 class TestOneCacheLoadPerUpgradeRun(_UpgradeArtifactsFixtureBase):
     """One `--upgrade` run loads verdicts.json once and judges each override once.

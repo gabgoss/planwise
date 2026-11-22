@@ -283,7 +283,9 @@ all-clear line never prints over an unverifiable or not-analyzed row.)
 > so this sweep is a permanent, always-on diagnostic rather than a
 > version-boundary-gated one-shot. To actually remove an orphan, the user
 > opts in with the same writer described in Stage 8b above
-> (`/planwise doctor --prune-stale`).
+> (`/planwise doctor --prune-stale`). A customized mirror (`PRESERVE`) is
+> never removed here. `/planwise upgrade` moves it to `upgrade-transfers/`
+> under `customization_handoff: report+relocate`.
 
 Always-on (independent of Token Saver). The sweep classifies every installed
 agent mirror under `.claude/agents/` against its shipped counterpart
@@ -299,7 +301,9 @@ frontmatter key to normalize away, unlike a rule) and recommends one of:
   prove was noise, or the file could not be proven stale at all (shipped
   reference missing/unreadable, installed file unreadable, or structural
   comparison degraded/unavailable). *Never a confident recommendation on
-  incomplete evidence — do NOT delete.*
+  incomplete evidence — do NOT delete. `/planwise upgrade` moves a row whose
+  shipped counterpart is readable to `upgrade-transfers/` under
+  `customization_handoff: report+relocate`.*
 
 An installed file with no shipped counterpart in `agents/` is skipped
 silently (not installed via the plugin, or already not a formerly-mirrored
@@ -318,7 +322,7 @@ Orphaned agent mirrors still installed under .claude/agents/:
   ! {filename}.md   PRESERVE
       size:    {N} lines (~{X} tokens)
       reason:  {genuine customization (unique content) [; shipped body is smaller than the installed copy — a content-relocating refactor makes a stale copy look customized, and no previously shipped body matched | the shipped agent-history manifest is unavailable] | matcher tolerated installed-only content | shipped reference unavailable/unreadable | installed file unreadable — cannot classify}
-      action:  keep in place — customization detected, do NOT delete
+      action:  keep in place — customization detected, do NOT delete. /planwise upgrade moves it to upgrade-transfers/ under customization_handoff: report+relocate
 
 Total REMOVABLE orphaned agent mirror(s): {N} of {M} found.
 ```

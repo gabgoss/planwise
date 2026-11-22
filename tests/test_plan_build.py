@@ -906,7 +906,7 @@ def test_docstring_report_section_names_no_line_a_built_report_never_prints():
 
 def test_docstring_counts_only_the_keys_scaffold_plan_does_not_know():
     key_list = pb.__doc__.split("Build spec format.")[1].split("meta           plan level")[0]
-    assert "four keys" in key_list and "five keys" not in key_list
+    assert "five keys" in key_list and "four keys" not in key_list
     assert all(f"`{key}`" in key_list for key in pb.BUILD_KEYS)
 
 

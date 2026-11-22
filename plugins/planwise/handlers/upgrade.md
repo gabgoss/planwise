@@ -4,15 +4,16 @@
 
 **Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`, `native-tool-use.md`, `feedback-drafting.md`) are pre-injected by SKILL.md.
 
-This handler spans **three files**, split by topic because the combined text exceeds the Read-tool page cap. Each Step keeps its own identifier wherever it lands, so an existing `Step N` reference still names exactly one section — only the filename that holds it changes.
+This handler spans **four files**, split by topic because the combined text exceeds the Read-tool page cap. Each Step keeps its own identifier wherever it lands, so an existing `Step N` reference still names exactly one section — only the filename that holds it changes.
 
 | Part | File | Steps / Sections | Topic |
 |---|---|---|---|
-| 1 (this file) | `upgrade.md` | Config Gate, Card path, Steps 1-2.7 | The card path and its hand-backs, drift detection, Token Saver mode offer, comparator fan-out, verdict write, the upgrade script invocation, calibration refresh, lessons/feedback backfill |
+| 1 (this file) | `upgrade.md` | Config Gate, Card path, Steps 1-2.4 | The card path and its hand-backs, drift detection, Token Saver mode offer, comparator fan-out, verdict write, the upgrade script invocation |
 | 2 | [`upgrade-Part-2-RecoveryAndReference.md`](upgrade-Part-2-RecoveryAndReference.md) | Conflict Resolution Reference, Auto-Init Fallback, Mid-Upgrade Failure, Config Recovery | The scenario table Part 3's Step 4 dispositions point back to, and recovery procedures for a run — or the Config Gate — that cannot complete |
 | 3 | [`upgrade-Part-3-BannerAndConflictResolution.md`](upgrade-Part-3-BannerAndConflictResolution.md) | Steps 3-4.7 | Banner rendering, conflict resolution (relocation, upstream issue, per-class cleanup), settings-grant/GitHub-CLI/task-tools/thrifty-sonic post-upgrade offers |
+| 4 | [`upgrade-Part-4-PostRunReportsAndBackfills.md`](upgrade-Part-4-PostRunReportsAndBackfills.md) | Steps 2.5-2.8 | The Token Saver calibration report, the lessons scaffolding backfill fallback, the working-folder move and the feedback keys backfill and banner. Read after Step 2.4 |
 
-`/planwise upgrade` dispatches to this file; it reads Part 3 for the banner and conflict-resolution steps, and Part 2 when the Config Gate branches to Auto-Init Fallback or a Part 3 step needs the scenario table.
+`/planwise upgrade` dispatches to this file; it reads Part 4 after Step 2.4 for the post-run reports and backfills, Part 3 for the banner and conflict-resolution steps, and Part 2 when the Config Gate branches to Auto-Init Fallback or a Part 3 step needs the scenario table.
 
 ## Table of Contents
 
@@ -27,10 +28,7 @@ This handler spans **three files**, split by topic because the combined text exc
   - [Step 2.3 — Write `verdicts.json`](#step-23--write-verdictsjson)
   - [Step 2.3b — Ask the migration questions](#step-23b--ask-the-migration-questions)
   - [Step 2.4 — Invoke the upgrade script](#step-24--invoke-the-upgrade-script)
-  - [Step 2.5 — Refresh Token Saver calibration](#step-25--refresh-token-saver-calibration)
-  - [Step 2.6 — Lessons scaffolding backfill (PyYAML-missing fallback)](#step-26--lessons-scaffolding-backfill-pyyaml-missing-fallback)
-  - [Step 2.7 — Feedback directory backfill and creation](#step-27--feedback-directory-backfill-and-creation)
-  - [Step 2.8 — Feedback keys backfill and banner](#step-28--feedback-keys-backfill-and-banner)
+- [Part 4 — Post-Run Reports and Backfills](#part-4--post-run-reports-and-backfills) — pointer to the separate file [upgrade-Part-4-PostRunReportsAndBackfills.md](upgrade-Part-4-PostRunReportsAndBackfills.md) (Step 2.5 — Refresh Token Saver calibration; Step 2.6 — Lessons scaffolding backfill (PyYAML-missing fallback); Step 2.7 — Working folders: move, backfill and creation; Step 2.8 — Feedback keys backfill and banner)
 - [Part 3 — Banner Rendering and Conflict Resolution](#part-3--banner-rendering-and-conflict-resolution) — pointer to the separate file [upgrade-Part-3-BannerAndConflictResolution.md](upgrade-Part-3-BannerAndConflictResolution.md) (Step 3 — Render the banner; Step 4 — Resolve conflicts; Step 4.1 — Assisted relocation, cases A–C (case C reviews earlier version pairs' transfer files); Step 4.2 — Opt-in upstream GitHub issue; Step 4.3 — Interactive per-class cleanup offer; Step 4.4 — Settings-grant normalization offer; Step 4.5 — GitHub CLI availability offer; Step 4.6 — Task-tools env var offer; Step 4.7 — Thrifty-sonic env var offer)
 - [Part 2 — Conflict Resolution Reference and Recovery](#part-2--conflict-resolution-reference-and-recovery) — pointer to the separate file [upgrade-Part-2-RecoveryAndReference.md](upgrade-Part-2-RecoveryAndReference.md) (Conflict Resolution Reference, Auto-Init Fallback, Mid-Upgrade Failure, Config Recovery)
 
@@ -92,7 +90,7 @@ The card maps onto the numbered Steps as follows:
 | Verdicts on stdin, or `--verdicts-file` | Replaces the Step 2.3 `verdicts.json` write |
 | Migration questions and `--answers-json` | Wraps Step 2.3b |
 | The run command | Replaces the Step 2.4 invocation |
-| The writer's Token Saver calibration line | Replaces the Step 2.5 capture |
+| The writer's Token Saver calibration line | Replaces the Part 4 Step 2.5 capture |
 | The chat summary and the `Comparator verdicts:` line | Wraps Step 3 in Part 3 |
 | `flip-status:` offers | Wraps the plans status flip in Part 3 Step 3 |
 | Earlier-pair transfers and `transfer-delete:` offers | Wraps Part 3 Step 4.1 case C |
@@ -185,9 +183,9 @@ On the card path, the card asks the same questions in its single question call, 
 > | 4 | Step 2.3 — write `verdicts.json` | interactive only | cache; `late-verdicts.md` only for a verdict that arrives after Step 2.4 |
 > | 5 | Step 2.3b — ask the migration questions; Auto Mode answers nothing and writes no file | both | `migration-answers.json` only |
 > | 6 | Step 2.4 — invoke `--upgrade` (the single writer) consuming `verdicts.json` | both | **yes** |
-> | 7 | Step 2.5 — Token Saver recalibration | both | config |
-> | 8 | Step 2.6 — Lessons scaffolding backfill fallback | both | config (PyYAML-missing case only) |
-> | 9 | Step 2.7 — Feedback directory backfill/creation — see cross-reference; the write itself is part of Step 2.4's script call | both | (documented by Step 2.4) |
+> | 7 | Part 4 Step 2.5 — Token Saver recalibration | both | config |
+> | 8 | Part 4 Step 2.6 — Lessons scaffolding backfill fallback | both | config (PyYAML-missing case only) |
+> | 9 | Part 4 Step 2.7 — Feedback directory backfill/creation — see cross-reference; the write itself is part of Step 2.4's script call | both | (documented by Step 2.4) |
 >
 > Headless / non-interactive: skip rows 3–4. Step 2.3b (row 5) asks nothing and writes no answers file.
 > The writer (row 6) runs with no `verdicts.json` and no `--migration-answers`. It disposes
@@ -285,7 +283,9 @@ Use the Write tool to write the collected verdicts to `{planwise_root}/upgrade-c
 >
 > After a successful `--upgrade` run consumes the cache, the script renames
 > `verdicts.json` to `verdicts.json.consumed` so a stale verdict can never fire
-> on a later pair or re-run. Do NOT resurrect a `.consumed` file — re-run the
+> on a later pair or re-run. A same-version run refreshes no artifacts, so it
+> renames a cache staged for its `{v}-to-{v}` pair to `verdicts.json.consumed`
+> unused. Do NOT resurrect a `.consumed` file — re-run the
 > fan-out (Step 2.2) if a fresh cache is needed.
 
 > [!constraint] A verdict that arrives after Step 2.4 never enters the cache
@@ -370,9 +370,10 @@ If `python` is not found, try `python3`.
 
 The script:
 1. Runs `migrate_config()` to merge any new top-level keys into `config.yaml`
-   - Then applies the Step 1.6 flags and backfills `feedback.drafts: notify` when the key is absent and no flag set it (Step 2.8)
+   - Then applies the Step 1.6 flags and backfills `feedback.drafts: notify` when the key is absent and no flag set it (Part 4 Step 2.8)
 2. Calls `bootstrap_lessons_artifacts()` to backfill the lessons scaffolding — seeds the lessons index hub (`{lessons_dir}/00-Index-LessonsLearned.md`) plus its two companions (`00-Changelog-LessonsLearned.md`, `00-PromotionLog-LessonsLearned.md`), and renders `{lessons_dir}/00-Categorization-By-Domain.md` — whenever any is missing. Idempotent and non-destructive: a no-op when every artifact already exists, and an existing (possibly user-customised) file is preserved verbatim. This recovers the categorization file that gates `/planwise lessons curate` and `promote-batch` on projects adopted via `/planwise upgrade` rather than a fresh `/planwise init` (the render used to be fresh-init-only). Runs after `migrate_config()` so a freshly-migrated `categorization:` block is picked up; falls back to the built-in default buckets (and flags it in the banner) when the block is absent
 3. Runs `migrate_backlog_if_legacy()` — when the backlog index is hand-authored it backs up every file it will write under `upgrade-backups/{from}-to-{to}/backlog/`, moves the changelog footer, feature-cell prose and dependency notes into their homes, backfills frontmatter, regenerates the index and checks it; recognise-or-refuse, never best-effort, never fails the upgrade; a refusal names the exact fix and re-fires on the next run.
+3a. Runs `migrate_backlog_items()` right after item 3, on a generated index (it stays silent on a hand-authored one) — it grades each open item file with the doctor's shape detector and repairs only the drift that needs no judgment: it folds a legacy `## Loop Decision Needed` section into `### Q` blocks, adds a missing `**Priority:**` or `**Domain:**` line and a missing `*Created: ...*` footer from the frontmatter, and moves a frontmatter key outside the item template into a bullet under `## Notes` (a `blocked_by` key moves too, and the banner says it was not converted into `blocks:`, which runs the other way). It plans every rewrite in memory, backs each file up byte-exact under `upgrade-backups/{from}-to-{to}/backlog-items/` before any write, then writes atomically and reads each file back through a preservation diff: every non-blank line of the original must survive, except the moved key lines and the loop's own marker and callout lines. One miss restores every file the run wrote and refuses. It then regenerates the index, checks it, and prints each moved item's route before and after. An over-cap title, a heading outside the template, a missing core section, an invalid status and a line or footer that differs from the frontmatter stay as written and print as actions; it never sets `refined` and never fails the upgrade. A second run writes nothing. The item numbers below are unchanged, because a handler cites item 8 by number.
 4. Runs `migrate_lessons_if_legacy()` — when the lessons index is hand-authored it backs up every file it will write under `upgrade-backups/{from}-to-{to}/lessons/`, relocates the header changelog and the Promotion Log into their own files, drops a prose section whose text equals the seed's and relocates one that differs verbatim into the changelog, renames a hand-written companion to `00-Categorization-Notes-LessonsLearned.md` and regenerates the companion, then runs the generator and checks it; recognise-or-refuse, never best-effort, never fails the upgrade; a refusal names the exact fix and re-fires on the next run.
 5. Runs `migrate_plans_if_legacy()` — when the plans index is hand-authored it backs up the index and every Master Plan it appends to under `upgrade-backups/{from}-to-{to}/plans/`, attaches each index note to the row it followed (appended to that row's Master Plan), regenerates the index from the Master Plans and checks it, and writes `{plans_dir}/00-Plans-Migration-Ledger.md`; recognise-or-refuse, never best-effort, never fails the upgrade; a refusal names the exact fix and re-fires on the next run. The Master Plan's status wins a row/Master Plan disagreement, so this step takes no reconcile flag.
 6. Iterates `manifests/artifacts.yaml` rows where `upgrade_behavior == "refresh_or_sidecar"`
@@ -380,103 +381,21 @@ The script:
 8. Classifies each **diverged** installed copy with the structural verdict — consuming `verdicts.json` when present (a comparator verdict for a filename **supersedes** the inline primitive; a missing entry, a malformed entry, or an entry whose `installed_sha256` is missing/stale falls back to the primitive). A clean **stale subset** is auto-adopted in place directly: rules refresh via `update_frontmatter()` (the project's `paths:` line is preserved). Any OTHER divergence — HAS_UNIQUE or a subset whose `notes` flag installed-only tolerated content — is **customization-bearing**, gated by `upgrade.customization_handoff`: under `report+relocate` (the shipped template default) the writer first **transfers** the full installed body (plus a generic provenance header — source filename, kind, upgrade pair, date, verdict summary) to `{planwise_root}/upgrade-transfers/{from}-to-{to}/{filename}` — a **dormant preservation document** outside `.claude/rules/`, never loaded as a rule (a collision is uniquified with a numeric suffix loop, never clobbered) — **verifies** the write by reading it back, mirrors the pre-image under `upgrade-backups/`, and only then adopts the shipped body in place (the `DISPOSITIONS.md` row is appended only after the adoption write succeeds). Under `report` / `report+issue` (or the key absent) the writer is conservative: the customization-bearing file is preserved in place + a `.new` sidecar is written — no transfer, no adoption. A failed transfer write, a failed pre-image backup, a failed adoption write, or a degraded not-analyzed stand-in verdict (`structural_compare` unavailable at call time — no evidence to act on) likewise falls back to that conservative branch: installed file untouched, `.new` sidecar under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for manual merge. Every auto-adoption — stale-subset or transfer-then-adopt — first mirrors the pre-change file under `{planwise_root}/upgrade-backups/<from>-to-<to>/` (failed backup = no destructive write) and deletes any sidecar it obsoletes from an earlier interrupted run
 9. Runs `migrate_installed_rules()` (version-gated on `RESCOPE_MIGRATION_VERSION`, except that a de-scoped copy with a cached verdict is processed on every pair, so its customized content is transferred or preserved with its re-home notice) to retire rules that are now handler-loaded from `references/`: it **removes** an installed `.claude/rules/**` copy when it is untouched (normalized-identical body, `paths:` match) **or** when its body is a high-confidence **stale subset** of the grown shipped reference with no installed-only content flagged; for a HAS_UNIQUE (customised) copy or a subset verdict with a non-empty installed-only-content flag, the default `upgrade.customization_handoff: report+relocate` **transfers** the customization to `upgrade-transfers/` and then removes the backed-up copy, while `report` and `report+issue` **preserve** it in place with a re-home notice; it **preserves** byte-for-byte any subset verdict with reorg confidence, and — while `upgrade.descope_preserve_paths_edits` is `true` (the default) — any copy with a customised `paths:` line, even over a stale body. Setting that key to `false` opts in to removing paths-edited copies (reported with an `[INFO]` marker). Every removal is backed up under `upgrade-backups/` first, so a disposition is always recoverable without VCS
 10. Runs `lint_rule_overscope()` and appends a post-upgrade advisory listing any `.claude/rules/**` still scoped to plan/backlog/lessons paths, with size. A rule that carries an `overscope-ack:` frontmatter marker leaves the list: acknowledged rules collapse to one footer line with their count and token total, the same line `/planwise doctor` prints, and `/planwise doctor --verbose` lists them. When every flagged rule is acknowledged, only that footer line prints
-11. Runs `sweep_orphaned_agent_mirrors()` on both exits, including "Already up to date", and appends the orphaned-mirror block: each leftover `.claude/agents/` mirror with its class (`REMOVABLE` or `PRESERVE`) and reason, plus the `--prune-stale` action when any row is `REMOVABLE`. Read-only: it deletes nothing
+11. Runs `sweep_orphaned_agent_mirrors()` on both exits, including "Already up to date", and appends the orphaned-mirror block: each leftover `.claude/agents/` mirror with its class (`REMOVABLE`, `PRESERVE` or `TRANSFERRED`) and reason, plus the `--prune-stale` action when any row is `REMOVABLE`. The sweep itself only reads. Under `upgrade.customization_handoff: report+relocate`, a follow-on writer **transfers** each `PRESERVE` row whose installed copy is readable and whose shipped `agents/{filename}` counterpart is readable: it writes the full installed body to `{planwise_root}/upgrade-transfers/{from}-to-{to}/{filename}` as a dormant preservation document and verifies the write, mirrors the pre-image under `upgrade-backups/`, removes the mirror from `.claude/agents/`, and appends a `DISPOSITIONS.md` row only after the removal succeeds. The block then prints that row as `TRANSFERRED` with its new path. A failed transfer, backup or removal leaves the mirror in place as `PRESERVE`. Under `report` or `report+issue` (or the key absent) every `PRESERVE` row stays in place. A `REMOVABLE` row is never transferred. `/planwise doctor --prune-stale` removes it
 12. Bumps `plugin_version:` AND repoints `plugin_root:` together, in `config.yaml`, LAST, as the commit point — one write, so the pair can never disagree (see `_commit_upgrade_pin()` in `scripts/init_project.py`)
 
 Capture stdout — the banner is rendered from it.
 
 ---
 
-### Step 2.5 — Refresh Token Saver calibration
+## Part 4 — Post-Run Reports and Backfills
 
-Applies only when `{token_saver}` (from Step 1.5) resolves to `yes` — i.e., Token Saver is enabled after the upgrade (either pre-existing or just turned on). Skip silently when Token Saver is off.
+Step 2.5 (Refresh Token Saver calibration) through Step 2.8 (Feedback keys backfill and banner) live in [upgrade-Part-4-PostRunReportsAndBackfills.md](upgrade-Part-4-PostRunReportsAndBackfills.md) — split at this section boundary so each part stays within one Read-tool page. Read it after Step 2.4 for:
 
-The Step 2.4 writer runs the calibration itself in that case. Read its calibration line from the Step 2.4 output and report it in the banner. Run no `python -c` calibration call.
-
-The measured overheads in `config.yaml` go **stale on upgrade**: a plugin update changes the always-on rule/agent surface a fresh `/context` loads, so `token_saver_runner_overhead` captured against the old version no longer reflects this install. The writer re-captures so plans size against the new footprint.
-
-**Derivation change.** Stored values shift on this recalibration, so review any budget tuned around pre-upgrade numbers after this step runs. The formula and the role of each key are in [token-saver-profile.md](../references/token-saver-profile.md) under "Which keys feed the session budget".
-
-> **Best-effort capture.** The `/context` report renders reliably only inside an **interactive** Claude Code session. The Step 2.4 writer now calls `token_saver.calibrate()` itself, headless, so the CLI may return conversational text instead of the structured report. A never-measured project then degrades to the conservative fallback (runner ~54K / orchestrator ~60K), and a measured project keeps its measured overheads. This is expected on some platforms — notably Windows. The conservative fallback is safe; recapture from an interactive session with `/planwise token-saver on`.
-
-1. Read the writer's calibration line from the Step 2.4 output. It prints exactly one of these four lines:
-
-   ```
-   Token Saver recalibrated: runner overhead {old} -> {new}, orchestrator overhead {old} -> {new}
-   Token Saver calibration fell back to defaults; run /planwise token-saver on to retry.
-   Token Saver calibration failed; kept the measured overheads.
-   Token Saver calibration skipped: {error}
-   ```
-
-   The writer's call to `token_saver.calibrate()` overwrites its six written `token_saver_*` keys in place on a successful capture — `runner_overhead`, `orchestrator_overhead`, `context_breakdown`, `overhead_measured_on`, `session_start_range`, `injected_rules_estimate` (targeted edit — comments and key order preserved). It degrades as the callout above describes when the `/context` capture fails or returns non-report text.
-
-2. Report the refreshed numbers in the chat summary (append to the Step 3 banner in [upgrade-Part-3-BannerAndConflictResolution.md](upgrade-Part-3-BannerAndConflictResolution.md)). On the `Token Saver recalibrated:` line, render the two values it prints:
-
-   ```
-   Token Saver recalibrated:
-     Runner overhead:       {old} → {token_saver_runner_overhead}
-     Orchestrator overhead: {old} → {token_saver_orchestrator_overhead}
-   ```
-
-   On any of the other three lines, report the line verbatim. On the fell-back-to-defaults line, note that the conservative fallback was written (capture failed or returned non-report text — expected on some platforms) and suggest running `/planwise token-saver on` from an interactive session to capture real numbers.
-
----
-
-### Step 2.6 — Lessons scaffolding backfill (PyYAML-missing fallback)
-
-`_run_upgrade()` performs the lessons-scaffolding backfill itself (numbered item 2 in [Step 2.4](#step-24--invoke-the-upgrade-script)) whenever PyYAML is available — the normal case, since `--upgrade` hard-requires PyYAML and otherwise exits with `Upgrade failed: PyYAML is required for --upgrade`. Run this handler-side fallback **only** when the upgrade script aborted for that reason, so the categorization gate that protects `/planwise lessons curate` and `promote-batch` is still unblocked. Mirrors [init-fallback.md](init-fallback.md) Step 5 / [init.md](init.md) Step 5.1 — the same render, reached from the upgrade path.
-
-<!-- AUTO-MODE: critical -->
-0. **Offer the install first.** When the script aborted with the `PyYAML is required for --upgrade` line, use `AskUserQuestion` once: "PyYAML is not importable by {python_executable}. Run `{install_command}` now and repeat the upgrade?" Take `{install_command}` from the command the abort line names. On yes, run that command, then repeat [Step 2.4](#step-24--invoke-the-upgrade-script) with the same arguments and skip the rest of this step. On no, run the fallback below. An install changes the environment, so this question is `critical`: never answer it by inference in Auto Mode (see [auto-mode-policy.md](../references/auto-mode-policy.md)).
-1. Use **Glob** to check whether `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` already exists — **skip this step if it does** (idempotent; never overwrite a populated file).
-2. **Read** [../templates/categorization-by-domain.md](../templates/categorization-by-domain.md) as a worked example of the target shape — it is the generator's own zero-lesson output for the ship-default config, not a fill-in-the-blanks template. Match its shape rather than substituting into it: `# Lessons Learned — Categorization by Domain`, a `Generated: <today's date>` line, a `**Companion to:** [{lessons_index}]({lessons_index})` line, then `## Scope`, its scope paragraph and the status paragraph, then one `## {id}. {name} (0)` section per bucket in `decision_tree_order` (with `### {sub_id}. {sub_name} (0)` per sub-bucket) each carrying an empty 3- or 4-column table (per the bucket's `code_bucket:` flag), then a closing `---` and the `[Notes](00-Categorization-Notes-LessonsLearned.md)` / `[Changelog](...)` footer pointers. See [init.md](init.md) Step 5.1 for the full field-by-field rendering steps — this fallback is the same render, reached from the upgrade path. Do NOT render a `## Cross-cutting observations` or `## Classification edge cases` section — those now live in `00-Categorization-Notes-LessonsLearned.md`, never in the companion.
-3. Populate it from the user's `config.yaml: categorization:` block, one section per bucket in `decision_tree_order`.
-   > [!practice] Missing `categorization:` Block — Render From Defaults
-   > When the block is absent or empty, use the 4-bucket default from [../config.yaml.template](../config.yaml.template) (database / code / process / tooling) and add a banner line noting defaults were used. Suggest `python init_project.py --migrate` to seed the block into `config.yaml` for full customisation.
-4. For each of the lessons index hub and its two companions — `00-Index-LessonsLearned.md`, `00-Changelog-LessonsLearned.md`, `00-PromotionLog-LessonsLearned.md` — if `{planwise_root}/{lessons_dir}/{name}` is missing, also copy it from `../seed/{name}`.
-5. Use **Write** to create the categorization file with the rendered result, and surface it under the banner's `Lessons scaffolding backfilled:` heading.
-
----
-
-### Step 2.7 — Working folders: move, backfill and creation
-
-Step 2.4's script invocation runs this step. The script functions are `_apply_layout_migration()` and `_apply_feedback_dir()` in `artifact_upgrade.py`. They are not a separate handler-side procedure. This step closes a distinct half of the directory-creation contract. See [init.md](init.md) Step 10 and [doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md](doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md) Stage 17 for the other two entry points.
-
-On every `--upgrade` run that reaches an existing `config.yaml`, the script runs this step. That includes the already-up-to-date early return. The script reads the folders on disk and never the version pin. It therefore works from any starting version, and a re-run at a current pin finishes any move an earlier run left open.
-
-The current layout keeps two working folders one level down:
-
-| Older location | Current location |
-|---|---|
-| `{planwise_root}/plan-build/` | `{planwise_root}/{plans_dir}/Plan-Build/` |
-| `{planwise_root}/feedback-drafts/` and the loose files in `{planwise_root}/Feedback/` | `{planwise_root}/Feedback/Feedback-Drafts/` |
-
-The script then does these things, in order:
-
-1. Creates `Plan-Build/` when no `plan-build/` exists. When `plan-build/` exists, it moves the folder and its files. When both exist, it moves file by file.
-2. Moves the drafts into `Feedback/Feedback-Drafts/`. This applies when `project.feedback_dir` is absent, `feedback-drafts` or `Feedback`. It then rewrites a present key to `Feedback/Feedback-Drafts`.
-3. Keeps a custom `project.feedback_dir` and moves nothing for it. The output says `custom project.feedback_dir kept`.
-4. Backfills `project.feedback_dir` as `Feedback/Feedback-Drafts` when the key is absent.
-5. Creates the resolved drafts directory if it does not already exist. `project` is not one of the top-level keys the config merge touches, so nothing else in Step 2.4 would create it.
-
-The move never overwrites and never deletes a file. A name clash, a locked file or a failed move leaves that file where it was. The output lists it as `left in place`. The upgrade still finishes with exit code 0. The step is non-interactive and asks nothing, so Auto Mode needs no inference for it.
-
-`feedback-intake/` is not part of this move.
-
-Pass the script's output through verbatim. The lines are `Plan-Build directory: {created | moved | merged | already present} ({path})`, `Feedback drafts: {moved | merged | already present | kept} ({path})` when drafts moved or a note applies, and `Feedback directory: {created | already present} ({path})`. Each may carry `moved N file(s)` and `left in place` lines under it.
-
----
-
-### Step 2.8 — Feedback keys backfill and banner
-
-Implemented inside Step 2.4's script invocation, not as a separate handler-side procedure. It runs on both exits, including the already-up-to-date return. The backfill rule:
-
-- **`feedback.drafts` already set:** write nothing, except one `feedback.{key}: {old} -> {new}` line per flagged key that changed. No banner.
-- **Key absent:** write the flagged value, or `notify` when `--feedback-drafts` was not passed.
-- **No `feedback:` block at a current pin:** write nothing, because the config merge in Step 2.4 adds the block whole.
-- **A flag always writes its value.** `--feedback-enabled` writes `feedback.enabled: true`, and `--no-feedback-enabled` writes `feedback.enabled: false`. With neither flag, the key stays as it is.
-
-The banner prints once, when the key was absent or the block missing before the run, because the key exists after it. Pass the `Feedback drafting:` entry through verbatim.
+- [Step 2.5 — Refresh Token Saver calibration](upgrade-Part-4-PostRunReportsAndBackfills.md#step-25--refresh-token-saver-calibration)
+- [Step 2.6 — Lessons scaffolding backfill (PyYAML-missing fallback)](upgrade-Part-4-PostRunReportsAndBackfills.md#step-26--lessons-scaffolding-backfill-pyyaml-missing-fallback)
+- [Step 2.7 — Working folders: move, backfill and creation](upgrade-Part-4-PostRunReportsAndBackfills.md#step-27--working-folders-move-backfill-and-creation)
+- [Step 2.8 — Feedback keys backfill and banner](upgrade-Part-4-PostRunReportsAndBackfills.md#step-28--feedback-keys-backfill-and-banner)
 
 ---
 
@@ -507,4 +426,4 @@ The remainder of this handler lives in [upgrade-Part-2-RecoveryAndReference.md](
 
 ---
 
-*Cross-reference: [upgrade-Part-2-RecoveryAndReference.md](upgrade-Part-2-RecoveryAndReference.md) (Part 2 of this handler), [init.md](init.md), [agents/rule-comparator.md](../agents/rule-comparator.md), [migrate logic in scripts/init_project.py](../scripts/init_project.py).*
+*Cross-reference: [upgrade-Part-2-RecoveryAndReference.md](upgrade-Part-2-RecoveryAndReference.md) (Part 2 of this handler), [upgrade-Part-4-PostRunReportsAndBackfills.md](upgrade-Part-4-PostRunReportsAndBackfills.md) (Part 4 of this handler), [init.md](init.md), [agents/rule-comparator.md](../agents/rule-comparator.md), [migrate logic in scripts/init_project.py](../scripts/init_project.py).*

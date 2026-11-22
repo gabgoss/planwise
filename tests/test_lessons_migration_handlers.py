@@ -97,7 +97,7 @@ class TestUpgradeAndInitHandlersLessonsMigration(unittest.TestCase):
 
     def test_upgrade_step_2_4_calls_migrate_lessons_if_legacy_after_backlog(self):
         text = UPGRADE_HANDLER.read_text(encoding="utf-8-sig")
-        span = _span_between(text, "### Step 2.4", "### Step 2.5")
+        span = _span_between(text, "### Step 2.4", "## Part 4")
         self.assertIn("migrate_lessons_if_legacy", span)
         # the lessons item sits after the backlog item in the numbered list
         self.assertLess(
@@ -151,7 +151,7 @@ class TestUpgradeAndInitHandlersLessonsMigration(unittest.TestCase):
         # The handler's command never passes the flag, so naming it in the
         # prose documents an option the run cannot reach.
         text = UPGRADE_HANDLER.read_text(encoding="utf-8-sig")
-        span = _span_between(text, "### Step 2.4", "### Step 2.5")
+        span = _span_between(text, "### Step 2.4", "## Part 4")
         self.assertNotIn("--lessons-reconcile", span)
 
 

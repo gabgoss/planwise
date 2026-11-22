@@ -169,10 +169,13 @@ def _grade(fm: dict, body: str) -> dict:
     return hits
 
 
-def scan_item_shapes(backlog_dir) -> ScanResult:
-    """Grade the open items directly under `backlog_dir` against the item template. Pure and read-only."""
-    classes = {key: [] for key, _ in GAP_CLASSES}
-    scanned = 0
+def graded_items(backlog_dir) -> tuple:
+    """The open items directly under `backlog_dir`, graded: `([(path, id, hits)], unreadable)`.
+
+    `hits` maps each drift class key the item shows to True. The upgrade repair walks the files
+    through this function, so it and the doctor stage agree on which files are open items.
+    """
+    graded = []
     unreadable = 0
     for path in sorted(Path(backlog_dir).glob("BB-*.md")):
         parsed = _read(path)
@@ -182,11 +185,18 @@ def scan_item_shapes(backlog_dir) -> ScanResult:
         fm, body = parsed
         if _unquote(fm.get("status") or "") in CLOSED_STATUSES:
             continue
-        scanned += 1
-        ident = _item_id(path, fm)
-        for key in _grade(fm, body):
+        graded.append((path, _item_id(path, fm), _grade(fm, body)))
+    return graded, unreadable
+
+
+def scan_item_shapes(backlog_dir) -> ScanResult:
+    """Grade the open items directly under `backlog_dir` against the item template. Pure and read-only."""
+    classes = {key: [] for key, _ in GAP_CLASSES}
+    graded, unreadable = graded_items(backlog_dir)
+    for _path, ident, hits in graded:
+        for key in hits:
             classes[key].append(ident)
-    return ScanResult(scanned, {k: sorted(v) for k, v in classes.items()}, unreadable)
+    return ScanResult(len(graded), {k: sorted(v) for k, v in classes.items()}, unreadable)
 
 
 def _id_list(ids: list) -> str:

@@ -104,6 +104,9 @@ from generate_backlog_index import (
     _read_frontmatter_map,
     _strip_quotes,
 )
+from markdown_parser import id_number
+from parse_backlog import collect_all_known_ids
+from parse_lessons import lesson_files
 from reconcile_common import format_drift_report, run_reconcile_cli
 from update_backlog import _frontmatter_id, archive_item_files
 
@@ -624,16 +627,20 @@ def reconcile_body_status(config: dict) -> int:
                 continue
             index, _value = scan["header_hits"][0]
             lines = text.split("\n")
+            offset = sum(len(line) + 1 for line in lines[:index])
             if index == len(lines) - 1:
                 # Last line with no terminator of its own: drop its bytes
                 # only, so the previous line keeps its terminator.
-                lines[index] = ""
+                anchor = lines[index]
             else:
                 # The element carries its own trailing `\r`, if any, so the
-                # re-join drops the line and exactly its own terminator.
-                del lines[index]
-            reconcile_common.write_text_preserving_newlines(path, "\n".join(lines))
-        except (OSError, UnicodeDecodeError) as exc:
+                # anchor is the line and exactly its own terminator.
+                anchor = lines[index] + "\n"
+            # One anchored edit pinned at the line's offset. The helper
+            # re-reads the file, refuses a moved line, and writes the file
+            # once through `write_text_preserving_newlines`.
+            reconcile_common.apply_anchored_edits([reconcile_common.AnchoredEdit(path, anchor, "", at=offset)])
+        except (OSError, UnicodeDecodeError, reconcile_common.AnchoredWriteError) as exc:
             _last_body_status_failures.append((drift["file"], str(exc)))
             print(f"  ! {drift['file']}: {exc}")
             continue
@@ -696,6 +703,222 @@ def _run_body_status_cli() -> None:
         sys.exit(1)
 
 
+class RenumberRefused(Exception):
+    """A renumber was refused before any file changed. The CLI exits 2."""
+
+
+_FRONTMATTER_RE = re.compile(r"\A---[ \t]*\r?\n(.*?)^---[ \t]*\r?$", re.DOTALL | re.MULTILINE)
+_ITEM_ID_RE = re.compile(r"^id:[ \t]*[\"']?(\d+)", re.MULTILINE)
+_BLOCKS_RE = re.compile(r"^blocks:[^\r\n]*(?:\r?\n[ \t]+-[^\r\n]*)*", re.MULTILINE)
+_PROMOTED_TO_RE = re.compile(r"^promoted-to:[^\r\n]*", re.MULTILINE)
+_FIRST_H1_RE = re.compile(r"^# [^\r\n]*", re.MULTILINE)
+_ITEM_H1_RE = re.compile(r"# ([A-Za-z]+-)(\d+)")
+_ITEM_NAME_RE = re.compile(r"^([A-Za-z]+-)(\d+)(-.+\.md)$")
+_DIGITS_RE = re.compile(r"(?<![\w-])(\d+)(?![\w-])")
+_OWNER_ID_RE = re.compile(r"\b(?:BB|BLI)-(\d+)\b")
+
+
+def _parse_item_id(text: str) -> int:
+    match = re.fullmatch(r"(?:[A-Za-z]+-)?(\d+)", text.strip())
+    if match is None:
+        raise RenumberRefused(f"{text!r} is not a backlog id (write NNN or BB-NNN)")
+    return int(match.group(1))
+
+
+def _item_fields(text: str) -> tuple[re.Match | None, re.Match | None, int | None]:
+    """Locate the frontmatter `id:` digits, the H1 match and the H1's offset."""
+    frontmatter = _FRONTMATTER_RE.match(text)
+    if frontmatter is None:
+        return None, None, None
+    id_match = _ITEM_ID_RE.search(text, frontmatter.start(1), frontmatter.end(1))
+    h1 = _FIRST_H1_RE.search(text, frontmatter.end())
+    if h1 is None:
+        return id_match, None, None
+    return id_match, _ITEM_H1_RE.match(h1.group(0)), h1.start()
+
+
+def _padded(number: int, like: str) -> str:
+    """`number` zero-padded to the width of the digit string it replaces."""
+    return str(number).zfill(len(like))
+
+
+def _reference_edits(path: Path, text: str, old: int, new: int, *, lesson: bool) -> list:
+    """Edits that move each reference to `old` in one file's frontmatter.
+
+    An item reference is a `blocks:` entry. A lesson reference is an owner
+    id (`BB-NNN` or `BLI-NNN`) in the `promoted-to:` value. Only structured
+    frontmatter fields are read, so prose is never rewritten.
+    """
+    frontmatter = _FRONTMATTER_RE.match(text)
+    if frontmatter is None:
+        return []
+    start, end = frontmatter.start(1), frontmatter.end(1)
+    edits = []
+    if lesson:
+        field = _PROMOTED_TO_RE.search(text, start, end)
+        if field is not None:
+            for token in _OWNER_ID_RE.finditer(field.group(0)):
+                if int(token.group(1)) == old:
+                    at = field.start() + token.start(1)
+                    edits.append(reconcile_common.AnchoredEdit(path, token.group(1), _padded(new, token.group(1)), at=at))
+        return edits
+    region = _BLOCKS_RE.search(text, start, end)
+    if region is None:
+        return edits
+    for line in re.finditer(r"[^\r\n]+", region.group(0)):
+        code = line.group(0).split(" #", 1)[0]
+        for token in _DIGITS_RE.finditer(code):
+            if int(token.group(1)) == old:
+                at = region.start() + line.start() + token.start(1)
+                edits.append(reconcile_common.AnchoredEdit(path, token.group(1), _padded(new, token.group(1)), at=at))
+    return edits
+
+
+def renumber(config: dict, old: int, new: int, file_name: str | None = None) -> list[str]:
+    """Move one backlog item from id `old` to id `new` as one verified transaction.
+
+    Refuses, writing nothing, when `new` is below the next free id or already
+    claimed, when `old` matches no item, or when several items claim `old`
+    and `file_name` does not pick one. Rewrites the item's frontmatter `id:`,
+    its H1 and its filename, every other item's `blocks:` entry that names
+    `old` and every lesson's `promoted-to:` owner id that names it, then
+    regenerates the index. When `old` is claimed by several items, the
+    references stay unchanged because their target is ambiguous, and the
+    report lists them. Returns the moved-location lines, then the prose
+    rows that still name the old id.
+    """
+    backlog_dir, archive_dir, index_path = config["_backlog_dir"], config["_archive_dir"], config["_index_path"]
+    items: list[tuple[Path, str, int]] = []
+    for path in _iter_item_files(backlog_dir, archive_dir, index_path):
+        try:
+            text = reconcile_common.read_text_preserving_newlines(path)
+        except (OSError, UnicodeDecodeError):
+            continue
+        id_match, _h1, _at = _item_fields(text)
+        if id_match is not None:
+            items.append((path, text, int(id_match.group(1))))
+
+    known = {number for _p, _t, number in items}
+    known |= {n for n in (id_number(raw) for raw in collect_all_known_ids(config)) if n is not None}
+    floor = max(known, default=0) + 1
+    if new < floor:
+        raise RenumberRefused(f"{new:03d} is below the next free id {floor:03d}; an id never moves backward")
+    if new in known:
+        raise RenumberRefused(f"{new:03d} is already claimed by an item file or an index row")
+
+    claimants = [(path, text) for path, text, number in items if number == old]
+    if not claimants:
+        raise RenumberRefused(f"no item file claims {old:03d}")
+    duplicate = len(claimants) > 1
+    if file_name is not None:
+        picked = [(path, text) for path, text in claimants if path.name == file_name]
+        if not picked:
+            raise RenumberRefused(f"no file named {file_name} claims {old:03d}")
+    elif duplicate:
+        names = ", ".join(path.name for path, _t in claimants)
+        raise RenumberRefused(f"{len(claimants)} files claim {old:03d}: {names}. Name one with --file")
+    else:
+        picked = claimants
+    chosen, text = picked[0]
+
+    id_match, h1_match, h1_start = _item_fields(text)
+    name_match = _ITEM_NAME_RE.match(chosen.name)
+    if id_match is None or int(id_match.group(1)) != old:
+        raise RenumberRefused(f"{chosen.name}: frontmatter has no `id: {old:03d}` line")
+    if h1_match is None or h1_start is None or int(h1_match.group(2)) != old:
+        raise RenumberRefused(f"{chosen.name}: the first H1 does not start with the id {old:03d}")
+    if name_match is None or int(name_match.group(2)) != old:
+        raise RenumberRefused(f"{chosen.name}: the filename does not start with the id {old:03d}")
+
+    prefix = h1_match.group(1)
+    new_h1 = f"# {prefix}{_padded(new, h1_match.group(2))}"
+    new_name = f"{name_match.group(1)}{_padded(new, name_match.group(2))}{name_match.group(3)}"
+    edits = [
+        reconcile_common.AnchoredEdit(chosen, id_match.group(1), _padded(new, id_match.group(1)), at=id_match.start(1)),
+        reconcile_common.AnchoredEdit(chosen, h1_match.group(0), new_h1, at=h1_start),
+    ]
+    destination = chosen.with_name(new_name)
+
+    claimant_paths = {path for path, _t in claimants}
+    references: list[tuple[Path, list]] = []
+    lessons_dir = config.get("_lessons_dir")
+    sources = [(path, text, False) for path, text, _n in items if path not in claimant_paths]
+    if lessons_dir is not None:
+        for _number, lesson_path in lesson_files(lessons_dir, lessons_dir / "Archive"):
+            try:
+                sources.append((lesson_path, reconcile_common.read_text_preserving_newlines(lesson_path), True))
+            except (OSError, UnicodeDecodeError):
+                continue
+    for path, source_text, is_lesson in sources:
+        found = _reference_edits(path, source_text, old, new, lesson=is_lesson)
+        if found:
+            references.append((path, found))
+
+    def invariant(planned: dict) -> str | None:
+        after_id, after_h1, _ = _item_fields(planned[chosen])
+        after_name = _ITEM_NAME_RE.match(new_name)
+        numbers = {
+            "id:": int(after_id.group(1)) if after_id else None,
+            "H1": int(after_h1.group(2)) if after_h1 else None,
+            "filename": int(after_name.group(2)) if after_name else None,
+        }
+        wrong = [field for field, number in numbers.items() if number != new]
+        return f"{chosen.name}: {', '.join(wrong)} would not equal {new:03d}" if wrong else None
+
+    moved = [
+        f"{destination}: id {id_match.group(1)} -> {_padded(new, id_match.group(1))}",
+        f"{destination}: H1 {h1_match.group(0)[2:]} -> {new_h1[2:]}",
+        f"{chosen.name} -> {new_name}: filename",
+    ]
+    if duplicate:
+        for path, found in references:
+            moved.append(f"{path}: {len(found)} reference(s) to {old:03d} left unchanged (the target is ambiguous)")
+        edit_list = edits
+    else:
+        edit_list = edits + [edit for _path, found in references for edit in found]
+        for path, found in references:
+            moved.append(f"{path}: {len(found)} reference(s) {old:03d} -> {new:03d}")
+
+    try:
+        reconcile_common.apply_anchored_edits(edit_list, [reconcile_common.Rename(chosen, destination)], invariant)
+    except reconcile_common.AnchoredWriteError as exc:
+        raise RenumberRefused(str(exc)) from exc
+
+    code = reconcile_common.regenerate_index("generate_backlog_index.py", config)
+    if code != 0:
+        raise RuntimeError(f"the files moved, but generate_backlog_index.py --write exited {code}")
+    token = f"{prefix}{name_match.group(2)}"
+    mentions = reconcile_common.prose_mentions(config["_planwise_root"], token)
+    if mentions:
+        moved.append(f"Prose still naming {token} (left unchanged):")
+        moved.extend(f"  {row}" for row in mentions)
+    return moved
+
+
+def _run_renumber_cli() -> None:
+    """The `--renumber OLD NEW [--file NAME]` mode: one verified transaction."""
+    parser = argparse.ArgumentParser(
+        description="Move a backlog item from id OLD to the free id NEW: frontmatter id, H1, "
+        "filename, other items' blocks: entries and lessons' promoted-to: owner ids, then "
+        "regenerate the index. NEW must be at or above the next free id."
+    )
+    parser.add_argument("--config", type=str, default=None, help="Path to config.yaml; overrides default config search.")
+    parser.add_argument("--renumber", nargs=2, metavar=("OLD", "NEW"), required=True)
+    parser.add_argument("--file", type=str, default=None, help="The filename to move when several items claim OLD.")
+    args = parser.parse_args()
+    config = load_config(Path(__file__))
+    try:
+        old, new = (_parse_item_id(value) for value in args.renumber)
+        for line in renumber(config, old, new, args.file):
+            print(line)
+    except RenumberRefused as exc:
+        print(f"Refused: {exc}. Nothing was written.", file=sys.stderr)
+        sys.exit(2)
+    except RuntimeError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
 class _ModeParseError(Exception):
     """Raised instead of exiting when the mode pre-parser rejects an arg."""
 
@@ -724,11 +947,20 @@ def main():
     # refuses it as an unrecognized argument.
     mode_parser = _TolerantModeParser(add_help=False, allow_abbrev=False)
     mode_parser.add_argument("--body-status", action="store_true")
+    mode_parser.add_argument("--renumber", nargs=2, default=None)
     try:
         mode_args, _ = mode_parser.parse_known_args()
         body_status = mode_args.body_status
+        renumber_mode = mode_args.renumber is not None
     except _ModeParseError:
         body_status = False
+        renumber_mode = False
+    if renumber_mode:
+        if body_status:
+            print("Error: --renumber cannot be combined with --body-status.", file=sys.stderr)
+            sys.exit(2)
+        _run_renumber_cli()
+        return
     if body_status:
         _run_body_status_cli()
         return

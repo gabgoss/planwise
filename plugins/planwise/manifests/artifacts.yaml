@@ -167,7 +167,7 @@ artifacts:
       place, run by the upgrade writer itself
       (`artifact_upgrade._run_upgrade`, unless `--no-calibrate`) when
       `context.token_saver` resolves true after Step 1.5, and reported
-      by handlers/upgrade.md Step 2.5; skipped
+      by handlers/upgrade-Part-4-PostRunReportsAndBackfills.md Step 2.5; skipped
       silently when off, and the template default is false. Writers (2)
       and (3) touch measured or opt-in VALUES under the block, never its
       structure, and both are conditional on the user's opt-in, so

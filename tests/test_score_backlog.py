@@ -1436,6 +1436,41 @@ class TestItemShape(unittest.TestCase):
         self.assertIn("(longest consecutive numbered list; source: body)",
                       score_backlog.format_route_detail(plain, 0))
 
+    def test_placement_approved_clears_the_verdict_for_a_real_item_file(self):
+        # A real item file read by `read_item_frontmatter`, under both `HAS_YAML`
+        # arms, in flow form and in block form. The control file carries no key.
+        tmp = Path(tempfile.mkdtemp(prefix="score_backlog_placement_test_"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        root = tmp / "project"
+        rules = root / ".claude" / "rules"
+        rules.mkdir(parents=True)
+        (rules / "placement-rule.md").write_text(
+            '---\npaths: "src/**"\nplacement: true\n---\n# Rule\n\nBody.\n', encoding="utf-8"
+        )
+        body = (
+            "# Item\n\n## Files Touched\n\n| File | Role | Why |\n|---|---|---|\n"
+            "| `src/new_module.py` | CREATE | fixture |\n"
+        )
+        config = {"_project_root": root, "_lessons_dir": None}
+        forms = {
+            "flow": ("placement_approved: [src/new_module.py]\n", "inject"),
+            "block": ("placement_approved:\n  - src/new_module.py\n", "inject"),
+            "control": ("", "placement"),
+        }
+        for name, (line, expected) in forms.items():
+            path = tmp / f"item-{name}.md"
+            path.write_text("---\nid: 004\n" + line + "---\n" + body, encoding="utf-8")
+            for has_yaml in (True, False):
+                with self.subTest(form=name, has_yaml=has_yaml):
+                    with unittest.mock.patch.object(
+                        item_frontmatter, "HAS_YAML", has_yaml and item_frontmatter.HAS_YAML
+                    ):
+                        frontmatter = score_backlog.read_item_frontmatter(path)
+                    signals = score_backlog.compute_route_signals(_route_item(), frontmatter, config)
+                    self.assertEqual(signals["scoped_rules"]["verdict"], expected)
+                    if name != "control":
+                        self.assertEqual(signals["scoped_rules"]["placement_approved"], ["src/new_module.py"])
+
 
 class TestDecideRoute(unittest.TestCase):
     """`decide_route` is the handler's Decision Logic pseudocode; one test
@@ -2358,8 +2393,8 @@ class TestRouteReportMode(unittest.TestCase):
         block = rows[0]["scoped_rules"]
         self.assertEqual(
             set(block),
-            {"verdict", "source", "rules_scanned", "owning_lessons", "destinations",
-             "rules_to_inject", "rules_bytes", "inject_form", "truncated"},
+            {"verdict", "source", "rules_scanned", "owning_lessons", "placement_approved",
+             "destinations", "rules_to_inject", "rules_bytes", "inject_form", "truncated"},
         )
         self.assertEqual(block["verdict"], "inject")
         self.assertEqual(block["destinations"][0]["path"], "scripts/thing.py")

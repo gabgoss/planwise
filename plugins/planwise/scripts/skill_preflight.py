@@ -9,7 +9,7 @@ string. This script strips each value, drops empty strings and any unexpanded
 
 `list` prints the `list_plans` output between two marker comments
 (`<!-- planwise:list:begin -->` and `<!-- planwise:list:end -->`). Every input
-other than `list`, `upgrade` and `plan` prints nothing (apart from the notice
+other than `list`, `upgrade` and `plan` prints nothing (apart from the notices
 below), and only `list` imports `list_plans`. Any failure prints one
 `PLANWISE_LIST_FALLBACK: <type>: <message>` line. The exit code is always 0.
 
@@ -47,6 +47,12 @@ For every input, a `planwise: ...` version notice line prints first when the
 config pin differs from this plugin. It prints before the BEGIN marker, never
 raises and never changes the exit code.
 
+A second `planwise: {n} feedback draft(s) were blocked by the privacy check ...`
+line follows it while `feedback_drafts.count_blocked` counts any draft that is
+blocked, not dismissed and not posted. It reads the feedback directory of the
+same config, prints nothing when that directory is absent, never raises and
+never changes the exit code.
+
 CLI: python -B skill_preflight.py <sub> <flag1> <flag2>
 """
 
@@ -70,6 +76,7 @@ PLAN_FALLBACK = "PLANWISE_PLAN_FALLBACK:"
 FEEDBACK_BEGIN = "<!-- planwise:feedback:begin -->"
 FEEDBACK_END = "<!-- planwise:feedback:end -->"
 FEEDBACK_FALLBACK = "PLANWISE_FEEDBACK_FALLBACK:"
+BLOCKED_NOTICE = "planwise: {n} feedback draft(s) were blocked by the privacy check — review with /planwise feedback --status"
 CARD_HEADER_RE = re.compile(r"^Queued drafts \((\d+)\) in ")
 CARD_STATE_PREFIX = "Posting state:"
 
@@ -92,6 +99,33 @@ def print_version_notice() -> None:
             sys.stdout.flush()
             sys.stdout.buffer.write((line + "\n").encode("utf-8"))
             sys.stdout.buffer.flush()
+    except BaseException:  # noqa: BLE001 - a notice must never block a subcommand
+        return
+
+
+def print_blocked_notice() -> None:
+    """Print the blocked-draft notice line while undismissed blocks exist. Never raises and prints nothing on failure."""
+    try:
+        import contextlib
+        import io
+
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import config_loader
+        import version_notice
+
+        path = version_notice.resolve_config(Path.cwd())
+        if path is None:
+            return
+        with contextlib.redirect_stderr(io.StringIO()):  # stderr would merge into the injected text
+            config = config_loader.load_config(config_path=path)
+        feedback_dir = Path(config["_feedback_dir"])
+        if not feedback_dir.is_dir():
+            return
+        import feedback_drafts
+
+        n = feedback_drafts.count_blocked(feedback_dir)
+        if n > 0:
+            _write_utf8([BLOCKED_NOTICE.format(n=n)])
     except BaseException:  # noqa: BLE001 - a notice must never block a subcommand
         return
 
@@ -253,6 +287,7 @@ def feedback_block(root: Path) -> list[str] | None:
 
 def run(argv: list[str]) -> int | None:
     print_version_notice()
+    print_blocked_notice()
     tokens = normalise(argv)
     if tokens and tokens[0] == "upgrade":
         try:

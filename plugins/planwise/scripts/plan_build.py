@@ -120,6 +120,13 @@ lose a fill or a child section. A bare fill with an occurrence outside the secti
 keeps a place to land, so it stays legal. Text before the first key of a document
 block is not a body, and nothing reads it.
 
+A section body ends before the template's closing `---`, which the build keeps. The
+build therefore drops a trailing `---` from a body, and the next section follows one
+separator. The file footer is the text after the last `---` outside a fence of a span
+that runs to end of file, for example `**Next Step:**` or `*Last Updated:*`. The
+footer is not section text. The build keeps it, a body never restates it, and a lint
+error names a body that does.
+
 Discovery: `--bodies-dir` reads `<ABBREV>-bodies-plan.md` and every
 `<ABBREV>-bodies-SXX-YY*.md`, sorted by name and merged by doc id. A `-part{n}`
 suffix therefore adds documents to its session. Each doc id appears once.
@@ -127,7 +134,8 @@ suffix therefore adds documents to its session. Each doc id appears once.
 Lint errors: an unknown doc; a fill name that occurs nowhere in the doc, or an index
 past its count; a section heading absent from the doc; an H2 line outside a fence;
 a key outside a document block; a key given twice in one doc; a doc id given twice;
-a fence still open at the end of a file; a body inside the span of a section body.
+a fence still open at the end of a file; a body inside the span of a section body;
+a body for a footer section that restates the file footer.
 
 Two rendered files with one doc id refuse all three commands. A task named `Recovery`
 or `Orchestration` does this, because `scaffold_plan.file_kind` reads the file suffix.
@@ -145,7 +153,8 @@ comment says CONDITIONAL, or whose text ends in `(Required when ...)` or
 templates at run time. Any other name is a lint error, and all three commands refuse
 it. A cut runs from the heading to the next heading of equal or higher level, so an
 H2 takes its H3 sections and its trailing `---` with it. An H3 keeps the `---` that
-closes its parent. A cut ends sooner at the section's first kept line, when
+closes its parent. A cut of a section that runs to end of file stops at the footer's
+`---`, so the footer stays. A cut ends sooner at the section's first kept line, when
 FIRST_KEPT_LINES names one: the template sets text that belongs to the whole task
 file under those headings. The cut leaves one line at the site:
 
@@ -153,6 +162,15 @@ file under those headings. The cut leaves one line at the site:
 
 Omission comes first, so `keys` and `lint` see the tree `build` writes. A body for an
 omitted marker or heading is therefore a lint error.
+
+Code-only sections. `omit_code_sections` is on for the JSON value true. At plan,
+sprint, session or task level it adds the names in CODE_ONLY_SECTIONS to every task
+file below it, so a reading or measuring task drops them in one setting. The build
+leaves one OMITTED line for each name, as `omit_sections` does, so reviewer Check 131
+reads them as authorized. Verification Commands and Comparison-Task Coverage Row are
+not in the set, because a reading or measuring task still uses them. A value that is
+neither true nor false is a lint error, and all three commands refuse it. A task that
+names one of these headings in its own `omit_sections` is cut once.
 
 Manifest guard: the manifest maps each written path to its sha256. A rebuild reads it
 first. When a listed file differs or is gone, or a new path would land on a file the
@@ -166,13 +184,16 @@ stale hash is no hand edit. A step that rewrites built files calls
 
 Build spec format. The spec is the JSON that `scaffold_plan.py` documents under its
 "Spec format" section, with its required keys and its lint rules. The build adds
-four keys that `scaffold_plan.py` does not know: `meta`, `omit_sections`, `output_k`
-and `working_k`. `core_spec` removes them at every level before it renders, so the
-core lint never sees them. `scaffold_plan.py` knows `estimate_k` only as a number,
-so `core_spec` computes an "auto" estimate first (see below).
+five keys that `scaffold_plan.py` does not know: `meta`, `omit_sections`,
+`omit_code_sections`, `output_k` and `working_k`. `core_spec` removes them at every
+level before it renders, so the core lint never sees them. `scaffold_plan.py` knows
+`estimate_k` only as a number, so `core_spec` computes an "auto" estimate first (see
+below).
 
     meta           plan level. true or false. See Meta plan below.
     omit_sections  task or session. Names of template sections to cut (Omission).
+    omit_code_sections  plan, sprint, session or task. true or false. See Code-only
+                   sections below.
     estimate_k     task. A number as in `scaffold_plan.py`, or the string "auto".
     output_k       task. A number, in thousands of tokens.
     working_k      task. A number, in thousands of tokens.
@@ -238,7 +259,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import scaffold_plan as sp
 
-BUILD_KEYS = ("meta", "omit_sections", "output_k", "working_k")
+BUILD_KEYS = ("meta", "omit_sections", "omit_code_sections", "output_k", "working_k")
 AUTO_ESTIMATE = "auto"
 AUTO_ESTIMATE_VALUE = 0  # the stand-in for an auto task whose addends are no numbers, which `estimate_errors` refuses
 ESTIMATE_KEYS = ("output_k", "working_k")
@@ -260,6 +281,16 @@ FIRST_KEPT_LINES = {
     "Schema Pin": "> [!constraint] No `~?` Placeholders in Token Estimates",
     "Cross-Sprint Prerequisite Grep Gate": "**Mapping Disambiguation:**",
 }
+# the task-file sections that only a task which writes code, SQL or copied text uses, in template order
+CODE_ONLY_SECTIONS = (
+    "Change-Surface Census",
+    "Schema Pin",
+    "Cross-Sprint Prerequisite Grep Gate",
+    "Field Mapping",
+    "USED-Helper Enumeration",
+    "References Moved That May Now Be False",
+    "Verbatim-Copy Line-Count Range",
+)
 
 DOC_KEY_RE = re.compile(r"^<!--\s*doc:\s*(.+?)\s*-->\s*$")
 FILL_KEY_RE = re.compile(r"^<!--\s*fill:\s*(.+?)(?:\s+\[(\d+)\])?\s*-->\s*$")
@@ -417,9 +448,30 @@ def span_end(levels, k, total):
     return next((j for j, level in levels.items() if j > k and level <= levels[k]), total)
 
 
+def footer_separator(lines, start, end):
+    """The index of the last `---` outside a fence in lines[start:end] that has text after it, else `end`.
+
+    That `---` opens the file footer (`**Next Step:**`, `*Last Updated:*`) of a span that
+    runs to end of file. The footer belongs to the file, not to the section above it.
+    """
+    last_text = max((j for j in range(start, end) if lines[j].strip()), default=-1)
+    depth, found = 0, end
+    for j in range(start, end):
+        if not depth and lines[j].strip() == SEPARATOR and j < last_text:
+            found = j
+        depth = sp.fence_step(lines[j], depth)
+    return found
+
+
 def section_end(lines, levels, k):
-    """Where the text of the section at heading line k ends, for omission, bodies and the lint alike."""
-    end = span_end(levels, k, len(lines))
+    """Where the text of the section at heading line k ends, for omission, bodies and the lint alike.
+
+    A span that runs to end of file stops at its footer's `---`, so the footer stays.
+    """
+    total = len(lines)
+    end = span_end(levels, k, total)
+    if end == total:
+        end = footer_separator(lines, k + 1, total)
     kept = FIRST_KEPT_LINES.get(heading_name(lines[k]))
     return next((j for j in range(k + 1, end) if kept and lines[j].startswith(kept)), end)
 
@@ -432,24 +484,30 @@ def before_separator(lines, k, end):
 
 
 def scan_doc(text, patterns):
-    """Return (H2 and H3 headings outside a fence, markers as (name, H2, H3), (H3, its H2) pairs) in file order."""
-    headings, markers, nested, h2, h3, h2_end, h3_end = [], [], [], None, None, 0, 0
+    """Return (H2 and H3 headings outside a fence, markers as (name, H2, H3), (H3, its H2) pairs,
+    the headings whose section stops at the file footer) in file order."""
+    headings, markers, nested, footers = [], [], [], []
+    h2, h3, h2_end, h3_end = None, None, 0, 0
     lines = text.split("\n")
     levels = heading_levels(lines, patterns)
+    total = len(lines)
     for k, ln in enumerate(lines):
         h2 = h2 if k < h2_end else None
         h3 = h3 if k < h3_end else None
         level = levels.get(k)
-        if level == 2:
-            h2, h2_end = heading_text(ln), section_end(lines, levels, k)
-            headings.append(h2)
-        elif level == 3:
-            h3, h3_end = heading_text(ln), section_end(lines, levels, k)
-            headings.append(h3)
-            if h2:
-                nested.append((h3, h2))
+        if level == 2 or level == 3:
+            heading = heading_text(ln)
+            headings.append(heading)
+            if span_end(levels, k, total) == total and footer_separator(lines, k + 1, total) < total:
+                footers.append(heading)
+            if level == 2:
+                h2, h2_end = heading, section_end(lines, levels, k)
+            else:
+                h3, h3_end = heading, section_end(lines, levels, k)
+                if h2:
+                    nested.append((h3, h2))
         markers.extend((sp.norm(name), h2, h3) for name in MARKER_RE.findall(ln))
-    return headings, markers, nested
+    return headings, markers, nested, footers
 
 
 class DocIdError(ValueError):
@@ -457,8 +515,9 @@ class DocIdError(ValueError):
 
 
 def doc_index(files, templates_dir=sp.DEFAULT_TEMPLATES):
-    """{doc id: {"headings": [...], "markers": [(name, H2, H3), ...], "nested": [(H3, H2), ...]}} in tree order.
+    """{doc id: {"headings": [...], "markers": [(name, H2, H3), ...], "nested": [(H3, H2), ...], "footers": [...]}}.
 
+    `footers` names the headings whose section stops at the file footer. The order is tree order.
     Raise DocIdError when two files share a doc id.
     """
     sets = sp.template_heading_sets(templates_dir)
@@ -470,8 +529,8 @@ def doc_index(files, templates_dir=sp.DEFAULT_TEMPLATES):
         if doc in owners:
             raise DocIdError(f"doc id {doc} belongs to two files: {owners[doc]} and {rel}")
         owners[doc] = rel
-        headings, markers, nested = scan_doc(text, sets[sp.file_kind(rel)][0])
-        index[doc] = {"headings": headings, "markers": markers, "nested": nested}
+        headings, markers, nested, footers = scan_doc(text, sets[sp.file_kind(rel)][0])
+        index[doc] = {"headings": headings, "markers": markers, "nested": nested, "footers": footers}
     return index
 
 
@@ -502,22 +561,38 @@ def _omit_names(item, label, allowed, errors):
     return [sp.norm(name) for name in value if sp.norm(name) in allowed]
 
 
+def _code_switch(item, label, errors):
+    """Whether `omit_code_sections` is on for one spec object. A value that is no boolean adds one error and reads as off."""
+    value = item.get("omit_code_sections", False)
+    if not isinstance(value, bool):
+        errors.append(f"{label}: omit_code_sections must be true or false, got {json.dumps(value)}")
+        return False
+    return value
+
+
 def omit_plan(spec, allowed):
-    """Return ({doc id: [heading name, ...]}, errors) for the spec's `omit_sections` keys."""
+    """Return ({doc id: [heading name, ...]}, errors) for the spec's `omit_sections` and `omit_code_sections` keys.
+
+    A true `omit_code_sections` at plan, sprint, session or task level adds CODE_ONLY_SECTIONS to each task file below it.
+    """
     plan, errors = {}, []
     if "omit_sections" in spec:
         errors.append("plan level: omit_sections belongs on a session or a task")
+    plan_code = _code_switch(spec, "plan level", errors)
     for sprint in _dicts(spec, "sprints"):
         if "omit_sections" in sprint:
             errors.append(f"sprint {sprint['number']:02d} level: omit_sections belongs on a session or a task")
+        sprint_code = _code_switch(sprint, f"sprint {sprint['number']:02d}", errors) or plan_code
         for session in _dicts(sprint, "sessions"):
             sid = f"S{sprint['number']:02d}-{session['number']:02d}"
             shared = _omit_names(session, f"session {sid}", {*allowed["orchestration"], *allowed["task"]}, errors)
             plan[f"{sid}-ORCH"] = shared
+            session_code = _code_switch(session, f"session {sid}", errors) or sprint_code
             for task in _dicts(session, "tasks"):
                 doc = f"{sid}-{task['number']:02d}"
                 own = _omit_names(task, f"task {doc}", set(allowed["task"]), errors)
-                plan[doc] = list(dict.fromkeys([*shared, *own]))
+                code = CODE_ONLY_SECTIONS if _code_switch(task, f"task {doc}", errors) or session_code else ()
+                plan[doc] = list(dict.fromkeys([*shared, *own, *code]))
     return plan, errors
 
 
@@ -787,7 +862,22 @@ def key_errors(doc, body, info):
             errors.append(f"doc={doc} key={label}: the marker occurs {counts[name]} time(s) in this doc")
     errors.extend(f"doc={doc} key=section: {heading}: the heading is absent from this doc"
                   for heading in body["sections"] if heading not in info["headings"])
-    return errors + overlap_errors(doc, body, info)
+    return errors + overlap_errors(doc, body, info) + footer_errors(doc, body, info)
+
+
+def footer_errors(doc, body, info):
+    """One error per body of a footer section that restates the file footer after its last `---`.
+
+    The build keeps the footer, so a body that carries it would render the footer twice.
+    `info` may lack the "footers" key, which reads as no footer section.
+    """
+    errors = []
+    for heading in info.get("footers", ()):
+        lines = body["sections"].get(heading, "").split("\n")
+        if footer_separator(lines, 0, len(lines)) < len(lines):
+            errors.append(f"doc={doc} key=section: {heading}: the body restates the file footer after its last ---; "
+                          "the build keeps the footer, so remove it from the body")
+    return errors
 
 
 def overlap_errors(doc, body, info):
@@ -886,6 +976,18 @@ def lint_bodies(index, docs, load_errors=(), session=None):
 
 # ---------------------------------------------------------------- apply
 
+def drop_closing_separator(body):
+    """The body without its trailing blank lines and one closing `---`, when text remains."""
+    lines = body.split("\n")
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if lines and lines[-1].strip() == SEPARATOR:
+        lines.pop()
+        while lines and not lines[-1].strip():
+            lines.pop()
+    return "\n".join(lines) if lines else body
+
+
 def apply_doc(text, body, patterns):
     """Substitute one document's bodies. Return (text, markers left in place).
 
@@ -921,6 +1023,8 @@ def apply_doc(text, body, patterns):
             end = section_end(lines, levels, k)
             kept = before_separator(lines, k, end)
             skip = kept if kept < end and lines[kept].strip() == SEPARATOR else end
+            if skip < len(lines) and lines[skip].strip() == SEPARATOR:
+                section = drop_closing_separator(section)  # the next kept line is a `---`, so the body adds none
             out.extend(["", section, ""])
     return "\n".join(out), left
 

@@ -12,7 +12,7 @@
     "agent_guard": {
       "type": "string",
       "title": "Agent guard",
-      "description": "Checks planwise:task-runner dispatches only; other agents and calls pass untouched. report (default): log each finding and let the call proceed. deny: refuse a background task-runner spawn, refuse a bare cd or file-read Bash verb inside a task-runner, and block a task-runner that stops unfinished. The spawn-prompt check only reports, at either value.",
+      "description": "Checks planwise:task-runner dispatches only; other agents and calls pass untouched. report (default): log each finding and let the call proceed. deny: refuse a background task-runner spawn, refuse a bare cd or file-read Bash verb inside a task-runner, refuse a git verb that rewrites the shared working tree or index (stash, checkout, switch, reset, restore, clean, add, commit), and block a task-runner that stops unfinished. The spawn-prompt check only reports, at either value.",
       "default": "report",
       "options": ["report", "deny"]
     },

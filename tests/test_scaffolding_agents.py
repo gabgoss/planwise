@@ -27,6 +27,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
+import lint_execution_input as lint_ei
+import lint_execution_input_plan as lint_plan
+
 PLUGIN = Path(__file__).resolve().parent.parent / "plugins" / "planwise"
 AGENTS = Path(os.environ.get("PLANWISE_TEST_AGENTS_DIR") or PLUGIN / "agents")
 TEMPLATES = PLUGIN / "templates"
@@ -256,6 +259,50 @@ class ScaffoldingAgentContractTests(unittest.TestCase):
                 )
         self.assertIn("literal `<!-- FILL:`", files["harmonizer"])
         self.assertIn("(CONSUMES FILL)", _read(PLUGIN / "templates" / "sprint-plan.md"))
+
+    def test_extractor_reconcile_states_the_cross_tier_note_the_lint_reads(self):
+        """Lint rule cross-tier-note blocks a Cross-References section cited from sources of
+        different tiers when no Note paragraph in the same Part names them all. The extractor
+        states that rule in Step 3, and its Note label is the one the lint matches."""
+        reconcile = _section(_read(EXTRACTOR), "## Step 3: RECONCILE")
+        paragraph = next(
+            (p for p in reconcile.split("\n\n") if p.startswith("**Cross-tier Note.**")), ""
+        )
+        self.assertTrue(paragraph, "Step 3 has no Cross-tier Note paragraph")
+        label = "**Note (cross-tier duplicate preserved):**"
+        self.assertIn(label, paragraph)
+        self.assertTrue(lint_ei.NOTE_RE.search(label), "the extractor's label no longer matches the lint")
+        self.assertIn("`Spec #{N} ({filename.md})`", paragraph)
+        self.assertIn("different tiers", paragraph)
+        self.assertIn("same Part", paragraph)
+        self.assertIn("no blank line inside", paragraph)
+        self.assertIn("references/ei-citation-and-token-reconciliation.md", paragraph)
+        # the lint reads a Note to its first blank line, so the stated form must be what it reads
+        note = f"{label} Spec #1 (A.md) and Spec #2 (B.md) cite this finding."
+        self.assertEqual(len(lint_ei._note_paragraphs([note, "", "other"])), 1)
+
+    def test_scaffolder_cross_sprint_marker_rule_places_the_step_one_gate(self):
+        """Lint rule cross-sprint-touch reads only the first line that begins `1.` under
+        `## Execution Steps` of the first writing task, and wants a MUST NOT run concurrently
+        line for an unordered pair. The scaffolder states where each one goes."""
+        rule = next(
+            (ln for ln in _read(SCAFFOLDER).splitlines() if ln.startswith("- **Cross-sprint markers.**")), ""
+        )
+        self.assertTrue(rule, "the scaffolding rules have no Cross-sprint markers bullet")
+        self.assertIn("Execution Step `1.`", rule)
+        self.assertIn("first line that begins `1.` under `## Execution Steps`", rule)
+        self.assertIn("cross-sprint-touch", rule)
+        self.assertIn("`### Cross-Sprint Prerequisite Grep Gate` H3", rule)
+        self.assertIn("code fence", rule)
+        self.assertIn("`Grep`", rule)
+        self.assertIn("HALT", rule)
+        self.assertIn("first task id in the file's Write-Set row", rule)
+        self.assertIn("first writing task of both sprints", rule)
+        # the stated MUST NOT line is one the lint's own pattern finds
+        self.assertTrue(lint_plan.NOT_CONCURRENT_RE.search("MUST NOT run concurrently"))
+        self.assertIn("`MUST NOT run concurrently`", rule)
+        # the step the rule describes is one the lint's first-step pattern selects
+        self.assertTrue(lint_plan.FIRST_STEP_RE.match("1. Grep the prior sprint's marker"))
 
 
 class PlanAuthorContractTests(unittest.TestCase):

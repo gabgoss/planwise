@@ -23,7 +23,7 @@ The shell line below runs before you see this prompt. Its output replaces the li
 
 !`python -B "${CLAUDE_PLUGIN_ROOT}/scripts/skill_preflight.py" '$sub' || true`
 
-The injected line above also prints a `planwise: …` version notice when the config pin differs from this plugin. Pass any such line to the user verbatim before routing.
+The injected line above also prints a `planwise: …` version notice when the config pin differs from this plugin. Another notice counts undismissed feedback drafts that the privacy check blocked. Pass each such line to the user verbatim before routing.
 
 | Subcommand | Handler |
 |-----------|---------|
