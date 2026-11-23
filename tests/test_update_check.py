@@ -317,13 +317,12 @@ def test_update_argv_scope_and_cwd(env, monkeypatch, tmp_path):
     assert list(data_dir.iterdir()) == []  # the store branch writes no marker file
 
 
-# The two refusals below are the real output of `claude plugin install <plugin> --json` on CLI
-# 2.1.330, taken on 2026-11-23 with no -y and with stdout piped, so the CLI could only display the
-# declared command. Each run exited 1. Human lines come first and the JSON result is the last line.
-# The CLI help gives `plugin update` the same flags and the same exit codes, so `command` reads
-# "install" here and "update" for an update. Row B printed an em dash that a PowerShell capture
-# showed as mojibake. Re-measure both on the update path once a marketplace with a declared command
-# is at hand.
+# The refusals below are real output of `claude plugin ... --json` on CLI 2.1.330, taken on
+# 2026-11-23 with no -y and with stdout piped, so the CLI could only display the declared command.
+# Each run exited 1. Human lines come first and the JSON result is the last line. The two install
+# refusals declared `python` with no argument, because the field that carries arguments did not
+# exist. The update refusal declared one argument and its `shownCommand.command` holds the whole
+# line. A PowerShell capture showed an em dash as mojibake, so the text here uses the real one.
 _REFUSED_COMMAND_SOURCE_STDOUT = (
     '"cmdplug" is installed by running a command from marketplace "upb-confirm-cmd" on this machine:\n'
     "  python\n"
@@ -357,6 +356,46 @@ _REFUSED_ENTRY_HELPER_STDOUT = (
     '"catalogRevision":"sha256:119b92aaa986cb317150d9d3d3576ef61362ed56567111c5655d79c6e0c93f8c",'
     '"sha256":"533ef218aa4bfa97232ac80d17bf122a2e596bee3870bd1928f67606da1e4774"}}\n'
 )
+# `claude plugin update planwise@<mp> --scope user --json` on an installed command-source plugin
+# whose marketplace then changed the declared command. Exit 1, and the command did not run.
+# `previousAcceptance` is only on the update refusal.
+_REFUSED_UPDATE_STDOUT = (
+    '"planwise" is installed by running a command from marketplace "upb-confirm-upd" on this machine'
+    " \u2014 and that command (or how its output is used) CHANGED since you accepted it:\n"
+    "  python C:/Users/gabgo/.claude/scratch/upb-confirm/upd/make_plugin.py changed\n"
+    '  (mode "copy": its output directory is copied into the plugin cache)\n'
+    "Not an interactive terminal, so the command was only displayed, not accepted. "
+    "Re-run in a terminal to confirm it, or pass -y/--yes to accept the command shown above.\n"
+    '{"command":"update","outcome":"failed","plugin":"planwise@upb-confirm-upd","scope":"user",'
+    '"message":"planwise@upb-confirm-upd\'s marketplace changed the command that installs it, or how its '
+    "output is used (now `python C:/Users/gabgo/.claude/scratch/upb-confirm/upd/make_plugin.py changed`), "
+    "since it was accepted, so it was not run. Review and accept the new command: run "
+    "`claude plugin update planwise@upb-confirm-upd` in a terminal "
+    '(add `--scope` for a project/local install).",'
+    '"failureCode":"command_source_refused","shownCommand":{"kind":"command_source",'
+    '"pluginId":"planwise@upb-confirm-upd",'
+    '"command":"python C:/Users/gabgo/.claude/scratch/upb-confirm/upd/make_plugin.py changed",'
+    '"mode":"copy",'
+    '"catalogRevision":"sha256:75d536de0bc103cd16c5677fa5950da4c4b24744709fbabe5bca33217e04aab3",'
+    '"previousAcceptance":"changed",'
+    '"sha256":"14a45fe604699488081f2fa8205081a99a7e29fa7db616ddb82ca5d29c9b0247"}}\n'
+)
+_REFUSED_UPDATE_STDERR = (
+    "planwise@upb-confirm-upd's marketplace changed the command that installs it, or how its output is "
+    "used (now `python C:/Users/gabgo/.claude/scratch/upb-confirm/upd/make_plugin.py changed`), since it "
+    "was accepted, so it was not run. Review and accept the new command: run "
+    "`claude plugin update planwise@upb-confirm-upd` in a terminal (add `--scope` for a project/local install).\n"
+)
+_REFUSED_UPDATE_COMMAND = "python C:/Users/gabgo/.claude/scratch/upb-confirm/upd/make_plugin.py changed"
+# The same install with only its version bumped and its declared command unchanged. The CLI re-ran the
+# accepted command, asked nothing and exited 0.
+_UPDATED_COMMAND_SOURCE_RESULT = {
+    "command": "update", "outcome": "ok", "plugin": "planwise@upb-confirm-upd",
+    "pluginId": "planwise@upb-confirm-upd", "scope": "user",
+    "message": 'Plugin "planwise" updated from 1.0.0-c1e43c81a9bf to 1.0.1-66071fe36363 for scope user. '
+               "Restart to apply changes.",
+    "updateOutcome": "updated", "oldVersion": "1.0.0-c1e43c81a9bf", "newVersion": "1.0.1-66071fe36363",
+}
 # The one measured `claude plugin update --json` success (CLI 2.1.330, 2026-11-21). Its `command`
 # key names the CLI subcommand, which is not a command to run.
 _UPDATED_RESULT = {
@@ -370,7 +409,8 @@ _UPDATED_RESULT = {
 @pytest.mark.parametrize("stdout, stderr, declared", [
     (_REFUSED_COMMAND_SOURCE_STDOUT, _REFUSED_COMMAND_SOURCE_STDERR, "python"),
     (_REFUSED_ENTRY_HELPER_STDOUT, "", "C:/Users/gabgo/.claude/scratch/upb-confirm/hh.cmd"),
-], ids=["command_source", "entry_helper"])
+    (_REFUSED_UPDATE_STDOUT, _REFUSED_UPDATE_STDERR, _REFUSED_UPDATE_COMMAND),
+], ids=["command_source", "entry_helper", "command_source_update"])
 def test_update_needs_confirm(env, monkeypatch, capsys, stdout, stderr, declared):
     _, running, project = env()
     calls = []
@@ -385,10 +425,25 @@ def test_update_needs_confirm(env, monkeypatch, capsys, stdout, stderr, declared
     assert all("-y" not in c[0] and "--yes" not in c[0] and "--accept-command" not in c[0] for c in calls)
 
 
+def test_update_with_an_unchanged_accepted_command_needs_no_confirmation(env, monkeypatch):
+    """The CLI re-runs a command that the person already accepted, so an update reads UPDATED."""
+    _, running, project = env()
+    calls = []
+    monkeypatch.setattr(shutil_mod(), "which", lambda name: "claude")
+    stdout = json.dumps(_UPDATED_COMMAND_SOURCE_RESULT) + "\n"
+    monkeypatch.setattr(subprocess, "run", _fake_run(calls, update_stdout=stdout))
+    code, report = update_check.update(running, project)
+    assert code == update_check.EXIT_UPDATED and report["result"] == update_check.UPDATED
+    assert report["command"] is None and report["retry"] is None
+
+
 def test_confirm_command_reads_only_the_shown_command():
     parsed = update_check._last_json(_REFUSED_COMMAND_SOURCE_STDOUT)
     assert parsed is not None and parsed["command"] == "install"  # the subcommand, never the answer
     assert update_check.confirm_command(parsed) == "python"
+    update_parsed = update_check._last_json(_REFUSED_UPDATE_STDOUT)
+    assert update_parsed is not None and update_parsed["command"] == "update"
+    assert update_check.confirm_command(update_parsed) == _REFUSED_UPDATE_COMMAND
     assert update_check.confirm_command(update_check._last_json(_REFUSED_ENTRY_HELPER_STDOUT)) == (
         "C:/Users/gabgo/.claude/scratch/upb-confirm/hh.cmd"
     )
