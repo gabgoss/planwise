@@ -11,6 +11,7 @@ references/feedback-submission.md, not from the script's output.
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -32,6 +33,25 @@ REPO = "example-owner/example-repo"
 # The driver skips a `.cmd` or `.bat` shim, so on Windows the fake's wrapper cannot be found on PATH.
 # There the default route passes the fake through FEEDBACK_POST_GH_ARGV instead.
 PATH_ROUTE = "override" if os.name == "nt" else "path"
+POST_PRESS_TS = HERE.parent / "plugins" / "planwise" / "hooks" / "feedback" / "post-press.ts"
+
+
+def card_pin(code_name: str, mark_name: str) -> "tuple[int, str]":
+    """One exit code and the stderr words the review card reads beside it, from post-press.ts.
+
+    The card acts on two results by exit code plus words on the last stderr line: a config file that
+    is gone (EXIT_FAILED, CONFIG_GONE_MARK) and a draft that is no longer queued (EXIT_NO_DRAFT,
+    NO_DRAFT_MARK). The script and the card must agree on both.
+    """
+    source = POST_PRESS_TS.read_text(encoding="utf-8")
+    code = re.search(rf"^export const {code_name} = (\d+)\s*$", source, re.MULTILINE)
+    mark = re.search(rf"^export const {mark_name} = '([^']+)'\s*$", source, re.MULTILINE)
+    assert code is not None and mark is not None, f"{code_name} or {mark_name} literal not found in post-press.ts"
+    return int(code.group(1)), mark.group(1)
+
+
+def last_stderr_line(result: "subprocess.CompletedProcess") -> str:
+    return [line for line in result.stderr.splitlines() if line.strip()][-1]
 
 
 # ---------------------------------------------------------------- harness
@@ -524,6 +544,9 @@ def test_no_queued_draft_exits_2(tmp_path, draft_id, status, reason):
     assert result.returncode == 2
     assert f"no queued draft with id {draft_id} ({reason})" in result.stderr
     assert count_calls(log) == 0 and promoted_files(tmp_path) == []
+    # The review card clears itself on this result.
+    card_code, card_mark = card_pin("EXIT_NO_DRAFT", "NO_DRAFT_MARK")
+    assert result.returncode == card_code and card_mark in last_stderr_line(result)
 
 
 def test_a_lesson_posts_with_the_enhancement_label_and_no_url(tmp_path):
@@ -692,6 +715,11 @@ def test_a_missing_config_exits_1(tmp_path):
     result = post(tmp_path / "absent.yaml", env)
     assert result.returncode == 1
     assert count_calls(log) == 0
+    # The review card runs the script again with another config on this result, so nothing may be
+    # written before it and the words must match.
+    card_code, card_mark = card_pin("EXIT_FAILED", "CONFIG_GONE_MARK")
+    assert result.returncode == card_code and card_mark in last_stderr_line(result)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["bin", "empty"]
 
 
 # ---------------------------------------------------------------- the card

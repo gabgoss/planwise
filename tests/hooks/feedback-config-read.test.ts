@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { draftsMode, isPlanwiseConfig, readRawScalar, readScalar, resolveDraftsDir, resolvePlansDir } from '../../plugins/planwise/hooks/feedback/config-read.ts'
+import { draftsMode, findConfig, isPlanwiseConfig, readRawScalar, readScalar, resolveDraftsDir, resolvePlansDir } from '../../plugins/planwise/hooks/feedback/config-read.ts'
 import { CAP_TEXT, MAX_CALLS_PER_SESSION, MAX_QUEUED, NOTICE_TEXT, PYTHON_CANDIDATES, RESULT_TEXT, relativeDraftPath } from '../../plugins/planwise/hooks/feedback/names.ts'
 
 /** An excerpt shaped like the shipped config template. */
@@ -110,6 +110,44 @@ test('config-read: an absent or blank plans_dir falls back to Plans, and a set v
 test('config-read: an absolute feedback_dir is kept as given', () => {
   assert.equal(resolveDraftsDir('/proj/planwise', '/var/fb'), '/var/fb')
   assert.equal(resolveDraftsDir('/proj/planwise', 'D:\\fb\\x'), 'D:/fb/x')
+})
+
+const CONFIG = 'project:\n  name: demo\n'
+const FOREIGN = 'name: other\nversion: 1\n'
+
+/** An in-memory tree for findConfig: `files` maps a path to its text, and `dirs` names the root's folders. */
+const treeFs = (files: Record<string, string>, dirs: string[] = []) => ({
+  exists: async (path: string) => path in files,
+  read: async (path: string) => files[path],
+  list: async () => dirs.map((name) => ({ name, kind: 'dir' })),
+})
+
+test('config-read: findConfig takes planwise/config.yaml before the root and the other folders', async () => {
+  const fs = treeFs({ '/proj/planwise/config.yaml': CONFIG, '/proj/config.yaml': CONFIG, '/proj/alpha/config.yaml': CONFIG }, ['alpha', 'planwise'])
+  assert.deepEqual(await findConfig(fs, '/proj'), { text: CONFIG, dir: '/proj/planwise' })
+})
+
+test('config-read: findConfig takes the root config before a top-level folder', async () => {
+  const fs = treeFs({ '/proj/config.yaml': CONFIG, '/proj/alpha/config.yaml': CONFIG }, ['alpha'])
+  assert.deepEqual(await findConfig(fs, '/proj'), { text: CONFIG, dir: '/proj' })
+})
+
+test('config-read: findConfig walks the top-level folders in name order and skips dot folders and foreign files', async () => {
+  const fs = treeFs(
+    { '/proj/planwise/config.yaml': FOREIGN, '/proj/alpha/config.yaml': FOREIGN, '/proj/beta/config.yaml': CONFIG, '/proj/zeta/config.yaml': CONFIG, '/proj/.hidden/config.yaml': CONFIG },
+    ['zeta', '.hidden', 'beta', 'alpha', 'planwise'],
+  )
+  assert.deepEqual(await findConfig(fs, '/proj'), { text: CONFIG, dir: '/proj/beta' })
+})
+
+test('config-read: findConfig returns null when the root holds no planwise config', async () => {
+  assert.equal(await findConfig(treeFs({ '/proj/alpha/config.yaml': FOREIGN }, ['alpha']), '/proj'), null)
+  assert.equal(await findConfig(treeFs({}), '/proj'), null)
+})
+
+test('config-read: findConfig drops a trailing separator on the root', async () => {
+  const fs = treeFs({ 'C:\\work\\main/planwise/config.yaml': CONFIG })
+  assert.deepEqual(await findConfig(fs, 'C:\\work\\main\\'), { text: CONFIG, dir: 'C:\\work\\main/planwise' })
 })
 
 test('names: the model-facing texts keep their wording and carry the limits', () => {

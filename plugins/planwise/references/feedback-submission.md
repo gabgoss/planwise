@@ -84,6 +84,12 @@ ALL gates below MUST pass, in this order, before a post is attempted:
      When posting is off, the press clears the card, prints
      `Posting stays off. The draft was saved, and the next feedback flow asks again.` and
      enables nothing.
+     The card stores the config path when the draft is written, and the press runs the script
+     with that path first. The script may report that the file is gone. This happens when the
+     session leaves a git worktree that is then removed. The press then prints one line that
+     names the config under the session's current root, and runs the script once more with it.
+     The script checks its config before it writes anything, so the second run cannot post twice.
+     When the draft is no longer queued, the press clears the card and prints one line.
    - **Unattended context.** When gate 1 reads `enabled`, the pipeline posts with no question.
      It runs gates 3, 4 and 4.5, then the privacy gate on the draft, then the route under
      [The Unattended Post Path](#the-unattended-post-path):
@@ -119,8 +125,8 @@ ALL gates below MUST pass, in this order, before a post is attempted:
 |---|------|---------------|-----------------|
 | 1 | `feedback.enabled: true` | An interactive session raises the Enable Offer in the `absent` and the `disabled` state. An unattended context asks no question and stops at the draft with the unattended message under The Enable Offer. | No Enable Offer. The card clears, prints the keep line and enables nothing. |
 | 2 | Interactive session | With gate 1 `enabled`, an unattended context runs gates 3, 4 and 4.5, then `prepare-post`, then posts with no question. With gate 1 not `enabled`, it writes the draft and skips gates 3-5. | The press is its own context. The card runs `scripts/feedback_post.py post` on the draft. |
-| 3 | `gh` resolvable (PATH, then known install locations) | Evaluated in an interactive session, and in an unattended context with gate 1 `enabled`. Unmet → draft kept, one line, exit 0. | The card does not run it itself. Any exit but 0, 3 or 4 keeps the card and prints one line. |
-| 4 | `{gh_path} auth status` exits 0 | Evaluated in an interactive session, and in an unattended context with gate 1 `enabled`. Unmet → draft kept, one line, exit 0. | The card does not run it itself. Any exit but 0, 3 or 4 keeps the card and prints one line. |
+| 3 | `gh` resolvable (PATH, then known install locations) | Evaluated in an interactive session, and in an unattended context with gate 1 `enabled`. Unmet → draft kept, one line, exit 0. | The card does not run it itself. Any exit but 0, 3 or 4 keeps the card and prints one line. The one exception is exit 2 for a draft that is no longer queued, which clears the card. |
+| 4 | `{gh_path} auth status` exits 0 | Evaluated in an interactive session, and in an unattended context with gate 1 `enabled`. Unmet → draft kept, one line, exit 0. | The card does not run it itself. Any exit but 0, 3 or 4 keeps the card and prints one line. The one exception is exit 2 for a draft that is no longer queued, which clears the card. |
 | 4.5 | Duplicate scan (step, not gate) | Runs opportunistically; the result is written into the draft. No consent site. With gate 1 `enabled`, its outcome picks the route (see Unattended Routing). | The card does not run it itself. |
 | after 4.5 | `prepare-post` (privacy gate of an unattended post) | Runs on the exact file the route posts, after the last write to it. `clean` → post. A block or exit 1 → draft kept, one line, exit 0. | The card does not run it itself. Exit 3 clears the card and prints that nothing was posted. |
 | 5 | Explicit consent (`AskUserQuestion`) | An unattended context with gate 1 `enabled` replaces it with `prepare-post` and the automatic route. Otherwise auto-deny → draft written **with the possible-duplicates block**, exit 0 (see the Auto Mode deviation in Part 3, not a fail-loud STOP). | The press is the consent. No question is asked. |

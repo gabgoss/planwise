@@ -8,7 +8,7 @@ import { update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions, SessionVersion, ToolSpec } from 'claude-code'
 
 import { CAP_TEXT, DESCRIPTION, FULL_TOOL_NAME, INPUT_SCHEMA, MAX_CALLS_PER_SESSION, MAX_NOTICES, NOTICE_TEXT, PYTHON_CANDIDATES, RESULT_TEXT, TOOL_NAME, relativeDraftPath } from './feedback/names.ts'
-import { draftsMode, isPlanwiseConfig, readRawScalar, readScalar, resolveDraftsDir } from './feedback/config-read.ts'
+import { draftsMode, findConfig, readRawScalar, readScalar, resolveDraftsDir } from './feedback/config-read.ts'
 import type { DraftsMode } from './feedback/config-read.ts'
 import { previewSourceOf } from './feedback/card-preview.ts'
 import { isDraftFileName, newestQueued } from './feedback/queued.ts'
@@ -96,34 +96,6 @@ const pluginVersionOf = async (host: Host): Promise<string> => {
   } catch {
     return 'unknown'
   }
-}
-
-/**
- * Finds the planwise config. The search order is planwise/config.yaml, then config.yaml at the
- * root itself, then each top-level directory in name order. A candidate counts only when its
- * text is a planwise config. `dir` is the directory that holds the file.
- */
-const findConfig = async (host: Host, root: string): Promise<{ text: string; dir: string } | null> => {
-  const tryDir = async (dir: string): Promise<{ text: string; dir: string } | null> => {
-    const path = dir + '/config.yaml'
-    if (!(await host.exists(path))) return null
-    const text = String(await host.read(path))
-    return isPlanwiseConfig(text) ? { text, dir } : null
-  }
-  const base = root.replace(/[\\/]+$/, '')
-  const first = await tryDir(base + '/planwise')
-  if (first !== null) return first
-  const atRoot = await tryDir(base)
-  if (atRoot !== null) return atRoot
-  const names = (await host.list(root))
-    .filter((entry) => entry.kind === 'dir' && entry.name !== 'planwise' && !entry.name.startsWith('.'))
-    .map((entry) => entry.name)
-    .sort()
-  for (const name of names) {
-    const found = await tryDir(base + '/' + name)
-    if (found !== null) return found
-  }
-  return null
 }
 
 /** One record of module memory. Every field resets with the process. */
