@@ -4,11 +4,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 import install_check
 
-SCRIPT = Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts" / "install_check.py"
+SCRIPT =Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts" / "install_check.py"
 MARKET = "planwise-marketplace"
 
 
@@ -232,10 +234,58 @@ def test_an_install_recorded_for_the_worktree_path_wins_over_the_main_checkout(t
     # From the main checkout, an entry recorded for a worktree path never applies.
     assert install_check.applicable_entry(entries, main)["installPath"] == str(main_copy)
     assert install_check.applicable_entry(entries[1:], main) is None
-    # Scope order still comes first: a local entry for the main checkout precedes both.
+    # A local entry for the main checkout does not displace the worktree's own install.
     local_copy = _cache(config, "1.0.5.3")
     entries.append(_entry("local", local_copy, "1.0.5.3", main))
-    assert install_check.applicable_entry(entries, linked)["scope"] == "local"
+    assert install_check.applicable_entry(entries, linked)["installPath"] == str(own_copy)
+    # With no entry of its own, the worktree takes the main checkout's entries in scope order.
+    assert install_check.applicable_entry([entries[0], entries[2]], linked)["scope"] == "local"
+    # A user entry comes after every project path, the main checkout's included.
+    entries.append(_entry("user", _cache(config, "1.0.5.2"), "1.0.5.2"))
+    assert install_check.applicable_entry([entries[0], entries[3]], linked)["scope"] == "project"
+    assert install_check.applicable_entry([entries[3]], linked)["scope"] == "user"
+
+
+def test_a_bare_repository_has_no_main_checkout(tmp_path):
+    # A bare repository in a folder named `.git`, with two linked worktrees beside it. git builds it.
+    main, _linked = _worktree(tmp_path)
+    container = tmp_path.resolve() / "bare-layout"
+    container.mkdir()
+    _git(container, "clone", "-q", "--bare", str(main), str(container / ".git"))
+    feature = container / "feature"
+    _git(container / ".git", "worktree", "add", "-q", str(feature), "main")
+    assert feature.joinpath(".git").is_file()
+    assert install_check.main_checkout_root(feature) is None
+    # An entry recorded for the container folder is no checkout's install.
+    config = _home(tmp_path, [])
+    running = _cache(config, "1.0.5.5")
+    assert install_check.applicable_entry([_entry("project", running, "1.0.5.5", container)], feature) is None
+
+
+def test_a_corrupt_git_file_returns_nothing_and_never_raises(tmp_path):
+    sub = tmp_path / "corrupt"
+    sub.mkdir()
+    (sub / ".git").write_bytes(b"gitdir: \x00\n")
+    assert install_check.main_checkout_root(sub) is None
+    config = _home(tmp_path, [])
+    running = _cache(config, "1.0.5.5")
+    _record(config, [_entry("user", running, "1.0.5.5")])
+    assert install_check.check(running, sub, config)["verdict"] == install_check.OK
+
+
+def test_an_install_recorded_under_another_spelling_of_the_main_checkout_applies(tmp_path):
+    main, linked = _worktree(tmp_path)
+    alias = tmp_path.resolve() / "alias"
+    try:
+        alias.symlink_to(main, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation is not permitted here: {exc}")
+    config = _home(tmp_path, [])
+    running = _cache(config, "1.0.5.5")
+    # The record names the checkout through the link. git wrote the resolved path in the worktree.
+    entries = [_entry("project", running, "1.0.5.5", alias)]
+    assert install_check.applicable_entry(entries, linked)["installPath"] == str(running)
+    assert install_check.applicable_entry(entries, main)["installPath"] == str(running)
 
 
 def test_missing_installed_plugins_is_not_marketplace_install(tmp_path):

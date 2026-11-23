@@ -372,6 +372,19 @@ def test_update_in_a_linked_worktree_runs_in_the_main_checkout(tmp_path, monkeyp
     assert calls[1][1]["cwd"] == str(main)
 
 
+def test_update_runs_in_a_folder_that_exists_when_the_record_spells_it_oddly(env, monkeypatch):
+    config, running, project = env(clone="1.0.9")
+    # The record matches the project after normalising, in a spelling that may not open here.
+    odd = str(project).replace("/", "\\").upper() + "\\"
+    _install(config, [{"scope": "project", "projectPath": odd, "installPath": str(running), "version": "1.0.8"}])
+    calls = []
+    monkeypatch.setattr(shutil_mod(), "which", lambda name: "claude")
+    monkeypatch.setattr(subprocess, "run", _fake_run(calls, update_stdout='{"status":"updated"}'))
+    code, _report = update_check.update(running, project)
+    assert code == update_check.EXIT_UPDATED
+    assert os.path.samefile(calls[1][1]["cwd"], project)
+
+
 # The refusals below are real output of `claude plugin ... --json` on CLI 2.1.330, taken on
 # 2026-11-23 with no -y and with stdout piped, so the CLI could only display the declared command.
 # Each run exited 1. Human lines come first and the JSON result is the last line. The two install

@@ -751,7 +751,7 @@ Every reviewer spawn prompt MUST include these eight elements:
 ### Post-Report Actions
 
 1. Update the plan's Master Plan with status `REVIEWED` (or `APPROVED` / `NEEDS_FIXES`)
-2. Commit the report file by path: `git add -- {PlanPath}/Reviews/{Abbrev}-Review-{YYYY-MM-DD}.md && git commit -m "docs: Add plan review {Abbrev} {YYYY-MM-DD}" -- {PlanPath}/Reviews/{Abbrev}-Review-{YYYY-MM-DD}.md`. The path after `--` keeps entries that another session staged out of the commit.
+2. Commit the report file by path: `git add -- "{PlanPath}/Reviews/{Abbrev}-Review-{YYYY-MM-DD}.md" && git commit -m "docs: Add plan review {Abbrev} {YYYY-MM-DD}" -- "{PlanPath}/Reviews/{Abbrev}-Review-{YYYY-MM-DD}.md"`. The path after `--` keeps entries that another session staged out of the commit, and the quotes keep a path with a space whole.
 3. Output summary to user: verdict, finding counts by severity, systemic finding count, CLASS OPEN count, report path
 4. For each systemic finding with a non-empty Other Known Instances row, the fix pass sweeps every listed path or records each unswept path in a backlog item. Write each disposition back into the row. A path left untouched keeps the finding at CLASS OPEN.
 5. If **APPROVED**: "Plan validated. Execute with `/planwise run @{orch-path}`"
