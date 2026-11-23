@@ -110,6 +110,7 @@ MIGRATABLE_TOP_LEVEL_KEYS = [
     "lesson_check_kinds",  # kinds a lesson's enforced-by answer may name; read at run time
     "style",            # global always-on style rules install toggles (plain_language, plain_presentation)
     "plan_names",       # length caps of generated plan folder, file and path names
+    "review_tier",      # extra code globs for the /code-review tier script
 ]
 
 
