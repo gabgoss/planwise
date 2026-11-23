@@ -18,7 +18,7 @@ registerLoader(stubUrl(loaderSource), import.meta.url)
 
 // The module under test. UPDATE_CHECK_URL points the same tests at another copy of the module.
 const target = process.env.UPDATE_CHECK_URL ?? new URL('../../plugins/planwise/hooks/update-check.ts', import.meta.url).href
-const { onSessionStart, checkNow, pressUpdateNow, CACHE_KEY, PENDING_KEY, CACHE_TTL_MS, REDRAW_MS } = await import(target)
+const { onSessionStart, checkNow, pressUpdateNow, cardLines, buttonsOf, CACHE_KEY, PENDING_KEY, CACHE_TTL_MS, REDRAW_MS } = await import(target)
 
 const NOW = 1_700_000_000_000
 const ROOT = 'C:\\work\\proj'
@@ -229,7 +229,7 @@ test('12 the marker lives in the store under pendingUpgrade, and no script call 
     update: { exitCode: 0, stdout: JSON.stringify({ result: 'UPDATED' }) + '\n' },
     check: () => ({ verdict: 'CURRENT', repo: null }),
   })
-  w.setOffer({ verdict: 'PLUGIN_BEHIND', running: '1.0.7', installed: '1.0.7', latest: '1.0.9', pin: null, confirmCommand: null })
+  w.setOffer({ verdict: 'PLUGIN_BEHIND', running: '1.0.7', installed: '1.0.7', latest: '1.0.9', pin: null, confirmCommand: null, declaredCommand: null })
   await pressUpdateNow(w.host as never)
   assert.equal(PENDING_KEY, 'pendingUpgrade')
   const written = w.store.get(PENDING_KEY) as Record<string, { target: string }>
@@ -253,6 +253,36 @@ test('13 a rejected auto-upgrade run keeps the marker, logs, and sets the PROJEC
   assert.deepEqual((w.store.get(PENDING_KEY) as Record<string, unknown>)[SLASHED], marker)
   assert.equal(lastOffer(w)?.verdict, 'PROJECT_BEHIND')
   assert.ok(w.logs.some((l) => l.to === 'debug' && l.text.includes('auto-upgrade rejected')))
+})
+
+test('15 a refused update shows the declared command and the terminal command, and writes no marker', async () => {
+  // The script's report for a marketplace-declared command that needs a person to accept it.
+  const refusal = { result: 'NEEDS_CONFIRM', command: 'python', retry: 'claude plugin update planwise@planwise-marketplace --scope project' }
+  const w = world({
+    update: { exitCode: 3, stdout: JSON.stringify(refusal) + '\n' },
+    check: () => ({ verdict: 'CURRENT', repo: null }),
+  })
+  const offer = { verdict: 'PLUGIN_BEHIND', running: '1.0.7', installed: '1.0.7', latest: '1.0.9', pin: null, confirmCommand: null, declaredCommand: null }
+  w.setOffer(offer)
+  await pressUpdateNow(w.host as never)
+  const shown = lastOffer(w) as typeof offer
+  assert.equal(shown.verdict, 'NEEDS_CONFIRM')
+  assert.equal(shown.declaredCommand, 'python')
+  assert.equal(shown.confirmCommand, refusal.retry)
+  assert.equal(w.storeSets.filter((s) => s.key === PENDING_KEY).length, 0)
+  const lines = cardLines(shown) as string[]
+  assert.ok(lines[0]!.includes('python') && lines[0]!.includes('1.0.9'))
+  assert.equal(lines[1], refusal.retry)
+  // No update button remains, because the CLI ignores acceptance inside a Claude Code session.
+  assert.deepEqual(buttonsOf('NEEDS_CONFIRM'), { later: false, now: null })
+})
+
+test('15b exit 3 without a readable NEEDS_CONFIRM result is a failed update and leaves the offer alone', async () => {
+  const w = world({ update: { exitCode: 3, stdout: 'not json\n' }, check: () => ({ verdict: 'CURRENT', repo: null }) })
+  w.setOffer({ verdict: 'PLUGIN_BEHIND', running: '1.0.7', installed: '1.0.7', latest: '1.0.9', pin: null, confirmCommand: null, declaredCommand: null })
+  await pressUpdateNow(w.host as never)
+  assert.equal(w.offers.length, 0)
+  assert.ok(w.logs.some((l) => l.to === 'transcript' && l.text.includes('plugin update failed (exit 3)')))
 })
 
 test('14 an unset update_check behaves as on: a stale cache fetches', async () => {

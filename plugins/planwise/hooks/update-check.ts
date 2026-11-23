@@ -212,7 +212,7 @@ export const markerIsStale = (entry: PendingEntry, running: string | null): bool
 export const offerOf = (check: CheckResult): PlanwiseUpdateOffer | null => {
   const verdict = check.verdict
   if (verdict !== 'RESTART' && verdict !== 'PLUGIN_BEHIND' && verdict !== 'PROJECT_BEHIND') return null
-  return { verdict, running: check.running, installed: check.installed, latest: check.latest, pin: check.pin, confirmCommand: null }
+  return { verdict, running: check.running, installed: check.installed, latest: check.latest, pin: check.pin, confirmCommand: null, declaredCommand: null }
 }
 
 /**
@@ -387,7 +387,8 @@ const pressProjectUpgrade = async (host: PressHost): Promise<void> => {
 
 /**
  * Update Now on `PLUGIN_BEHIND`: run `update_check.py update`. On `UPDATED` write the marker and
- * switch the card to `RESTART`. On `NEEDS_CONFIRM` show the command to run in a terminal.
+ * switch the card to `RESTART`. On `NEEDS_CONFIRM` show the declared command and the terminal command
+ * that lets the person accept it.
  */
 const pressPluginUpdate = async (host: PressHost, offer: PlanwiseUpdateOffer): Promise<void> => {
   const projectRoot = slashed(await host.projectRoot())
@@ -408,7 +409,14 @@ const pressPluginUpdate = async (host: PressHost, offer: PlanwiseUpdateOffer): P
     return
   }
   if (result.exitCode === 3 && outcome === 'NEEDS_CONFIRM') {
-    await host.setOffer({ ...offer, verdict: 'NEEDS_CONFIRM', confirmCommand: parsed === null ? null : textOrNull(parsed['command']) })
+    // `command` is the marketplace's declared command, for the person to review. `retry` is the
+    // terminal command that lets the CLI ask. The CLI ignores acceptance inside a Claude Code session.
+    await host.setOffer({
+      ...offer,
+      verdict: 'NEEDS_CONFIRM',
+      confirmCommand: parsed === null ? null : textOrNull(parsed['retry']),
+      declaredCommand: parsed === null ? null : textOrNull(parsed['command']),
+    })
     return
   }
   const detail = parsed === null ? result.stderr.trim() : String(parsed['detail'] ?? '')
@@ -451,7 +459,10 @@ export const cardLines = (offer: PlanwiseUpdateOffer): string[] => {
     case 'PROJECT_BEHIND':
       return ['Planwise ' + v(offer.running) + ' is installed, but this project is set up for ' + v(offer.pin) + '.']
     case 'NEEDS_CONFIRM':
-      return ['Planwise ' + v(offer.latest) + ' needs a confirmation before it installs. Run this in a terminal, then restart:', offer.confirmCommand ?? '/plugin']
+      return [
+        'Planwise ' + v(offer.latest) + ' needs you to accept a command that its marketplace declares: ' + v(offer.declaredCommand) + '. Run this in a terminal, then restart:',
+        offer.confirmCommand ?? '/plugin',
+      ]
   }
 }
 

@@ -289,11 +289,11 @@ def test_cli_usage_error_exits_2():
 
 # --- update, with subprocess.run stubbed -----------------------------------------
 
-def _fake_run(calls, update_stdout="", update_code=0):
+def _fake_run(calls, update_stdout="", update_code=0, update_stderr="update failed"):
     def run(cmd, **kwargs):
         calls.append((cmd, kwargs))
         if cmd[1:3] == ["plugin", "update"]:
-            return subprocess.CompletedProcess(cmd, update_code, stdout=update_stdout, stderr="update failed")
+            return subprocess.CompletedProcess(cmd, update_code, stdout=update_stdout, stderr=update_stderr)
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
     return run
 
@@ -317,17 +317,106 @@ def test_update_argv_scope_and_cwd(env, monkeypatch, tmp_path):
     assert list(data_dir.iterdir()) == []  # the store branch writes no marker file
 
 
-def test_update_needs_confirm(env, monkeypatch, capsys):
+# The two refusals below are the real output of `claude plugin install <plugin> --json` on CLI
+# 2.1.330, taken on 2026-11-23 with no -y and with stdout piped, so the CLI could only display the
+# declared command. Each run exited 1. Human lines come first and the JSON result is the last line.
+# The CLI help gives `plugin update` the same flags and the same exit codes, so `command` reads
+# "install" here and "update" for an update. Row B printed an em dash that a PowerShell capture
+# showed as mojibake. Re-measure both on the update path once a marketplace with a declared command
+# is at hand.
+_REFUSED_COMMAND_SOURCE_STDOUT = (
+    '"cmdplug" is installed by running a command from marketplace "upb-confirm-cmd" on this machine:\n'
+    "  python\n"
+    '  (mode "copy": its output directory is copied into the plugin cache)\n'
+    "Not an interactive terminal, so the command was only displayed, not accepted. "
+    "Re-run in a terminal to confirm it, or pass -y/--yes to accept the command shown above.\n"
+    '{"command":"install","outcome":"failed","plugin":"cmdplug@upb-confirm-cmd","scope":"user",'
+    '"message":"cmdplug@upb-confirm-cmd is installed by running a command on this machine (`python`) '
+    "that has not been reviewed yet, so it was not run. Review and accept it from its /plugin details "
+    'pane, or in a terminal: run `claude plugin install cmdplug@upb-confirm-cmd`.",'
+    '"failureCode":"command_source_refused","shownCommand":{"kind":"command_source",'
+    '"pluginId":"cmdplug@upb-confirm-cmd","command":"python","mode":"copy",'
+    '"catalogRevision":"sha256:727de8e4d47b8152c0726d84410de1d1551053b2124003c47d8da3a66f045d67",'
+    '"sha256":"074fdbda5cb401cfa4dd1193374be82511ebc52184463afd5e293c16b4c08c9c"}}\n'
+)
+_REFUSED_COMMAND_SOURCE_STDERR = (
+    "cmdplug@upb-confirm-cmd is installed by running a command on this machine (`python`) that has not "
+    "been reviewed yet, so it was not run. Review and accept it from its /plugin details pane, or in a "
+    "terminal: run `claude plugin install cmdplug@upb-confirm-cmd`.\n"
+)
+_REFUSED_ENTRY_HELPER_STDOUT = (
+    "Fetching this plugin's archive sends helper-minted headers to https://example.invalid/arcplug.zip; "
+    "the local command it runs (headersHelper) is: C:/Users/gabgo/.claude/scratch/upb-confirm/hh.cmd\n"
+    "Not an interactive terminal, so the command was only displayed, not accepted. "
+    "Re-run in a terminal to confirm it, or pass -y/--yes to accept the command shown above.\n"
+    '{"command":"install","outcome":"failed","plugin":"arcplug@upb-confirm-arc","scope":"user",'
+    '"message":"Aborted \u2014 the command was not run.","failureCode":"entry_helper_unconfirmed",'
+    '"shownCommand":{"kind":"entry_helper","pluginId":"arcplug@upb-confirm-arc",'
+    '"command":"C:/Users/gabgo/.claude/scratch/upb-confirm/hh.cmd",'
+    '"archiveUrl":"https://example.invalid/arcplug.zip",'
+    '"catalogRevision":"sha256:119b92aaa986cb317150d9d3d3576ef61362ed56567111c5655d79c6e0c93f8c",'
+    '"sha256":"533ef218aa4bfa97232ac80d17bf122a2e596bee3870bd1928f67606da1e4774"}}\n'
+)
+# The one measured `claude plugin update --json` success (CLI 2.1.330, 2026-11-21). Its `command`
+# key names the CLI subcommand, which is not a command to run.
+_UPDATED_RESULT = {
+    "command": "update", "outcome": "ok", "plugin": "planwise@planwise-marketplace",
+    "pluginId": "planwise@planwise-marketplace", "scope": "user",
+    "message": 'Plugin "planwise" updated from 9.9.0 to 9.9.1 for scope user. Restart to apply changes.',
+    "updateOutcome": "updated", "oldVersion": "9.9.0", "newVersion": "9.9.1",
+}
+
+
+@pytest.mark.parametrize("stdout, stderr, declared", [
+    (_REFUSED_COMMAND_SOURCE_STDOUT, _REFUSED_COMMAND_SOURCE_STDERR, "python"),
+    (_REFUSED_ENTRY_HELPER_STDOUT, "", "C:/Users/gabgo/.claude/scratch/upb-confirm/hh.cmd"),
+], ids=["command_source", "entry_helper"])
+def test_update_needs_confirm(env, monkeypatch, capsys, stdout, stderr, declared):
     _, running, project = env()
     calls = []
-    out = json.dumps({"confirmCommand": "claude plugin install helper@other"})
     monkeypatch.setattr(shutil_mod(), "which", lambda name: "claude")
-    monkeypatch.setattr(subprocess, "run", _fake_run(calls, update_stdout=out))
+    monkeypatch.setattr(subprocess, "run", _fake_run(calls, update_stdout=stdout, update_code=1, update_stderr=stderr))
     code = update_check.main(["update", "--running-root", str(running), "--project-root", str(project)])
     data = json.loads(capsys.readouterr().out)
     assert code == update_check.EXIT_NEEDS_CONFIRM == 3
     assert data["result"] == update_check.NEEDS_CONFIRM
-    assert data["command"] == "claude plugin install helper@other"
+    assert data["command"] == declared  # the marketplace's command, for the person to review
+    assert data["retry"] == f"claude plugin update planwise@{MARKET} --scope project"
+    assert all("-y" not in c[0] and "--yes" not in c[0] and "--accept-command" not in c[0] for c in calls)
+
+
+def test_confirm_command_reads_only_the_shown_command():
+    parsed = update_check._last_json(_REFUSED_COMMAND_SOURCE_STDOUT)
+    assert parsed is not None and parsed["command"] == "install"  # the subcommand, never the answer
+    assert update_check.confirm_command(parsed) == "python"
+    assert update_check.confirm_command(update_check._last_json(_REFUSED_ENTRY_HELPER_STDOUT)) == (
+        "C:/Users/gabgo/.claude/scratch/upb-confirm/hh.cmd"
+    )
+
+
+def test_confirm_command_known_bad_arm_subcommand_key(env, monkeypatch):
+    """A guessed flag beside the measured success result must not turn `command` into a command."""
+    for flag in ("needsConfirmation", "requiresConfirmation", "needs_confirmation"):
+        assert update_check.confirm_command({**_UPDATED_RESULT, flag: True}) is None, flag
+    for key in ("confirmCommand", "confirm_command", "commandToConfirm"):
+        assert update_check.confirm_command({**_UPDATED_RESULT, key: "claude plugin install x@y"}) is None, key
+    _, running, project = env()
+    calls = []
+    monkeypatch.setattr(shutil_mod(), "which", lambda name: "claude")
+    stdout = json.dumps({**_UPDATED_RESULT, "needsConfirmation": True}) + "\n"
+    monkeypatch.setattr(subprocess, "run", _fake_run(calls, update_stdout=stdout))
+    code, report = update_check.update(running, project)
+    assert code == update_check.EXIT_UPDATED and report["result"] == update_check.UPDATED
+
+
+def test_confirm_command_rejects_shapes_that_are_not_a_refusal():
+    assert update_check.confirm_command(None) is None
+    assert update_check.confirm_command(_UPDATED_RESULT) is None
+    assert update_check.confirm_command({"shownCommand": "python"}) is None
+    assert update_check.confirm_command({"shownCommand": {"command": "  "}}) is None
+    assert update_check.confirm_command({"shownCommand": {"kind": "command_source"}}) is None
+    # A success result that echoes the command it ran is not a request to confirm one.
+    assert update_check.confirm_command({**_UPDATED_RESULT, "shownCommand": {"command": "python"}}) is None
 
 
 def test_update_failure_exits_1(env, monkeypatch):

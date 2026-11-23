@@ -24,8 +24,13 @@ prerelease (`1.0.9-rc1`) is never "latest".
 
 `update` runs `claude plugin marketplace update <mp>`, then
 `claude plugin update planwise@<mp> --scope <scope> --json`. It never passes
-`-y`. The pending-upgrade marker lives in the plugin store, which only the
-TypeScript module can write, so this script writes no marker file.
+`-y` or `--accept-command`, because the CLI ignores both inside a Claude Code
+session. When the marketplace declares a command that needs a person to accept it,
+the CLI refuses with exit code 1. The refusal is reported as `NEEDS_CONFIRM` with
+exit code 3: `command` holds the declared command, and `retry` holds the command
+the person runs in a terminal. The pending-upgrade marker lives in the plugin
+store, which only the TypeScript module can write, so this script writes no
+marker file.
 
 `check()` reads files only. It makes no network call and starts no process.
 
@@ -67,10 +72,11 @@ OPT_OUT_HOME = "userConfig"
 UPDATE_TIMEOUT = 300
 TAG_PREFIX = "planwise--v"
 _PLAIN_VERSION = re.compile(r"\d+(?:\.\d+)+")
-# Keys a `claude plugin update --json` result may use to name a command that the
-# person must confirm in a terminal. The shape is not measured yet; see confirm_command().
-_CONFIRM_KEYS = ("confirmCommand", "confirm_command", "commandToConfirm")
-_CONFIRM_FLAGS = ("needsConfirmation", "requiresConfirmation", "needs_confirmation")
+# The key a `claude plugin ... --json` result uses when a marketplace declares a command that a
+# person must accept. Measured on CLI 2.1.330 on `plugin install`, and named by the help of
+# `plugin update`. See confirm_command().
+_SHOWN_COMMAND_KEY = "shownCommand"
+_OUTCOME_OK = "ok"
 
 
 # --- version helpers -------------------------------------------------------
@@ -240,18 +246,24 @@ def _last_json(text) -> "dict | None":
 
 
 def confirm_command(result) -> "str | None":
-    """The marketplace-declared command the person must confirm, else None."""
-    if not isinstance(result, dict):
+    """The marketplace-declared command that a person must accept, else None.
+
+    When a marketplace declares a command (a command-source install, or the headersHelper that
+    fetches an archive), the CLI shows it and does not run it without `-y` or a person at a
+    terminal. Its `--json` result then carries `shownCommand`, an object whose `command` is the
+    declared command. The top-level `command` key is the CLI subcommand ("install" or "update"),
+    never a command to run, so this function never reads it.
+
+    A result with `outcome` "ok" is a finished update and never a request, even when it echoes a
+    `shownCommand`.
+    """
+    if not isinstance(result, dict) or result.get("outcome") == _OUTCOME_OK:
         return None
-    for key in _CONFIRM_KEYS:
-        value = result.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    if any(result.get(flag) is True for flag in _CONFIRM_FLAGS):
-        value = result.get("command")
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return None
+    shown = result.get(_SHOWN_COMMAND_KEY)
+    if not isinstance(shown, dict):
+        return None
+    value = shown.get("command")
+    return value.strip() if isinstance(value, str) and value.strip() else None
 
 
 def update(running_root, project_root, data_dir=None) -> "tuple[int, dict]":
@@ -264,7 +276,7 @@ def update(running_root, project_root, data_dir=None) -> "tuple[int, dict]":
     if marketplace:
         key = f"{install_check.PLUGIN_NAME}@{marketplace}"
         entry = install_check.applicable_entry(installed_map.get(key) or [], project_root)
-    report = {"result": FAILED, "command": None, "marketplace": marketplace,
+    report = {"result": FAILED, "command": None, "retry": None, "marketplace": marketplace,
               "scope": (entry or {}).get("scope"), "argv": None, "refresh": None, "detail": ""}
     if entry is None or not report["scope"]:
         report["detail"] = "no planwise marketplace install applies to this project"
@@ -289,7 +301,11 @@ def update(running_root, project_root, data_dir=None) -> "tuple[int, dict]":
     parsed = _last_json(proc.stdout)
     command = confirm_command(parsed)
     if command:
-        report.update(result=NEEDS_CONFIRM, command=command, detail="run the command in a terminal")
+        # `command` is the marketplace's declared command, for the person to review. `retry` is
+        # what the person runs in a terminal, where the CLI can ask. This script never accepts it.
+        retry = f"claude plugin update {install_check.PLUGIN_NAME}@{marketplace} --scope {scope}"
+        report.update(result=NEEDS_CONFIRM, command=command, retry=retry,
+                      detail="a marketplace-declared command needs a person to accept it in a terminal")
         return EXIT_NEEDS_CONFIRM, report
     if proc.returncode != 0:
         lines = (proc.stderr or proc.stdout or "").strip().splitlines()

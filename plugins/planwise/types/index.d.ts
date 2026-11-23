@@ -10,7 +10,11 @@ export type PlanwiseLastDraft = {
   configPath: string
 }
 
-/** What the update card offers. `NEEDS_CONFIRM` follows an Update Now press whose update needs a terminal. */
+/**
+ * What the update card offers. `NEEDS_CONFIRM` follows an Update Now press whose update needs a person
+ * to accept a command that the marketplace declares. `declaredCommand` is that command, for the person to
+ * review. `confirmCommand` is what the person runs in a terminal, where the CLI can ask.
+ */
 export type PlanwiseUpdateOffer = {
   verdict: 'RESTART' | 'PLUGIN_BEHIND' | 'PROJECT_BEHIND' | 'NEEDS_CONFIRM'
   running: string | null
@@ -18,6 +22,7 @@ export type PlanwiseUpdateOffer = {
   latest: string | null
   pin: string | null
   confirmCommand: string | null
+  declaredCommand: string | null
 }
 
 declare module 'claude-code' {
