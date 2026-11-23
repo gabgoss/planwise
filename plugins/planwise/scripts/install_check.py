@@ -17,7 +17,9 @@ the install record Claude Code keeps, and returns one verdict:
 
 The install that applies is the first match in this order: the `local` entry for
 this `projectPath`, then the `project` entry for it, then the `user` entry.
-Paths compare with case and separators normalised.
+Paths compare with case and separators normalised. Inside a git linked worktree,
+the `local` or `project` entry recorded for the main checkout applies as well:
+the worktree is the same project at another path.
 
 `check()` reads files only. The CLI's `--refresh` flag first runs
 `claude plugin marketplace update {marketplace}`. A failed refresh prints a
@@ -104,17 +106,71 @@ def marketplace_name(running_root, installed: dict) -> "str | None":
     return None
 
 
+def _linked_worktree_main(base: Path) -> "Path | None":
+    """The main checkout of the linked worktree rooted at `base`, or None.
+
+    A linked worktree's `.git` is a file that reads `gitdir: <admin folder>`. The admin folder
+    holds a `commondir` file that names the common git folder, and the main checkout is the
+    folder that holds a common folder named `.git`. A submodule's `.git` file names a folder
+    with no `commondir`, and a bare repository's common folder is not named `.git`: both
+    return None.
+    """
+    try:
+        first = (base / ".git").read_text(encoding="utf-8", errors="replace").splitlines()[0]
+        if not first.startswith("gitdir:"):
+            return None
+        admin = Path(first[len("gitdir:"):].strip())
+        if not admin.is_absolute():
+            admin = base / admin
+        named = (admin / "commondir").read_text(encoding="utf-8", errors="replace").strip()
+    except (OSError, IndexError):
+        return None
+    if not named:
+        return None
+    common = Path(os.path.normpath(admin / named))
+    return common.parent if common.name == ".git" else None
+
+
+def main_checkout_root(project_root) -> "Path | None":
+    """The same project folder inside the main checkout, when `project_root` sits in a git
+    linked worktree. None for an ordinary checkout and for a folder outside git.
+
+    Claude Code records a `local` or `project` install under the path of the checkout that
+    installed it. A linked worktree is the same project at another path. Reads files only,
+    and runs no git process.
+    """
+    root = Path(os.path.abspath(str(project_root)))
+    for base in (root, *root.parents):
+        dot_git = base / ".git"
+        if dot_git.is_dir():
+            return None
+        if dot_git.is_file():
+            main = _linked_worktree_main(base)
+            return None if main is None else main / root.relative_to(base)
+    return None
+
+
 def applicable_entry(entries: list, project_root) -> "dict | None":
-    """The install entry that applies to the project: local, then project, then user."""
-    want = norm(project_root)
+    """The install entry that applies to the project: local, then project, then user.
+
+    A `local` or `project` entry applies when its `projectPath` is the project root. Inside a
+    git linked worktree the entry recorded for the main checkout applies too, after an entry
+    recorded for the worktree's own path.
+    """
+    wants = [norm(project_root)]
+    main = main_checkout_root(project_root)
+    if main is not None and norm(main) not in wants:
+        wants.append(norm(main))
     for scope in SCOPE_ORDER:
-        matches = [
-            e for e in entries
-            if isinstance(e, dict) and e.get("scope") == scope
-            and (scope == "user" or norm(e.get("projectPath", "")) == want)
-        ]
-        if matches:
-            return max(matches, key=lambda e: str(e.get("lastUpdated", "")))
+        # A user entry carries no project path, so it matches once.
+        for want in ([None] if scope == "user" else wants):
+            matches = [
+                e for e in entries
+                if isinstance(e, dict) and e.get("scope") == scope
+                and (want is None or norm(e.get("projectPath", "")) == want)
+            ]
+            if matches:
+                return max(matches, key=lambda e: str(e.get("lastUpdated", "")))
     return None
 
 

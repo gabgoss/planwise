@@ -138,6 +138,106 @@ def test_mixed_case_backslash_project_path_matches(tmp_path):
     assert result["verdict"] == install_check.OK
 
 
+# --- a git linked worktree: the same project at another path ---------------------
+
+def _git(cwd: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-c", "user.name=test", "-c", "user.email=test@example.test", "-c", "commit.gpgsign=false", *args],
+        cwd=cwd, check=True, capture_output=True,
+    )
+
+
+def _worktree(base: Path) -> "tuple[Path, Path]":
+    """A real main checkout, and a real linked worktree nested in it the way Claude Code nests one.
+
+    git writes the worktree's `.git` file and its `commondir`, so the reader is tested on the
+    producer's own bytes. Both paths are resolved, because git records resolved paths."""
+    main = base.resolve() / "main"
+    (main / "sub" / "proj").mkdir(parents=True)
+    (main / "sub" / "proj" / "keep.txt").write_text("x\n", encoding="utf-8")
+    _git(main, "init", "-q", "-b", "main")
+    _git(main, "add", "-A")
+    _git(main, "commit", "-q", "-m", "init")
+    linked = main / ".claude" / "worktrees" / "wt"
+    _git(main, "worktree", "add", "-q", str(linked), "-b", "wt")
+    return main, linked
+
+
+def _clone(base: Path, main: Path) -> Path:
+    """A second ordinary clone of the same repository: another project, not a linked worktree."""
+    clone = base.resolve() / "clone"
+    _git(base, "clone", "-q", str(main), str(clone))
+    return clone
+
+
+def _record(config: Path, entries: list) -> None:
+    (config / "plugins" / "installed_plugins.json").write_text(
+        json.dumps({"plugins": {f"planwise@{MARKET}": entries}}), encoding="utf-8"
+    )
+
+
+def test_main_checkout_root_reads_a_real_linked_worktree(tmp_path):
+    main, linked = _worktree(tmp_path)
+    norm = install_check.norm
+    assert linked.joinpath(".git").is_file()  # the fixture is a linked worktree, not a clone
+    assert norm(install_check.main_checkout_root(linked)) == norm(main)
+    # A project folder below the worktree root maps to the same folder below the main checkout.
+    assert norm(install_check.main_checkout_root(linked / "sub" / "proj")) == norm(main / "sub" / "proj")
+    # The main checkout, a second clone and a folder that does not exist are not linked worktrees.
+    assert install_check.main_checkout_root(main) is None
+    assert install_check.main_checkout_root(main / "sub" / "proj") is None
+    assert install_check.main_checkout_root(_clone(tmp_path, main)) is None
+    assert install_check.main_checkout_root(tmp_path / "absent") is None
+
+
+def test_a_git_file_that_is_not_a_linked_worktree_maps_to_nothing(tmp_path):
+    # A submodule's `.git` file names a folder with no `commondir` file in it.
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (tmp_path / "modules" / "sub").mkdir(parents=True)
+    (sub / ".git").write_text("gitdir: ../modules/sub\n", encoding="utf-8")
+    assert install_check.main_checkout_root(sub) is None
+    (sub / ".git").write_text("not a gitdir line\n", encoding="utf-8")
+    assert install_check.main_checkout_root(sub) is None
+    (sub / ".git").write_text("", encoding="utf-8")
+    assert install_check.main_checkout_root(sub) is None
+
+
+def test_project_install_for_the_main_checkout_applies_in_a_linked_worktree(tmp_path):
+    main, linked = _worktree(tmp_path)
+    config = _home(tmp_path, [])
+    running = _cache(config, "1.0.5.5")
+    _record(config, [_entry("project", running, "1.0.5.5", main)])
+    in_main = install_check.check(running, main, config)
+    in_worktree = install_check.check(running, linked, config)
+    assert (in_main["verdict"], in_main["scope"]) == (install_check.OK, "project")
+    assert (in_worktree["verdict"], in_worktree["scope"]) == (install_check.OK, "project")
+    # Known-bad arm: a second clone is another project, and the main checkout's install is not its own.
+    in_clone = install_check.check(running, _clone(tmp_path, main), config)
+    assert in_clone["verdict"] == install_check.NOT_MARKETPLACE_INSTALL
+    assert "applies to this project" in in_clone["reason"]
+
+
+def test_an_install_recorded_for_the_worktree_path_wins_over_the_main_checkout(tmp_path):
+    main, linked = _worktree(tmp_path)
+    config = _home(tmp_path, [])
+    main_copy = _cache(config, "1.0.5.4")
+    own_copy = _cache(config, "1.0.5.5")
+    entries = [
+        _entry("project", main_copy, "1.0.5.4", main, updated="2026-11-09T00:00:00.000Z"),
+        _entry("project", own_copy, "1.0.5.5", linked, updated="2026-11-01T00:00:00.000Z"),
+    ]
+    # The worktree's own entry wins inside the worktree, although the other entry is newer.
+    assert install_check.applicable_entry(entries, linked)["installPath"] == str(own_copy)
+    # From the main checkout, an entry recorded for a worktree path never applies.
+    assert install_check.applicable_entry(entries, main)["installPath"] == str(main_copy)
+    assert install_check.applicable_entry(entries[1:], main) is None
+    # Scope order still comes first: a local entry for the main checkout precedes both.
+    local_copy = _cache(config, "1.0.5.3")
+    entries.append(_entry("local", local_copy, "1.0.5.3", main))
+    assert install_check.applicable_entry(entries, linked)["scope"] == "local"
+
+
 def test_missing_installed_plugins_is_not_marketplace_install(tmp_path):
     config = tmp_path / "empty"
     running = _plugin(tmp_path / "dev" / "planwise", "1.0.5.5")
