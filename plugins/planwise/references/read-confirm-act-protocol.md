@@ -277,17 +277,14 @@ A numeric flag about a live artifact (a line count, a byte count, a row count) e
 >
 > These flags were surfaced and reconciled by upstream session orchestrators. Treat each settled measurement as a validated record: re-measure it for staleness, never re-argue it. Treat each figure about a live artifact as a baseline that moves with the source: re-measure at dispatch. Treat each carried inference or recommendation as an input that a downstream gate may overturn.
 >
-> ### From {source-session-id} ({source-session-name}) — recorded {YYYY-MM-DD} — measured against {artifact} {N lines|bytes|count} at {commit}
+> ### From {source-session-id} — recorded {date} — measured against {artifact} {N lines|bytes|count} at {commit}
 >
-> 1. **{Short flag headline}.** {Paragraph describing the constraint / dependency / opportunity and the recommended action.}
-> 2. **{Short flag headline}.** {...}
->
-> ### From {next-source-session-id} — to be appended when session completes
->
-> *(none yet)*
+> | Flag # | Source Task | Consuming Task | Observation | Recommended Action | Routed |
+> |--------|-------------|----------------|-------------|--------------------|--------|
+> | {n} | {source-task-id} | {task-id, or "session" when the consumer is unclear} | {observation} | {recommended action} | {pending, or ✅ ROUTED {YYYY-MM-DD} into {task file}} |
 > ```
 
-The reserved placeholder for later sources is intentional — it tells future closeout orchestrators where to append without re-deriving the section structure. A placeholder still present beside a COMPLETE upstream source is a claim the receiver verifies at Step 1.1a. It is not evidence that the source raised no flag.
+A closeout appends one new `### From` block per source session, so each source keeps its own H3 line and its own date.
 
 #### Shared-File Flags Must Be Reciprocal
 

@@ -4,8 +4,10 @@ Prints one JSON object: the shape of each index (`generated`, `legacy`, `unrecog
 `absent`) and `any_legacy`, true when at least one index is hand-authored. With
 `--questions` it also runs each family's read-only report on a legacy index and adds the
 refusals the migration would raise (`would_refuse`) and the questions a handler should ask
-the user before it migrates (`questions`). It never writes, and it exits 0 whatever the
-indexes hold, so a handler can run it before any write and read the answer from stdout.
+the user before it migrates (`questions`). The backlog entry's `questions` also holds one
+question for each distinct item status outside `VALID_STATUSES`, whatever the index shape.
+It never writes, and it exits 0 whatever the indexes hold, so a handler can run it before
+any write and read the answer from stdout.
 
     python index_shape_preflight.py --config <planwise>/config.yaml [--questions] [--json]
 """
@@ -17,6 +19,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 
 import config_loader
+import constants
 import migrate_backlog_index as backlog
 import migrate_backlog_support as backlog_sup
 import migrate_lessons_index as lessons
@@ -26,6 +29,32 @@ import migrate_plans_index as plans
 FAMILIES = (("backlog", "_index_path", backlog_sup.classify_shape, backlog.build_report),
             ("lessons", "_lessons_index", lessons_sup.classify_shape, lessons.build_report),
             ("plans", "_plans_index", plans.classify_shape, plans.build_report))
+
+
+_MAX_IDS_SHOWN = 10
+# AskUserQuestion takes at most 4 options, and the user's own "Other" reaches the rest.
+_STATUS_OPTIONS = ("NOT_STARTED", "IN_PROGRESS", "BLOCKED", "COMPLETE")
+
+
+def status_question(status: str, ids: list) -> dict:
+    """The question for one out-of-set item status. Each option's `answer` is a `status_map` fragment
+    that `migration_answers` accepts as written. The statuses no option names ride in the prompt."""
+    shown = ", ".join(ids[:_MAX_IDS_SHOWN]) + (f" and {len(ids) - _MAX_IDS_SHOWN} more" if len(ids) > _MAX_IDS_SHOWN else "")
+    unlisted = ", ".join(sorted(constants.VALID_STATUSES - set(_STATUS_OPTIONS)))
+    return {"id": "item-status",
+            "prompt": (f"{len(ids)} open backlog item(s) ({shown}) carry the status '{status}', which is not a valid "
+                       f"status. Which status should they take? For {unlisted}, choose Other and type it."),
+            "options": [{"label": target, "answer": {"status_map": [f"{status}->{target}"]}}
+                        for target in _STATUS_OPTIONS],
+            "statuses": [status], "items": list(ids)}
+
+
+def status_questions(config: dict) -> list:
+    """One question for each distinct out-of-set status among the open backlog items, whatever the index shape."""
+    import backlog_item_shape
+
+    found = backlog_item_shape.out_of_set_statuses(config["_backlog_dir"])
+    return [status_question(status, ids) for status, ids in found.items()]
 
 
 def _detail(shape: str, detail) -> str:
@@ -72,6 +101,11 @@ def main(argv=None) -> int:
         return 0
     out = {name: inspect(config, key, classify, report_fn, args.questions)
            for name, key, classify, report_fn in FAMILIES}
+    if args.questions and "questions" in out["backlog"]:
+        try:
+            out["backlog"]["questions"] += status_questions(config)
+        except Exception as exc:  # noqa: BLE001 -- a failed item scan is reported, it never raises
+            out["backlog"]["report_error"] = f"could not scan the item statuses: {exc!r}"
     out["any_legacy"] = any(out[name]["shape"] == "legacy" for name, *_ in FAMILIES)
     print(json.dumps(out, indent=2, default=str))
     return 0

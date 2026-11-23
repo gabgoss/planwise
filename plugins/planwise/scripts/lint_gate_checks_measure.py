@@ -385,9 +385,62 @@ _BYTE_EQUALITY_RE = re.compile(r"\s-eq\s|==|\bequals?\b|\bbytes?\b", re.IGNORECA
 _CHAR_OPERAND_RES = (
     ("awk length", re.compile(r"\bawk\b[^|]*\blength\b")),
     ("${#var}", re.compile(r"\$\{#[A-Za-z_]\w*\}")),
-    ("len() over a decoded string", re.compile(r"\blen\(")),
 )
-_BYTE_READ_RE = re.compile(r"rb['\"]|\.encode\(|read_bytes\(|\bbytes\(|\bwc\s+-c\b")
+_LEN_CALL_RE = re.compile(r"(?<![\w.])len\(")
+_BYTE_MARK_RE = re.compile(r"rb['\"]|\bb['\"]|\.encode\(|read_bytes\(|\bbytes\(")
+_TEXT_RUN_RE = re.compile(r"\btext\s*=\s*True|\buniversal_newlines\s*=\s*True|\bencoding\s*=")
+_STR_KEEP_TAIL_RE = re.compile(
+    r"\.(?:strip|rstrip|lstrip|lower|upper|casefold|replace)\((?:[^()]|\([^()]*\))*\)$"
+)
+_DECODED_TAIL_RE = re.compile(r"\.read_text\((?:[^()]|\([^()]*\))*\)$|\.decode\((?:[^()]|\([^()]*\))*\)$")
+_NAME_RE = re.compile(r"^([A-Za-z_]\w*)(?:\.(stdout|stderr))?$")
+_MAX_BINDING_DEPTH = 2
+
+
+def _balanced_arg(text, start):
+    """Return the text between ``start`` and its closing parenthesis, or None."""
+    depth = 1
+    for index in range(start, len(text)):
+        if text[index] == "(":
+            depth += 1
+        elif text[index] == ")":
+            depth -= 1
+            if depth == 0:
+                return text[start:index]
+    return None
+
+
+def _decoded_operand(arg, command, depth=0):
+    """True when ``arg`` traces, inside ``command``, to text decoded from bytes."""
+    arg = arg.strip()
+    while True:
+        tail = _STR_KEEP_TAIL_RE.search(arg)
+        if not tail:
+            break
+        arg = arg[:tail.start()]
+    if _BYTE_MARK_RE.search(arg):
+        return False
+    if arg.endswith(".read()") and "open(" in arg:
+        return True
+    if arg.endswith("stdin.read()") or _DECODED_TAIL_RE.search(arg):
+        return True
+    named = _NAME_RE.match(arg)
+    if not named or depth > _MAX_BINDING_DEPTH:
+        return False
+    name, stream = named.groups()
+    if stream:
+        return bool(_TEXT_RUN_RE.search(command))
+    bound = re.search(rf"(?<![\w.]){re.escape(name)}\s*=(?!=)\s*([^;\n]+)", command)
+    return bool(bound) and _decoded_operand(bound.group(1), command, depth + 1)
+
+
+def _len_over_decoded_text(command):
+    """True when a ``len(`` in ``command`` counts the characters of decoded text."""
+    for call in _LEN_CALL_RE.finditer(command):
+        arg = _balanced_arg(command, call.end())
+        if arg is not None and _decoded_operand(arg, command):
+            return True
+    return False
 
 # --- Check 52: a character class right after the diff sign (gate-predicate-discrimination.md §6) ---
 _SIGN_CLASS_RE = re.compile(
@@ -408,24 +461,33 @@ _NUMERIC_PIN_RE = re.compile(r"(?:\s-eq\s|==|!=|\s-ne\s)\s*\"?\d{3,}")
 def _check51_char_count_in_byte_identity(context) -> list:
     """Check 51 -- a gate block asserts byte equality (``-eq``, ``==``, ``equals`` or
     the word ``byte``) and a command in it takes an operand from ``awk`` ``length``,
-    ``${#var}`` or ``len(`` over a decoded string (measure-aggregate-provenance.md §5).
+    ``${#var}`` or ``len(`` over decoded text (measure-aggregate-provenance.md §5).
     Those count characters, so a file with multi-byte characters reads a deficit that
     looks like lost content. A command is read even when it holds a brace, because the
-    operand forms carry one (``{print length($0)}``, ``${#var}``). A ``len(`` in a command that also reads raw bytes
-    (``rb``, ``.encode(``, ``wc -c``) is not reported. One finding per offending
-    command. ERROR. It cannot see an operand a script computes, a character count that
-    is meant as a character count, or an equality stated only in prose.
+    operand forms carry one (``{print length($0)}``, ``${#var}``).
+
+    A ``len(`` is reported only when its argument traces, in the same command, to
+    decoded text: a text-mode ``open(...).read()``, ``.read_text(``, ``.decode(``,
+    ``stdin.read()``, a ``.stdout`` or ``.stderr`` in a command that carries
+    ``text=True``, ``universal_newlines=True`` or ``encoding=``, or a name bound to
+    one of those. A ``wc -c`` elsewhere in the command does not exempt it. One finding
+    per offending command. ERROR.
+
+    It does not report a raw-bytes read (``rb``, ``.encode(``, or ``capture_output=True``
+    without ``text=True``), an item count (a literal, a comprehension, ``findall``,
+    ``split``, ``os.walk`` names), or an operand it cannot trace. It cannot see an
+    operand a script computes, a character count that is meant as a character count,
+    or an equality stated only in prose.
     """
     findings = []
     for commands in _task_commands(context).values():
         if not any(_BYTE_EQUALITY_RE.search(c.command) for c in commands):
             continue
         for command in commands:
-            for label, pattern in _CHAR_OPERAND_RES:
-                if not pattern.search(command.command):
-                    continue
-                if label.startswith("len") and _BYTE_READ_RE.search(command.command):
-                    continue
+            labels = [label for label, pattern in _CHAR_OPERAND_RES if pattern.search(command.command)]
+            if _len_over_decoded_text(command.command):
+                labels.append("len() over a decoded string")
+            for label in labels:
                 findings.append(_finding(
                     check=51, severity=SEVERITY_ERROR, file=command.file, line=command.line,
                     command=command.command,

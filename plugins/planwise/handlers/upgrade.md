@@ -325,7 +325,7 @@ Use the Write tool to write the collected verdicts to `{planwise_root}/upgrade-c
 
 ### Step 2.3b — Ask the migration questions
 
-The migrators refuse some inputs only a person can settle, such as two backlog items that each block the other. Ask before the writer runs. Run the preflight, which reads the three indexes and changes nothing:
+The migrators refuse some inputs only a person can settle, such as two backlog items that each block the other. The backlog family also asks about an open item whose status is outside the valid statuses, one question for each distinct status. Ask before the writer runs. Run the preflight, which reads the three indexes and changes nothing:
 
 ```bash
 python "{plugin_root}/scripts/index_shape_preflight.py" --config "{planwise_root}/config.yaml" --questions
@@ -335,14 +335,14 @@ The JSON holds one entry per index family (`backlog`, `lessons`, `plans`). Each 
 
 1. When every list is empty, write no file and set `{answers_path}` to none. Go to Step 2.4.
 2. Otherwise, call `AskUserQuestion` <!-- AUTO-MODE: convenience --> with one question per entry. Use the entry's `prompt` as the question text and each `options[].label` as an option. One call holds at most 4 questions, so send the questions in batches of 4.
-3. Each option carries an `answer` fragment. Merge the fragments of the chosen options by concatenating each key's list. Never write a key the fragments do not hold.
+3. Each option carries an `answer` fragment. Merge the fragments of the chosen options by concatenating each key's list. Never write a key the fragments do not hold. When the user picks Other on a status question, write `{"status_map": ["<status>-><typed status>"]}` with the question's `statuses` entry and the typed text.
 4. Write the merged object with the Write tool to `{planwise_root}/upgrade-conflicts/{from}-to-{to}/migration-answers.json`. Write creates the directory. Record this path as `{answers_path}`.
 
 ```json
-{"edge_drops": ["002->001", "003<->004:both"]}
+{"edge_drops": ["002->001", "003<->004:both"], "status_map": ["OPEN->NOT_STARTED"]}
 ```
 
-Never infer a direction. When a question has no answer because the user declines, write no file for that question. The migrator then refuses in the Step 3 banner, and the chat summary names the refusal as action required. In Auto Mode, do not call `AskUserQuestion`. The safe default is no answer: write no answers file, set `{answers_path}` to none, log `Auto-Mode inference: migration answers=none (reason: an edge direction cannot be inferred)`, and run Step 2.4 without `--migration-answers`. The migrator then refuses only the unanswered family and writes nothing for it. The rest of the upgrade still refreshes artifacts, pins the version and repoints `plugin_root`. In the chat summary, name each unanswered family as action required: "answer the reciprocal-edge question in an interactive /planwise upgrade".
+Never infer a direction or a status. When a question has no answer because the user declines, write no file for that question. The migrator then refuses in the Step 3 banner, and the chat summary names the refusal as action required. In Auto Mode, do not call `AskUserQuestion`. The safe default is no answer: write no answers file, set `{answers_path}` to none, log `Auto-Mode inference: migration answers=none (reason: an edge direction or an item status cannot be inferred)`. Auto Mode answers no status question, and run Step 2.4 without `--migration-answers`. The migrator then refuses only the unanswered family and writes nothing for it. The rest of the upgrade still refreshes artifacts, pins the version and repoints `plugin_root`. In the chat summary, name each unanswered family as action required: "answer the reciprocal-edge question in an interactive /planwise upgrade".
 
 Every route into Step 2.4 passes through this step first, including the equal-version branches of the Step 1 gate. On those branches `{from}` and `{to}` both equal the pinned version.
 

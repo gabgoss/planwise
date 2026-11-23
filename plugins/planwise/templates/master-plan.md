@@ -227,7 +227,9 @@ recomputed: {today's date}.
 
 <!-- Include when a session routed a coordination flag to a follow-up plan that is not yet
      written. Omit the section when there is none. The follow-up plan's author reads these
-     rows at scaffold time. -->
+     rows at scaffold time. Add one H3 block per source session. -->
+
+### From {source-session-id} — recorded {date}
 
 | Flag # | Source Task | Destination | Observation | Recommended Action |
 |--------|-------------|-------------|-------------|--------------------|

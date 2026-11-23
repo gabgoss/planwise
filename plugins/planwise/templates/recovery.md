@@ -144,7 +144,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Recovery.md`.
 |------|------|--------|-------|
 | {today} | - | CREATED | Recovery file initialized |
 
-*A runner's planned stop is recorded as a row with Status `GATE_PENDING` and the `ROUTE/FLAGS` value in Notes, before the user gate is asked. The user's answer is recorded verbatim in a later row.*
+*A runner's planned stop is recorded as a row with Status `GATE_PENDING` and the `ROUTE/FLAGS` value in Notes, before the user gate is asked. A gate the Orchestration declares records its answer in the `## User-Action Gate` table. Any other stop records the answer verbatim in a later row.*
 
 ---
 
@@ -158,14 +158,15 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Recovery.md`.
 
 ---
 
-## User-Action Gate <!-- OPTIONAL — a session of a Discovery (meta) plan that stops for the user's answer -->
+## User-Action Gate <!-- OPTIONAL — a session that stops for the user's answer -->
 
 <!-- Include only when the session's Orchestration file carries a `User-Action Gate` section.
-     Omit the section otherwise. Record the user's answer verbatim in the Answer cell. -->
+     Omit the section otherwise. The Gate cell holds the gate id from the Orchestration table.
+     Record the user's answer verbatim in the Answer cell. -->
 
 | Gate | Status | Date Asked | Answer |
 |------|--------|------------|--------|
-| {gate name} | OPEN | {YYYY-MM-DD} | {the user's answer, verbatim, or "pending"} |
+| {gate id} | OPEN | {YYYY-MM-DD} | {the user's answer, verbatim, or "pending"} |
 
 *Status is `OPEN` until the user answers. It then becomes `RATIFIED` or `REJECTED`.*
 

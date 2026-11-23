@@ -53,7 +53,7 @@ The orchestrator fixes the decomposition, every task id, every Output path, `wri
 
 Copy these headings byte for byte, in this order, with their markers. Each list was taken from the live template; the line count beside it shows when the template last moved. A heading marked OPTIONAL or CONDITIONAL is kept only when its condition holds, and then in this position. A file never gains a `##` H2 that its list does not hold.
 
-### Sprint Plan — `templates/sprint-plan.md` (255 lines)
+### Sprint Plan — `templates/sprint-plan.md` (259 lines)
 
 ```
 ## Sprint Objective <!-- REQUIRED -->

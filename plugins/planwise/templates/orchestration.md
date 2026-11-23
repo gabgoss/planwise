@@ -411,16 +411,16 @@ See `agents/task-runner.md` §5.B for the runnable schema.
 
 ---
 
-## User-Action Gate <!-- OPTIONAL — a session of a Discovery (meta) plan that stops for the user's answer -->
+## User-Action Gate <!-- OPTIONAL — a session that stops for the user's answer -->
 
-<!-- Include only when this session ends at a gate the user answers. Omit the section otherwise.
-     The master plan's User-Action Gates table names the gate. This section holds the session's
-     side of it. -->
+<!-- Include when a task of this session waits on the user's answer. Write one row per gate. A gate that
+     ends the session writes `session end` in Blocks Task. Omit the section otherwise.
+     A Discovery plan's master plan names its gates in its User-Action Gates table. This section holds the
+     session's side of each one. The Recovery file tracks each gate by the id in the Gate column. -->
 
-- **Stops after:** {task-id, or the step where the session halts}
-- **Hands the user:** {document or summary the user reads, with its path}
-- **Allowed answers:** {answer 1, answer 2}
-- **After the answer:** {what the next session or the Recovery file does with each answer}
+| Gate | Blocks Task | Hands the User | Allowed Answers | After the Answer |
+|------|-------------|----------------|-----------------|------------------|
+| {gate id} | {task-id, or `session end`} | {document or summary the user reads, with its path} | {answer 1, answer 2} | {what the next session or the Recovery file does with each answer} |
 
 ---
 

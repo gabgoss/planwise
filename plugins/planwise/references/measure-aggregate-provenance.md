@@ -156,7 +156,7 @@ Two points follow.
 - **Measure conservation in bytes end to end.** The baseline, the per-destination accounting and the live re-measure all come from `rb` reads or `wc -c`. Never from `awk`, `${#var}` or `len(str)`.
 - **A brief's pinned measurement command is a claim to run once and cross-check, not an instrument to trust.** Only two instruments side by side expose a mechanism the brief did not predict.
 
-Check 51 in `scripts/lint_gate_checks_measure.py` enforces the first point on task files. `scripts/lint_verification_gates.py` runs it and reports an ERROR for a byte-equality gate that takes an operand from `awk length(`, `${#var}` or `len(` over a decoded string.
+Check 51 in `scripts/lint_gate_checks_measure.py` enforces the first point on task files. `scripts/lint_verification_gates.py` runs it and reports an ERROR for a byte-equality gate that takes an operand from `awk length(`, `${#var}` or `len(` over a decoded string. The check reports a `len(` only when its operand traces to decoded text in the same command. It does not report a raw-bytes subprocess read, an item count, or an operand it cannot trace.
 
 Name the instrument beside each byte figure, and treat blob bytes against checkout bytes as the same trap: [`measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md`](measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md) § "8.12 A byte pin names its instrument: blob bytes and checkout bytes differ under autocrlf".
 

@@ -452,8 +452,9 @@ OTHER_SESSION = "Sprint-01-LedgerCore/Session-02-WritePath/QZX-S01-02-"
 def test_meta_plan_sections_render_only_when_opted_in():
     plain, _ = sp.render_all(make_spec(), TEMPLATES)
     assert "## Discovery Inputs" not in plain["QZX-Master-Plan.md"]
-    assert "## User-Action Gate" not in plain[GATED_SESSION + "Orchestration.md"]
-    assert "## User-Action Gate" not in plain[GATED_SESSION + "Recovery.md"]
+    # The heading line, not the phrase: the Recovery Change Log note names the section in prose.
+    assert "\n## User-Action Gate" not in plain[GATED_SESSION + "Orchestration.md"]
+    assert "\n## User-Action Gate" not in plain[GATED_SESSION + "Recovery.md"]
 
     opted = make_spec()
     opted["optional_sections"] = ["Discovery Inputs"]
@@ -469,7 +470,7 @@ def test_meta_plan_sections_render_only_when_opted_in():
     for kind in ("Orchestration", "Recovery"):
         gated = files[GATED_SESSION + kind + ".md"]
         assert gated.count("\n## User-Action Gate") == 1, kind
-        assert "## User-Action Gate" not in files[OTHER_SESSION + kind + ".md"], kind
+        assert "\n## User-Action Gate" not in files[OTHER_SESSION + kind + ".md"], kind
         assert sp.check_text(gated, *sp.template_heading_sets(TEMPLATES)[kind.lower()])[1] == [], kind
 
 

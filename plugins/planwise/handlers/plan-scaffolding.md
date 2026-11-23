@@ -121,6 +121,7 @@ Runs when Step 3.5 printed `inline`. For EACH sprint, produce an **Execution Inp
 4. From cross-sprint reference parts, extract ONLY the decisions/conventions this sprint needs
 5. Add Cross-References table tracing each section back to its source
 6. If at/over 22K measured tokens (`python "{plugin_root}/scripts/measure_files.py" {EI file}`), split into parts: `{Abbrev}-S{XX}-Execution-Input-Part-{N}-{Topic}.md`. State the target in bytes beside the token figure, and add a split index when the estimate is within 20% of the ceiling.
+6a. **Write the `Retention:` header line.** After the measurement, compute `(EI tokens + Deferred log tokens) / source tokens × 100` to one decimal. Write it into Part 1 as `**Retention:** {RETENTION_PCT}%`, directly under the `**Source lines:**` line. The lint rule `retention-threshold` reads that line and warns when it is absent.
 7. **Before finalizing each section (binding):** (a) for any row citing a project-side backlog item or prior review as authority for a conclusion, read that authority's corrections/acceptance-criteria before compressing — a cited authority that has revised the claim is a HALT, not a footnote (`references/ei-source-promise-integrity.md` §10.4); (b) preserve hedge language verbatim, or record what was measured to resolve it (`references/ei-fidelity.md` §4.5); (c) for any row asserting a state (not just citing a path), re-run the assertion against the live artifact and record the measured value + date inline (`references/scaffolding-hygiene.md` §12.3). (d) for any executable check the EI carries (a query, shell command, `Grep` call or assertion snippet) that a later task or signoff runs verbatim, execute it once against the deployed object and stamp the date, object and value, or mark it UNVERIFIED and name the task that deploys the object (`references/ei-fidelity.md` §4.6).
 8. **Per-sprint consistency gate (binding).** Run it after this sprint's EI and its Deferred / Out-of-Scope Log are written, and before the next sprint's step 1. (a) Set-diff the `Extracted from:` sources against the Cross-References source cells in both directions. The `(informational-only)` exemption of `references/session-plan-requirements.md` applies. (b) Check every Deferred and Out-of-Scope row's redirect target against that file's Deferred/Out-of-Scope Log Requirement. On any finding, repair the file with a whole-file `Write` and re-run the gate. Never start the next sprint with an open finding.
 
@@ -357,7 +358,7 @@ See `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §13.4 f
 >
 > On the inline path this applies to ALL file-generation agent prompts during scaffolding: sprint plans, orchestrations, task files.
 >
-> When a file keeps an OPTIONAL section, name it in its template position too. For an Orchestration that is `## Pre-Known Cross-Task Coordination Flags` after `## Task Files`, and `## Plan-Specific Sections` as the last H2, which holds unanticipated sections as H3s.
+> When a file keeps an OPTIONAL section, name it in its template position too. For an Orchestration that is `## Pre-Known Cross-Task Coordination Flags` after `## Task Files`, `## User-Action Gate` after `## Post-Session Checklist`, and `## Plan-Specific Sections` as the last H2, which holds unanticipated sections as H3s.
 
 ## Scaffolding Step 6: Validation
 

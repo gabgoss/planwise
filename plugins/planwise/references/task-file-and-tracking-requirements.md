@@ -289,6 +289,8 @@ Issue: Required Context cites {cross_session_file} but Depends On lacks cross-se
 Fix: Add "cross-session: {Abbrev}-S{XX}-{YY}" per references/task-file-and-tracking-requirements.md §9 | Confidence: HIGH
 ```
 
+The plan linter runs Reviewer Checks 037 and 038, and the same-session row of the mirroring table, as lint Check 60. It reports an ERROR when `Depends On` omits a producer of a Required Context file, or names it in the wrong form. It reports a WARNING when a `Depends On` entry names a task that writes no file this task reads. A `Cross-Sprint Refs` listing does not satisfy it (`templates/task-file.md`).
+
 **Cross-layer Depends On reconciliation:**
 
 Four layers state a task's dependency: the task-file header, its Required Context, the Orchestration `**Prerequisite:**` header and the Sprint Plan cell. The task-file layer is the one written with the task's Required Context in front of the author, so it is the source. The Orchestration `Session Task List` cell and the Sprint Plan `Session Details` cell only restate it. A restated cell drifts when the header changes and nobody re-copies it.

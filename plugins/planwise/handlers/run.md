@@ -152,7 +152,6 @@ While reading, watch for structural findings beyond the literal task scope -- la
 >   - [ ] The Master Plan's `## Carried-Forward Coordination Flags` section (if present)
 > - [ ] Diff the union of those four against what actually appears in the task files. A flag with no task-file hit is unrouted, however many plan files mention it
 > - [ ] **Check every destination, not only the session.** For each flag, list every task whose deliverable the flag's text names, plus every task its front-door entry names. Each listed task file must carry the flag itself. A hit in a sibling task file does not count
-> - [ ] **Treat a leftover `*(none yet)*` placeholder as a claim to verify.** Run `Grep pattern='none yet' path='{session_dir}' glob='*-0*-*.md' output_mode='count'`. A count above zero beside an upstream session marked COMPLETE is a routing question. Answer it before CONFIRM, and never read it as proof that the upstream session raised no flag
 > - [ ] **Match on the flag's SUBJECT, never on its id alone**, at every step of that diff. Ids are sender-scoped and collide freely, so a destination already carrying that id makes a missing flag look present — and a sender's own "delivered" record is written in the same pass that performs or fails the write, so it is never evidence. Recover a zero-hit flag, renumber it if its id is occupied rather than overwriting the occupant, and record the propagation gap as a finding rather than a silent patch. See [dispatch-boundary-evidence.md §5](../references/dispatch-boundary-evidence.md#5-a-flag-the-sender-says-it-delivered-is-a-claim-only-the-destination-file-is-evidence)
 > - [ ] Run `python -B "{plugin_root}/scripts/flag_subject_diff.py" --sprint-plan {sprint plan} --orchestration {orchestration} --session {session id}`. It checks both hops by subject, not only by id: carried rows against the orchestration, then each orchestration row against every task file it names. An absent optional section prints a `note:` line and counts as empty, and exit 2 means a file cannot be read. A destination whose subject is reworded but which carries the flag's `Flag {n} from {source-task-id}` reference is listed as a reworded hit and counts as routed. Check its content by hand. Rows naming no task still need the per-deliverable routing above.
 > - [ ] Route each missing flag: write it into the affected task file(s) under `## Pre-Known Cross-Task Coordination Flags`, and carry it into that task's spawn prompt at dispatch
@@ -312,8 +311,9 @@ For each task in the orchestration's Session Task List (respecting dependency or
 ### Step 3.1: Pre-Task Setup
 
 1. Read the task file completely
-2. Mark task IN_PROGRESS in recovery file
-3. **(Track B)** Update the task list: `TaskUpdate(taskId: "{id}", status: "in_progress")`
+2. If the Orchestration carries `## User-Action Gate`, find each row whose Blocks Task names this task. If that gate's row in the Recovery `## User-Action Gate` table reads `OPEN`, log `GATE_PENDING: {gate}` in the Change Log and stop for the user's answer. A row that reads `REJECTED` stops the session and reports the gate.
+3. Mark task IN_PROGRESS in recovery file
+4. **(Track B)** Update the task list: `TaskUpdate(taskId: "{id}", status: "in_progress")`
 
 ### Step 3.2: Dispatch by Execution Mode
 
@@ -690,7 +690,7 @@ Ask the user: "Were any lessons learned during this session?"
    > [!constraint] "Future sprint" → `Carried-Forward` applies ONLY while the downstream session is unscaffolded
    > The sprint-plan `Carried-Forward Coordination Flags` destination reaches a downstream session ONLY at that session's scaffold time. Once the downstream session already exists on disk, it never re-reads the sprint plan's `Carried-Forward` section at its own start — so a flag dropped there after scaffolding is invisible to it. When the downstream session is already scaffolded, deliver the flag to that session's orchestration file front door instead (keep the sprint-plan entry as the record). The sending side NEVER edits another session's task files: it does not own that decomposition and risks racing a concurrent session. The receiving session routes the flag the last hop into its own task files at its Phase-1 Flag-Reconciliation Preflight (Step 1.1a).
 
-3. Use the Propagated Flag Block format from `references/read-confirm-act-protocol.md` §1.3 — group flags under `### From {source-session-id} ({source-session-name}) — recorded {YYYY-MM-DD}` and reserve a `### From {next-source-session-id} — to be appended when session completes` placeholder so later closeouts know where to append.
+3. Use the Propagated Flag Block format from `references/read-confirm-act-protocol.md` §1.3 — write one `### From {source-session-id} — recorded {date}` block per source session, with the flags in the block's table. Append a new block for each later source session.
 4. If the destination file does not yet have a `## Pre-Known Cross-Task Coordination Flags` (or `## Carried-Forward Coordination Flags`) section, create it; if it does, append under it.
 5. Name every consuming task in the entry whenever any is known. Naming one representative task per downstream session does not satisfy this. The receiving orchestrator then routes it at Step 1.1a without re-deriving the consumers. It stamps the entry `✅ ROUTED {date} into {task file}` once routed (`references/read-confirm-act-protocol.md` §1.3).
 6. Update the Summary file's `Cross-Task Coordination Flags` block (in Context Notes) to fill the `Propagated To` column with the destination path for every flag.

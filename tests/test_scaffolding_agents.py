@@ -202,6 +202,28 @@ class ScaffoldingAgentContractTests(unittest.TestCase):
                 with self.subTest(template=name, heading=heading):
                     self.assertIn(heading, carried)
 
+    def test_extractor_and_template_carry_the_retention_header_line(self):
+        """Lint rule retention-threshold reads a `Retention:` line from Part 1 and warns when it
+        is absent. The extractor and the template both carry the line, and the line, filled with
+        a figure, is one the lint's own pattern reads."""
+        line = "**Retention:** {RETENTION_PCT}%"
+        filled = line.replace("{RETENTION_PCT}", "96.4")
+        self.assertTrue(lint_ei.RETENTION_RE.match(filled), "the stated form is not one the lint reads")
+        self.assertEqual(lint_ei.RETENTION_RE.match(filled)["value"], "96.4")
+        sources = {
+            "extractor": _read(EXTRACTOR),
+            "template": _read(TEMPLATES / "execution-input.md"),
+            "inline path": _read(PLUGIN / "handlers" / "plan-scaffolding.md"),
+        }
+        for name in ("extractor", "template"):
+            with self.subTest(source=name):
+                self.assertIn(line, sources[name].splitlines())
+        # the extractor writes the line in Step 3, after the measurement it reports
+        reconcile = _section(sources["extractor"], "## Step 3: RECONCILE")
+        self.assertIn("`**Retention:** {RETENTION_PCT}%`", reconcile)
+        # the inline path writes it after its own measurement
+        self.assertIn("`**Retention:** {RETENTION_PCT}%`", sources["inline path"])
+
     def test_harmonizer_names_the_gate(self):
         text = _read(HARMONIZER)
         self.assertIn("scripts/scaffold_deviations.py", text)

@@ -380,6 +380,8 @@ def noop_proof(branch: str, rows: list, config: dict, config_path: Path, found: 
         return False, "index_shape_preflight --questions was unreadable", argvs
     if asked["any_legacy"] or asked["would_refuse"]:
         return False, "a legacy index or a would_refuse entry is present", argvs
+    if asked["questions"]:
+        return False, f"{len(asked['questions'])} migration question(s) are pending", argvs
     if not isinstance(lessons_check, dict):
         return False, "lessons --check output was unreadable", argvs
     classes = {str(f.get("class")) if isinstance(f, dict) else str(f)
