@@ -279,3 +279,8 @@ build_commands:
   # Optional checks the backlog loop runs after a fix, from the project root.
   # Any non-zero exit skips the item; an empty list means none.
   verify: []
+
+review_tier:
+  # Extra globs that scripts/review_tier.py counts as code, beside its default
+  # source and config suffixes, for example "agents/**" or "handlers/**".
+  code_globs: []
