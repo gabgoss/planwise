@@ -9,11 +9,17 @@ question, and each value is validated here before the upgrade writes anything.
 `edge_drops` settles a reciprocal `blocks:` pair. `{a}->{b}` drops the edge from a to b,
 and `{a}<->{b}:both` drops both directions. Ids are the bare numeric item ids.
 
+`status_map` settles an open item status outside `VALID_STATUSES`. `{status}->{target}` maps
+every item that carries `{status}` to `{target}`, which must be a valid status. One status maps
+to one target.
+
 A later question registers its key in `KNOWN_KEYS` with a validator. Nothing else changes.
 """
 import json
 import re
 from pathlib import Path
+
+from constants import VALID_STATUSES
 
 _EDGE_ONE_WAY = re.compile(r"([0-9]+)->([0-9]+)")
 _EDGE_BOTH = re.compile(r"([0-9]+)<->([0-9]+):both")
@@ -67,8 +73,54 @@ def _check_edge_drops(value: object) -> None:
             raise AnswersError(bad_edge_drop_reason(entry), EDGE_DROP_FIX)
 
 
+_STATUS_SHAPE = ('"status_map": ["<status>-><valid status>"], '
+                 'for example ["OPEN->NOT_STARTED", "DONE->COMPLETE"]')
+STATUS_MAP_FIX = (f"write each entry as <status>-><target>, where <status> is one status outside "
+                  f"{', '.join(sorted(VALID_STATUSES))} and <target> is one of those, as in {_STATUS_SHAPE}")
+
+
+def parse_status_map_entry(entry: object) -> tuple[str, str] | None:
+    """Return the (status, target) pair a `status_map` entry names, or None if malformed.
+
+    The one grammar for an entry: the text before the last `->` is the out-of-set status, written as
+    the item carries it. It is non-empty, has no edge spaces, no control character and no `->`.
+    It is not itself a valid status. The text after the last `->` is a valid status, upper case.
+    """
+    if not isinstance(entry, str):
+        return None
+    status, arrow, target = entry.rpartition("->")
+    if not arrow or not status or status != status.strip() or "->" in status:
+        return None
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in status):
+        return None
+    if status in VALID_STATUSES or target not in VALID_STATUSES:
+        return None
+    return status, target
+
+
+def bad_status_map_reason(entry: object) -> str:
+    """The reason text for a `status_map` entry `parse_status_map_entry` rejects. The fix is `STATUS_MAP_FIX`."""
+    return f'"status_map" entry {entry!r} has an unrecognised shape'
+
+
+def _check_status_map(value: object) -> None:
+    if not isinstance(value, list):
+        raise AnswersError(
+            f'"status_map" is a {type(value).__name__}, not a list',
+            f"write it as {_STATUS_SHAPE}")
+    targets: dict = {}
+    for entry in value:
+        parsed = parse_status_map_entry(entry)
+        if parsed is None:
+            raise AnswersError(bad_status_map_reason(entry), STATUS_MAP_FIX)
+        status, target = parsed
+        if targets.setdefault(status, target) != target:
+            raise AnswersError(f'"status_map" maps {status!r} to both {targets[status]} and {target}',
+                               "keep one entry for each status")
+
+
 # The single place a later question registers its key: key -> validator.
-KNOWN_KEYS = {"edge_drops": _check_edge_drops}
+KNOWN_KEYS = {"edge_drops": _check_edge_drops, "status_map": _check_status_map}
 
 
 def load_answers(path: Path) -> dict:

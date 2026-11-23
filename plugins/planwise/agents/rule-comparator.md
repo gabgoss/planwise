@@ -130,7 +130,8 @@ List each relocated block in the verdict as
 Step 3b ran. The upgrade writer drops this extra key, and the handler lists every
 non-empty `relocated_blocks` in its chat summary, whatever the file's disposition.
 
-The segment index is already in the shipped files. A Part file's `description:`
+The segment index is already in the shipped files, and `references/session-context-budget.md`
+(Page-Cap Procedure, step 4) states its convention. A Part file's `description:`
 range line (for example "holds §a–§b … Part 1 of N is X") and a parent file's
 "held in" line tell you which sibling holds which segment. Read that line to pick
 the sibling. No separate split map exists.

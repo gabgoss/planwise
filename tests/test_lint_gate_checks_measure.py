@@ -243,6 +243,86 @@ class TestCheck51CharCountInByteIdentity(unittest.TestCase):
         after = "N=${#FILES[@]}\n[ \"$N\" -eq 3 ]"
         self.assertEqual(_lint(51, _task(verification=_verification(after=after))), [])
 
+    # A real plan line (ZeroCallPlan, SKILL.md size gate) with the raw read swapped for a text-mode read.
+    SKILL = "cloned-repos/planwise/plugins/planwise/skills/planwise/SKILL.md"
+    RAW_LEN = f"python -c \"import sys; print(len(open(sys.argv[1],'rb').read()))\" {SKILL}"
+    DECODED_LEN = RAW_LEN.replace("'rb'", "encoding='utf-8'")
+    EQ = "[ \"$A\" -eq \"$B\" ]"
+
+    def _count(self, after):
+        return len(_lint(51, _task(verification=_verification(after=after))))
+
+    def test_bad_len_decoded_beside_wc_c_two_commands(self):
+        after = f"{self.DECODED_LEN}\nwc -c < {self.SKILL}\n{self.EQ}"
+        self.assertEqual(self._count(after), 1)
+
+    def test_bad_len_decoded_and_wc_c_one_command(self):
+        after = f"[ \"$({self.DECODED_LEN})\" -eq \"$(wc -c < {self.SKILL})\" ]"
+        self.assertEqual(self._count(after), 1)
+
+    def test_bad_len_over_bound_decoded_name(self):
+        after = "python -c \"t=open('a.md',encoding='utf-8').read(); print(len(t))\"\n" + self.EQ
+        self.assertEqual(self._count(after), 1)
+
+    def test_bad_len_over_text_mode_run_stdout(self):
+        after = (
+            "python -c \"import subprocess; r=subprocess.run(['git','show','HEAD:a.md'],"
+            "capture_output=True,text=True); print(len(r.stdout))\"\n"
+            "[ \"$A\" -eq \"$(wc -c < a.md)\" ]"
+        )
+        self.assertEqual(self._count(after), 1)
+
+    def test_good_len_over_encoded_text(self):
+        after = "python -c \"print(len(open('a.md',encoding='utf-8').read().encode('utf-8')))\"\n" + self.EQ
+        self.assertEqual(self._count(after), 0)
+
+    def test_good_len_over_raw_bytes_run(self):
+        after = (
+            "python -c \"import subprocess,sys; r=subprocess.run([sys.executable,'x.py'],capture_output=True); "
+            "d=r.stdout; print('bytes',len(d),len(r.stderr))\""
+        )
+        self.assertEqual(self._count(after), 0)
+
+    def test_good_len_over_list_literal(self):
+        after = "python -c \"L=['A','B']; print('labels', len(L))\"\n[ \"$A\" == \"$B\" ]"
+        self.assertEqual(self._count(after), 0)
+
+    def test_good_len_over_findall(self):
+        after = (
+            "python -c \"import re,sys; p=open(sys.argv[1],encoding='utf-8').read(); "
+            "print(len(re.findall('x',p))==1)\" a.md"
+        )
+        self.assertEqual(self._count(after), 0)
+
+    def test_good_len_over_walk_names(self):
+        after = (
+            "python -I -c \"import os,sys; n=sum(len(f) for _,_,f in os.walk(sys.argv[1])); "
+            "print('walked',n,'files')\" lab\n" + self.EQ
+        )
+        self.assertEqual(self._count(after), 0)
+
+    def test_good_len_over_split_words(self):
+        after = "python -c \"print(len(open('f.md').read().split()))\"\n[ \"$A\" -eq 7 ]"
+        self.assertEqual(self._count(after), 0)
+
+    # The eight commands the gate linter flagged over the HeadlessPromptToolMeasure plan on 2026-11-21.
+    # Each counts items or raw bytes, so none reports Check 51.
+    REAL_PLAN_COMMANDS = (
+        "C:/Python314/python.exe -B -c \"import re,sys; t=open(sys.argv[1],encoding='utf-8').read(); b={(m.group(1),m.group(2)):m.group(3).strip() for m in re.finditer(r'^BASELINE (\\S+) (before|after): (.*)$',t,re.M)}; arms={a for a,_ in b}; print('baselines equal', sum(b.get((a,'before'))==b.get((a,'after')) is not None for a in arms), 'of', len(arms))\" planwise/Plans/HeadlessPromptToolMeasure/Sprint-01-PromptToolDriver/Session-01-ServerFlagAndGrader/Outputs/HPT-S01-01-03-ProbeFlagProof.md",
+        "C:/Python314/python.exe -B -c \"import subprocess,sys,hashlib; r=subprocess.run([sys.executable,'-B',sys.argv[1],'--dry-run','--arm',sys.argv[2]],capture_output=True); d=r.stdout; print(sys.argv[2],r.returncode,len(d),len(r.stderr),hashlib.sha256(d).hexdigest()[:16])\" C:/Users/gabgo/source/repos/planwise-development/hooks_wip/plan-hook-module/driver/probe.py C-permreq-input",
+        "C:/Python314/python.exe -I -c \"import os,sys; n=sum(len(f) for _,_,f in os.walk(sys.argv[1])); print('walked',n,'files')\" <Scratch>/lab",
+        "C:/Python314/python.exe -B -I -c \"import re,sys; L=['TOOL-ABSENT','DENY-HEADLESS-NO-PROMPT','DENY-ASK-RULE-ON-REWRITE','DENY-NO-APPROVAL-SURFACE','DENY-MCP-NO-INTERACTION','DENY-OTHER','ALLOWED','SERVER-NOT-STARTED','HOOK-NOT-FIRED','HOOK-FIRED']; g=open(sys.argv[1],encoding='utf-8').read(); print('labels in grade.py',sum(bool(re.search(r'[\\\"\\\\']'+x+r'[\\\"\\\\']',g)) for x in L),'of',len(L))\" hooks_wip/plan-hook-module/verify/grade.py",
+        "C:/Python314/python.exe -B -I -c \"import re,sys; L=['TOOL-ABSENT','DENY-HEADLESS-NO-PROMPT','DENY-ASK-RULE-ON-REWRITE','DENY-NO-APPROVAL-SURFACE','DENY-MCP-NO-INTERACTION','DENY-OTHER','ALLOWED','SERVER-NOT-STARTED','HOOK-NOT-FIRED','HOOK-FIRED']; p=open(sys.argv[1],encoding='utf-8').read(); m=re.search(r'^## Labels[^\\n]*\\n(.*?)(?=^## |\\Z)',p,re.M|re.S); s=m.group(1) if m else ''; print('labels in proof',sum(len(re.findall(r'^LABEL '+re.escape(x)+r'\\b',s,re.M))==1 for x in L),'of',len(L))\" planwise/Plans/HeadlessPromptToolMeasure/Sprint-01-PromptToolDriver/Session-01-ServerFlagAndGrader/Outputs/HPT-S01-01-04-GraderProof.md",
+        "C:/Python314/python.exe -B -I -c \"import subprocess,sys; run=lambda g: subprocess.run([sys.executable,'-B',g,'--archive',sys.argv[3],'--arm',sys.argv[4],'--source','stream-json'],capture_output=True); a=run(sys.argv[1]); b=run(sys.argv[2]); print('exit',a.returncode,b.returncode,'stdout equal',a.stdout==b.stdout,'bytes',len(a.stdout))\" <Scratch>/grade.pre.py hooks_wip/plan-hook-module/verify/grade.py hooks_wip/plan-hook-module/verify/fixtures/full-A-control-p-pass A-control",
+        "C:/Python314/python.exe -B -I -c \"import sys; b=set(open(sys.argv[1]).read().splitlines()); a=open(sys.argv[2]).read().splitlines(); P=('hooks_wip/plan-hook-module/verify/grade.py','hooks_wip/plan-hook-module/verify/test_grade.py','hooks_wip/plan-hook-module/verify/fixtures/pt-','hooks_wip/plan-hook-module/verify/fixtures/full-'); n=[l for l in a if l not in b and not l[3:].startswith(P)]; print('unattributed',len(n)); print(*n,sep=chr(10))\" <Scratch>/status-before.txt <Scratch>/status-after.txt",
+        "C:/Python314/python.exe -B -c \"import json,subprocess,sys; sheet=open(sys.argv[1],encoding='utf-8').read(); rows=[json.loads(l) for l in sheet.splitlines() if l.startswith('[\\\"')]; arms=['A-control','B-permreq-bare','C-permreq-input']; ok=sum(json.loads(subprocess.run([sys.executable,'-B',sys.argv[2],'--dry-run','--arm',a,'--prompt-tool'],capture_output=True,text=True).stdout.splitlines()[0]) in rows for a in arms); print('ARGV EQUAL:',ok,'of',len(arms))\" hooks_wip/plan-hook-module/runs/RUN-12-p-prompt-tool.md hooks_wip/plan-hook-module/driver/probe.py",
+    )
+
+    def test_good_real_plan_commands(self):
+        for index, command in enumerate(self.REAL_PLAN_COMMANDS):
+            with self.subTest(index=index):
+                self.assertEqual(self._count(f"{command}\n{self.EQ}"), 0)
+
 
 class TestCheck52CharacterClassAfterDiffSign(unittest.TestCase):
     CORRECT = "git diff 1bc4e0a -- a.md | grep -E '^[+-]' | grep -vE '^(\\+\\+\\+|---)'"

@@ -12,6 +12,7 @@ Use this template when creating sprint-scoped Execution Input files during scaff
 **Sprint:** {ABBREV}-S{XX}
 **Extracted from:** Spec #{N} ({exact-source-filename.md}), Spec #{M} ({exact-source-filename.md})
 **Source lines:** {total from source parts} → Extracted: {lines in this file}
+**Retention:** {RETENTION_PCT}%
 
 ---
 

@@ -13,8 +13,9 @@ reader, the section and table readers and the path helpers.
 
 Every check here is advisory and reports at WARNING, except Check 57, which reports at
 ERROR because three layers that state one dependency set and disagree cannot all be
-right, and the first branch of Check 59, which reports at ERROR because the overlap
-check cannot see a write the Output line leaves out. Each docstring states the
+right, the first branch of Check 59, which reports at ERROR because the overlap
+check cannot see a write the Output line leaves out, and the first branch of Check 60,
+which reports at ERROR because Reviewer Checks 037 and 038 are BLOCKER. Each docstring states the
 predicate, the input and what the check cannot see.
 """
 
@@ -561,9 +562,189 @@ def _check59_write_set_output_expected_output_agree(context) -> list:
     return findings
 
 
+# --- Check 60: Depends On mirrors the producers of the files a task's Required Context reads ---
+_TASK_ID_RE = re.compile(r"^(?P<prefix>.+)-S(?P<sprint>\d+)-(?P<session>\d+)-(?P<number>\d+)$")
+_CROSS_PREFIXES = ("cross-session", "cross-sprint")
+
+
+def _parse_task_id(task_id: str):
+    """``(plan prefix, sprint, session, task number)`` of a full Task ID such as
+    ``QZX-S01-01-02``, or None when the text is not one."""
+    match = _TASK_ID_RE.match(task_id)
+    if match is None:
+        return None
+    return (
+        match.group("prefix"),
+        int(match.group("sprint")),
+        int(match.group("session")),
+        int(match.group("number")),
+    )
+
+
+def _has_folder(path: str) -> bool:
+    """A whole path holds at least one folder. A bare file name never names one file, so it is
+    never matched, as ``lint_layer_disjointness`` §1.31 reads a mate's Output."""
+    return "/" in path.strip("/")
+
+
+def _anchored_outputs(rel: str, output) -> list:
+    """The paths a producer's ``**Output:**`` line declares, as paths a reader can cite. A path
+    that starts with ``Outputs/`` is relative to the producer's own session folder, so that
+    folder is put in front of it. A bare file name, a placeholder, a glob and a URL are left out."""
+    folder = Path(rel).parent.as_posix()
+    found = []
+    for path in sorted(output):
+        if _UNRESOLVED_RE.search(path):
+            continue
+        if path.startswith("Outputs/") and folder not in ("", "."):
+            path = f"{folder}/{path}"
+        if _has_folder(path):
+            found.append(path)
+    return found
+
+
+def _required_context_reads(lines) -> list:
+    """The whole paths a task's Required Context rows name, in order and without repeats. A
+    folder, a bare file name, a placeholder, a glob and a URL name no one file and are left out."""
+    reads = []
+    for _number, _line, cells, _header in _required_context_rows(lines):
+        for path in _row_paths(cells):
+            if path.endswith("/") or not _is_scope_path(path) or _UNRESOLVED_RE.search(path):
+                continue
+            if _has_folder(path) and path not in reads:
+                reads.append(path)
+    return reads
+
+
+def _dependency_class(reader, producer):
+    """How ``reader``'s ``Depends On`` must name ``producer``: ``same-session`` for an earlier
+    task of the same session, ``cross-session`` for an earlier session of the same sprint, and
+    ``cross-sprint`` for an earlier sprint. None when ``producer`` does not come first."""
+    if reader[0] != producer[0]:
+        return None
+    if producer[1] != reader[1]:
+        return "cross-sprint" if producer[1] < reader[1] else None
+    if producer[2] != reader[2]:
+        return "cross-session" if producer[2] < reader[2] else None
+    return "same-session" if producer[3] < reader[3] else None
+
+
+def _reads_a_product(reader_reads, producer_outputs):
+    """The first path ``reader_reads`` names that a declared output of the producer covers."""
+    return next(
+        (read for read in reader_reads if any(_path_covers(out, read) for out in producer_outputs)),
+        None,
+    )
+
+
+def _mirror_tasks(context) -> list:
+    """One record per task file that carries a parseable ``**Task ID:**``, with its Output
+    paths, Required Context reads and ``Depends On`` header."""
+    tasks = []
+    for rel, lines in _task_files(context):
+        header = list(_header_fields(lines))
+        task_id = next((m.group(1) for _n, ln in header if (m := _TASK_ID_HEADER_RE.match(ln))), "")
+        task_id = task_id.replace("`", "").replace("*", "").strip()
+        key = _parse_task_id(task_id)
+        if key is None:
+            continue
+        depends = next(((n, m.group(1)) for n, ln in header if (m := _DEPENDS_HEADER_RE.match(ln))), None)
+        output = output_paths("\n".join(lines)) or set()
+        tasks.append({
+            "rel": rel, "id": task_id, "key": key, "depends": depends,
+            "outputs": _anchored_outputs(rel, output), "reads": _required_context_reads(lines),
+        })
+    return tasks
+
+
+def _check60_depends_on_mirrors_required_context_producers(context) -> list:
+    """Check 60 -- a task's ``Depends On`` does not mirror the producers of the files its Required
+    Context reads (Reviewer Checks 037 and 038, and the same-session row of the mirroring table in
+    task-file-and-tracking-requirements.md). Input: every task file's ``**Task ID:**``,
+    ``**Depends On:**`` header and ``**Output:**`` line, and the whole paths named in every cell
+    of its Required Context rows. A task is a producer of a read when an earlier task's Output
+    path covers the path, as Check 59 reads a cover: the paths meet on a path-component
+    boundary, or one is a folder that holds the other. A path needs at least one folder, so a
+    bare file name is never matched, and an ``Outputs/`` path is read under its producer's own
+    session folder. Earlier means the Task ID's order: a lower task number in the same session,
+    an earlier session of the same sprint, or an earlier sprint. ERROR: a producer the reader
+    needs whose entry is missing, or is present under the wrong form. The form is the task
+    number for the same session, ``cross-session:`` and the full Task ID for an earlier
+    session of the same sprint, and ``cross-sprint:`` and the full Task ID for an earlier
+    sprint. A ``Cross-Sprint Refs`` listing does not replace the entry (templates/task-file.md).
+    WARNING: a ``Depends On`` entry that names a task whose Output covers no file this task's
+    Required Context reads, because an ordering gate can be legitimate. A task with no
+    ``**Task ID:**`` or ``**Depends On:**`` header, or whose Required Context names no whole
+    path, is skipped. It cannot see a read written outside Required Context, a read of a file
+    the producer writes without declaring it on its Output line, a path with a placeholder, a
+    glob or a URL, a task that appears twice under one Task ID, or a producer in a plan
+    with another abbreviation.
+    """
+    findings = []
+    tasks = _mirror_tasks(context)
+    by_key = {}
+    for task in tasks:
+        by_key.setdefault(task["key"], task)
+    for reader in tasks:
+        if reader["depends"] is None or not reader["reads"]:
+            continue
+        line, cell = reader["depends"]
+        entries = _dependency_set(cell)
+        command = f"**Depends On:**{cell}".strip()
+        for producer in tasks:
+            if producer is reader:
+                continue
+            kind = _dependency_class(reader["key"], producer["key"])
+            if kind is None:
+                continue
+            read = _reads_a_product(reader["reads"], producer["outputs"])
+            if read is None:
+                continue
+            number = producer["id"].rsplit("-", 1)[-1]
+            needed = ("", producer["key"][3]) if kind == "same-session" else (kind, producer["id"])
+            if needed in entries:
+                continue
+            wanted = number if kind == "same-session" else f"{kind}: {producer['id']}"
+            wrong = sorted(f"{prefix}: {body}" if prefix else str(body)
+                           for prefix, body in entries if body == producer["id"])
+            how = (f"names it as {wrong[0]!r}, and the {kind} form is {wanted!r}" if wrong
+                   else f"has no {wanted!r} entry")
+            findings.append(_finding(
+                check=60, severity=SEVERITY_ERROR, file=reader["rel"], line=line, command=command,
+                message=(
+                    f"Task {reader['id']} reads {read!r} in Required Context, and task {producer['id']} "
+                    f"declares that file on its Output line, but this Depends On {how}. A producer in "
+                    f"{kind.replace('-', ' ')} is mirrored in that form, and Cross-Sprint Refs does not "
+                    "replace it (task-file-and-tracking-requirements.md, Reviewer Checks 037 and 038)"
+                ),
+            ))
+        for prefix, body in sorted(entries, key=str):
+            if prefix == "" and isinstance(body, int):
+                key = (reader["key"][0], reader["key"][1], reader["key"][2], body)
+            elif prefix in _CROSS_PREFIXES and isinstance(body, str):
+                key = _parse_task_id(body)
+            else:
+                continue
+            target = by_key.get(key)
+            if target is None or target is reader or _reads_a_product(reader["reads"], target["outputs"]):
+                continue
+            shown = f"{prefix}: {body}" if prefix else f"{body:02d}"
+            findings.append(_finding(
+                check=60, severity=SEVERITY_WARNING, file=reader["rel"], line=line, command=command,
+                message=(
+                    f"Task {reader['id']} lists {shown!r} in Depends On, and task {target['id']} declares "
+                    "no file on its Output line that this task's Required Context reads. An ordering "
+                    "gate can be legitimate. Remove the entry, or add the file it produces to Required "
+                    "Context (task-file-and-tracking-requirements.md, Reviewer Checks 037 and 038)"
+                ),
+            ))
+    return findings
+
+
 CHECKS = [
     _check54_step_reads_path_without_required_context_row,
     _check57_depends_on_layers_disagree,
     _check58_cross_sprint_read_without_refs_field,
     _check59_write_set_output_expected_output_agree,
+    _check60_depends_on_mirrors_required_context_producers,
 ]

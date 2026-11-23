@@ -6,9 +6,11 @@ positive control). The fixtures are built in temporary directories.
 
 Checks 57 and 58 read three layers of a rendered plan, so their fixture is a two-sprint
 plan that ``scaffold_plan.render_all`` renders, the real producer of all three layers.
-Each case copies that tree, changes one cell, and lints the copy.
+Each case copies that tree, changes one cell, and lints the copy. Checks 59 and 60 use the
+same fixture, and the cross-session cases of Check 60 add a second session to sprint one.
 """
 
+import copy
 import shutil
 import sys
 import tempfile
@@ -398,6 +400,156 @@ class TestCheck59WriteSetOutputExpectedOutputAgree(_RenderedPlan):
         self.assertEqual(self.only(edit), [])
 
 
+TASK_ONE_ONE_READ = "| 1 | `src/orchard/ledger.py` | 4.0 | ~1.5K | the module |"
+PRODUCED_READ = "| 1 | `src/orchard/parse.py` | 4.0 | ~1.5K | the module |"
+PARSE_OUTPUT = "**Output:** `src/orchard/parse.py`, and `Outputs/QZX-parse.md`\n"
+# Task 1.1 declares the folder that holds ledger.py, and keeps the report that sprint two reads.
+FOLDER_OUTPUT = "**Output:** `src/orchard/`, and `Outputs/QZX-parse.md`\n"
+INDEX_DEPENDS = "**Depends On:** 01\n"
+SPRINT_TWO_DEPENDS = "**Depends On:** cross-sprint: QZX-S01-01-01\n"
+TASK_REUSE = f"{SPRINT_ONE}/Session-02-Reuse/QZX-S01-02-01-Sonnet-ReuseParse.md"
+REUSE_DEPENDS = "**Depends On:** cross-session: QZX-S01-01-01\n"
+
+
+def _only_file(findings, rel):
+    return [f for f in findings if f["file"] == rel]
+
+
+class TestCheck60DependsOnMirrorsProducers(_RenderedPlan):
+    def reader_of_task_one(self, *edits):
+        """Task 1.2 reads task 1.1's parse.py, so its Depends On `01` is a real mirror."""
+        return self.lint(60, (TASK_ONE_TWO, TASK_ONE_ONE_READ, PRODUCED_READ), *edits)
+
+    def test_good_a_same_session_read_with_the_task_number_mirrored(self):
+        self.assertEqual(self.reader_of_task_one(), [])
+
+    def test_bad_a_same_session_producer_not_listed(self):
+        findings = self.reader_of_task_one((TASK_ONE_TWO, INDEX_DEPENDS, "**Depends On:** -\n"))
+        self.assertEqual([(f["check"], f["severity"], f["file"]) for f in findings], [(60, "ERROR", TASK_ONE_TWO)])
+        self.assertIn("'src/orchard/parse.py'", findings[0]["message"])
+        self.assertIn("has no '01' entry", findings[0]["message"])
+        self.assertEqual(findings[0]["line"], 6)
+
+    def test_good_a_leading_zero_and_a_bare_number_are_the_same_task(self):
+        self.assertEqual(self.reader_of_task_one((TASK_ONE_TWO, INDEX_DEPENDS, "**Depends On:** 1\n")), [])
+
+    def test_bad_the_producer_is_named_with_a_cross_session_prefix_in_its_own_session(self):
+        edit = (TASK_ONE_TWO, INDEX_DEPENDS, "**Depends On:** cross-session: QZX-S01-01-01\n")
+        findings = self.reader_of_task_one(edit)
+        self.assertEqual([f["severity"] for f in findings], ["ERROR"])
+        self.assertIn("names it as 'cross-session: QZX-S01-01-01'", findings[0]["message"])
+
+    def test_the_rendered_plan_warns_once_on_the_entry_whose_task_writes_nothing_it_reads(self):
+        findings = self.lint(60)
+        self.assertEqual([(f["severity"], f["file"]) for f in findings], [("WARNING", TASK_ONE_TWO)])
+        self.assertIn("lists '01' in Depends On", findings[0]["message"])
+        self.assertIn("QZX-S01-01-01", findings[0]["message"])
+
+    def test_bad_a_cross_sprint_producer_not_listed_though_cross_sprint_refs_names_the_file(self):
+        findings = self.lint(60, (TASK_TWO_ONE, SPRINT_TWO_DEPENDS, "**Depends On:** -\n"))
+        errors = _only_file([f for f in findings if f["severity"] == "ERROR"], TASK_TWO_ONE)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("has no 'cross-sprint: QZX-S01-01-01' entry", errors[0]["message"])
+        self.assertIn(PARSE_REL, errors[0]["message"])
+
+    def test_good_a_cross_sprint_producer_listed_with_its_prefix(self):
+        self.assertEqual(_only_file(self.lint(60), TASK_TWO_ONE), [])
+
+    def test_bad_a_cross_sprint_producer_listed_with_the_wrong_prefix(self):
+        edit = (TASK_TWO_ONE, SPRINT_TWO_DEPENDS, "**Depends On:** cross-session: QZX-S01-01-01\n")
+        errors = _only_file([f for f in self.lint(60, edit) if f["severity"] == "ERROR"], TASK_TWO_ONE)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("names it as 'cross-session: QZX-S01-01-01'", errors[0]["message"])
+        self.assertIn("'cross-sprint: QZX-S01-01-01'", errors[0]["message"])
+
+    def test_warning_a_cross_sprint_entry_whose_task_writes_nothing_the_task_reads(self):
+        edit = (TASK_TWO_ONE, f"| 1 | `{PARSE_REL}` |", "| 1 | `src/orchard/ledger.py` |")
+        findings = _only_file(self.lint(60, edit), TASK_TWO_ONE)
+        self.assertEqual([f["severity"] for f in findings], ["WARNING"])
+        self.assertIn("'cross-sprint: QZX-S01-01-01'", findings[0]["message"])
+
+    def test_good_a_producer_folder_on_the_output_line_holds_the_read(self):
+        edits = (
+            (TASK_ONE_ONE, PARSE_OUTPUT, FOLDER_OUTPUT),
+            (TASK_ONE_TWO, TASK_ONE_ONE_READ, "| 1 | `src/orchard/ledger.py` | 4.0 | ~1.5K | the module |"),
+        )
+        self.assertEqual(self.lint(60, *edits), [])
+
+    def test_bad_a_producer_folder_on_the_output_line_holds_the_read_and_is_not_listed(self):
+        edits = (
+            (TASK_ONE_ONE, PARSE_OUTPUT, FOLDER_OUTPUT),
+            (TASK_ONE_TWO, INDEX_DEPENDS, "**Depends On:** -\n"),
+            (TASK_ONE_TWO, TASK_ONE_ONE_READ, "| 1 | `src/orchard/ledger.py` | 4.0 | ~1.5K | the module |"),
+        )
+        self.assertEqual([f["severity"] for f in self.lint(60, *edits)], ["ERROR"])
+
+    def test_good_a_bare_file_name_is_never_matched(self):
+        edits = (
+            (TASK_ONE_TWO, INDEX_DEPENDS, "**Depends On:** -\n"),
+            (TASK_ONE_TWO, TASK_ONE_ONE_READ, "| 1 | `parse.py` | 4.0 | ~1.5K | the module |"),
+        )
+        self.assertEqual(self.lint(60, *edits), [])
+
+    def test_good_a_later_task_is_not_a_producer(self):
+        edit = (TASK_ONE_ONE, TASK_ONE_ONE_READ, "| 1 | `src/orchard/index.py` | 4.0 | ~1.5K | the module |")
+        self.assertEqual(_only_file(self.lint(60, edit), TASK_ONE_ONE), [])
+
+    def test_good_an_outputs_path_is_read_under_its_own_session_folder(self):
+        # Task 2.1 reads a same-named report in another session. The producer's `Outputs/QZX-parse.md`
+        # is session-relative, so the read does not meet it, and the dependency is not required.
+        other = f"{SPRINT_ONE}/Session-09-Other/Outputs/QZX-parse.md"
+        edits = (
+            (TASK_TWO_ONE, f"| 1 | `{PARSE_REL}` |", f"| 1 | `{other}` |"),
+            (TASK_TWO_ONE, SPRINT_TWO_DEPENDS, "**Depends On:** -\n"),
+        )
+        self.assertEqual(_only_file(self.lint(60, *edits), TASK_TWO_ONE), [])
+
+    def test_good_a_task_with_no_depends_on_header_is_skipped(self):
+        edits = (
+            (TASK_ONE_TWO, TASK_ONE_ONE_READ, PRODUCED_READ),
+            (TASK_ONE_TWO, INDEX_DEPENDS, ""),
+        )
+        self.assertEqual(self.lint(60, *edits), [])
+
+
+class TestCheck60CrossSession(_RenderedPlan):
+    """Sprint one gets a second session whose one task reads session one's report."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = copy.deepcopy(_plan_spec())
+        spec["sprints"][0]["sessions"].append({
+            "number": 2, "name": "Reuse", "objective": "Reuse the parser", "mode": "DELEGATED",
+            "prerequisite": "Session one",
+            "tasks": [_fixture_task(1, "ReuseParse", "Sonnet", ["cross-session: QZX-S01-01-01"],
+                                    ["src/orchard/reuse.py"], rc_path=PARSE_REL)],
+        })
+        assert scaffold_plan.lint_spec(spec, scaffold_plan.DEFAULT_TEMPLATES) == []
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.template = Path(cls._tmp.name) / "plan"
+        files, _rec = scaffold_plan.render_all(spec, scaffold_plan.DEFAULT_TEMPLATES)
+        scaffold_plan.write_tree(files, cls.template)
+
+    def test_good_an_earlier_session_producer_listed_with_its_prefix(self):
+        self.assertEqual(_only_file(self.lint(60), TASK_REUSE), [])
+
+    def test_bad_an_earlier_session_producer_not_listed(self):
+        findings = _only_file(self.lint(60, (TASK_REUSE, REUSE_DEPENDS, "**Depends On:** -\n")), TASK_REUSE)
+        self.assertEqual([f["severity"] for f in findings], ["ERROR"])
+        self.assertIn("has no 'cross-session: QZX-S01-01-01' entry", findings[0]["message"])
+
+    def test_bad_an_earlier_session_producer_listed_with_the_cross_sprint_prefix(self):
+        edit = (TASK_REUSE, REUSE_DEPENDS, "**Depends On:** cross-sprint: QZX-S01-01-01\n")
+        findings = _only_file(self.lint(60, edit), TASK_REUSE)
+        self.assertEqual([f["severity"] for f in findings], ["ERROR"])
+        self.assertIn("names it as 'cross-sprint: QZX-S01-01-01'", findings[0]["message"])
+
+    def test_bad_an_earlier_session_producer_listed_as_a_bare_number(self):
+        findings = _only_file(self.lint(60, (TASK_REUSE, REUSE_DEPENDS, "**Depends On:** 01\n")), TASK_REUSE)
+        self.assertEqual([f["severity"] for f in findings], ["ERROR"])
+        self.assertIn("has no 'cross-session: QZX-S01-01-01' entry", findings[0]["message"])
+
+
 class TestRegistrationContract(unittest.TestCase):
     def test_every_check_is_registered_once(self):
         for check in layers_module.CHECKS:
@@ -405,7 +557,7 @@ class TestRegistrationContract(unittest.TestCase):
 
     def test_check_numbers(self):
         names = [check.__name__.split("_")[1] for check in layers_module.CHECKS]
-        self.assertEqual(names, ["check54", "check57", "check58", "check59"])
+        self.assertEqual(names, ["check54", "check57", "check58", "check59", "check60"])
 
     def test_severity_constants_match_the_linter(self):
         self.assertEqual(layers_module.SEVERITY_WARNING, lint_module.SEVERITY_WARNING)

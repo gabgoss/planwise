@@ -230,7 +230,10 @@ When this sprint consumes nothing from an earlier sprint, delete the section ent
 <!-- Include when an earlier session routed a coordination flag to a session of this sprint
      that is not yet scaffolded on disk. Omit the section when there is none. When the
      consuming session is scaffolded, re-route each row into that session's orchestration
-     file under `## Pre-Known Cross-Task Coordination Flags`, and keep the row here as the record. -->
+     file under `## Pre-Known Cross-Task Coordination Flags`, and keep the row here as the record.
+     Add one H3 block per source session. -->
+
+### From {source-session-id} — recorded {date}
 
 | Flag # | Source Task | Consuming Session | Observation | Recommended Action |
 |--------|-------------|-------------------|-------------|--------------------|

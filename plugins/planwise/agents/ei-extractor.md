@@ -81,12 +81,13 @@ Read every `source_map` file in full, Tier 1 included. Page a file with `Read` `
 ## Cross-References
 ```
 
-Repeat the `## Section {n}` line once per id. Separate sections with `---`. Under the H1, write these three header lines:
+Repeat the `## Section {n}` line once per id. Separate sections with `---`. Under the H1, write these four header lines. Step 3 writes the `Retention:` line, because its figure needs the measurement:
 
 ```
 **Sprint:** {ABBREV}-S{XX}
 **Extracted from:** Spec #{N} ({exact-source-filename.md}), Spec #{M} ({exact-source-filename.md})
 **Source lines:** {total from source parts} → Extracted: {lines in this file}
+**Retention:** {RETENTION_PCT}%
 ```
 
 Mark each `Extracted from:` entry with its tier: `[Tier 1 raw]`, `[Tier 2 consolidated]` or `[Tier 3 final]`. The `## How to Use This File` body reads:
@@ -159,6 +160,8 @@ python "{plugin_root}/scripts/measure_files.py" {EI files} {Deferred log}
 - `EI_TOKENS` is the summed token figure of the EI file or parts.
 - `DEFERRED_TOKENS` is the Deferred log's token figure.
 - `RETENTION_PCT` = `(EI_TOKENS + DEFERRED_TOKENS) / SOURCE_TOKENS × 100`, to one decimal.
+
+Write the figure into Part 1 as the header line `**Retention:** {RETENTION_PCT}%`, directly under the `**Source lines:**` line, with one `Edit`. The lint rule `retention-threshold` reads that line from Part 1 and warns when it is absent. Write the number and the percent sign, for example `**Retention:** 96.4%`. A file split into parts carries the line in Part 1 only. If an edit changes a measured file after this step, measure again and correct the line.
 
 Below 80% the caller re-dispatches. From 80% to 95% the caller records a warning. At 95% or more it passes. A figure below 80% after every section is written means content was dropped. Re-read the sources for the shed content before you return `PARTIAL`.
 

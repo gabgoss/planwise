@@ -189,6 +189,23 @@ def graded_items(backlog_dir) -> tuple:
     return graded, unreadable
 
 
+def out_of_set_statuses(backlog_dir) -> dict:
+    """The open items whose status is outside `VALID_STATUSES`, as `{status: [item ids]}`.
+
+    It walks the same files `graded_items` does. A blank status is left out, because an item with
+    no status gives the user nothing to map from. Both lists are sorted. Pure and read-only.
+    """
+    found: dict = {}
+    for path in sorted(Path(backlog_dir).glob("BB-*.md")):
+        parsed = _read(path)
+        if parsed is None:
+            continue
+        status = _unquote(parsed[0].get("status") or "")
+        if status and status not in VALID_STATUSES:
+            found.setdefault(status, []).append(_item_id(path, parsed[0]))
+    return {status: sorted(ids) for status, ids in sorted(found.items())}
+
+
 def scan_item_shapes(backlog_dir) -> ScanResult:
     """Grade the open items directly under `backlog_dir` against the item template. Pure and read-only."""
     classes = {key: [] for key, _ in GAP_CLASSES}

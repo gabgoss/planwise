@@ -1,6 +1,6 @@
 ---
 description: Token budget management, and the read-gate canonical — Read-Tool Hard Limits, reading discipline, and Large-File Read Tactics — for session planning
-consult-when: Managing token budget during a planning session — Read-Tool hard limits, large-file tactics
+consult-when: Managing token budget during a planning session — Read-Tool hard limits, large-file tactics, the split segment index
 ---
 
 # Session Context Budget
@@ -483,6 +483,13 @@ Each part MUST:
    5. Run the full test suite. It must pass.
 
    The split tool prints a level for each file it touches: OK, WARN or OVER. `--apply` refuses when the source remainder or the new Part measures WARN or worse. It refuses any other touched file only when that file's level rises. A citer that only gains a repointed citation at an unchanged level is reported, not refused. `--allow-warn` waives the refusal for one run, for a WARN result and an OVER result alike. The report then lists every waived file.
+
+   **Segment index.** A split family names its files and its sections in the files themselves. No separate map exists. A reader finds the file that holds a section from three parts:
+   - **Name.** Each Part is `{stem}-Part-{N}-{Topic}.md`. The first file keeps the original name `{stem}.md` as Part 1.
+   - **Description.** Each Part's `description:` line says `Part k of N`. It names the Part-1 file, and it gives the `§` range the Part holds when the family numbers its sections.
+   - **Held-in line.** The source file keeps one line where each moved section stood. It reads `> - §N Title — held in` and then a link to the Part that now holds that section.
+
+   A family written in parts from the start names its first file `{stem}-Part-1-{Topic}.md` and gives every Part the same description and held-in lines. A handler Part opens its body with `Part k of N` and links its parent file. The rule comparator reads only the registry's rule references, so a handler Part needs no `description:` range.
 
 This procedure covers the writer's side. For reading a file that is already over a gate, use [Page Large Files — Do Not Trust One Read](#reading-discipline-with-read-gates-binding) and Step 1 of [Large-File Read Tactics](#large-file-read-tactics).
 
