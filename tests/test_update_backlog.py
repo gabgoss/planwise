@@ -34,6 +34,7 @@ Run with:  python -m pytest tests/test_update_backlog.py -q
 
 import contextlib
 import io
+import re
 import shutil
 import sys
 import tempfile
@@ -1922,7 +1923,9 @@ class TestApprovePlacement(_UpdateBacklogFixtureBase):
 
     def test_item_without_frontmatter_exits_one_and_stays_byte_equal(self):
         path = self._create()
-        path.write_bytes(path.read_bytes().split(b"---\r\n", 2)[2])  # fence removed
+        # Fence removed. The producer writes the platform's line ending (CRLF
+        # on Windows, LF on Linux), so the split accepts both.
+        path.write_bytes(re.split(rb"(?m)^---\r?\n", path.read_bytes(), maxsplit=2)[2])
         before = path.read_bytes()
 
         _out, err, code = self._approve("301", self.P1)
