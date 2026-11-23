@@ -17,7 +17,8 @@ duplicate-id guard checks both the generated index files (hub, overflow
 leaves, Archive shards) and every on-disk item file's own id, since a
 freshly created or not-yet-regenerated file has no row in the former.
 `--mark-needs-plan` writes `needs_plan: true` into an item's frontmatter,
-and `--resolution-file` (with `--status=COMPLETE`) appends the file's text
+`--approve-placement PATH` (repeatable) unions a confirmed destination into
+its `placement_approved` list, and `--resolution-file` (with `--status=COMPLETE`) appends the file's text
 under a `## Resolution` section of the closed item once it has moved.
 `--fixed-in SHA` (repeatable) appends one dated `Fixed in: SHA` line per
 fixing commit under the item's `## Notes`, and `--completes SHA` marks the
@@ -47,6 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 from config_loader import load_config
 from constants import ARCHIVE_STATUSES, VALID_STATUSES
+from frontmatter_parser import parse_frontmatter_map
 from generate_backlog_index import (
     TITLE_MAX_LEN,
     GeneratorError,
@@ -60,7 +62,7 @@ from reconcile_common import (
     read_text_preserving_newlines,
     write_text_preserving_newlines,
 )
-from scoped_rules import fence_flags
+from scoped_rules import _approved_paths, fence_flags
 
 # Accepted values for the optional top-level `id_format` config key. An
 # unrecognized value is announced on stderr and falls back to "bare" — see
@@ -289,9 +291,13 @@ def set_frontmatter_key(path: Path, key: str, value: str) -> SyncStatusResult:
     The same BOM and fence handling as `sync_yaml_status`. An existing
     `key:` line is replaced in place; otherwise `key: value` is inserted as
     the last frontmatter line, before the closing fence, with that line's
-    own line ending. Outcomes:
+    own line ending. An existing key's continuation lines (each following
+    line that starts with whitespace or `- `, the block form of a list) go
+    with it: a replacement swaps the key line and those lines for the one
+    new line, so no orphan `- ` line stays behind. Outcomes:
       - "changed": the line was rewritten or inserted.
-      - "unchanged": the line already reads that value; nothing written.
+      - "unchanged": the key has no continuation lines and already reads
+        that value; nothing written.
       - "absent_file": path does not exist.
       - "no_frontmatter": no opening fence, or the fence is never closed.
     Every outcome other than "changed" leaves the file byte-unchanged.
@@ -314,11 +320,15 @@ def set_frontmatter_key(path: Path, key: str, value: str) -> SyncStatusResult:
     new_line = f"{key}: {value}"
     # [ \t]* and [^\r\n]*, never \s* or .*: neither may cross a line break,
     # so the replacement keeps the line's own CRLF and never eats the next key.
+    # The trailing group takes the continuation lines of a block-form value.
     existing = re.search(
-        rf"^{re.escape(key)}:[ \t]*([^\r\n]*)", frontmatter, flags=re.MULTILINE
+        rf"^{re.escape(key)}:[ \t]*([^\r\n]*)(?:(?:\r\n|\n)(?:[ \t]+|-[ \t])[^\r\n]*)*",
+        frontmatter,
+        flags=re.MULTILINE,
     )
     if existing is not None:
-        if existing.group(1).strip() == value:
+        no_continuation = existing.end(1) == existing.end()
+        if no_continuation and existing.group(1).strip() == value:
             return SyncStatusResult("unchanged", path)
         updated_fm = frontmatter[: existing.start()] + new_line + frontmatter[existing.end() :]
     else:
@@ -856,6 +866,86 @@ def mark_needs_plan(item_id: str) -> None:
     )
 
 
+# A placement_approved entry holding one of these gets double quotes, so the
+# flow list `[a, b]` stays one token per path for both readers.
+_PLACEMENT_QUOTE_CHARS = "#:[]{}"
+
+
+def _placement_entry(path: str) -> str:
+    """One `placement_approved` list entry, double-quoted when it needs it."""
+    if any(c in path for c in _PLACEMENT_QUOTE_CHARS):
+        return f'"{path}"'
+    return path
+
+
+def approve_placement(item_id: str, raw_paths: list[str]) -> None:
+    """`--approve-placement`: union PATH values into the item's `placement_approved`.
+
+    The old and new paths go through `scoped_rules._approved_paths`, the
+    reader's own normalizer, so a `./p`, a backslash and an absolute in-root
+    spelling of a path agree. The sorted union is written as a flow list.
+    Exits 1 and writes nothing for a missing item, an item with no
+    frontmatter, a path outside the project root and a path holding a comma
+    (both readers split a list on commas).
+    """
+    path, _backlog_dir, _archive_dir, _index_path = _locate_single_item(item_id)
+    project_root = Path(load_config(Path(__file__))["_project_root"])
+
+    wanted: set[str] = set()
+    for raw in raw_paths:
+        if "," in raw:
+            print(
+                f"Error: placement_approved NOT written for {path.name}: "
+                f"the path holds a comma: {raw!r}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        normalized = _approved_paths([raw], project_root)
+        if not normalized:
+            print(
+                f"Error: placement_approved NOT written for {path.name}: "
+                f"the path is empty or outside the project root: {raw!r}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        wanted |= normalized
+
+    content = read_text_preserving_newlines(path).lstrip("\ufeff")
+    open_match = _OPEN_FENCE_RE.match(content)
+    close_match = _CLOSE_FENCE_RE.search(content, open_match.end()) if open_match else None
+    if open_match is None or close_match is None:
+        print(
+            f"Error: placement_approved NOT written for {path.name} (no_frontmatter): {path}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    frontmatter = content[open_match.end() : close_match.start()].replace("\r\n", "\n")
+    existing_value = (parse_frontmatter_map(frontmatter) or {}).get("placement_approved")
+    existing = _approved_paths(existing_value, project_root)
+
+    union = existing | wanted
+    if union == existing:
+        print(
+            f"Item {item_id} placement_approved unchanged: "
+            f"{', '.join(sorted(existing))}"
+        )
+        return
+
+    value = "[" + ", ".join(_placement_entry(p) for p in sorted(union)) + "]"
+    result = set_frontmatter_key(path, "placement_approved", value)
+    if result.outcome in ("absent_file", "no_frontmatter"):
+        print(
+            f"Error: placement_approved NOT written for {path.name} "
+            f"({result.outcome}): {result.path}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    print(
+        f"Approved placement for item {item_id}: {', '.join(sorted(union - existing))} "
+        f"(frontmatter only -- regenerate the index with generate_backlog_index.py --write)"
+    )
+
+
 class ResolutionFileError(Exception):
     """A `--resolution-file` that is missing, unreadable or empty."""
 
@@ -1128,6 +1218,17 @@ def main():
         help="Write needs_plan: true into the item's frontmatter (needs --id; refuses --status and --create).",
     )
     parser.add_argument(
+        "--approve-placement",
+        action="append",
+        default=None,
+        dest="approve_placement",
+        metavar="PATH",
+        help=(
+            "Repeatable. Union PATH into the item's placement_approved frontmatter list, the "
+            "destinations the user confirmed at the placement gate (needs --id; stands alone)."
+        ),
+    )
+    parser.add_argument(
         "--resolution-file",
         type=Path,
         default=None,
@@ -1164,6 +1265,24 @@ def main():
     )
 
     args = parser.parse_args()
+
+    if args.approve_placement:
+        if (
+            args.status
+            or args.create
+            or args.mark_needs_plan
+            or args.resolution_file is not None
+            or args.fixed_in
+            or args.completes
+        ):
+            print(
+                "Error: --approve-placement stands alone: give no --status, --create, "
+                "--mark-needs-plan, --resolution-file, --fixed-in or --completes.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        approve_placement(args.id, args.approve_placement)
+        return
 
     if args.mark_needs_plan:
         if (

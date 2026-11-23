@@ -159,6 +159,7 @@ The generator also reports an item whose `title` names a file under `.claude/rul
 | `route_evidence` | string | No | One line: why that route, from what the author verified live at filing time |
 | `route_dated` | date (YYYY-MM-DD) | No | The date the route was judged -- a stored route is a dated claim that rots like any other, and this date makes that staleness visible at triage |
 | `needs_plan` | bool | No | Written as `true` by the Route C marker-and-skip (`update_backlog.py --mark-needs-plan`, `backlog_loop.py --mark --needs-plan`); marks an item that needs a planning session. Read by `score_backlog.decide_route` and `backlog_loop.py --init`, and by a planning hand-off |
+| `placement_approved` | list of paths | No | Project-relative destinations the user confirmed at the step 7 placement gate. Written by `update_backlog.py --approve-placement`. A listed `CREATE` path reads `inject` or `none`, not `placement`. Read by `scoped_rules_block` through `score_backlog.compute_route_signals` |
 | `refined` | bool | No | `true` when the item carries a chosen `## Resolution` with numbered steps, a `## Verification` recipe and no open question. Written only by `backlog-author`. Absent reads `false`. Read by `compute_item_shape` and `backlog_loop.py --init/--next` |
 
 Read `id`, `blocks`, and `created` as text. A typed YAML load turns an unquoted zero-padded id into an octal integer.
@@ -274,6 +275,9 @@ python {plugin_root}/scripts/update_backlog.py --id ID --status=STATUS
 # Mark an item as needing a planning session (status unchanged)
 python {plugin_root}/scripts/update_backlog.py --id ID --mark-needs-plan
 
+# Record a confirmed placement destination (status unchanged)
+python {plugin_root}/scripts/update_backlog.py --id ID --approve-placement PATH [--approve-placement PATH ...]
+
 # Close an item whose criteria are already met, with its proof record
 python {plugin_root}/scripts/update_backlog.py --id ID --status=COMPLETE --resolution-file PATH
 
@@ -298,8 +302,9 @@ Pass a status or outcome value joined to its flag with `=`, as in `--status=COMP
 | `--abbrev ABBREV` | Create only | Domain abbreviation (required with `--create`) |
 | `--files FILES` | Create only | Semicolon-separated (required with `--create`). The first entry is the new item file, written from `templates/backlog-item.md`. It must sit directly inside the backlog folder: give a bare file name, a path from the project root, or an absolute path. A path to any other folder is refused and nothing is written. The heading and the first Related link use the bare file name. Later entries are affected-file references, given as paths from the project root. Each one renders under Related as a backticked path labelled "affected file", with no link (`` - `src/a/B.cs` - affected file ``) |
 | `--mark-needs-plan` | No | Write `needs_plan: true` into the item's frontmatter without changing its status (the Route C marker-and-skip; regenerate the index afterwards) |
+| `--approve-placement PATH` | No (repeatable) | Union PATH into the item's `placement_approved` frontmatter list, written as a sorted flow list. A path already listed is reported unchanged and nothing is written. The command exits 1 and writes nothing for a missing item, an item with no frontmatter, a path outside the project root, a path holding a comma, and in combination with any other mode flag |
 | `--resolution-file PATH` | No (with `--status=COMPLETE` only) | After the status flip and the archive move, append the file's text under `## Resolution`; when `## Resolution` already exists, the file's text is appended below it as a dated `### Closed {date}` block; on an item already COMPLETE the append still runs |
-| `--fixed-in SHA` | No (repeatable) | Append one dated `- {date}: Fixed in: {sha}` line per fixing commit under the item's `## Notes`, creating the section when absent (before `## Related`). Runs alone on an item that is already COMPLETE, in `Archive/` or not, because the squash-merge commit exists only after the close, or together with `--status=COMPLETE`. The sha is 7 to 64 hex characters. A sha already recorded is skipped. The command exits 1 and writes nothing for a sha that is not hex or is shorter than 7 characters, for an item that is not COMPLETE, and in combination with `--create` or `--mark-needs-plan` |
+| `--fixed-in SHA` | No (repeatable) | Append one dated `- {date}: Fixed in: {sha}` line per fixing commit under the item's `## Notes`, creating the section when absent (before `## Related`). Runs alone on an item that is already COMPLETE, in `Archive/` or not, because the squash-merge commit exists only after the close, or together with `--status=COMPLETE`. The sha is 7 to 64 hex characters. A sha already recorded is skipped. The command exits 1 and writes nothing for a sha that is not hex or is shorter than 7 characters, for an item that is not COMPLETE, and in combination with `--create`, `--mark-needs-plan` or `--approve-placement` |
 | `--completes SHA` | No (repeatable, needs `--fixed-in`) | Mark that `--fixed-in` sha with the suffix ` (completes the fix)`. A value absent from `--fixed-in` exits 1 and writes nothing |
 
 **Automatic archival (COMPLETE/CLOSED):** Moves the item file to `{backlog_dir}/Archive/`. It never edits the index. The next `generate_backlog_index.py --write` renders the new link from the file's new location. `--mark-needs-plan` writes `needs_plan: true` without changing the status. `--status=COMPLETE --resolution-file P` appends the file's text under `## Resolution` after the status flip and the archive move, and, when `## Resolution` already exists, appends the file's text below it as a dated `### Closed {date}` block.
