@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_on": "2026-11-20",
+  "generated_on": "2026-11-23",
   "normalization": "read as utf-8-sig (BOM stripped), CRLF -> LF, paths: and consult-when: keys removed, sha256 hex (rule_divergence.rule_history_digest)",
   "purpose": "Every body each installed, de-scoped and style rule reference has ever shipped with. rule_divergence._classify_diverged returns SUBSET at exact confidence for an installed body matching any listed digest, so an unedited older rule is adopted without a transfer. Regenerate with tools/gen_rule_history.py after editing a listed reference; tests/test_rule_history.py enforces it.",
   "rules": {
@@ -240,6 +240,7 @@
       "e0b5ea0571917e92f88f1f0eeabbc5b907599e9406a6061114e97a069f809080",
       "e2b6c8f7bb48b68746d48d7ee45868ba3ce1d86474971903c116002fad8e230d",
       "eace5868666828616903e4e38ad1c503d43443b2f2d4ba4eb1c2a982d3156dac",
+      "eb63ffb73ebd8def56ee859c7b1ccf15ac6a62fb45c28569455b6a072937792d",
       "eee8a9a59d6e527b4b2174b178b9467107533082d5418db6f928c21a9f6c12c2",
       "eeeb9802e2f807400523fb044175aa619a35225ced955e8d9ad5d986d89d67b7",
       "f824b26d363713d0febe31130e94d815d07d6f57b1c92cf09abb22062e5bd1b2"
