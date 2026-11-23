@@ -1843,5 +1843,174 @@ class TestFixedIn(_UpdateBacklogFixtureBase):
                 self.assertEqual(self._snapshot(), before)
 
 
+class TestApprovePlacement(_UpdateBacklogFixtureBase):
+    """`--approve-placement PATH` unions a confirmed destination into the
+    item's `placement_approved` frontmatter list. Every item is built by the
+    real `--create` producer, so the fixture has the shape a live item has."""
+
+    P1 = ".claude/rules/new-rule.md"
+    P2 = "plugins/planwise/references/new-reference.md"
+
+    def _create(self, item_id: str = "301") -> Path:
+        self.write_index("")
+        _out, err, code = self._run_main(
+            [
+                "--config", str(self.config_path), "--create", "--id", item_id,
+                "--feature", "Placement fixture", "--priority", "Low",
+                "--abbrev", "TEST", "--files", f"item-{item_id}.md",
+            ]
+        )
+        self.assertIsNone(code, err)
+        return self.backlog_dir / f"item-{item_id}.md"
+
+    def _approve(self, item_id: str, *paths: str, extra: tuple[str, ...] = ()):
+        argv = ["--config", str(self.config_path), "--id", item_id]
+        for p in paths:
+            argv += ["--approve-placement", p]
+        return self._run_main(argv + list(extra))
+
+    @staticmethod
+    def _frontmatter(path: Path) -> str:
+        text = path.read_bytes().decode("utf-8").replace("\r\n", "\n")
+        return text.split("\n---\n", 1)[0]
+
+    def test_first_path_writes_the_key_inside_the_frontmatter(self):
+        path = self._create()
+
+        out, err, code = self._approve("301", self.P1)
+
+        self.assertIsNone(code, err)
+        self.assertIn(f"Approved placement for item 301: {self.P1}", out)
+        self.assertEqual(
+            self._frontmatter(path).count(f"placement_approved: [{self.P1}]"), 1
+        )
+        self.assertEqual(path.read_text(encoding="utf-8").count("placement_approved"), 1)
+
+    def test_second_path_appends_sorted_and_two_flags_write_both(self):
+        path = self._create()
+        self._approve("301", self.P2)
+        self._approve("301", self.P1)
+        self.assertIn(f"placement_approved: [{self.P1}, {self.P2}]", self._frontmatter(path))
+
+        other = self._create("302")
+        _out, err, code = self._approve("302", self.P2, self.P1)
+        self.assertIsNone(code, err)
+        self.assertIn(f"placement_approved: [{self.P1}, {self.P2}]", self._frontmatter(other))
+
+    def test_repeat_in_every_spelling_reports_unchanged_and_writes_nothing(self):
+        path = self._create()
+        self._approve("301", self.P1)
+        before = path.read_bytes()
+        spellings = {
+            "same": self.P1,
+            "dot-slash": f"./{self.P1}",
+            "backslash": self.P1.replace("/", "\\"),
+            "absolute in root": str(self.tmp / self.P1),
+        }
+        for name, spelling in spellings.items():
+            with self.subTest(name):
+                out, err, code = self._approve("301", spelling)
+                self.assertIsNone(code, err)
+                self.assertIn("placement_approved unchanged", out)
+                self.assertEqual(path.read_bytes(), before)
+
+    def test_unknown_id_exits_one(self):
+        self._create()
+        _out, err, code = self._approve("999", self.P1)
+        self.assertEqual(code, 1, err)
+        self.assertIn("Error:", err)
+
+    def test_item_without_frontmatter_exits_one_and_stays_byte_equal(self):
+        path = self._create()
+        path.write_bytes(path.read_bytes().split(b"---\r\n", 2)[2])  # fence removed
+        before = path.read_bytes()
+
+        _out, err, code = self._approve("301", self.P1)
+
+        self.assertEqual(code, 1, err)
+        self.assertIn("Error:", err)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_writer_error_branch_reports_no_frontmatter(self):
+        # An item the locator finds but the writer's own fence read cannot
+        # split: the frontmatter opens and never closes after the id line.
+        path = self._create()
+        before = path.read_bytes()
+        original = update_backlog._locate_single_item
+        bare = self.tmp / "bare.md"
+        bare.write_bytes(b"no frontmatter here\r\n")
+        update_backlog._locate_single_item = lambda item_id: (
+            bare, self.backlog_dir, self.archive_dir, self.backlog_dir / "00-Index-Backlog.md"
+        )
+        try:
+            _out, err, code = self._approve("301", self.P1)
+        finally:
+            update_backlog._locate_single_item = original
+        self.assertEqual(code, 1, err)
+        self.assertIn("no_frontmatter", err)
+        self.assertEqual(bare.read_bytes(), b"no frontmatter here\r\n")
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_stands_alone_refuses_every_other_mode_flag(self):
+        path = self._create()
+        before = path.read_bytes()
+        cases = {
+            "--status": ["--status=COMPLETE"],
+            "--create": [
+                "--create", "--feature", "F", "--priority", "Low", "--abbrev", "DOC",
+                "--files", "new.md",
+            ],
+            "--mark-needs-plan": ["--mark-needs-plan"],
+        }
+        for name, extra in cases.items():
+            with self.subTest(name):
+                _out, err, code = self._approve("301", self.P1, extra=tuple(extra))
+                self.assertEqual(code, 1, err)
+                self.assertIn("stands alone", err)
+                self.assertEqual(path.read_bytes(), before)
+                self.assertFalse((self.backlog_dir / "new.md").exists())
+
+    def test_absolute_path_outside_the_root_and_a_comma_exit_one(self):
+        path = self._create()
+        before = path.read_bytes()
+        outside = str(self.tmp.parent / "elsewhere" / "x.md")
+        for name, bad in {"outside root": outside, "comma": "a,b.md"}.items():
+            with self.subTest(name):
+                _out, err, code = self._approve("301", bad)
+                self.assertEqual(code, 1, err)
+                self.assertIn("Error:", err)
+                self.assertEqual(path.read_bytes(), before)
+
+    def test_block_form_list_is_replaced_without_an_orphan_line(self):
+        path = self.backlog_dir / "block-form.md"
+        text = (
+            "---\r\nid: 303\r\nstatus: NOT_STARTED\r\n"
+            f"placement_approved:\r\n  - {self.P1}\r\n  - {self.P2}\r\n"
+            "refined: false\r\n---\r\n\r\n# Body\r\n"
+        )
+        path.write_bytes(text.encode("utf-8"))
+
+        result = update_backlog.set_frontmatter_key(
+            path, "placement_approved", f"[{self.P1}, {self.P2}]"
+        )
+
+        self.assertEqual(result.outcome, "changed")
+        data = path.read_bytes()
+        self.assertEqual(data.count(b"placement_approved:"), 1)
+        self.assertNotIn(b"  - ", data)
+        self.assertIn(b"\r\nrefined: false\r\n---\r\n", data)
+        self.assertEqual(data.count(b"\n"), data.count(b"\r\n"))  # no bare LF
+
+    def test_written_list_reads_back_through_the_item_reader(self):
+        from item_frontmatter import read_item_frontmatter
+
+        path = self._create()
+        self._approve("301", self.P1, self.P2)
+
+        self.assertEqual(
+            sorted(read_item_frontmatter(path)["placement_approved"]), [self.P1, self.P2]
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
