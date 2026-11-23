@@ -1,6 +1,6 @@
 // A minimal reader for the three scalars the feedback tool needs from config.yaml.
 // It handles a two-level indented scalar, such as `feedback.drafts`. It is not a
-// YAML parser and it reads no file.
+// YAML parser. Only `findConfig` reads files, and only through the table it is handed.
 
 /** Which feedback.drafts values the tool understands. */
 export type DraftsMode = 'notify' | 'quiet' | 'off'
@@ -70,6 +70,45 @@ export const readScalar = (yaml: string, path: readonly string[]): string | unde
  */
 export const isPlanwiseConfig = (text: string): boolean =>
   /^project:[ \t]*(#.*)?$/m.test(text.replace(/^﻿/, '').replace(/\r\n/g, '\n'))
+
+/** The three file calls the config search makes. The caller builds the table from its engine. */
+export type ConfigFs = {
+  exists: (path: string) => Promise<boolean>
+  read: (path: string) => Promise<unknown>
+  list: (path: string) => Promise<{ name: string; kind: string }[]>
+}
+
+/**
+ * Find the planwise config under a root. The search order is planwise/config.yaml, then
+ * config.yaml at the root itself, then each top-level directory in name order. A candidate counts
+ * only when its text is a planwise config.
+ *
+ * @param fs the file calls
+ * @param root the directory to search under
+ * @returns the config text and the directory that holds the file, or null when the root holds none
+ */
+export const findConfig = async (fs: ConfigFs, root: string): Promise<{ text: string; dir: string } | null> => {
+  const tryDir = async (dir: string): Promise<{ text: string; dir: string } | null> => {
+    const path = dir + '/config.yaml'
+    if (!(await fs.exists(path))) return null
+    const text = String(await fs.read(path))
+    return isPlanwiseConfig(text) ? { text, dir } : null
+  }
+  const base = root.replace(/[\\/]+$/, '')
+  const first = await tryDir(base + '/planwise')
+  if (first !== null) return first
+  const atRoot = await tryDir(base)
+  if (atRoot !== null) return atRoot
+  const names = (await fs.list(root))
+    .filter((entry) => entry.kind === 'dir' && entry.name !== 'planwise' && !entry.name.startsWith('.'))
+    .map((entry) => entry.name)
+    .sort()
+  for (const name of names) {
+    const found = await tryDir(base + '/' + name)
+    if (found !== null) return found
+  }
+  return null
+}
 
 /**
  * Resolve the drafts directory as the Python config loader does. The base is the directory that

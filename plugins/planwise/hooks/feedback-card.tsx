@@ -9,8 +9,9 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions } from 'claude-code'
 
 import { clearIfSame, fitTitle, isStalePress, kindLabel, previewLines, previewRows, shouldAskTurnOff } from './feedback/card-preview.ts'
+import { findConfig } from './feedback/config-read.ts'
 import { PYTHON_CANDIDATES } from './feedback/names.ts'
-import { pressPost } from './feedback/post-press.ts'
+import { liveConfigPath, pressPost } from './feedback/post-press.ts'
 import { failureText } from './loop/boundary.ts'
 import { skillNameOf } from './loop/reentry.ts'
 
@@ -56,6 +57,11 @@ export function hostOf($: EngineInterface) {
     ask: (question: string, options: readonly string[]) => $.ui.ask(question, options),
     run: (argv: readonly string[], init?: { timeoutMs?: number }) => (init === undefined ? $.process.run(argv) : $.process.run(argv, init)),
     pluginRoot: () => $.plugin.root,
+    // The four calls the press-time config search makes. See currentConfigOf.
+    root: () => $.session.root(),
+    exists: (path: string) => $.fs.exists(path),
+    fsRead: (path: string) => $.fs.read(path),
+    fsList: (path: string) => $.fs.list(path),
     uiLog: (text: string, to: 'debug' | 'transcript') => $.ui.log(text, { to }),
     readLast: () => read($, lastDraft),
     readShown: () => read($, cardsShown),
@@ -71,6 +77,16 @@ export function hostOf($: EngineInterface) {
 export type CardHost = ReturnType<typeof hostOf>
 
 const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err))
+
+/**
+ * The config path under the session's current root, or an empty string when the root holds none.
+ * The session root moves when the session enters or leaves a git worktree, so a press reads it
+ * fresh. The card's stored path can name a worktree that was removed since.
+ */
+const currentConfigOf = async (host: CardHost): Promise<string> => {
+  const found = await findConfig({ exists: host.exists, read: host.fsRead, list: host.fsList }, await host.root())
+  return found === null ? '' : found.dir + '/config.yaml'
+}
 
 /**
  * Runs one planwise subcommand through the skill, then spends the card. A rejected run keeps it.
@@ -100,11 +116,12 @@ const onReview = async (host: CardHost): Promise<void> => {
 
 /**
  * Button 2: post the card's draft with no model turn. The id is read fresh from the atom at press
- * time. The skill route is the fallback for when no python could start.
+ * time, and the press checks the stored config path before it uses it. The skill route is the
+ * fallback for when no python could start.
  */
 const onPost = async (host: CardHost): Promise<void> => {
   const draft = await host.readLast()
-  await pressPost({ ...host, fallback: (draftId: string) => runAndSpend(host, 'feedback --post ' + draftId, draftId) }, draft)
+  await pressPost({ ...host, currentConfig: () => currentConfigOf(host), fallback: (draftId: string) => runAndSpend(host, 'feedback --post ' + draftId, draftId) }, draft)
 }
 
 /**
@@ -135,13 +152,17 @@ const turnOff = async (host: CardHost, configPath: string): Promise<void> => {
   host.uiLog('draft feedback: feedback.drafts set to off in config.yaml; takes effect next session', 'transcript')
 }
 
-/** Button 0: dismiss the card. The second dismissal offers to turn drafting off. A stale press does nothing. */
+/**
+ * Button 0: dismiss the card. The second dismissal offers to turn drafting off, in the config the
+ * session can still reach (liveConfigPath). A stale press does nothing.
+ */
 const onDismiss = async (host: CardHost): Promise<void> => {
   const draft = await host.readLast()
   if (isStalePress(draft)) return
   await host.clearLast(draft.draftId)
   const count = await host.bumpDismissals()
-  if (!shouldAskTurnOff(count, draft.configPath)) return
+  const configPath = await liveConfigPath({ exists: host.exists, currentConfig: () => currentConfigOf(host) }, draft.configPath)
+  if (!shouldAskTurnOff(count, configPath)) return
   let answer = 'Keep'
   try {
     answer = await host.ask('Turn off Claude-drafted feedback for this project?', ['Keep', 'Turn off'])
@@ -149,7 +170,7 @@ const onDismiss = async (host: CardHost): Promise<void> => {
     host.uiLog('draft feedback: turn-off ask not answered; keeping drafts on: ' + errText(err), 'debug')
   }
   if (answer !== 'Turn off') return
-  await turnOff(host, draft.configPath)
+  await turnOff(host, configPath)
 }
 
 /** Registers the card's one ui.render hook. */

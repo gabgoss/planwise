@@ -9,8 +9,15 @@ export const KEEP_LINE = 'Posting stays off. The draft was saved, and the next f
 
 /** The exit codes of `feedback_post.py post`. */
 export const EXIT_POSTED = 0
+export const EXIT_NO_DRAFT = 2
 export const EXIT_KEPT = 3
 export const EXIT_POSTING_OFF = 4
+
+/**
+ * The words the post script prints on stderr, with exit 2, when the draft is not queued. A usage
+ * error also exits 2, so the press reads these words before it spends the card.
+ */
+export const NO_DRAFT_MARK = 'no queued draft'
 
 /** What one process run returns. */
 export type PressRunResult = { exitCode: number; stdout: string; stderr: string }
@@ -29,6 +36,26 @@ export type PressHost = {
   setPosting: (value: boolean) => Promise<unknown>
   clearLast: (draftId: string | null) => Promise<unknown>
   pluginRoot: () => string
+  /** True when a file exists at the path. */
+  exists: (path: string) => Promise<boolean>
+  /** The config path under the session's current root, or an empty string when the root holds none. */
+  currentConfig: () => Promise<string>
+}
+
+/**
+ * The config path a press runs with. The card stores the path when the draft is written, and the
+ * file can go away later: a session that leaves a git worktree keeps its card, and the worktree
+ * may then be removed. The stored path wins while its file exists, because the draft file sits
+ * beside it. Otherwise the session's current root gives the path. A check that throws keeps the
+ * stored path.
+ */
+export const liveConfigPath = async (host: Pick<PressHost, 'exists' | 'currentConfig'>, stored: string): Promise<string> => {
+  try {
+    if (stored !== '' && (await host.exists(stored))) return stored
+    return await host.currentConfig()
+  } catch {
+    return stored
+  }
 }
 
 const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err))
@@ -57,7 +84,10 @@ export const postArgv = (python: string, pluginRoot: string, draft: PressDraft):
   draft.draftId,
 ]
 
-/** Acts on one definite result. Only a posted, kept or posting-off result spends the card. */
+/**
+ * Acts on one definite result. A posted, kept or posting-off result spends the card. So does a
+ * draft that is no longer queued, because no later press could post it.
+ */
 const route = async (host: PressHost, draft: PressDraft, result: PressRunResult): Promise<void> => {
   if (result.exitCode === EXIT_POSTED) {
     host.uiLog(lastLine(result.stdout, 'draft feedback: posted'), 'transcript')
@@ -75,11 +105,17 @@ const route = async (host: PressHost, draft: PressDraft, result: PressRunResult)
     return
   }
   const reason = lastLine(result.stderr, 'no error text')
+  if (result.exitCode === EXIT_NO_DRAFT && reason.includes(NO_DRAFT_MARK)) {
+    host.uiLog('draft feedback: nothing to post; the card is cleared: ' + reason, 'transcript')
+    await host.clearLast(draft.draftId)
+    return
+  }
   host.uiLog('draft feedback: post failed (exit ' + String(result.exitCode) + '); the card stays: ' + reason, 'transcript')
 }
 
 /**
- * Button 2: post the draft with no model turn. A press while a post runs does nothing. Each
+ * Button 2: post the draft with no model turn. A press while a post runs does nothing. The config
+ * path is resolved at press time (liveConfigPath), and no path at all takes the old route. Each
  * interpreter name is tried in turn, and the next is tried only when a run could not start. The
  * old route runs only when no process started, so a definite result never posts twice.
  */
@@ -88,16 +124,19 @@ export const pressPost = async (host: PressHost, draft: PressDraft | null): Prom
   if (await host.readPosting()) return
   await host.setPosting(true)
   try {
-    if (draft.configPath === '') {
+    const configPath = await liveConfigPath(host, draft.configPath)
+    if (configPath === '') {
       await host.fallback(draft.draftId)
       return
     }
+    if (configPath !== draft.configPath) host.uiLog('draft feedback: the stored config path is gone; posting with ' + configPath, 'debug')
+    const live: PressDraft = { draftId: draft.draftId, configPath }
     let result: PressRunResult | null = null
     let lastError: unknown = null
     for (const python of PYTHON_CANDIDATES) {
       try {
         // The engine stops the script after two minutes.
-        result = await host.run(postArgv(python, host.pluginRoot(), draft), { timeoutMs: 120000 })
+        result = await host.run(postArgv(python, host.pluginRoot(), live), { timeoutMs: 120000 })
         break
       } catch (err) {
         if (isTimeout(err)) {

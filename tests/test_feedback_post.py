@@ -11,6 +11,7 @@ references/feedback-submission.md, not from the script's output.
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -32,6 +33,16 @@ REPO = "example-owner/example-repo"
 # The driver skips a `.cmd` or `.bat` shim, so on Windows the fake's wrapper cannot be found on PATH.
 # There the default route passes the fake through FEEDBACK_POST_GH_ARGV instead.
 PATH_ROUTE = "override" if os.name == "nt" else "path"
+POST_PRESS_TS = HERE.parent / "plugins" / "planwise" / "hooks" / "feedback" / "post-press.ts"
+
+
+def card_no_draft_pin() -> "tuple[int, str]":
+    """The exit code and the stderr words the review card reads as "no longer queued", from post-press.ts."""
+    source = POST_PRESS_TS.read_text(encoding="utf-8")
+    code = re.search(r"^export const EXIT_NO_DRAFT = (\d+)\s*$", source, re.MULTILINE)
+    mark = re.search(r"^export const NO_DRAFT_MARK = '([^']+)'\s*$", source, re.MULTILINE)
+    assert code is not None and mark is not None, "EXIT_NO_DRAFT or NO_DRAFT_MARK literal not found in post-press.ts"
+    return int(code.group(1)), mark.group(1)
 
 
 # ---------------------------------------------------------------- harness
@@ -524,6 +535,11 @@ def test_no_queued_draft_exits_2(tmp_path, draft_id, status, reason):
     assert result.returncode == 2
     assert f"no queued draft with id {draft_id} ({reason})" in result.stderr
     assert count_calls(log) == 0 and promoted_files(tmp_path) == []
+    # The review card clears itself on this result. It reads the exit code and these words from the
+    # last stderr line, so the two files must agree.
+    card_code, card_mark = card_no_draft_pin()
+    last_line = [line for line in result.stderr.splitlines() if line.strip()][-1]
+    assert result.returncode == card_code and card_mark in last_line
 
 
 def test_a_lesson_posts_with_the_enhancement_label_and_no_url(tmp_path):
