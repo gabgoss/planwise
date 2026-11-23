@@ -1,7 +1,9 @@
 // The review card above the prompt, composed into the one hooks module (register.ts). When the
 // draft_feedback tool admits a draft, or session start finds a queued draft from an earlier
 // session (draft-feedback.ts), the card offers Review, Post and Dismiss. Dismiss hides the draft
-// for this session only: the file stays queued, so the next session offers it again. It holds one
+// for this session only: the file stays queued, so the next session offers it again. A post or a
+// discard made by another session clears the card here too: each draw checks the draft file on
+// disk, at most once every two seconds (draftIsOffered). It holds one
 // ui.render hook and no session.start hook. The values it shows live in `$.state` under the name
 // `planwise`, declared by types/index.d.ts. A render hook cannot write state, so every write
 // happens in a button press.
@@ -10,6 +12,7 @@ import type { EngineInterface, On, PluginOptions } from 'claude-code'
 
 import { clearIfSame, fitTitle, isStalePress, kindLabel, previewLines, previewRows, shouldAskTurnOff } from './feedback/card-preview.ts'
 import { findConfig } from './feedback/config-read.ts'
+import { draftStillOffered } from './feedback/live.ts'
 import { PYTHON_CANDIDATES } from './feedback/names.ts'
 import { liveConfigPath, pressPost } from './feedback/post-press.ts'
 import { failureText } from './loop/boundary.ts'
@@ -77,6 +80,30 @@ export function hostOf($: EngineInterface) {
 export type CardHost = ReturnType<typeof hostOf>
 
 const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err))
+
+/** How long one disk check of the card's draft stays valid. A render can run many times a second. */
+const LIVE_WINDOW_MS = 2000
+
+/**
+ * The last disk check of the card's draft. A render hook cannot write state, so module memory
+ * holds it. It resets with the process, and a new draft id misses it.
+ */
+const lastCheck = { draftId: '', at: 0, live: true }
+
+/**
+ * True while the draft on the card can still be posted. Another session may have posted it since
+ * this session drew the card, and only the disk shows that. The check reads the drafts folder at
+ * most once per window, and any failure keeps the card (see draftStillOffered).
+ */
+const draftIsOffered = async (host: CardHost, draft: { draftId: string; feedbackDir: string }): Promise<boolean> => {
+  const now = Date.now()
+  if (lastCheck.draftId === draft.draftId && now - lastCheck.at < LIVE_WINDOW_MS) return lastCheck.live
+  const live = await draftStillOffered({ list: host.fsList, read: host.fsRead }, draft.feedbackDir, draft.draftId)
+  lastCheck.draftId = draft.draftId
+  lastCheck.at = now
+  lastCheck.live = live
+  return live
+}
 
 /**
  * The config path under the session's current root, or an empty string when the root holds none.
@@ -192,6 +219,8 @@ export function register(on: On, options: PluginOptions) {
     const contentRows = e.props.maxRows - FRAME_ROWS - BADGE_ROWS
     const columns = e.props.bodyColumns - FRAME_COLUMNS
     if (contentRows < 4 || columns < MIN_COLUMNS) return next(e)
+    // The disk read comes last, after every guard that skips the card, so it runs only when a card would draw.
+    if (!(await draftIsOffered(host, draft))) return next(e)
 
     const { Box, Button, Text } = host.resolve(e)
     const rows = previewLines(draft.preview, columns, previewRows(contentRows))
