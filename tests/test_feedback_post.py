@@ -36,13 +36,22 @@ PATH_ROUTE = "override" if os.name == "nt" else "path"
 POST_PRESS_TS = HERE.parent / "plugins" / "planwise" / "hooks" / "feedback" / "post-press.ts"
 
 
-def card_no_draft_pin() -> "tuple[int, str]":
-    """The exit code and the stderr words the review card reads as "no longer queued", from post-press.ts."""
+def card_pin(code_name: str, mark_name: str) -> "tuple[int, str]":
+    """One exit code and the stderr words the review card reads beside it, from post-press.ts.
+
+    The card acts on two results by exit code plus words on the last stderr line: a config file that
+    is gone (EXIT_FAILED, CONFIG_GONE_MARK) and a draft that is no longer queued (EXIT_NO_DRAFT,
+    NO_DRAFT_MARK). The script and the card must agree on both.
+    """
     source = POST_PRESS_TS.read_text(encoding="utf-8")
-    code = re.search(r"^export const EXIT_NO_DRAFT = (\d+)\s*$", source, re.MULTILINE)
-    mark = re.search(r"^export const NO_DRAFT_MARK = '([^']+)'\s*$", source, re.MULTILINE)
-    assert code is not None and mark is not None, "EXIT_NO_DRAFT or NO_DRAFT_MARK literal not found in post-press.ts"
+    code = re.search(rf"^export const {code_name} = (\d+)\s*$", source, re.MULTILINE)
+    mark = re.search(rf"^export const {mark_name} = '([^']+)'\s*$", source, re.MULTILINE)
+    assert code is not None and mark is not None, f"{code_name} or {mark_name} literal not found in post-press.ts"
     return int(code.group(1)), mark.group(1)
+
+
+def last_stderr_line(result: "subprocess.CompletedProcess") -> str:
+    return [line for line in result.stderr.splitlines() if line.strip()][-1]
 
 
 # ---------------------------------------------------------------- harness
@@ -535,11 +544,9 @@ def test_no_queued_draft_exits_2(tmp_path, draft_id, status, reason):
     assert result.returncode == 2
     assert f"no queued draft with id {draft_id} ({reason})" in result.stderr
     assert count_calls(log) == 0 and promoted_files(tmp_path) == []
-    # The review card clears itself on this result. It reads the exit code and these words from the
-    # last stderr line, so the two files must agree.
-    card_code, card_mark = card_no_draft_pin()
-    last_line = [line for line in result.stderr.splitlines() if line.strip()][-1]
-    assert result.returncode == card_code and card_mark in last_line
+    # The review card clears itself on this result.
+    card_code, card_mark = card_pin("EXIT_NO_DRAFT", "NO_DRAFT_MARK")
+    assert result.returncode == card_code and card_mark in last_stderr_line(result)
 
 
 def test_a_lesson_posts_with_the_enhancement_label_and_no_url(tmp_path):
@@ -708,6 +715,11 @@ def test_a_missing_config_exits_1(tmp_path):
     result = post(tmp_path / "absent.yaml", env)
     assert result.returncode == 1
     assert count_calls(log) == 0
+    # The review card runs the script again with another config on this result, so nothing may be
+    # written before it and the words must match.
+    card_code, card_mark = card_pin("EXIT_FAILED", "CONFIG_GONE_MARK")
+    assert result.returncode == card_code and card_mark in last_stderr_line(result)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["bin", "empty"]
 
 
 # ---------------------------------------------------------------- the card

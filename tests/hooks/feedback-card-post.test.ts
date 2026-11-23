@@ -6,7 +6,7 @@ import { PYTHON_CANDIDATES } from '../../plugins/planwise/hooks/feedback/names.t
 // The module under test loads from the environment variable when it is set, so a mutated copy can
 // stand in for the real file. With the variable unset the shipped module loads.
 const pressModule = process.env.FEEDBACK_POST_PRESS_MODULE ?? '../../plugins/planwise/hooks/feedback/post-press.ts'
-const { pressPost, postArgv, KEEP_LINE, EXIT_POSTED, EXIT_NO_DRAFT, EXIT_KEPT, EXIT_POSTING_OFF } = (await import(pressModule)) as typeof import('../../plugins/planwise/hooks/feedback/post-press.ts')
+const { pressPost, postArgv, liveConfigPath, KEEP_LINE, MOVED_OFF_LINE, EXIT_POSTED, EXIT_NO_DRAFT, EXIT_KEPT, EXIT_POSTING_OFF } = (await import(pressModule)) as typeof import('../../plugins/planwise/hooks/feedback/post-press.ts')
 
 const ROOT = '/plugin/root'
 const draft: PressDraft = { draftId: 'draft-1', configPath: '/proj/planwise.yaml' }
@@ -18,6 +18,8 @@ const worktreeDraft: PressDraft = { draftId: 'draft-wt', configPath: WORKTREE_CO
 
 // The stderr line of `feedback_post.py post` on exit 2, copied from the script's own print call.
 const NO_DRAFT_LINE = 'feedback_post: no queued draft with id draft-1 (promoted); nothing was posted.'
+// The stderr line of the same script on exit 1 when its --config file does not exist.
+const GONE_LINE = 'feedback_post: config.yaml not found at ' + WORKTREE_CONFIG
 
 /** One scripted answer for one run call: a result, or an error to reject with. */
 type Step = PressRunResult | Error
@@ -32,18 +34,16 @@ type Fake = {
   cleared: (string | null)[]
   posting: boolean[]
   asks: unknown[]
-  /** Every path the press checked. */
-  existsCalls: string[]
   /** One entry for each time the press asked for the current root's config: the value it got. */
   currentCalls: string[]
 }
 
 /**
- * A host that records every call and answers run from a script, one step per call. The stored
- * config path exists, and the current root holds no config, unless a test replaces those members.
+ * A host that records every call and answers run from a script, one step per call. The current
+ * root holds no config unless a test replaces that member.
  */
 const fake = (steps: Step[], initialPosting = false): Fake => {
-  const f: Fake = { host: undefined as unknown as PressHost, runs: [], logs: [], fallbacks: [], cleared: [], posting: [initialPosting], asks: [], existsCalls: [], currentCalls: [] }
+  const f: Fake = { host: undefined as unknown as PressHost, runs: [], logs: [], fallbacks: [], cleared: [], posting: [initialPosting], asks: [], currentCalls: [] }
   let call = 0
   const host = {
     run: async (argv: readonly string[], init?: { timeoutMs?: number }): Promise<PressRunResult> => {
@@ -67,10 +67,6 @@ const fake = (steps: Step[], initialPosting = false): Fake => {
       f.cleared.push(draftId)
     },
     pluginRoot: () => ROOT,
-    exists: async (path: string): Promise<boolean> => {
-      f.existsCalls.push(path)
-      return true
-    },
     currentConfig: async (): Promise<string> => {
       f.currentCalls.push('')
       return ''
@@ -85,13 +81,15 @@ const fake = (steps: Step[], initialPosting = false): Fake => {
   return f
 }
 
-/** A fake whose stored config path is gone, and whose current root holds `current` ('' for none). */
-const moved = (steps: Step[], current: string): Fake => {
-  const f = fake(steps)
-  f.host.exists = async (path: string) => {
-    f.existsCalls.push(path)
-    return false
-  }
+/** The script's answer when the draft's config file is gone: exit 1 and the not-found line. */
+const GONE = ok(1, '', GONE_LINE + '\n')
+
+/**
+ * A fake whose first run reports the draft's config as gone, and whose current root holds
+ * `current` ('' for none). `later` scripts the runs after the first.
+ */
+const moved = (later: Step[], current: string): Fake => {
+  const f = fake([GONE, ...later])
   f.host.currentConfig = async () => {
     f.currentCalls.push(current)
     return current
@@ -192,17 +190,16 @@ test('press: the no-longer-queued words on another exit code keep the card', asy
   assert.deepEqual(f.logs, [{ text: 'draft feedback: post failed (exit 1); the card stays: ' + NO_DRAFT_LINE, to: 'transcript' }])
 })
 
-test('press: a stored config in a removed worktree posts with the current root config', async () => {
+const SWITCH_LOG = { text: "draft feedback: the draft's config file is gone; posting with " + MAIN_CONFIG, to: 'transcript' }
+
+test('press: a stored config in a removed worktree posts with the current root config and says so', async () => {
   const f = moved([ok(EXIT_POSTED, 'posted: https://example.test/2\n')], MAIN_CONFIG)
   await pressPost(f.host, worktreeDraft)
-  assert.deepEqual(f.existsCalls, [WORKTREE_CONFIG])
   assert.deepEqual(f.currentCalls, [MAIN_CONFIG])
-  assert.equal(f.runs.length, 1)
-  assert.deepEqual(f.runs[0]?.argv, [PYTHON_CANDIDATES[0], '-B', ROOT + '/scripts/feedback_post.py', 'post', '--config', MAIN_CONFIG, '--draft-id', 'draft-wt'])
-  assert.deepEqual(f.logs, [
-    { text: 'draft feedback: the stored config path is gone; posting with ' + MAIN_CONFIG, to: 'debug' },
-    { text: 'posted: https://example.test/2', to: 'transcript' },
-  ])
+  assert.equal(f.runs.length, 2)
+  assert.equal(f.runs[0]?.argv[5], WORKTREE_CONFIG)
+  assert.deepEqual(f.runs[1]?.argv, [PYTHON_CANDIDATES[0], '-B', ROOT + '/scripts/feedback_post.py', 'post', '--config', MAIN_CONFIG, '--draft-id', 'draft-wt'])
+  assert.deepEqual(f.logs, [SWITCH_LOG, { text: 'posted: https://example.test/2', to: 'transcript' }])
   assert.deepEqual(f.cleared, ['draft-wt'])
   assert.equal(f.fallbacks.length, 0)
 })
@@ -210,55 +207,115 @@ test('press: a stored config in a removed worktree posts with the current root c
 test('press: a removed worktree whose draft is gone too clears the card', async () => {
   const f = moved([ok(EXIT_NO_DRAFT, '', 'feedback_post: no queued draft with id draft-wt (unknown); nothing was posted.\n')], MAIN_CONFIG)
   await pressPost(f.host, worktreeDraft)
-  assert.equal(f.runs[0]?.argv[5], MAIN_CONFIG)
+  assert.equal(f.runs[1]?.argv[5], MAIN_CONFIG)
   assert.deepEqual(f.cleared, ['draft-wt'])
 })
 
-test('press: a stored config that exists is used unchanged and the current root is never read', async () => {
+test('press: a stored config that works is used unchanged and the current root is never read', async () => {
   const f = fake([ok(EXIT_POSTED)])
   await pressPost(f.host, worktreeDraft)
-  assert.deepEqual(f.existsCalls, [WORKTREE_CONFIG])
   assert.deepEqual(f.currentCalls, [])
+  assert.equal(f.runs.length, 1)
   assert.equal(f.runs[0]?.argv[5], WORKTREE_CONFIG)
-  assert.equal(f.logs.filter((l) => l.to === 'debug').length, 0)
 })
 
-test('press: a removed config with none under the current root runs the fallback once and starts no process', async () => {
+test('press: any other exit 1 never reads the current root', async () => {
+  const f = fake([ok(1, '', 'feedback_post: the draft could not be promoted: boom\n')])
+  await pressPost(f.host, worktreeDraft)
+  assert.deepEqual(f.currentCalls, [])
+  assert.equal(f.runs.length, 1)
+  assert.deepEqual(f.cleared, [])
+})
+
+test('press: a removed config with none under the current root runs the fallback once and no second process', async () => {
   const f = moved([ok(EXIT_POSTED)], '')
   await pressPost(f.host, worktreeDraft)
   assert.deepEqual(f.currentCalls, [''])
-  assert.equal(f.runs.length, 0)
+  assert.equal(f.runs.length, 1)
   assert.deepEqual(f.fallbacks, ['draft-wt'])
   assert.equal(f.cleared.length, 0)
   assert.equal(f.posting[f.posting.length - 1], false)
 })
 
-test('press: an exists check that throws keeps the stored path', async () => {
-  const f = fake([ok(EXIT_POSTED)])
-  f.host.exists = async () => {
-    throw new Error('fs down')
-  }
-  await pressPost(f.host, worktreeDraft)
-  assert.deepEqual(f.currentCalls, [])
-  assert.equal(f.runs[0]?.argv[5], WORKTREE_CONFIG)
-})
-
-test('press: a current-root search that throws keeps the stored path', async () => {
-  const f = moved([ok(1, '', 'feedback_post: config.yaml not found at ' + WORKTREE_CONFIG + '\n')], MAIN_CONFIG)
+test('press: a current-root search that throws runs the fallback once, so the card does not stay stuck', async () => {
+  const f = moved([ok(EXIT_POSTED)], MAIN_CONFIG)
   f.host.currentConfig = async () => {
     throw new Error('list failed')
   }
   await pressPost(f.host, worktreeDraft)
-  assert.equal(f.runs[0]?.argv[5], WORKTREE_CONFIG)
-  assert.deepEqual(f.cleared, [])
+  assert.equal(f.runs.length, 1)
+  assert.deepEqual(f.fallbacks, ['draft-wt'])
+  assert.equal(f.logs.filter((l) => l.to === 'transcript').length, 0)
+  assert.match(f.logs[0]?.text ?? '', /could not be searched for a config: list failed$/)
 })
 
-test('press: an empty stored path posts with the current root config when the root holds one', async () => {
-  const f = moved([ok(EXIT_POSTED)], MAIN_CONFIG)
-  await pressPost(f.host, { draftId: 'draft-2', configPath: '' })
-  assert.deepEqual(f.existsCalls, [])
-  assert.equal(f.runs[0]?.argv[5], MAIN_CONFIG)
+test('press: a current root that names the same missing config keeps the card and runs once', async () => {
+  const f = moved([ok(EXIT_POSTED)], WORKTREE_CONFIG)
+  await pressPost(f.host, worktreeDraft)
+  assert.equal(f.runs.length, 1)
   assert.equal(f.fallbacks.length, 0)
+  assert.deepEqual(f.cleared, [])
+  assert.deepEqual(f.logs, [{ text: 'draft feedback: post failed (exit 1); the card stays: ' + GONE_LINE, to: 'transcript' }])
+})
+
+test('press: posting off in the current root config logs the moved line, not the keep line', async () => {
+  const f = moved([ok(EXIT_POSTING_OFF, 'posting is off\n')], MAIN_CONFIG)
+  await pressPost(f.host, worktreeDraft)
+  assert.deepEqual(f.logs, [SWITCH_LOG, { text: MOVED_OFF_LINE, to: 'transcript' }])
+  assert.equal(MOVED_OFF_LINE.includes('saved'), false)
+  assert.deepEqual(f.cleared, ['draft-wt'])
+})
+
+test('press: a timeout on the second run keeps the card with no fallback', async () => {
+  const f = moved([new Error('process timed out')], MAIN_CONFIG)
+  await pressPost(f.host, worktreeDraft)
+  assert.equal(f.runs.length, 2)
+  assert.equal(f.fallbacks.length, 0)
+  assert.deepEqual(f.cleared, [])
+  assert.deepEqual(f.logs, [SWITCH_LOG, { text: 'draft feedback: post timed out; the card stays: process timed out', to: 'transcript' }])
+})
+
+/** A host for liveConfigPath: `present` answers exists, and `current` answers the root search. An Error throws. */
+const liveHost = (present: boolean | Error, current: string | Error) => {
+  const calls: string[] = []
+  return {
+    calls,
+    exists: async (path: string): Promise<boolean> => {
+      calls.push('exists ' + path)
+      if (present instanceof Error) throw present
+      return present
+    },
+    currentConfig: async (): Promise<string> => {
+      calls.push('current')
+      if (current instanceof Error) throw current
+      return current
+    },
+  }
+}
+
+test('liveConfigPath: a stored path whose file exists wins and the root is never searched', async () => {
+  const host = liveHost(true, MAIN_CONFIG)
+  assert.equal(await liveConfigPath(host, WORKTREE_CONFIG), WORKTREE_CONFIG)
+  assert.deepEqual(host.calls, ['exists ' + WORKTREE_CONFIG])
+})
+
+test('liveConfigPath: a stored path whose file is gone gives the current root config', async () => {
+  assert.equal(await liveConfigPath(liveHost(false, MAIN_CONFIG), WORKTREE_CONFIG), MAIN_CONFIG)
+  assert.equal(await liveConfigPath(liveHost(false, ''), WORKTREE_CONFIG), '')
+})
+
+test('liveConfigPath: an empty stored path searches the root without an existence check', async () => {
+  const host = liveHost(true, MAIN_CONFIG)
+  assert.equal(await liveConfigPath(host, ''), MAIN_CONFIG)
+  assert.deepEqual(host.calls, ['current'])
+})
+
+test('liveConfigPath: an existence check that throws keeps the stored path', async () => {
+  assert.equal(await liveConfigPath(liveHost(new Error('fs down'), MAIN_CONFIG), WORKTREE_CONFIG), WORKTREE_CONFIG)
+})
+
+test('liveConfigPath: a root search that throws gives an empty path, never the dead one', async () => {
+  assert.equal(await liveConfigPath(liveHost(false, new Error('list failed')), WORKTREE_CONFIG), '')
 })
 
 test('press: a failure with empty stderr logs the no-error-text reason', async () => {

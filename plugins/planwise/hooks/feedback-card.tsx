@@ -57,7 +57,7 @@ export function hostOf($: EngineInterface) {
     ask: (question: string, options: readonly string[]) => $.ui.ask(question, options),
     run: (argv: readonly string[], init?: { timeoutMs?: number }) => (init === undefined ? $.process.run(argv) : $.process.run(argv, init)),
     pluginRoot: () => $.plugin.root,
-    // The four calls the press-time config search makes. See currentConfigOf.
+    // The four calls the config search makes at press time. See currentConfigOf.
     root: () => $.session.root(),
     exists: (path: string) => $.fs.exists(path),
     fsRead: (path: string) => $.fs.read(path),
@@ -116,8 +116,8 @@ const onReview = async (host: CardHost): Promise<void> => {
 
 /**
  * Button 2: post the card's draft with no model turn. The id is read fresh from the atom at press
- * time, and the press checks the stored config path before it uses it. The skill route is the
- * fallback for when no python could start.
+ * time. When the post script reports that the draft's config file is gone, the press runs it again
+ * with the current root's config. The skill route is the fallback for when no python could start.
  */
 const onPost = async (host: CardHost): Promise<void> => {
   const draft = await host.readLast()
@@ -161,8 +161,10 @@ const onDismiss = async (host: CardHost): Promise<void> => {
   if (isStalePress(draft)) return
   await host.clearLast(draft.draftId)
   const count = await host.bumpDismissals()
+  if (!shouldAskTurnOff(count, draft.configPath)) return
+  // Only the second dismissal reaches the file system. No reachable config means no question.
   const configPath = await liveConfigPath({ exists: host.exists, currentConfig: () => currentConfigOf(host) }, draft.configPath)
-  if (!shouldAskTurnOff(count, configPath)) return
+  if (configPath === '') return
   let answer = 'Keep'
   try {
     answer = await host.ask('Turn off Claude-drafted feedback for this project?', ['Keep', 'Turn off'])

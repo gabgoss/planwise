@@ -84,9 +84,11 @@ ALL gates below MUST pass, in this order, before a post is attempted:
      When posting is off, the press clears the card, prints
      `Posting stays off. The draft was saved, and the next feedback flow asks again.` and
      enables nothing.
-     The card stores the config path when the draft is written. The press checks that file first.
-     When the file is gone, the press uses the config under the session's current root. This
-     happens when the session leaves a git worktree that is then removed.
+     The card stores the config path when the draft is written, and the press runs the script
+     with that path first. The script may report that the file is gone. This happens when the
+     session leaves a git worktree that is then removed. The press then prints one line that
+     names the config under the session's current root, and runs the script once more with it.
+     The script checks its config before it writes anything, so the second run cannot post twice.
      When the draft is no longer queued, the press clears the card and prints one line.
    - **Unattended context.** When gate 1 reads `enabled`, the pipeline posts with no question.
      It runs gates 3, 4 and 4.5, then the privacy gate on the draft, then the route under
