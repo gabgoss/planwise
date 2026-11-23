@@ -3,7 +3,7 @@
 // session (draft-feedback.ts), the card offers Review, Post and Dismiss. Dismiss hides the draft
 // for this session only: the file stays queued, so the next session offers it again. A post or a
 // discard made by another session clears the card here too: each draw checks the draft file on
-// disk, at most once every two seconds (draftIsOffered). It holds one
+// disk, at most once every five seconds (draftIsOffered). It holds one
 // ui.render hook and no session.start hook. The values it shows live in `$.state` under the name
 // `planwise`, declared by types/index.d.ts. A render hook cannot write state, so every write
 // happens in a button press.
@@ -82,7 +82,7 @@ export type CardHost = ReturnType<typeof hostOf>
 const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err))
 
 /** How long one disk check of the card's draft stays valid. A render can run many times a second. */
-const LIVE_WINDOW_MS = 2000
+const LIVE_WINDOW_MS = 5000
 
 /**
  * The last disk check of the card's draft. A render hook cannot write state, so module memory
