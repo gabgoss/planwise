@@ -317,6 +317,74 @@ def test_update_argv_scope_and_cwd(env, monkeypatch, tmp_path):
     assert list(data_dir.iterdir()) == []  # the store branch writes no marker file
 
 
+# --- a git linked worktree: the main checkout's install applies there --------------
+
+def _linked_worktree(base: Path, pin: str) -> "tuple[Path, Path]":
+    """A real main checkout with a committed planwise config, and a real linked worktree nested
+    in it. git writes the worktree's `.git` file, so the lookup reads the producer's own bytes."""
+    def git(*args):
+        subprocess.run(
+            ["git", "-c", "user.name=test", "-c", "user.email=test@example.test", "-c", "commit.gpgsign=false", *args],
+            cwd=main, check=True, capture_output=True,
+        )
+
+    main = base.resolve() / "main"
+    (main / "planwise").mkdir(parents=True)
+    (main / "planwise" / "config.yaml").write_text(
+        f"# planwise configuration\nplugin_version: {pin}\nplans_dir: planwise/Plans\n", encoding="utf-8"
+    )
+    git("init", "-q", "-b", "main")
+    git("add", "-A")
+    git("commit", "-q", "-m", "init")
+    linked = main / ".claude" / "worktrees" / "wt"
+    git("worktree", "add", "-q", str(linked), "-b", "wt")
+    return main, linked
+
+
+def test_check_in_a_linked_worktree_reads_the_main_checkout_install(tmp_path, monkeypatch):
+    config = _home(tmp_path, clone_version="1.0.9")
+    running = _cache(config, "1.0.8")
+    main, linked = _linked_worktree(tmp_path, "1.0.8")
+    _install(config, [_entry("project", running, "1.0.8", main)])
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    in_main = update_check.check(running, main)
+    in_worktree = update_check.check(running, linked)
+    assert (in_main["verdict"], in_main["scope"]) == (update_check.PLUGIN_BEHIND, "project")
+    assert (in_worktree["verdict"], in_worktree["scope"], in_worktree["installed"]) == (
+        update_check.PLUGIN_BEHIND, "project", "1.0.8")
+    # The pin still comes from the worktree's own config, not from the main checkout's.
+    assert Path(in_worktree["config_path"]) == linked / "planwise" / "config.yaml"
+
+
+def test_update_in_a_linked_worktree_runs_in_the_main_checkout(tmp_path, monkeypatch):
+    config = _home(tmp_path, clone_version="1.0.9")
+    running = _cache(config, "1.0.8")
+    main, linked = _linked_worktree(tmp_path, "1.0.8")  # real git, before subprocess.run is stubbed
+    _install(config, [_entry("project", running, "1.0.8", main)])
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    calls = []
+    monkeypatch.setattr(shutil_mod(), "which", lambda name: "claude")
+    monkeypatch.setattr(subprocess, "run", _fake_run(calls, update_stdout='{"status":"updated"}'))
+    code, report = update_check.update(running, linked)
+    assert code == update_check.EXIT_UPDATED and report["scope"] == "project"
+    assert calls[1][0] == ["claude", "plugin", "update", f"planwise@{MARKET}", "--scope", "project", "--json"]
+    # The CLI updates the install recorded for its working directory: the main checkout.
+    assert calls[1][1]["cwd"] == str(main)
+
+
+def test_update_runs_in_a_folder_that_exists_when_the_record_spells_it_oddly(env, monkeypatch):
+    config, running, project = env(clone="1.0.9")
+    # The record matches the project after normalising, in a spelling that may not open here.
+    odd = str(project).replace("/", "\\").upper() + "\\"
+    _install(config, [{"scope": "project", "projectPath": odd, "installPath": str(running), "version": "1.0.8"}])
+    calls = []
+    monkeypatch.setattr(shutil_mod(), "which", lambda name: "claude")
+    monkeypatch.setattr(subprocess, "run", _fake_run(calls, update_stdout='{"status":"updated"}'))
+    code, _report = update_check.update(running, project)
+    assert code == update_check.EXIT_UPDATED
+    assert os.path.samefile(calls[1][1]["cwd"], project)
+
+
 # The refusals below are real output of `claude plugin ... --json` on CLI 2.1.330, taken on
 # 2026-11-23 with no -y and with stdout piped, so the CLI could only display the declared command.
 # Each run exited 1. Human lines come first and the JSON result is the last line. The two install

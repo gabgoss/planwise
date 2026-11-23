@@ -17,7 +17,10 @@ the install record Claude Code keeps, and returns one verdict:
 
 The install that applies is the first match in this order: the `local` entry for
 this `projectPath`, then the `project` entry for it, then the `user` entry.
-Paths compare with case and separators normalised.
+Paths compare with case and separators normalised, as written and with links
+resolved. Inside a git linked worktree, the `local` or `project` entry recorded
+for the main checkout applies as well, after any entry recorded for the
+worktree's own path: the worktree is the same project at another path.
 
 `check()` reads files only. The CLI's `--refresh` flag first runs
 `claude plugin marketplace update {marketplace}`. A failed refresh prints a
@@ -104,18 +107,114 @@ def marketplace_name(running_root, installed: dict) -> "str | None":
     return None
 
 
-def applicable_entry(entries: list, project_root) -> "dict | None":
-    """The install entry that applies to the project: local, then project, then user."""
-    want = norm(project_root)
-    for scope in SCOPE_ORDER:
-        matches = [
-            e for e in entries
-            if isinstance(e, dict) and e.get("scope") == scope
-            and (scope == "user" or norm(e.get("projectPath", "")) == want)
-        ]
-        if matches:
-            return max(matches, key=lambda e: str(e.get("lastUpdated", "")))
+def _is_bare(common: Path) -> bool:
+    """True when the common git folder's config sets `core.bare` to true. An unreadable config
+    reads as not bare."""
+    try:
+        lines = (common / "config").read_text(encoding="utf-8", errors="replace").splitlines()
+    except (OSError, ValueError):
+        return False
+    section, bare = "", False
+    for line in lines:
+        text = line.strip()
+        if text.startswith("["):
+            section = text.strip("[]").strip().lower()
+        elif section == "core" and "=" in text:
+            key, value = (part.strip().lower() for part in text.split("=", 1))
+            if key == "bare":
+                bare = value in ("true", "yes", "on", "1")
+    return bare
+
+
+def _linked_worktree_main(base: Path) -> "Path | None":
+    """The main checkout of the linked worktree rooted at `base`, or None.
+
+    A linked worktree's `.git` is a file that reads `gitdir: <admin folder>`. The admin folder
+    holds a `commondir` file that names the common git folder. The main checkout is the folder
+    that holds that common folder, when the folder is named `.git` and is not bare.
+
+    Three shapes return None. A submodule's `.git` file names a folder with no `commondir`. A
+    bare repository has no main checkout, even when its folder is named `.git`. A `.git` file
+    written by a POSIX-layer git on Windows names a path this process cannot open.
+    """
+    try:
+        first = (base / ".git").read_text(encoding="utf-8", errors="replace").splitlines()[0]
+        if not first.startswith("gitdir:"):
+            return None
+        admin = Path(first[len("gitdir:"):].strip())
+        if not admin.is_absolute():
+            admin = base / admin
+        named = (admin / "commondir").read_text(encoding="utf-8", errors="replace").strip()
+    except (OSError, IndexError, ValueError):
+        # ValueError: a corrupt `.git` file can hold a NUL byte, which no path may carry.
+        return None
+    if not named:
+        return None
+    common = Path(os.path.normpath(admin / named))
+    if common.name != ".git" or _is_bare(common):
+        return None
+    return common.parent
+
+
+def main_checkout_root(project_root) -> "Path | None":
+    """The same project folder inside the main checkout, when `project_root` sits in a git
+    linked worktree. None for an ordinary checkout and for a folder outside git.
+
+    Claude Code records a `local` or `project` install under the path of the checkout that
+    installed it. A linked worktree is the same project at another path. Reads files only,
+    and runs no git process.
+    """
+    root = Path(os.path.abspath(str(project_root)))
+    for base in (root, *root.parents):
+        dot_git = base / ".git"
+        if dot_git.is_dir():
+            return None
+        if dot_git.is_file():
+            main = _linked_worktree_main(base)
+            return None if main is None else main / root.relative_to(base)
     return None
+
+
+def _spellings(path) -> "set[str]":
+    """The comparison forms of one path: as written, and with links, junctions and short names
+    resolved. git records resolved paths, and an install record may hold another spelling."""
+    text = str(path or "")
+    if not text:
+        return set()
+    forms = {norm(text)}
+    try:
+        forms.add(norm(os.path.realpath(text)))
+    except (OSError, ValueError):
+        pass
+    return forms
+
+
+def applicable_entry(entries: list, project_root) -> "dict | None":
+    """The install entry that applies to the project: local, then project, then user.
+
+    A `local` or `project` entry applies when its `projectPath` is the project root. Inside a
+    git linked worktree the entries recorded for the main checkout apply too. Every entry
+    recorded for the worktree's own path comes first, so a worktree with an install of its own
+    keeps it. A `user` entry carries no project path and comes last.
+    """
+    def newest(matches: list) -> dict:
+        return max(matches, key=lambda e: str(e.get("lastUpdated", "")))
+
+    roots = [project_root]
+    main = main_checkout_root(project_root)
+    if main is not None:
+        roots.append(main)
+    for root in roots:
+        want = _spellings(root)
+        for scope in (s for s in SCOPE_ORDER if s != "user"):
+            matches = [
+                e for e in entries
+                if isinstance(e, dict) and e.get("scope") == scope and _spellings(e.get("projectPath")) & want
+            ]
+            if matches:
+                return newest(matches)
+    matches = [e for e in entries if isinstance(e, dict) and e.get("scope") == "user"]
+    return newest(matches) if matches else None
 
 
 def marketplace_clone(config_dir, marketplace) -> "tuple[str | None, str | None]":

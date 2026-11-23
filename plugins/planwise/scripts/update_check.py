@@ -289,7 +289,13 @@ def update(running_root, project_root, data_dir=None) -> "tuple[int, dict]":
     scope = report["scope"]
     argv = [exe, "plugin", "update", f"{install_check.PLUGIN_NAME}@{marketplace}", "--scope", scope, "--json"]
     report["argv"] = argv
-    cwd = str(project_root) if scope in ("project", "local") else None
+    # The CLI updates the project or local install recorded for its working directory. That
+    # record names the main checkout when the session is inside a git linked worktree.
+    # A recorded path can spell the folder in a form this platform cannot open, so the
+    # session's own root is the fallback.
+    recorded = entry.get("projectPath")
+    home = recorded if recorded and Path(str(recorded)).is_dir() else project_root
+    cwd = str(home) if scope in ("project", "local") else None
     try:
         proc = subprocess.run(
             argv, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace",

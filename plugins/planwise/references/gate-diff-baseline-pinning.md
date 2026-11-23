@@ -42,7 +42,7 @@ Throughout this section `$BASE` stands for the sprint's own recorded `{ABBREV}_S
 > ```bash
 > git -C <repo> status --porcelain -- <this sprint's write paths>
 > # MUST be empty. Non-empty → HALT: an earlier session, a parallel sprint, or a human
-> # has uncommitted work inside this sprint's write-set. Commit or stash it, then re-run.
+> # has uncommitted work inside this sprint's write-set. Its owner commits it (never stash), then re-run.
 > # Attribute each non-empty path to its owner BEFORE reporting the HALT, and never aim a
 > # revert at a path this session did not write (read-confirm-act-protocol.md §1.5).
 > # Do NOT pin over a dirty scope — the base would already carry work this sprint did not do,
