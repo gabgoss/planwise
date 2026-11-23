@@ -1,0 +1,24 @@
+#!/bin/sh
+# Mark each staged Python file that starts with a shebang as executable.
+#
+# A clone on Windows runs with core.filemode=false, so git stores every new
+# file as 100644. Ruff cannot read the executable bit on Windows, so its
+# EXE001 rule passes locally and fails on the Linux CI runner. This hook sets
+# the index mode to 100755 before the commit is written, so the commit
+# carries the right mode.
+#
+# Enable it once per clone (worktrees share the setting):
+#     git config core.hooksPath .githooks
+#
+# tests/test_shebang_mode.py fails on any shebang file stored as 100644, for
+# a clone without the hook.
+
+git -c core.quotepath=off diff --cached --name-only --diff-filter=AM -- '*.py' | while IFS= read -r path; do
+    mode=$(git ls-files -s -- "$path" | cut -d' ' -f1)
+    [ "$mode" = "100644" ] || continue
+    head=$(git cat-file -p ":$path" 2>/dev/null | head -c 2)
+    if [ "$head" = "#!" ]; then
+        git update-index --chmod=+x -- "$path" || exit 1
+        echo "pre-commit: marked $path executable (it starts with a shebang)"
+    fi
+done
