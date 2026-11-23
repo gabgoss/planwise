@@ -63,7 +63,7 @@ No `blocked_by:` frontmatter field exists on a backlog item — an item does not
 The sweep files one **umbrella item** representing the pivot itself, and sets the umbrella item's `blocks:` frontmatter to the cohort's IDs. The existing blocked-item exclusion then hides the cohort from selectable-item output automatically — no schema change, no new frontmatter field. The umbrella item is the natural place to record the pivot's scope and its re-triage trigger.
 
 > [!practice] Caveat — Give the Umbrella Item Its Own Disposition
-> The umbrella item is itself open and will appear in triage. Route it to Session Planning as the pivot's own work, or give it a status that keeps it out of the selectable set — otherwise the sweep's own bookkeeping item re-surfaces as a normal triage candidate.
+> The umbrella item is itself open and will appear in triage. Route it to Session Planning as the pivot's own work, or give it a status that keeps it out of the selectable set — otherwise the sweep's own bookkeeping item re-surfaces as a normal triage candidate. The backlog loop adds a second reason. A loop run that queues the umbrella item also queues the cohort behind it, and each cohort item then runs once the umbrella item closes in that run. An umbrella item on hold (`BLOCKED`) never joins a run, so its cohort stays out too.
 
 A free-text rationale field on each item was considered and rejected: it requires template, parser, and scoring changes, and it creates a second blocked-ness mechanism running alongside `blocks:` frontmatter — two ways to express the same fact, and they drift.
 

@@ -53,7 +53,7 @@ from backlog_questions import (
     validate_question_text,
 )
 from config_loader import load_config
-from constants import HOLD_STATUSES, OPEN_STATUSES
+from constants import CLOSED_STATUSES, HOLD_STATUSES, OPEN_STATUSES
 from item_shape import _reads_true
 from markdown_parser import normalize_id
 from parse_backlog import (
@@ -66,6 +66,7 @@ from parse_backlog import (
     duplicate_row_ids,
     duplicate_row_ids_message,
     filter_items,
+    order_with_blockers,
     parse_dependencies_table,
 )
 from reconcile_common import read_text_preserving_newlines
@@ -107,6 +108,8 @@ PHASES = ("selected", "acting", "verifying")
 OUTCOMES = ("COMPLETE", "NOT_STARTED", "SKIPPED")
 EXCLUDED_REASON = "plans deferred in loop mode"
 NO_LONGER_SELECTABLE = "no-longer-selectable"
+# At its turn the item still waits for a blocker that has not closed.
+BLOCKER_OPEN_NOTE = "blocker-open"
 NO_ELIGIBLE = "No eligible items for the loop."
 DECISION_HEADING = "## Loop Decision Needed"
 REFINE_OUTCOMES = ("REFINED", "QUESTIONS", "ALREADY_MET", "DECOMPOSE", "NEEDS_PLAN")
@@ -304,6 +307,49 @@ def item_status_of(config: dict, rows_by_norm: dict, item_id: str) -> tuple[Path
     return path, str(frontmatter.get("status") or row["status"]).strip().upper()
 
 
+def blocker_closed_now(config: dict, rows_by_norm: dict, blocker: str, cache: dict) -> bool:
+    """True when the blocker's own file says closed, or the file is in the archive.
+
+    The hub row alone is not trusted, because the index may not be
+    regenerated yet after a close. A blocker found nowhere stays open.
+    """
+    row = rows_by_norm.get(blocker)
+    path = get_first_file_path(row, config["_backlog_dir"]) if row else None
+    if path is not None and path.exists():
+        frontmatter = read_item_frontmatter(path)
+        status = str(frontmatter.get("status") or row["status"]).strip().upper()
+        return status in CLOSED_STATUSES
+    if path is not None and (config["_archive_dir"] / path.name).exists():
+        return True
+    if cache.get("archived") is None:
+        cache["archived"] = collect_archived_closed_ids(config)
+    return blocker in cache["archived"]
+
+
+def open_blockers_now(config: dict, rows_by_norm: dict, item_id: str, cache: dict) -> list[str]:
+    """The ids that still block `item_id`, read from the index and the item files now.
+
+    `cache` carries the blocked-by map across the items one `--next` call pops.
+    The edges come from `hub_family_rows`, because the scored rows carry no `blocks`.
+    """
+    if "map" not in cache:
+        try:
+            index_text = config["_index_path"].read_text(encoding="utf-8")
+        except OSError:
+            index_text = ""
+        dependencies = parse_dependencies_table(index_text)
+        cache["archived"] = collect_archived_closed_ids(config) if dependencies else None
+        cache["map"] = build_blocked_by_map(
+            dependencies, hub_family_rows(config), cache["archived"] or frozenset()
+        )
+    still_open: list[str] = []
+    for blocker in cache["map"].get(normalize_id(item_id), []):
+        if not blocker_closed_now(config, rows_by_norm, blocker, cache):
+            row = rows_by_norm.get(blocker)
+            still_open.append(row["id"] if row else blocker)
+    return still_open
+
+
 def marked_needs_plan(frontmatter: dict) -> bool:
     """True when the item's frontmatter carries `needs_plan` true.
 
@@ -369,7 +415,9 @@ def summary_lines(run: dict, config: dict) -> list[str]:
         lines.append("Skipped (by reason):")
         for note, ids in skipped.items():
             lines.append(f"  {note}:")
-            lines.extend(f"    {item_id}" for item_id in ids)
+            for item_id in ids:
+                waits_for = (run["items"].get(item_id) or {}).get("blocked_by")
+                lines.append(f"    {item_id}  (waits for {', '.join(waits_for)})" if waits_for else f"    {item_id}")
     checked = [(key, rec["checks"]) for key, rec in run["items"].items() if rec.get("checks")]
     if checked:
         lines.append("Checks:")
@@ -386,7 +434,12 @@ def summary_lines(run: dict, config: dict) -> list[str]:
         lines.append(f"Excluded ({reason}):")
         for entry in entries:
             lines.append(f"  {entry['id']} route {entry['route'] or '-'}  {entry.get('feature') or ''}".rstrip())
-    needs_plan = [key for key, rec in run["items"].items() if rec.get("needs_plan")]
+    # A run file from before the key was written has no init warnings to show.
+    init_warnings = run.get("warnings") or []
+    if init_warnings:
+        lines.append("Warnings at init:")
+        lines.extend(f"  {line}" for line in init_warnings)
+    needs_plan =[key for key, rec in run["items"].items() if rec.get("needs_plan")]
     if needs_plan:
         lines.append("Marked for a planning session:")
         lines.extend(f"  {key}" for key in needs_plan)
@@ -469,6 +522,11 @@ def cmd_init(args, config: dict) -> int:
         status=args.status or None, priority=args.priority, abbrev=args.abbrev
     )
     selectable, held = filter_items(items, criteria, blocked_by)
+    # An item on hold never joins a run. An item that only waits for an open
+    # blocker is a candidate: it joins when every blocker is in the same run.
+    candidates = {
+        normalize_id(item["id"]): item for item in held if item["status"].upper() not in HOLD_STATUSES
+    }
 
     def by_score(pair: tuple) -> tuple:
         return (-score_of(scores, pair[0]["id"]), pair[0]["id"])
@@ -476,32 +534,40 @@ def cmd_init(args, config: dict) -> int:
     # Load the rule scopes once for the whole run; every item's route reads them.
     config = {**config, RULE_SCOPES_KEY: load_rule_scopes(config["_project_root"])}
 
-    # First pass, in index order: the reasons that hold whatever the cap.
-    verdicts: list[tuple[dict, dict | None, str | None]] = []
-    for item in selectable:
+    def verdict_of(item: dict) -> tuple[dict | None, str | None]:
+        """The item's route signals, and the reason that holds it whatever the cap."""
         frontmatter = frontmatters.get(item["id"], {})
         if marked_needs_plan(frontmatter):
             # An item marked for a planning session is never queued, so the
             # loop does not pick it up again on every run. No route is computed.
-            verdicts.append((item, None, NEEDS_PLAN_REASON))
-            continue
+            return None, NEEDS_PLAN_REASON
         # Read-only pre-flight, in this order: a legacy decision section still
         # waiting for an answer, then a placement verdict. Neither is written.
         if loop_sections(frontmatter.get("_body") or ""):
-            verdicts.append((item, None, DECISION_PENDING_REASON))
-            continue
+            return None, DECISION_PENDING_REASON
         signals = compute_route_signals(item, frontmatter, config)
         shape = signals["shape"]
         if (signals["scoped_rules"] or {}).get("verdict") == VERDICT_PLACEMENT:
-            reason = PLACEMENT_REASON
-        elif shape["open_questions"] == "unanswered":
-            reason = OPEN_QUESTIONS_REASON
-        elif signals["route"] == "C" and shape["shape_ok"]:
+            return signals, PLACEMENT_REASON
+        if shape["open_questions"] == "unanswered":
+            return signals, OPEN_QUESTIONS_REASON
+        if signals["route"] == "C" and shape["shape_ok"]:
             # A refined item that fails the shape gate is refined again below.
-            reason = EXCLUDED_REASON
-        else:
-            reason = None
-        verdicts.append((item, signals, reason))
+            return signals, EXCLUDED_REASON
+        return signals, None
+
+    def excluded_entry(item: dict, signals: dict | None, reason: str) -> dict:
+        return {
+            "id": item["id"],
+            "route": signals["route"] if signals else None,
+            "large_scope": bool(signals and signals["large_scope"]),
+            "reason": reason,
+            "feature": item["feature"],
+            "refined": bool(signals and signals["shape"]["refined"]),
+        }
+
+    # First pass, in index order: the reasons that hold whatever the cap.
+    verdicts: list[tuple[dict, dict | None, str | None]] = [(item, *verdict_of(item)) for item in selectable]
 
     # Refining is opt-in: --mode specific refines every named unrefined item,
     # otherwise the --refine-max highest-scored unrefined items are refined.
@@ -517,6 +583,7 @@ def cmd_init(args, config: dict) -> int:
     if args.mode == "specific":
         named = {normalize_id(raw.strip()) for raw in args.items.split(",") if raw.strip()}
         refine_ids = {item["id"] for item, _signals in unrefined if normalize_id(item["id"]) in named}
+        refine_left = 0
     else:
         answered_ids = {
             item["id"] for item, signals in unrefined
@@ -524,6 +591,8 @@ def cmd_init(args, config: dict) -> int:
         }
         remaining = [item for item, _signals in unrefined if item["id"] not in answered_ids]
         refine_ids = answered_ids | {item["id"] for item in remaining[: args.refine_max]}
+        # The cap goes to unblocked items first. A candidate takes what is left.
+        refine_left = max(0, args.refine_max - len(remaining))
 
     eligible: list[tuple[dict, dict, str]] = []
     excluded: list[dict] = []
@@ -539,35 +608,65 @@ def cmd_init(args, config: dict) -> int:
             # a strong scope signal defers it to a planning session, and the
             # conservative default branch means it needs refining first.
             reason = EXCLUDED_REASON if signals["large_scope"] else NEEDS_REFINE_REASON
-        excluded.append({
-            "id": item["id"],
-            "route": signals["route"] if signals else None,
-            "large_scope": bool(signals and signals["large_scope"]),
-            "reason": reason,
-            "feature": item["feature"],
-            "refined": bool(signals and signals["shape"]["refined"]),
-        })
+        excluded.append(excluded_entry(item, signals, reason))
     eligible.sort(key=by_score)
+
+    pair_of = {normalize_id(pair[0]["id"]): pair for pair in eligible}
+    shown_id = {normalize_id(i["id"]): i["id"] for i in items}
+
+    def accept(key: str) -> bool:
+        """Decide one candidate, once every blocker of it is in the run.
+
+        A candidate whose blockers never join the run is never examined, so
+        it reaches neither `excluded` nor the refine cap.
+        """
+        nonlocal refine_left
+        item = candidates[key]
+        signals, reason = verdict_of(item)
+        if reason is None:
+            shape = signals["shape"]
+            if not shape["shape_ok"]:
+                answered = shape["open_questions"] == "answered"
+                if args.mode == "specific" or answered or refine_left > 0:
+                    if args.mode != "specific" and not answered:
+                        refine_left -= 1
+                    pair_of[key] = (item, signals, "refine")
+                    return True
+            if signals["route"] in ("A", "B"):
+                pair_of[key] = (item, signals, "run")
+                return True
+            reason = EXCLUDED_REASON if signals["large_scope"] else NEEDS_REFINE_REASON
+        excluded.append(excluded_entry(item, signals, reason))
+        return False
 
     warnings: list[str] = []
     if args.mode == "specific":
-        by_norm = {normalize_id(pair[0]["id"]): pair for pair in eligible}
-        excluded_reason = {normalize_id(e["id"]): e["reason"] for e in excluded}
         held_by_norm = {normalize_id(h["id"]): h for h in held}
         known_norm = {normalize_id(i["id"]) for i in items}
-        shown_id = {normalize_id(i["id"]): i["id"] for i in items}
-        named_norm = {normalize_id(r.strip()) for r in args.items.split(",") if r.strip()}
-        queue_pairs: list[tuple[dict, dict]] = []
-        direction_notes: list[str] = []
-        seen: set[str] = set()
+        raw_of: dict[str, str] = {}
         for raw in args.items.split(","):
             raw = raw.strip()
-            key = normalize_id(raw)
-            if not raw or key in seen:
-                continue
-            seen.add(key)
-            if key in by_norm:
-                queue_pairs.append(by_norm[key])
+            if raw and normalize_id(raw) not in raw_of:
+                raw_of[normalize_id(raw)] = raw
+        # The user's order, over the named ids that can queue at all.
+        base = [key for key in raw_of if key in pair_of or key in candidates]
+        queue_keys, _left_out = order_with_blockers(base, blocked_by, accept)
+        listed = {key: index for index, key in enumerate(base)}
+        queued = set(queue_keys)
+        excluded_reason = {normalize_id(e["id"]): e["reason"] for e in excluded}
+        for key, raw in raw_of.items():
+            if key in queued:
+                later = sorted(
+                    (b for b in set(blocked_by.get(key, [])) if listed[b] > listed[key]), key=listed.__getitem__
+                )
+                if later:
+                    # A blocker named after the item it blocks is the shape an inverted
+                    # blocks: edge produces, so point the reader at the direction.
+                    warnings.append(
+                        f"note: {raw} is queued after {', '.join(shown_id.get(b, b) for b in later)}, "
+                        "which you named later. "
+                        f"If {raw} must land first, check the blocks: direction."
+                    )
                 continue
             if key in excluded_reason:
                 # A named unrefined item is always refined, so only a reason
@@ -583,54 +682,51 @@ def cmd_init(args, config: dict) -> int:
                 if held_item["status"].upper() in HOLD_STATUSES:
                     why = f"on hold (status {held_item['status']})"
                 else:
+                    # A blocker is not in this run: it was not named, or it was dropped.
                     blockers = [shown_id.get(b, b) for b in blocked_by.get(key, [])]
                     why = f"blocked by {', '.join(blockers)} (open)"
-                    also_named = [
-                        shown_id.get(b, b) for b in blocked_by.get(key, []) if b in named_norm
-                    ]
-                    if also_named:
-                        # A blocker named in the same run is the shape an inverted
-                        # blocks: edge produces, so point the reader at the direction.
-                        direction_notes.append(
-                            f"note: {raw} is blocked by {', '.join(also_named)}, "
-                            "which you also named. "
-                            f"If {raw} must land first, check the blocks: direction."
-                        )
             elif key in known_norm:
                 why = "filtered out or not open"
             else:
                 why = "not in the backlog index"
             warnings.append(f"warning: item {raw} dropped: {why}")
-            warnings.extend(direction_notes)
-            direction_notes.clear()
         if any(line.endswith(f": {DECISION_PENDING_REASON}") for line in warnings):
             warnings.append(DECISION_PENDING_HINT)
     else:
-        queue_pairs = list(eligible)
-        if args.mode == "n":
-            queue_pairs = queue_pairs[: args.n]
+        # Score order, with each candidate at the place its own score gives it.
+        ranked = sorted([*eligible, *((item, None, "") for item in candidates.values())], key=by_score)
+        base = [normalize_id(pair[0]["id"]) for pair in ranked]
+        queue_keys, _left_out = order_with_blockers(
+            base, blocked_by, accept, limit=args.n if args.mode == "n" else None
+        )
+    queue_pairs = [pair_of[key] for key in queue_keys]
     # In --mode specific the hint rides in the warnings; otherwise it follows the report.
     pending_hint = (
         args.mode != "specific" and any(entry["reason"] == DECISION_PENDING_REASON for entry in excluded)
     )
 
     queue = [pair[0]["id"] for pair in queue_pairs]
-    queue_meta = {
-        pair[0]["id"]: {
+    queue_meta = {}
+    for pair in queue_pairs:
+        meta = {
             "route_at_init": pair[1]["route"],
             "score": score_of(scores, pair[0]["id"]),
             "feature": pair[0]["feature"],
             "refined_at_init": pair[1]["shape"]["refined"],
             "disposition_at_init": pair[2],
         }
-        for pair in queue_pairs
-    }
+        # Only an item queued behind a blocker carries the key.
+        waits_for = [shown_id.get(b, b) for b in blocked_by.get(normalize_id(pair[0]["id"]), [])]
+        if waits_for:
+            meta["blocked_by_at_init"] = waits_for
+        queue_meta[pair[0]["id"]] = meta
     report = ["Queue:"]
     for position, item_id in enumerate(queue, start=1):
         info = queue_meta[item_id]
+        after = f"  after {', '.join(info['blocked_by_at_init'])}" if info.get("blocked_by_at_init") else ""
         report.append(
             f"  {position}. {item_id}  score {info['score']}  route {info['route_at_init']}  "
-            f"{info['disposition_at_init']}  {info['feature']}"
+            f"{info['disposition_at_init']}  {info['feature']}{after}"
         )
     if excluded:
         report.append("Excluded:")
@@ -647,6 +743,10 @@ def cmd_init(args, config: dict) -> int:
                 "score": queue_meta[i]["score"],
                 "route_at_init": queue_meta[i]["route_at_init"],
                 "disposition": queue_meta[i]["disposition_at_init"],
+                **(
+                    {"blocked_by": queue_meta[i]["blocked_by_at_init"]}
+                    if queue_meta[i].get("blocked_by_at_init") else {}
+                ),
             }
             for i in queue
         ],
@@ -687,6 +787,7 @@ def cmd_init(args, config: dict) -> int:
         "no_check": bool(args.no_check),
         "refine_max": args.refine_max,
         "excluded": excluded,
+        "warnings": warnings,
         "queue": queue,
         "queue_meta": queue_meta,
         "known_ids_at_init": [item["id"] for item in items],
@@ -740,6 +841,7 @@ def cmd_next(args, config: dict) -> int:
             return EXIT_AMBIGUOUS
 
     rows_by_norm: dict | None = None
+    live_blockers: dict = {}
     skipped: list[str] = []
     skip_notes: list[str] = []
     changed = False
@@ -778,6 +880,13 @@ def cmd_next(args, config: dict) -> int:
         }
         if not still_selectable(config, rows_by_norm, item_id):
             skip(item_id, record, NO_LONGER_SELECTABLE)
+            continue
+        # An item queued behind a blocker runs only once every blocker is
+        # closed. The item is not touched yet, so nothing is restored.
+        waits_for = open_blockers_now(config, rows_by_norm, item_id, live_blockers)
+        if waits_for:
+            record["blocked_by"] = waits_for
+            skip(item_id, record, BLOCKER_OPEN_NOTE)
             continue
         # The status before this loop touched the item, so a documented skip can
         # hand the item back the way it was found.

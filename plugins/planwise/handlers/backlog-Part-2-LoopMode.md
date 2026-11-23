@@ -47,12 +47,15 @@ python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yam
 | Selectable, still carrying a legacy `## Loop Decision Needed` section | No, listed as excluded | `decision pending` |
 | Selectable, with the scoped-rule verdict `placement` | No, listed as excluded | `placement` |
 | Selectable, with an unanswered question under `## Open Questions` | No, listed as excluded | `open questions unanswered` |
-| Blocked by an open dependency | No | `blocked by <ids> (open)`, and a `note:` line when a blocker is also named |
+| Blocked by an open dependency, and every open blocker is queued in this run | Yes, behind its blockers, with the disposition its own state gives | none. `--mode specific` adds a `note:` line when a blocker was named after it |
+| Blocked by an open dependency, and a blocker is not queued in this run | No | `blocked by <ids> (open)` in `--mode specific`. The other modes print no line |
 | Held (`BLOCKED`) or closed | No | held: `on hold (status BLOCKED)`. Closed: not selectable |
 
-Queue order is highest score first, then item id. Mode `n` keeps the first N of that order. Mode `specific` keeps the user's order and drops an ineligible id with a warning line.
+Queue order is highest score first, then item id. Mode `specific` keeps the user's order and drops an ineligible id with a warning line. In every mode a blocker moves ahead of the item that waits for it, and every other item keeps its place. Mode `n` takes the first N of that order. It takes an item together with its blockers, or it passes the item over.
 
-Refining is opt-in. `--init --refine-max N` (default 0) queues up to N unrefined items for the refine step, highest score first. `--mode specific` refines every named unrefined item. One exception sits outside the cap: an item whose questions are all answered is always queued as `refine`, so the answers are folded into `## Resolution` before anything runs it.
+A queued item that waits for a blocker runs only when every blocker is closed at its turn. Otherwise `--next` skips it with the note `blocker-open`, records the open blockers, and leaves the item untouched for a later run. An unrefined blocker ends its turn as `refined; review before run`, so the items behind it wait for the next run. An item that runs behind its blocker works on the blocker's changes in the same working tree, before anyone reviewed them. Items in a `blocks:` cycle are never queued.
+
+Refining is opt-in. `--init --refine-max N` (default 0) queues up to N unrefined items for the refine step, highest score first. The cap goes to unblocked items first, and an item that waits for a blocker takes a slot only from what is left. `--mode specific` refines every named unrefined item. One exception sits outside the cap: an item whose questions are all answered is always queued as `refine`, so the answers are folded into `## Resolution` before anything runs it.
 
 An open question is unanswered while its `Answer:` line is empty. It is answered once an `Answer:` line with text follows its `### Q` heading.
 
@@ -318,11 +321,11 @@ The exit codes are 0 ok, 1 usage or config error, 2 run file missing or unparsea
 
 The loop ends in one of three ways:
 
-- The queue is empty. `--boundary` applies `--end` and prints the cross-run summary table above the marker. The summary groups excluded items by reason and lists items marked for a planning session and items closed unattended under their own headings. Below the table, `Skipped (by reason):` groups the skipped items by their note, and `Checks:` prints `{item-id}: {passed}/{run} passed` per item with checks, then each failing command.
+- The queue is empty. `--boundary` applies `--end` and prints the cross-run summary table above the marker. The summary groups excluded items by reason and lists items marked for a planning session and items closed unattended under their own headings. Below the table, `Skipped (by reason):` groups the skipped items by their note, and a `blocker-open` item shows the blockers it waits for. `Warnings at init:` repeats the warning and note lines of `--init`. `Checks:` prints `{item-id}: {passed}/{run} passed` per item with checks, then each failing command.
 - The user chooses Abort at the HALT question. `--end` prints the same summary.
 - The run file is missing. Exit 2 ends the loop, as in the Resume model.
 
-A `--next` that skips every remaining item as no longer selectable returns `{"next": null, ...}` and leaves the last skipped item as `current`. `--boundary` then ends the run normally.
+A `--next` that skips every remaining item, as no longer selectable or as `blocker-open`, returns `{"next": null, ...}` and leaves the last skipped item as `current`. `--boundary` then ends the run normally.
 
 After `--end` or a final `--boundary`, the run is ended. `--next` and `--mark` refuse an ended run with exit 1 and write nothing. `--end` and `--boundary` stay idempotent.
 

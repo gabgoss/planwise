@@ -424,6 +424,73 @@ def build_blocked_by_map(
     return blocked_by
 
 
+def order_with_blockers(
+    base_order: list[str],
+    blocked_by: dict[str, list[str]],
+    accept=None,
+    limit: int | None = None,
+) -> tuple[list[str], list[str]]:
+    """Order one run's ids so that every blocker comes before the id that waits for it.
+
+    ``base_order`` holds the ids the run may take, in the order the caller
+    prefers. ``blocked_by`` is the map ``build_blocked_by_map`` returns, with
+    the same id spelling as ``base_order``. Returns ``(order, left_out)``.
+
+    Admission comes first. An id with no blocker is in. A waiting id is in
+    once every blocker is in and ``accept(id)`` returns true. ``accept`` is
+    called at most once per id, and only when every blocker is in, so an id
+    whose blockers never join the run is never examined. A blocker outside
+    ``base_order`` therefore leaves its waiting ids out, and so does a cycle,
+    because no member of a cycle can go first. ``left_out`` lists those ids
+    in base order.
+
+    The order then walks ``base_order`` over the admitted ids only. An id
+    keeps its place, and its blockers that are not yet placed move ahead of
+    it. With ``limit``, an id is taken together with those blockers when they
+    all fit, and is passed over otherwise, so the result never holds an id
+    without its blockers.
+    """
+    position = {item_id: index for index, item_id in enumerate(base_order)}
+    admitted = {item_id for item_id in base_order if not blocked_by.get(item_id)}
+    refused: set[str] = set()
+    changed = True
+    while changed:
+        changed = False
+        for item_id in base_order:
+            if item_id in admitted or item_id in refused:
+                continue
+            if not all(blocker in admitted for blocker in blocked_by.get(item_id, [])):
+                continue
+            if accept is None or accept(item_id):
+                admitted.add(item_id)
+            else:
+                refused.add(item_id)
+            changed = True
+
+    def with_blockers(item_id: str, placed: set[str]) -> list[str]:
+        """`item_id` behind its blockers that are not placed yet, blockers in base order."""
+        needed: list[str] = []
+        for blocker in sorted(set(blocked_by.get(item_id, [])), key=position.__getitem__):
+            if blocker not in placed:
+                needed.extend(with_blockers(blocker, placed))
+        placed.add(item_id)
+        needed.append(item_id)
+        return needed
+
+    order: list[str] = []
+    placed: set[str] = set()
+    for item_id in base_order:
+        if item_id not in admitted or item_id in placed:
+            continue
+        trial = set(placed)
+        needed = with_blockers(item_id, trial)
+        if limit is not None and len(order) + len(needed) > limit:
+            continue
+        order.extend(needed)
+        placed = trial
+    return order, [item_id for item_id in base_order if item_id not in admitted]
+
+
 @dataclass
 class FilterCriteria:
     """Bundle of filter parameters for backlog item selection."""
