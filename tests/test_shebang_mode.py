@@ -11,6 +11,7 @@ a shebang file stored as 100644. The hook cases run it in a scratch repo
 under `tempfile.mkdtemp()`, removed in `tearDown`.
 """
 
+import os
 import shutil
 import subprocess
 import tempfile
@@ -69,7 +70,9 @@ class PreCommitHookTests(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix="shebang_hook_test_"))
         self.repo = self.tmp / "repo"
         (self.repo / ".githooks").mkdir(parents=True)
-        shutil.copyfile(HOOK, self.repo / ".githooks" / "pre-commit")
+        hook = self.repo / ".githooks" / "pre-commit"
+        shutil.copyfile(HOOK, hook)
+        os.chmod(hook, 0o755)  # git on Linux and macOS ignores a hook that is not executable on disk
         _git(self.repo, "init", "-q", "-b", "main")
         for key, value in (("user.email", "t@example.com"), ("user.name", "t"),
                            ("core.autocrlf", "false"), ("core.filemode", "false"),
