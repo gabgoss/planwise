@@ -97,10 +97,13 @@ def find_config_upward(start_path: Path, stop_at: Path | None = None) -> Path | 
 
     A candidate is accepted only when _is_planwise_config() recognises it —
     the walk crosses directories this project does not own, and a foreign
-    `config.yaml` there must never be read as this project's. `stop_at`
-    bounds the walk (inclusive) so a caller that knows its tree — a test, a
-    tool with a known project root — never leaves it; production callers
-    leave it None and walk to the filesystem root.
+    `config.yaml` there must never be read as this project's. The walk
+    stops (inclusive) at the first directory that holds a `.git` file or
+    folder, which is a checkout root or a linked worktree's root, so a
+    worktree without a config never reaches the main checkout's. `stop_at`
+    bounds the walk the same way (inclusive) for a caller that knows its
+    tree — a test, a tool with a known project root. Without either bound
+    the walk runs to the filesystem root.
 
     Returns the Path to config.yaml if found, or None if not found.
     """
@@ -123,7 +126,7 @@ def find_config_upward(start_path: Path, stop_at: Path | None = None) -> Path | 
             candidate = subdir / "config.yaml"
             if candidate.is_file() and _is_planwise_config(candidate):
                 return candidate
-        if current == stop or current == current.parent:
+        if current == stop or (current / ".git").exists() or current == current.parent:
             return None
         current = current.parent
 
@@ -678,8 +681,10 @@ def load_config(script_path: Path | None = None, *, config_path: Path | None = N
 
     Config search order:
     1. --config <path> command-line argument (explicit override)
-    2. Search upward from the current working directory for config.yaml
-    3. Search upward from script_path (or __file__) for config.yaml
+    2. Search upward from the current working directory for config.yaml,
+       stopping at the checkout root
+    3. Search upward from script_path (or __file__) for config.yaml,
+       stopping at the checkout root
 
     Args:
         script_path: Path to the calling script. Used as fallback search root.
