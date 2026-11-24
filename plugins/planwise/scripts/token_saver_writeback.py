@@ -73,6 +73,7 @@ from token_saver_scan import (
     is_command_corpus,
     parse_agent,
     resolve_context_path,
+    substitute_roots,
     unresolved_reason,
 )
 
@@ -234,33 +235,41 @@ class _FileCache(dict):
     """Per-pass cache: each span file is read and split once, however many rows cite it.
 
     `held` maps a resolved path to the bytes the run will write there. They
-    stand in for the disk copy, which predates the run's edits. `sized` and
-    `spanned` collect every resolved path whose size or text a price read.
+    stand in for the disk copy, which predates the run's edits. `sized`
+    collects every resolved path whose size a price read. `spans` maps each span
+    read, as (reader, path, its other arguments), to what it returned.
     """
 
     def __init__(self, held: dict[Path, bytes] | None = None):
         super().__init__()
         self.held = held or {}
         self.sized: set[Path] = set()
-        self.spanned: set[Path] = set()
-
-    def _held(self, path: Path, read: set[Path]) -> bytes | None:
-        full = path.resolve()
-        read.add(full)
-        return self.held.get(full)
+        self.spans: dict[tuple, object] = {}
 
     def moved(self, original: dict[Path, bytes], new: dict[Path, bytes]) -> list[Path]:
-        """The read files whose `new` text or size is not the one this pass priced."""
-        out = []
-        for path in self.sized | self.spanned:
+        """The read files whose `new` size or cited span is not the one this pass priced."""
+        out = set()
+        for path in self.sized:
             was, now = (texts.get(path, original.get(path)) for texts in (self.held, new))
-            if was != now and (path in self.spanned or len(was) != len(now)):
-                out.append(path)
+            if was != now and len(was) != len(now):
+                out.add(path)
+        later = _FileCache(new)
+        for (reader, path, *args), was in self.spans.items():
+            full = path.resolve()
+            if self.held.get(full) != new.get(full) and reader(path, *args, later) != was:
+                out.add(full)
         return sorted(out)
+
+    def span(self, reader, path: Path, *args):
+        """`reader`'s answer for a span of `path`, recorded for `moved`."""
+        found = self.spans[(reader, path, *args)] = reader(path, *args, self)
+        return found
 
     def size(self, path: Path) -> int:
         """The file's size: the run's own text when held, else the disk's."""
-        data = self._held(path, self.sized)
+        full = path.resolve()
+        self.sized.add(full)
+        data = self.held.get(full)
         return os.path.getsize(path) if data is None else len(data)
 
     def lines(self, path: Path) -> list[bytes]:
@@ -273,7 +282,7 @@ class _FileCache(dict):
 
     def _load(self, path: Path) -> tuple[list[bytes], tuple[list, dict]]:
         if path not in self:
-            data = self._held(path, self.spanned)
+            data = self.held.get(path.resolve())
             if data is None:
                 data = path.read_bytes()
             parts = data.split(b"\n")
@@ -379,7 +388,7 @@ def price_row(
             return {"priced": False,
                     "reason": unresolved_reason(m.group("path"), project_root)}
         a, b = int(m.group("a").replace(",", "")), int(m.group("b").replace(",", ""))
-        num_bytes = _line_span_bytes(resolved, a, b, cache)
+        num_bytes = cache.span(_line_span_bytes, resolved, a, b)
         if num_bytes is None:
             return {"priced": False, "reason": f"span lines {a}-{b} out of range"}
         span = f"lines {a}-{b} = {b - a + 1} lines / {num_bytes:,} bytes"
@@ -389,7 +398,7 @@ def price_row(
             return {"priced": False,
                     "reason": unresolved_reason(s.group("path"), project_root)}
         x, y = s.group("x"), s.group("y") or s.group("x")
-        found = _section_span(resolved, x, y, cache)
+        found = cache.span(_section_span, resolved, x, y)
         if isinstance(found, str):
             return {"priced": False, "reason": f"span §{x}–§{y}: {found}"}
         first, last, num_bytes = found
@@ -814,8 +823,10 @@ def _write_task_pass(buf: _Buffers, report: dict, task_path: Path, plan_root: Pa
     return None
 
 
-def _one_file(folder: Path, pattern: str, report: dict, what: str) -> Path | None:
-    found = sorted(folder.glob(pattern))
+def _one_file(folder: Path, pattern: str, report: dict, what: str,
+              found: list[Path] | None = None) -> Path | None:
+    """The one file that `pattern`, or the caller's own list `found`, names, else a report entry."""
+    found = sorted(folder.glob(pattern)) if found is None else found
     if len(found) != 1:
         report["unreadable"].append({"file": str(folder), "what": what,
                                      "reason": f"{len(found)} files match {pattern}"})
@@ -873,10 +884,13 @@ PLAN_TIME_FLAG = "(plan-time estimate)"
 _ROLE_RANK = {"READ": 0, "EDIT": 1, "CREATE": 2}
 _SURFACE_COLUMNS = ["path", "role", "kib", "~tokens", "cited by"]
 _SURFACE_LABEL = "**Session surface:**"
-# A trailing `:line`, `:line-line` or parenthetical after whitespace. A drive colon is not a
-# qualifier, and neither is text that fills a whole path component, as `(shop)` in `app/(shop)`.
-_QUALIFIER_RE = re.compile(r"(?:(?<!^[A-Za-z])(?<=[^/]):\d+(?:[-–]\d+)?|(?<=\S)\s+\([^()]*\))$")
+# A trailing `:line`, `:line-line` or parenthetical, spaced or glued to the name. A drive colon is not
+# a qualifier, and neither is text that fills a whole path component, as `(shop)` in `app/(shop)`.
+_QUALIFIER_RE = re.compile(
+    r"(?:(?<!^[A-Za-z])(?<=[^/]):\d+(?:[-–]\d+)?|(?:(?<=\S)\s+|(?<=[^/\s]))\([^()]*\))$")
 _ORCHESTRATION_GLOB = "*-Orchestration.md"
+# A session id ends in its session number. A task's file name holds its number and agent before the name.
+_ORCHESTRATION_RE = re.compile(r"-S\d+-\d+-Orchestration\.md$")
 
 
 def _surface_number(text: str, path: Path) -> int | None:
@@ -891,6 +905,22 @@ def _folder_text(folder: Path) -> str:
     return f"{folder.parent.name}/{folder.name}"
 
 
+def plain_path(text: str) -> str:
+    """`text` with forward slashes, no leading `./` and no trailing slash."""
+    return re.sub(r"^(?:\./+)+", "", text.replace("\\", "/")).rstrip("/")
+
+
+def root_path(text: str, root: Path) -> str:
+    """`text` with its root placeholders expanded, as a path from `root` when it is below it, on disk or not."""
+    text = plain_path(substitute_roots(text, root.resolve()))
+    if text:
+        try:
+            return (root / text).resolve().relative_to(root.resolve()).as_posix()
+        except (ValueError, OSError):  # outside the project root, or no valid path: the text is the key
+            pass
+    return text
+
+
 def _surface_key(cell: str, task_path: Path, own: dict[str, Path], plan_root: Path,
                  project_root: Path) -> str | None:
     """The one key of the file a Required Context cell names, or None when it names no path.
@@ -899,15 +929,26 @@ def _surface_key(cell: str, task_path: Path, own: dict[str, Path], plan_root: Pa
     are keyed by bare name. Any other file that resolves is keyed by its path
     from the project root, and one that does not by its cleaned text. A
     trailing qualifier drops only when the path resolves without it and not with it.
+    A path below the session's own `Outputs/` that does not resolve is cut to start at the sprint folder.
     """
-    text = re.sub(r"^(?:\./+)+", "", _clean_file_cell(cell).replace("\\", "/")).rstrip("/")
+    key, known = _file_key(cell, task_path, own, plan_root, project_root)
+    if key is None or known:
+        return key
+    at = f"/{key}".find(f"/{_folder_text(task_path.parent)}/Outputs/")
+    return key[at:] if at >= 0 else key
+
+
+def _file_key(cell: str, task_path: Path, own: dict[str, Path], plan_root: Path,
+              project_root: Path) -> tuple[str | None, bool]:
+    """(the key of `_surface_key` before any cut, whether the cell names a known file)."""
+    text = plain_path(_clean_file_cell(cell))
     if not text or is_command_corpus(cell):
-        return None
+        return None, False
     bare = text
     while True:
         key = _known_key(bare, task_path, own, plan_root, project_root)
         if key is not None:
-            return key
+            return key, True
         m = _QUALIFIER_RE.search(bare)
         if m is None:
             break
@@ -915,9 +956,8 @@ def _surface_key(cell: str, task_path: Path, own: dict[str, Path], plan_root: Pa
     if text.startswith("Outputs/"):
         text = f"{_folder_text(task_path.parent)}/{text}"
     if unresolved_reason(text, project_root).startswith("not a path"):
-        return None
-    at = f"/{text}".find(f"/{_folder_text(task_path.parent)}/Outputs/")
-    return text[at:] if at >= 0 else text
+        return None, False
+    return text, False
 
 
 def _known_key(text: str, task_path: Path, own: dict[str, Path], plan_root: Path,
@@ -1041,8 +1081,39 @@ def _write_set_keys(rows: list[tuple], named: dict, own: dict[str, Path], plan_r
     for cell, task_cell in rows:
         ids = list(dict.fromkeys(i for i in re.findall(r"[A-Za-z0-9][\w-]*", task_cell) if i in named))
         at = named[ids[0]][0] if ids else plan_root / "row"
-        key = _surface_key(cell, at, own, plan_root, project_root) or _clean_file_cell(cell)
-        out.append((role_spellings(key, project_root)[-1], ids))
+        key = _file_key(cell, at, own, plan_root, project_root)[0] or _clean_file_cell(cell)
+        if key == "Outputs":
+            key = f"{_folder_text(at.parent)}/{key}"
+        out.append((_identity(key, own, project_root), ids))
+    return out
+
+
+def _identity(key: str, own: dict[str, Path], project_root: Path) -> str:
+    """The comparison key of a file key: its path from the project root, on disk or not, without a qualifier.
+
+    A key that starts at a session folder of `own` reads from that folder.
+    """
+    if key in own:
+        return key
+    for folder in dict.fromkeys(own.values()):
+        if f"{key}/".startswith(f"{_folder_text(folder)}/Outputs/"):
+            key = (folder.resolve().parent.parent / key).as_posix()
+            break
+    return role_spellings(root_path(key, project_root), project_root)[-1]
+
+
+def joined_outputs(keys: list[str], own: dict[str, Path]) -> dict[str, str]:
+    """{key: the key to compare} for each session output that `keys` spell both in full and from its sprint folder.
+
+    Before a plan is on disk its folder is unknown, so the short spelling joins
+    any full one. Two full spellings join only through a short one.
+    """
+    tails = {f"{_folder_text(folder)}/Outputs/" for folder in own.values()}
+    out = {}
+    for short in {k for k in keys if any(f"{k}/".startswith(t) for t in tails)}:
+        full = {k for k in keys if k.endswith(f"/{short}")}
+        target = next(iter(full)) if len(full) == 1 else short
+        out.update(dict.fromkeys([short, *full], target))
     return out
 
 
@@ -1065,15 +1136,20 @@ def writeset_figures(rows: list[tuple[str, str]], tasks: list[tuple[Path, str]],
     own = {path.name: path.parent for path, _ in tasks}
     cited: dict[str, tuple[str, Decimal]] = {}
     for entry in surface_entries(tasks, [], plan_root, project_root):
-        key = role_spellings(entry["path"], project_root)[-1]
+        key = _identity(entry["path"], own, project_root)
         if entry["tokens"] is not None and (key not in cited or entry["tokens"] > cited[key][1]):
             cited[key] = (entry["kib"], entry["tokens"])
+    paths = [r for r in rows if not _names_no_path(r[0])]
+    keyed = _write_set_keys(paths, named, own, plan_root, project_root)
+    joined = joined_outputs([*cited, *(key for key, _ in keyed)], own)
+    for key, figure in sorted(cited.items(), key=lambda c: c[1][1]):  # the highest figure last
+        cited[joined.get(key, key)] = figure
 
     keys: list[str] = []
     row_ids: list[list[str]] = []
     ids_of: dict[str, list[str]] = {}
-    paths = [r for r in rows if not _names_no_path(r[0])]
-    for key, ids in _write_set_keys(paths, named, own, plan_root, project_root):
+    for key, ids in keyed:
+        key = joined.get(key, key)
         keys.append(key)
         row_ids.append(ids)
         ids_of.setdefault(key, []).extend(ids)
@@ -1214,11 +1290,17 @@ def _names_no_path(cell: str) -> bool:
 
 def keyed_write_set(rows: list[tuple], tasks: list[tuple[Path, str]], plan_root: Path,
                     project_root: Path) -> list[tuple[str, tuple]]:
-    """(path key, row) per Write-Set row that names a path. A row starts with its path and task cells."""
+    """(path key, row) per Write-Set row that names a path. A row starts with its path and task cells.
+
+    Only an `Outputs/` path reads from its task's session folder. Any other
+    spelling has one key in every row.
+    """
     rows = [r for r in rows if not _names_no_path(r[0])]
     named = {_task_id(text.split("\n"), path): (path, None) for path, text in tasks}
     own = {path.name: path.parent for path, _ in tasks}
-    keys = _write_set_keys([r[:2] for r in rows], named, own, plan_root, project_root)
+    cells = [(r[0], r[1] if f"{plain_path(_clean_file_cell(r[0]))}/".startswith("Outputs/") else "")
+             for r in rows]
+    keys = _write_set_keys(cells, named, own, plan_root, project_root)
     return [(key, row) for (key, _ids), row in zip(keys, rows)]
 
 
@@ -1230,8 +1312,13 @@ def write_set_paths(rows: list[tuple], tasks: list[tuple[Path, str]], plan_root:
     the plan, so that a path has one key in every sprint. A path takes its
     highest printed ~Tokens cell, and the KiB cell of that row.
     """
+    return path_figures(keyed_write_set(rows, tasks, plan_root, project_root))
+
+
+def path_figures(keyed: list[tuple[str, tuple]]) -> dict[str, tuple[Decimal, Decimal]] | None:
+    """`write_set_paths` over rows that `keyed_write_set` keyed."""
     paths: dict[str, tuple[Decimal, Decimal]] = {}
-    for key, (_path, _task, kib, tokens) in keyed_write_set(rows, tasks, plan_root, project_root):
+    for key, (_path, _task, kib, tokens) in keyed:
         value = _parse_token_cell(tokens)
         if value is None:
             return None
@@ -1379,7 +1466,22 @@ def _write_write_sets(buf: _Buffers, report: dict, sprint_dirs: list[Path], plan
 
 def _is_orchestration(path: Path) -> bool:
     """Whether a file name is an Orchestration's, not that of a task whose name holds the word."""
-    return path.match(_ORCHESTRATION_GLOB)
+    return _ORCHESTRATION_RE.search(path.name) is not None
+
+
+def _session_orchestration(folder: Path, report: dict) -> Path | None:
+    """The session's Orchestration: by its exact name, else the one file so called that is no task file."""
+    found = [p for p in sorted(folder.glob(_ORCHESTRATION_GLOB)) if _is_orchestration(p)]
+    if not found:
+        found = [p for p in sorted(folder.glob("*Orchestration*.md"))
+                 if not _is_task_text(p.read_bytes().decode("utf-8", errors="replace"))]
+    return _one_file(folder, _ORCHESTRATION_GLOB, report, "Orchestration", found)
+
+
+def _is_task_text(text: str) -> bool:
+    """Whether a text is a task file's: it holds an `**Agent:**` line and a Required Context heading."""
+    return (re.search(r"^\*\*Agent:\*\*", text, re.MULTILINE) is not None
+            and re.search(r"^##+\s*Required Context", text, re.MULTILINE) is not None)
 
 
 def _surface_tasks(buf: _Buffers, session_dir: Path) -> list[tuple[Path, str]]:
@@ -1388,8 +1490,7 @@ def _surface_tasks(buf: _Buffers, session_dir: Path) -> list[tuple[Path, str]]:
     for path in sorted(session_dir.glob("*.md")):
         text = ("\n".join(buf.lines[path]) if path in buf.lines
                 else path.read_bytes().decode("utf-8", errors="replace"))
-        if (re.search(r"^\*\*Agent:\*\*", text, re.MULTILINE)
-                and re.search(r"^##+\s*Required Context", text, re.MULTILINE)):
+        if _is_task_text(text):
             tasks.append((path, text))
     return tasks
 
@@ -1628,8 +1729,9 @@ def write_estimates(
     A row may price a file that the same run rewrites after it. So the whole
     pass repeats over the authored text, and prices each such file at the text
     the pass before gave it, until a pass moves no size that a row reads and no
-    text that a span row reads. The report is the last pass's. When the passes do not settle, every
-    file stays as authored and each file that still moved is reported.
+    span that a span row reads. The report and the text written are the last
+    pass's. When the passes do not settle, each file that still moved is also
+    reported as unreadable, because a later run may move the rows that cite it.
     """
     stamp = (today or datetime.now().astimezone().date()).isoformat()
     held: dict[Path, bytes] = {}
@@ -1647,11 +1749,10 @@ def write_estimates(
             break
         held = new
     else:
-        buf = _Buffers()
-        report["changes"].clear()
         report["unreadable"].extend(
             {"file": str(p), "what": "cited file",
-             "reason": f"its size or text still moved after {_SELF_ROW_PASSES} passes (every file left as authored)"}
+             "reason": f"its size or cited span still moved after {_SELF_ROW_PASSES} passes, "
+                       "so a later run may move the rows that cite it"}
             for p in moved)
 
     # All-or-nothing: an error before the write phase replaces no file.
@@ -1674,7 +1775,7 @@ def _write_pass(buf: _Buffers, report: dict, task_paths: list[Path], plan_root: 
                 by_session.setdefault(task_path.parent, []).append((task_id, name, total))
 
         for session_dir, totals in by_session.items():
-            orch = _one_file(session_dir, _ORCHESTRATION_GLOB, report, "Orchestration")
+            orch = _session_orchestration(session_dir, report)
             if orch is None:
                 continue
             total_text = _write_orchestration(buf, report, orch, totals)

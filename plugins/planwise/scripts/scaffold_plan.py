@@ -197,13 +197,17 @@ from token_saver_writeback import (
     PLAN_TIME_FLAG,
     _fmt_k,
     _fmt_kib,
+    _names_no_path,
     _write_set_keys,
+    joined_outputs,
     keyed_write_set,
+    path_figures,
+    plain_path,
     role_spellings,
+    root_path,
     surface_entries,
     surface_row,
     surface_total,
-    write_set_paths,
     write_set_sums,
     write_set_total,
     writeset_figures,
@@ -520,11 +524,6 @@ def layers(tasks):
 def dep_text(task, sep=", "):
     parts = [f"{d:02d}" if isinstance(d, int) else str(d) for d in task["depends_on"]]
     return sep.join(parts) or "-"
-
-
-def plain_path(text):
-    """`text` with forward slashes, no leading `./` and no trailing slash."""
-    return re.sub(r"^(?:\./+)+", "", text.replace("\\", "/")).rstrip("/")
 
 
 def is_outputs_path(path):
@@ -860,14 +859,16 @@ def o_intersection(lines, i, env):
     rows = []
     for k, members in layers(env.session["tasks"]).items():
         first, shared = {}, set()
+        paths = [(o, m) for m in members for o in tasks[m]["outputs"] if not _names_no_path(o)]
+        # `Outputs/` reads from the parent of the task file, whose name does not matter.
+        keys = [key for key, _ids in _write_set_keys([(o, "m") for o, _ in paths], {"m": (folder / "m", None)},
+                                                     own, folder, env.project_root)]
+        joined = joined_outputs(keys, own)
         for m in members:
-            outputs = tasks[m]["outputs"]
-            # `Outputs/` reads from the parent of the task file, whose name does not matter.
-            keyed = _write_set_keys([(o, "m") for o in outputs], {"m": (folder / "m", None)}, own,
-                                    folder, env.project_root)
             mine = {}
-            for (key, _ids), out in zip(keyed, outputs):
-                mine.setdefault(key, out)
+            for key, (out, by) in zip(keys, paths):
+                if by == m:
+                    mine.setdefault(joined.get(key, key), out)
             shared |= {first[key] for key in mine if key in first}
             first = {**mine, **first}
         wt = " / ".join(", ".join(f"`{o}`" for o in tasks[m]["outputs"]) for m in members)
@@ -1034,15 +1035,10 @@ def role_key(path, sprint, session, root):
     folder. Any other path below `root`, on disk or not, is keyed by its path
     from `root`, so an absent file and its folder get one spelling.
     """
-    text = plain_path(substitute_roots(_clean_file_cell(path), root.resolve()))
+    text = _clean_file_cell(path)
     if is_outputs_path(path):
-        return f"{session_dir(sprint, session)}/{text}", True
-    if text:
-        try:
-            return (root / text).resolve().relative_to(root.resolve()).as_posix(), False
-        except (ValueError, OSError):  # outside the project root, or no valid path: the text is the key
-            pass
-    return text, False
+        return f"{session_dir(sprint, session)}/{plain_path(substitute_roots(text, root.resolve()))}", True
+    return root_path(text, root), False
 
 
 def role_for(path, task, sprint, session, root):
@@ -1346,10 +1342,13 @@ def render_all(spec, templates_dir=DEFAULT_TEMPLATES, date=None, project_root=No
         write_sets.append((root / sprint_dir(sp), [(p, tid, kib, tok) for p, tid, _, kib, tok in senv.write_set]))
         all_tasks.extend(senv.task_texts)
     # The Write-Sets table sums every Sprint Plan, so the Master Plan renders last and is put first.
-    menv.write_sets = [write_set_paths(rows, all_tasks, folder, root) or {} for folder, rows in write_sets]
+    # One stand-in plan root, so that a spelling has one key in every sprint.
+    keyed = [keyed_write_set(rows, all_tasks, write_sets[0][0], root) for _folder, rows in write_sets]
+    joined = joined_outputs([key for rows in keyed for key, _ in rows], {p.name: p.parent for p, _ in all_tasks})
+    keyed = [[(joined.get(key, key), row) for key, row in rows] for rows in keyed]
+    menv.write_sets = [path_figures(rows) or {} for rows in keyed]
     # Per sprint, each path key with its first authored spelling.
-    menv.spellings = [{key: row[0] for key, row in reversed(keyed_write_set(rows, all_tasks, folder, root))}
-                      for folder, rows in write_sets]
+    menv.spellings = [{key: row[0] for key, row in reversed(rows)} for rows in keyed]
     put(f"{a}-Master-Plan.md", render_doc(bodies["master"], menv, MASTER, spec.get("optional_sections", ())))
     for rel, text in plan_files:
         put(rel, text)

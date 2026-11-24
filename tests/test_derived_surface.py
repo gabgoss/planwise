@@ -829,10 +829,11 @@ def test_a_parenthesis_inside_a_path_is_part_of_the_name(tmp_path):
     assert _master(tree.files[MASTER])[0]["Sprint-01"][0] == "6"  # three here, then LEDGER, PARSE and calls.py
     rows = [r[0] for r in _write_set(tree.files[PLAN])]
     assert rows[:3] == ["app/(shop)/", "app/", "app/:10"]
-    _add_rows(tree, "`docs/guide.md(2)`", "`docs/guide.md (2)`")
+    (tree.root / "docs/other.md(2)").write_bytes(b"Two.\n")
+    _add_rows(tree, "`docs/guide.md(2)`", "`docs/guide.md (2)`", "`docs/other.md(2)`")
     tree.write_back(TASK_1, TASK_2)
-    assert "docs/guide.md(2)" in _rows(tree.text(ORCH))
-    assert "docs/guide.md (2)" not in _rows(tree.text(ORCH))  # the control: a spaced qualifier drops
+    assert not {"docs/guide.md(2)", "docs/guide.md (2)"} & set(_rows(tree.text(ORCH)))  # a qualifier drops
+    assert "docs/other.md(2)" in _rows(tree.text(ORCH))  # the control: a file of that name
 
 
 @pytest.mark.parametrize("shape", ["old", "new"])
@@ -895,6 +896,94 @@ def test_two_spellings_of_one_file_are_not_disjoint(tmp_path):
     rows = [[c.strip() for c in sp.split_row_cells(ln)] for ln in section.split("\n") if ln.startswith("| Sprint-")][:3]
     assert [r[1] for r in rows] == [f"`{LEDGER}`", f"`{LEDGER} (extras)`", "∅"]
     assert ["NOT" in r[2] for r in rows] == [True, True, False]
+
+
+ZZ = f"{READ_PATH}/Outputs/zz.md"
+
+
+@pytest.mark.parametrize("first,second,same", [
+    (f"plans/QZX/{ZZ}", f"plans/QZX/{ZZ}", True),
+    (ZZ, f"plans/QZX/{ZZ}", True),
+    (f"plans/QZX/{ZZ}", ZZ, True),
+    (ZZ, ZZ, True),
+    (f"plans/QZX/{ZZ}", f"plans/ABC/{ZZ}", False),
+    ("{planwise_root}/new.md", "planwise/new.md", True),
+    ("src/orchard/new.py(a)", "src/orchard/new.py", True),
+])
+def test_two_parallel_sprints_share_a_file_under_any_spelling(tmp_path, first, second, same):
+    spec = _two_sprints()
+    spec["parallel_pairs"] = [[1, 2]]
+    sprints = [se["tasks"][0] for s in spec["sprints"][:2] for se in s["sessions"][:1]]
+    for task, output in zip(sprints, (first, second)):
+        task["outputs"] = [output]
+    for task in (spec["sprints"][0]["sessions"][0]["tasks"][1], spec["sprints"][0]["sessions"][1]["tasks"][0]):
+        task["outputs"] = ["Outputs/QZX-b.md"]
+    tree = Tree(tmp_path, spec=spec)
+    for step in ("render", "write-back"):
+        if step == "write-back":
+            assert tree.write_back(TASK_1, TASK_S2)["unreadable"] == []
+        text = tree.text(MASTER)
+        row = next(ln for ln in text.split("\n") if ln.startswith("| Sprint-01 ∥ Sprint-02"))
+        assert (f"| `{first}` |" in row, "NOT" in row) == (same, same)
+        assert f"over {1 if same else 2} distinct paths" in _master(text)[1], step
+
+
+def test_an_output_cited_in_full_keeps_its_cited_figure(tmp_path):
+    spec = _two_sprints()
+    first, second = spec["sprints"][0]["sessions"][0]["tasks"]
+    first["outputs"] = second["outputs"] = [f"plans/QZX/{ZZ}"]
+    first["required_context"].append(_row("Outputs/zz.md", 4.4))
+    tree = Tree(tmp_path, spec=spec)
+    for step in ("render", "write-back"):
+        if step == "write-back":
+            tree.write_back(TASK_1, TASK_2)
+        assert [r[4] for r in _write_set(tree.text(PLAN)) if r[0].endswith("zz.md")] == ["~4.4K"] * 2, step
+
+
+def test_a_bare_name_is_one_path_whichever_session_names_it(tmp_path):
+    spec = _two_sprints()
+    for s in spec["sprints"][:2]:
+        for task in (t for se in s["sessions"] for t in se["tasks"]):
+            task["outputs"] = ["notes.md"]
+    tree = Tree(tmp_path, spec=spec)
+    for rel in (TASK_1, TASK_S2):
+        (tree.plan / rel).with_name("notes.md").write_bytes(b"Notes.\n")
+    tree.write_back(TASK_1, TASK_S2)
+    assert "over 1 distinct paths" in _master(tree.text(MASTER))[1]
+
+
+def _rename(tree, rel, name):
+    path = tree.plan / rel
+    path.rename(path.with_name(name))
+    return f"{Path(rel).parent.as_posix()}/{name}"
+
+
+def test_a_task_named_exactly_orchestration_is_a_task(tmp_path):
+    spec = _two_sprints()
+    second = spec["sprints"][0]["sessions"][0]["tasks"][1]
+    second["name"], second["outputs"] = "Orchestration", [LEDGER]
+    tree = Tree(tmp_path, spec=spec)
+    rel = f"{READ_PATH}/QZX-S01-01-02-Opus-Orchestration.md"
+    report = tree.write_back(TASK_1, rel)
+    assert report["unreadable"] == [] and any(p.endswith(Path(ORCH).name) for p in report["written"])
+    want = _task_figure(tree.text(rel), "ledger.py`")
+    assert want[1] != "~3.0K"  # the control: the write-back moved the figure
+    assert {tuple(r[3:]) for r in _write_set(tree.text(PLAN)) if r[0] == LEDGER} == {want}
+
+
+@pytest.mark.parametrize("name", ["Orchestration.md", "QZX-S01-01-Orchestration-v2.md"])
+@pytest.mark.parametrize("task", ["IndexRows", "Orchestration"])
+def test_one_loosely_named_orchestration_is_still_rolled(tmp_path, name, task):
+    spec = _two_sprints()
+    spec["sprints"][0]["sessions"][0]["tasks"][1]["name"] = task
+    tree = Tree(tmp_path, spec=spec)
+    rel = _rename(tree, ORCH, name)
+    report = tree.write_back(TASK_1, f"{READ_PATH}/QZX-S01-01-02-Opus-{task}.md")
+    assert report["unreadable"] == [] and any(Path(p).name == name for p in report["written"])
+    (tree.plan / rel).with_name("QZX-Orchestration-old.md").write_bytes(b"# Old\n")
+    report = tree.write_back(TASK_1)
+    assert [(u["what"], u["reason"]) for u in report["unreadable"]] == [
+        ("Orchestration", "2 files match *-Orchestration.md")]
 
 
 @pytest.mark.parametrize("name", tsw._TOKEN_HEADERS)
@@ -1047,8 +1136,8 @@ def test_a_cell_that_ends_where_it_began_moves_no_footer_date(tmp_path):
     assert tree.snapshot() == before
 
 
-def test_a_run_that_does_not_settle_writes_no_file(tmp_path, monkeypatch):
-    tree = _citing(tmp_path, f"plans/QZX/{MASTER}")
+def _growing_master(tree, monkeypatch):
+    """Make each pass append a longer line to the Master Plan than the pass before."""
     calls, real = [], tsw._write_master
 
     def grow(buf, *args):
@@ -1057,14 +1146,68 @@ def test_a_run_that_does_not_settle_writes_no_file(tmp_path, monkeypatch):
         buf.get(tree.plan / MASTER).append("".join(calls))
 
     monkeypatch.setattr(tsw, "_write_master", grow)
-    before = tree.snapshot()
+    return calls
+
+
+def test_a_run_that_does_not_settle_writes_its_last_pass_and_reports_the_file(tmp_path, monkeypatch):
+    tree = _citing(tmp_path, f"plans/QZX/{MASTER}")
+    calls = _growing_master(tree, monkeypatch)
+    dry = tsw.write_estimates([tree.plan / r for r in ALL_TASKS], tree.plan, tree.root, dry_run=True)
+    assert dry["changes"] and not dry["written"]
+    calls.clear()
     report = tree.write_back(*ALL_TASKS)
     assert len(calls) == tsw._SELF_ROW_PASSES
-    assert (report["written"], report["changes"]) == ([], [])
+    assert {*ALL_TASKS, ORCH, OTHER_ORCH, PLAN, MASTER} <= {
+        Path(p).relative_to(tree.plan).as_posix() for p in report["written"]}
+    assert report["changes"] == dry["changes"]
+    _assert_one_record_each(report)
     assert [(Path(u["file"]).name, u["what"]) for u in report["unreadable"]] == [(MASTER, "cited file")]
-    assert tree.snapshot() == before
+    assert "a later run may move the rows that cite it" in report["unreadable"][0]["reason"]
+    assert "Cell changes: none" not in tsw.format_write_report(report)
     monkeypatch.undo()
-    assert tree.write_back(*ALL_TASKS)["written"]  # the control: the same tree has work to write
+    assert tree.write_back(*ALL_TASKS)["unreadable"] == []
+    _assert_stable(tree, *ALL_TASKS)
+
+
+@pytest.mark.parametrize("span", ["lines 1-3", "§1"])
+def test_a_file_that_moves_outside_the_cited_span_is_settled(tmp_path, monkeypatch, span):
+    tree = _citing(tmp_path)
+    tree.set(MASTER, "# Plan\n\n## 1. Cited\n\nText.\n\n## 2. Next\n\n" + tree.text(MASTER))
+    _add_rows(tree, f"`plans/QZX/{MASTER}` {span}")
+    calls = _growing_master(tree, monkeypatch)
+    report = tree.write_back(*ALL_TASKS)
+    assert (len(calls), report["unreadable"]) == (1, [])
+    assert any(s["resolved"].startswith(span.split("-")[0]) for s in report["spans"])  # the control: the span was priced
+    assert report["written"]
+
+
+def test_a_citation_chain_longer_than_the_pass_limit_is_written(tmp_path, monkeypatch):
+    tree = _citing(tmp_path, f"plans/QZX/{MASTER}", f"plans/QZX/{PLAN}")
+    for rel in (MASTER, PLAN):
+        _lengthen(tree, rel)
+    real = tsw.write_estimates(
+        [tree.plan / r for r in ALL_TASKS], tree.plan, tree.root, dry_run=True)
+    assert real["unreadable"] == []  # the control: the default limit is enough for this chain
+    passes = []
+    real_pass = tsw._write_pass
+
+    def count(*args):
+        passes.append(1)
+        real_pass(*args)
+
+    class Short:
+        """The outer limit only: the settle loops inside one pass keep theirs."""
+        def __index__(self):
+            return 1 if sys._getframe(1).f_code.co_name == "write_estimates" else 6
+
+    monkeypatch.setattr(tsw, "_write_pass", count)
+    monkeypatch.setattr(tsw, "_SELF_ROW_PASSES", Short())
+    report = tree.write_back(*ALL_TASKS)
+    assert len(passes) == 1 and len(report["written"]) > len(ALL_TASKS)
+    assert {Path(u["file"]).name for u in report["unreadable"]} == {MASTER, Path(PLAN).name}
+    monkeypatch.undo()
+    assert tree.write_back(*ALL_TASKS)["unreadable"] == []
+    _assert_stable(tree, *ALL_TASKS)
 
 
 def test_a_failed_task_keeps_its_bytes_and_blocks_no_other_file(tmp_path):

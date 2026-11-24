@@ -394,11 +394,15 @@ FULL_OUTPUTS = f"plans/QZX/{SESSION_REL}/Outputs"
     ("app/(shop)/ (new)", "app/page.tsx", "READ"),
     ("app/(shop)/", "app/(shop)/page.tsx", "CREATE"),
     ("app/:10", "app/page.tsx", "READ"),
-    ("src/orchard/ledger.py(2)", "src/orchard/ledger.py", "READ"),
+    ("src/orchard/ledger.py(2)", "src/orchard/ledger.py", "EDIT"),
+    ("src/orchard/ledger.py", "src/orchard/ledger.py:10(helpers)", "EDIT"),
+    ("src/orchard/new.py(helpers)", "src/orchard/new.py", "CREATE"),
+    ("docs/kept.md(old)", "docs/kept.md", "READ"),  # a file of that name exists
 ])
 def test_a_folder_match_starts_at_a_path_component_boundary(tmp_path, output, path, expected):
     sprint, root = make_spec()["sprints"][0], _project(tmp_path)
-    (root / "docs/orchard-guide.md (old)").write_text("An old rule.\n", encoding="utf-8")
+    for name in ("orchard-guide.md (old)", "kept.md(old)"):
+        (root / "docs" / name).write_text("An old rule.\n", encoding="utf-8")
     assert sp.role_for(path, {"outputs": [output]}, sprint, sprint["sessions"][0], root) == expected
 
 
@@ -453,7 +457,7 @@ def test_a_session_outputs_spelling_is_in_no_write_set(output):
     assert got == want
 
 
-@pytest.mark.parametrize("path,expected", [("Outputs(new)", False), ("Outputs/(x)", True), ("Outputs:10/ (new)", True)])
+@pytest.mark.parametrize("path,expected", [("Outputs(new)", True),("Outputs/(x)", True), ("Outputs:10/ (new)", True)])
 def test_a_session_outputs_path_drops_whole_qualifiers_only(path, expected):
     assert sp.is_outputs_path(path) is expected
 
@@ -520,9 +524,17 @@ OWN_OUTPUT = "Sprint-01-LedgerCore/Session-01-ReadPath/Outputs/QZX-a.md"
     (["src\\orchard\\index.py"], [INDEX], ["src\\orchard\\index.py"]),
     (["Outputs/QZX-a.md"], [f"plans/QZX/{OWN_OUTPUT}"], ["Outputs/QZX-a.md"]),
     ([INDEX, "Outputs/QZX-a.md"], ["Outputs/QZX-a.md", INDEX], ["Outputs/QZX-a.md", INDEX]),  # plain: as before
-    (["none"], ["none"], ["none"]),  # plain: as before
+    (["none"], ["none"], []),  # no path is named
+    (["`none (reads only)`", "n/a"], ["none (reads only)", "n/a"], []),
     ([INDEX, f"{INDEX} (rows)"], ["src/orchard/parse.py"], []),  # one task, two spellings
     (["Outputs/QZX-a.md"], [f"plans/QZX/{OWN_OUTPUT.replace('-01-ReadPath', '-02-WritePath')}"], []),
+    ([f"plans/QZX/{OWN_OUTPUT}"], [f"plans/ABC/{OWN_OUTPUT}"], []),  # two plans
+    ([f"plans/QZX/{OWN_OUTPUT}"], [f"plans/QZX/{OWN_OUTPUT} (rows)"], [f"plans/QZX/{OWN_OUTPUT}"]),
+    ([OWN_OUTPUT], [f"plans/QZX/{OWN_OUTPUT}"], [OWN_OUTPUT]),
+    (["{planwise_root}/new.md"], ["planwise/new.md"], ["{planwise_root}/new.md"]),
+    (["planwise/new.md (a)"], ["{project_root}/planwise/../planwise/new.md"], ["planwise/new.md (a)"]),
+    ([f"{INDEX}(helpers)"], [f"{INDEX}:10(helpers)", INDEX], [f"{INDEX}(helpers)"]),
+    (["app/(shop)"], ["app", "app/(cart)"], []),
 ])
 def test_two_spellings_in_one_layer_are_not_disjoint(tmp_path, first, second, shared):
     spec = make_spec()
@@ -535,6 +547,16 @@ def test_two_spellings_in_one_layer_are_not_disjoint(tmp_path, first, second, sh
     assert cells[2] == " / ".join(", ".join(f"`{o}`" for o in outs) for outs in (first, second))
     assert cells[3] == (", ".join(f"`{s}`" for s in shared) or "∅")
     assert ("NOT" in cells[4]) == bool(shared)
+
+
+def test_an_absolute_spelling_in_one_layer_is_not_disjoint(tmp_path):
+    spec = make_spec()
+    spec["sprints"][0]["sessions"][0]["tasks"] = [
+        _task(1, "ParseRows", "Sonnet", [], [(tmp_path / "planwise/new.md").as_posix()]),
+        _task(2, "IndexRows", "Opus", [], ["planwise/new.md"])]
+    files = sp.render_all(spec, TEMPLATES, project_root=tmp_path)[0]
+    text = next(t for rel, t in files.items() if rel.endswith("S01-01-Orchestration.md"))
+    assert "NOT disjoint" in next(ln for ln in text.split("\n") if ln.startswith("| L1 | {1, 2} |"))
 
 
 def test_role_expands_the_root_placeholders(tmp_path):
