@@ -47,7 +47,7 @@ def make_spec():
     first = _task(1, "ParseRows", "Haiku", [PARSE, "Outputs/QZX-parse.md"],
                   [span, command, _row(PARSE, 0.7), _row("Outputs/QZX-parse.md", 0.3)])
     second = _task(2, "IndexRows", "Opus", [LEDGER],
-                   [_row(".\\src\\orchard\\ledger.py", 3.0), _row("docs/guide.md", 0.8),
+                   [_row("./src/orchard/ledger.py", 3.0), _row("docs/guide.md", 0.8),
                     _row(f"plans/QZX/{READ_PATH}/Outputs/QZX-parse.md", 0.6),
                     _row("QZX-S01-01-Recovery.md", 0.2)])
     other = _task(1, "WriteRows", "Sonnet", ["src/orchard/write.py"],
