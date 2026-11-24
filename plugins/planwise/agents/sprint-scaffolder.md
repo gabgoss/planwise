@@ -83,6 +83,7 @@ Formatting lines: `**Sprint ID:** {ABBREV}-S{XX}`, `**Status:** PLANNED`, `**Est
 ### DELEGATED Mandatory Triggers Reminder
 ### Context Boundary <!-- CONDITIONAL — DELEGATED mode only -->
 ## Session Task List <!-- REQUIRED -->
+## Session Surface <!-- CONDITIONAL — absent in a plan built before this block -->
 ## Dispatch Layers <!-- REQUIRED for DELEGATED mode -->
 ### Computed Write-Target Intersection <!-- REQUIRED for DELEGATED mode -->
 ## Success Criteria <!-- REQUIRED -->

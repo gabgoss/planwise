@@ -15,6 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 
 import lint_plan_strategy as lps
 import scaffold_plan as sp
+import token_saver_scan as tss
+import token_saver_writeback as tsw
 
 TEMPLATES = sp.DEFAULT_TEMPLATES
 
@@ -98,7 +100,7 @@ def test_every_task_file_carries_a_self_row_seeded_at_its_own_size(rendered):
     for rel, text in rendered.items():
         if sp.file_kind(rel) != "task":
             continue
-        row = re.search(rf"^\| 2 \| `{re.escape(Path(rel).name)}` \| ([\d,.]+) \| ~([\d.]+)K \| this task file", text, re.MULTILINE)
+        row = re.search(rf"^\| 2 \| `{re.escape(Path(rel).name)}` \| ([\d,.]+) \| ~([\d.]+)K \| READ \| this task file", text, re.MULTILINE)
         assert row, rel
         size = len(text.encode("utf-8"))
         assert row.group(1) == sp._fmt_kib(size), (rel, size)
@@ -249,6 +251,199 @@ def test_typed_rows_get_a_resolution_record_and_its_removal_is_detected():
 def test_unknown_row_kind_fails_lint():
     errors = sp.lint_spec(_spec_with_rows(dict(SPAN_ROW, kind="glob")), TEMPLATES)
     assert len(errors) == 1 and "kind must be path, span or command" in errors[0]
+
+
+# ---- the derived Role column
+
+PIPE_COMMAND_ROW = dict(COMMAND_ROW, priority=4, command="Grep 'ledger|index' over src/orchard")
+CREATE_CELL = "CREATE (plan-time estimate)"
+SESSION_REL = "Sprint-01-LedgerCore/Session-01-ReadPath"
+
+
+def _path_row(priority, path):
+    return {"priority": priority, "path": path, "kib": 4.0, "tokens_k": 1.5, "purpose": "a file"}
+
+
+def _project(tmp_path):
+    root = tmp_path / "project"
+    (root / "src/orchard").mkdir(parents=True)
+    (root / "src/orchard/ledger.py").write_text("ledger = {}\n" * 40, encoding="utf-8")
+    (root / "docs").mkdir()
+    (root / "docs/orchard-guide.md").write_text("A ledger rule.\n" * 60, encoding="utf-8")
+    return root
+
+
+def _context_rows(text):
+    """(header cells, {File cell: row cells}) of the Required Context table, every row at the header's width."""
+    section = text.split("## Required Context", 1)[1].split("\n**Context subtotal:**", 1)[0]
+    table = [ln for ln in section.split("\n") if ln.startswith("|")]
+    header = [c.strip() for c in sp.split_row_cells(table[0])]
+    rows = [tsw._cells(ln, len(header)) for ln in table[1:]]
+    assert {len(r) for r in rows} == {len(header)}, rows
+    return header, {r[1].strip(): r for r in rows[1:]}
+
+
+def _roles(spec, root):
+    header, rows = _context_rows(sp.render_all(spec, TEMPLATES, project_root=root)[0][TASK_REL])
+    at = header.index("Role")
+    return {name: cells[at].strip() for name, cells in rows.items()}
+
+
+def _write_back(root, text):
+    task = root / "plans/QZX" / TASK_REL
+    task.parent.mkdir(parents=True)
+    task.write_text(text, encoding="utf-8", newline="\n")
+    report = tsw.write_estimates([task], root / "plans/QZX", root)
+    # The session folder holds no Orchestration, so only the task file's own entries count.
+    report["unreadable"] = [u for u in report["unreadable"] if u["file"] == str(task)]
+    return task.read_text(encoding="utf-8"), report
+
+
+def test_every_required_context_row_has_the_header_cell_count(tmp_path):
+    spec = _spec_with_rows(SPAN_ROW, COMMAND_ROW, PIPE_COMMAND_ROW)
+    header, rows = _context_rows(sp.render_all(spec, TEMPLATES, project_root=tmp_path)[0][TASK_REL])
+    assert header == ["Priority", "File", "KiB", "~Tokens", "Role", "Purpose"]
+    assert len(rows) == 5  # path, span, two commands, self
+    # The template's own separator and five example rows hold the header's width too.
+    example = [ln for ln in sp.extract_body(TEMPLATES / "task-file.md").split("\n## Required Context", 1)[1].split("\n")
+               if ln.startswith("|")][:7]
+    assert [len(sp.split_row_cells(ln)) for ln in example] == [6] * 7
+
+
+def test_role_reads_from_outputs_and_the_disk(tmp_path):
+    root = _project(tmp_path)
+    absent = "src/orchard/parse.py"
+    full_report = f"plans/QZX/{SESSION_REL}/Outputs/QZX-parse.md"
+    spec = _spec_with_rows(SPAN_ROW, COMMAND_ROW, _path_row(5, absent), _path_row(6, "src/other.py"),
+                           _path_row(7, "Outputs/QZX-parse.md"), _path_row(8, "Outputs/QZX-peer.md"),
+                           _path_row(9, full_report), _path_row(10, "src/orchard/"), _path_row(11, "src/made/"))
+    task = _t0(spec)
+    task["outputs"] = [absent, "Outputs/QZX-parse.md"]
+    span = "`docs/orchard-guide.md` lines 10-40"
+    command = "`Grep 'ledger' over src/orchard` — 12 lines / ~900 bytes returned"
+    self_cell = f"`{Path(TASK_REL).name}`"
+    expected = {"`src/orchard/ledger.py`": "READ", span: "READ", command: "READ", f"`{absent}`": CREATE_CELL,
+                "`src/other.py`": "READ", "`Outputs/QZX-parse.md`": CREATE_CELL, "`Outputs/QZX-peer.md`": "READ",
+                f"`{full_report}`": CREATE_CELL, "`src/orchard/`": "READ", "`src/made/`": "READ", self_cell: "READ"}
+    assert _roles(spec, root) == expected
+    # Windows and `./` spellings, an existing and an absent directory, and a span of an output.
+    task["outputs"] = [".\\src\\orchard\\ledger.py", "docs/orchard-guide.md", "./src/orchard", ".\\src\\made"]
+    expected.update({"`src/orchard/ledger.py`": "EDIT", span: "EDIT", "`src/orchard/`": "EDIT",
+                     "`src/made/`": CREATE_CELL, f"`{absent}`": "READ", "`Outputs/QZX-parse.md`": "READ",
+                     f"`{full_report}`": "READ"})
+    assert _roles(spec, root) == expected
+    # The file's own name in `outputs` is the one case where the self row is not READ.
+    task["outputs"] = [f"plans/QZX/{TASK_REL}"]
+    assert _roles(spec, root)[self_cell] == CREATE_CELL
+
+
+def test_a_session_output_is_one_file_in_either_spelling(tmp_path):
+    root = _project(tmp_path)
+    short, full = "Outputs/QZX-parse.md", f"plans/QZX/{SESSION_REL}/Outputs/QZX-parse.md"
+    for output, path in ((short, full), (full, short)):
+        spec = _spec_with_rows(_path_row(5, path), _path_row(6, "Outputs/QZX-peer.md"))
+        _t0(spec)["outputs"] = [output]
+        roles = _roles(spec, root)
+        assert (roles[f"`{path}`"], roles["`Outputs/QZX-peer.md`"]) == (CREATE_CELL, "READ"), output
+
+
+def test_role_expands_the_root_placeholders(tmp_path):
+    root = _project(tmp_path)
+    (root / "planwise").mkdir()
+    (root / "planwise/notes.md").write_text("A note.\n", encoding="utf-8")
+    spec = _spec_with_rows()
+    sprint = spec["sprints"][0]
+    session = sprint["sessions"][0]
+
+    def role(output, path):
+        return sp.role_for(path, {"outputs": [output]}, sprint, session, root)
+
+    for braced, plain, expected in (("{planwise_root}/notes.md", "planwise/notes.md", "EDIT"),
+                                    ("{project_root}/src/orchard/ledger.py", "src/orchard/ledger.py", "EDIT"),
+                                    ("{planwise_root}/new.md", "planwise/new.md", "CREATE"),
+                                    ("{plugin_root}/templates/task-file.md",
+                                     (TEMPLATES / "task-file.md").as_posix(), "EDIT"),
+                                    ("{plugin_root}/templates/absent.md",
+                                     (TEMPLATES / "absent.md").as_posix(), "CREATE")):
+        got = [role(a, b) for a in (braced, plain) for b in (braced, plain)]
+        assert got == [expected] * 4, braced
+
+
+@pytest.mark.parametrize("role_at", [None, 2, 4], ids=["five", "moved", "shipped"])
+def test_the_role_cell_follows_the_template_header(tmp_path, role_at):
+    templates = tmp_path / "t"
+    shutil.copytree(TEMPLATES, templates)
+    path = templates / "task-file.md"
+    lines = path.read_text(encoding="utf-8").split("\n")
+    head = next(i for i, ln in enumerate(lines) if ln.startswith("| Priority | File | KiB |"))
+    for i in range(head, head + 7):
+        cells = [c.strip() for c in sp.split_row_cells(lines[i])]
+        role = cells.pop(4)
+        if role_at is not None:
+            cells.insert(role_at, role)
+        lines[i] = "| " + " | ".join(cells) + " |"
+    path.write_text("\n".join(lines), encoding="utf-8")
+    spec = _spec_with_rows(SPAN_ROW, COMMAND_ROW)
+    text = sp.render_all(spec, templates, project_root=_project(tmp_path))[0][TASK_REL]
+    table = [ln for ln in text.split("\n## Required Context", 1)[1].split("\n**Context subtotal:**", 1)[0].split("\n")
+             if ln.startswith("|")]
+    header, _sep, *rows = [[c.strip() for c in sp.split_row_cells(ln)] for ln in table]
+    assert len(rows) == 4  # path, span, command, self
+    assert {len(r) for r in rows} == {len(header)} == {5 if role_at is None else 6}
+    assert [r[header.index("Role")] for r in rows] == ["READ"] * 4 if role_at is not None else "Role" not in header
+    assert rows[-1][header.index("Purpose")].startswith("this task file")
+
+
+def test_write_back_prices_every_row_of_a_rendered_task_and_keeps_role(tmp_path):
+    root = _project(tmp_path)
+    spec = _spec_with_rows(SPAN_ROW, COMMAND_ROW, PIPE_COMMAND_ROW)
+    _t0(spec)["outputs"] = ["src/orchard/ledger.py"]
+    text = sp.render_all(spec, TEMPLATES, project_root=root)[0][TASK_REL]
+    after, report = _write_back(root, text.replace("<!-- FILL: {O} -->", "2").replace("<!-- FILL: {W} -->", "1"))
+    assert (report["errors"], report["unreadable"]) == ([], [])
+    assert [r["reason"] for r in report["left"]] == ["command corpus"] * 2  # each keeps its dry-run figure
+    header, rows = _context_rows(after)
+    ledger = rows["`src/orchard/ledger.py`"]
+    assert ledger[header.index("KiB")].strip() == sp._fmt_kib((root / "src/orchard/ledger.py").stat().st_size)
+    assert ledger[header.index("Role")].strip() == "EDIT"
+    own = rows[f"`{Path(TASK_REL).name}`"]
+    assert own[header.index("KiB")].strip() == sp._fmt_kib(len(after.encode("utf-8")))
+
+
+# Rows copied from a task file the five-column renderer wrote, with the two subtotal fills answered.
+OLD_SHAPE_TASK = """# Task: Sonnet-ParseRows
+
+**Task ID:** QZX-S01-01-01
+**Agent:** Sonnet
+**Estimated Tokens:** ~21K
+
+## Required Context <!-- REQUIRED -->
+
+| Priority | File | KiB | ~Tokens | Purpose |
+|----------|------|----:|--------:|---------|
+| 1 | `src/orchard/ledger.py` | 4.0 | ~1.5K | the module |
+| 2 | `docs/orchard-guide.md` lines 10-40 | 2.0 | ~0.8K | the ledger rules — span row, see the resolution comment below |
+| 4 | `QZX-S01-01-01-Sonnet-ParseRows.md` | 28.5 | ~11.2K | this task file — self row, measured by the write-back after the last edit |
+
+**Context subtotal:** ~13.5K (reads — the sum of the ~Tokens column) + ~2K (output) + ~1K (working) = **~21K total**
+"""
+
+
+def test_a_five_column_task_file_still_prices_every_row(tmp_path):
+    root = _project(tmp_path)
+    after, report = _write_back(root, OLD_SHAPE_TASK)
+    assert (report["errors"], report["left"], report["unreadable"]) == ([], [], [])
+    header, rows = _context_rows(after)
+    assert header == ["Priority", "File", "KiB", "~Tokens", "Purpose"]  # the write-back adds no column
+    span_bytes = sum(map(len, (root / "docs/orchard-guide.md").read_bytes().splitlines(keepends=True)[9:40]))
+    sizes = {"`src/orchard/ledger.py`": (root / "src/orchard/ledger.py").stat().st_size,
+             "`docs/orchard-guide.md` lines 10-40": span_bytes,
+             f"`{Path(TASK_REL).name}`": len(after.encode("utf-8"))}
+    assert {name: cells[2].strip() for name, cells in rows.items()} == {n: sp._fmt_kib(s) for n, s in sizes.items()}
+    parsed = tss.parse_required_context(after)
+    assert [r["file_cell"] for r in parsed] == list(sizes)
+    plan, task = root / "plans/QZX", root / "plans/QZX" / TASK_REL
+    assert all(tsw.price_row(r["file_cell"], task, plan, root, "sonnet")["priced"] for r in parsed)
 
 
 # ---- check-headings

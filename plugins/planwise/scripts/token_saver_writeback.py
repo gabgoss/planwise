@@ -10,6 +10,9 @@ header, the session Orchestration's task-list cell and `**Total Estimated:**`,
 and in the Sprint Plan the session row, the `**Estimated Tokens:**` header
 re-summed from the Sessions table, and the task's cell and session total
 under `## Session Details`. Each file is re-rolled whole or left as authored.
+It also rewrites the Orchestration's `## Session Surface` block: the rows and
+the total line, derived from every task file of the session folder. An
+Orchestration without that heading gets no block.
 It also writes one `**Measured:**` footer under the Required Context table:
 the date, the command, the model and the bytes-per-token ratio the rows were
 priced with, so a reader can re-check any row. The date moves only when a row
@@ -42,6 +45,7 @@ import re
 import shutil
 import sys
 import tempfile
+from collections import Counter
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
@@ -827,6 +831,258 @@ def _write_orchestration(buf: _Buffers, report: dict, orch: Path,
                               "Session Task List", total_required=True)
 
 
+PLAN_TIME_FLAG = "(plan-time estimate)"
+_ROLE_RANK = {"READ": 0, "EDIT": 1, "CREATE": 2}
+_SURFACE_COLUMNS = ["path", "role", "kib", "~tokens", "cited by"]
+_SURFACE_LABEL = "**Session surface:**"
+# A trailing `:line`, `:line-line` or parenthetical. A drive colon is not a qualifier.
+_QUALIFIER_RE = re.compile(r"(?:(?<!^[A-Za-z]):\d+(?:[-–]\d+)?|\s*\([^()]*\))$")
+
+
+def _surface_number(text: str, path: Path) -> int | None:
+    """The task number: the Task ID's trailing digits, else the file name's."""
+    m = (re.search(r"-(\d+)$", _task_id(text.split("\n"), path))
+         or re.search(r"-(\d+)-[A-Za-z]+-[^-]+$", path.stem))
+    return int(m.group(1)) if m else None
+
+
+def _folder_text(folder: Path) -> str:
+    """A session folder as a plan-relative path: its sprint folder and its own name."""
+    return f"{folder.parent.name}/{folder.name}"
+
+
+def _surface_key(cell: str, task_path: Path, own: dict[str, Path], plan_root: Path,
+                 project_root: Path) -> str | None:
+    """The one key of the file a Required Context cell names, or None when it names no path.
+
+    `own` maps each plan file's bare name to its session folder. Those files
+    are keyed by bare name. Any other file that resolves is keyed by its path
+    from the project root, and one that does not by its cleaned text. A
+    trailing qualifier drops only when the path resolves without it and not with it.
+    """
+    text = re.sub(r"^(?:\./+)+", "", _clean_file_cell(cell).replace("\\", "/")).rstrip("/")
+    if not text or is_command_corpus(cell):
+        return None
+    bare = text
+    while True:
+        key = _known_key(bare, task_path, own, plan_root, project_root)
+        if key is not None:
+            return key
+        m = _QUALIFIER_RE.search(bare)
+        if m is None:
+            break
+        bare = bare[:m.start()].rstrip("/")
+    if text.startswith("Outputs/"):
+        text = f"{_folder_text(task_path.parent)}/{text}"
+    if unresolved_reason(text, project_root).startswith("not a path"):
+        return None
+    at = f"/{text}".find(f"/{_folder_text(task_path.parent)}/Outputs/")
+    return text[at:] if at >= 0 else text
+
+
+def _known_key(text: str, task_path: Path, own: dict[str, Path], plan_root: Path,
+               project_root: Path) -> str | None:
+    """The key of a path that names a plan file or resolves, else None."""
+    if text in own:
+        return text
+    base, _, name = text.rpartition("/")
+    if name in own and f"/{base}".endswith(f"/{_folder_text(own[name])}"):
+        return name
+    if text.startswith("Outputs/"):
+        # An Outputs/ path reads from the session folder, so no other root is tried.
+        found = task_path.parent / text
+        resolved = found if found.is_file() else None
+        text = f"{_folder_text(task_path.parent)}/{text}"
+    else:
+        resolved = resolve_context_path(text, task_path, plan_root, project_root)
+    if resolved is not None:
+        full = resolved.resolve()
+        if full.name in own and full.parent == own[full.name].resolve():
+            return full.name
+        try:
+            return full.relative_to(project_root.resolve()).as_posix()
+        except ValueError:  # outside the project root: the text is the key
+            return text
+    return None
+
+
+def surface_entries(tasks: list[tuple[Path, str]], plan_files: list[tuple],
+                    plan_root: Path, project_root: Path) -> list[dict]:
+    """One entry per file that the task texts name, in the block's row order.
+
+    `tasks` holds (task file path, its text). The path supplies the name and
+    the session folder, and need not exist. `plan_files` holds (bare name, KiB
+    cell, ~Tokens cell) of the Orchestration and Recovery files, with None
+    cells for no figure. An entry is {"path", "role", "kib", "tokens", "by"}.
+    `tokens` is None when no row carries a figure. A path takes the highest
+    figure any citing row carries, and the KiB cell of that row.
+    """
+    numbered = sorted(((_surface_number(text, path), path, text) for path, text in tasks),
+                      key=lambda t: (t[0] is None, t[0] or 0, t[1].name))
+    own = {path.name: path.parent for _, path, _ in numbered}
+    if numbered:
+        own.update((row[0], numbered[0][1].parent) for row in plan_files)
+    entries: dict[str, dict] = {}
+
+    def add(key: str, kib: str | None = None, tokens: str | None = None,
+            role: str = "READ", by: str | None = None) -> None:
+        entry = entries.setdefault(key, {"path": key, "role": "READ", "kib": "0.0",
+                                         "tokens": None, "by": []})
+        if by is not None and by not in entry["by"]:
+            entry["by"].append(by)
+        if _ROLE_RANK.get(role, 0) > _ROLE_RANK[entry["role"]]:
+            entry["role"] = role
+        value = _parse_token_cell(tokens) if tokens is not None else None
+        if value is not None and (entry["tokens"] is None or value > entry["tokens"]):
+            entry["tokens"], entry["kib"] = value, (kib or "").strip() or "0.0"
+
+    for name, kib, tokens in plan_files:
+        add(name, kib, tokens, by="orchestrator")
+    for _, path, _ in numbered:
+        add(path.name)
+    fixed = len(entries)
+    for number, path, text in numbered:
+        label = f"{number:02d}" if number is not None else path.stem
+        lines = text.split("\n")
+        table = _required_context_table(lines)
+        if table is None:
+            continue
+        header_idx, header = table
+        file_idx = next((i for i, c in enumerate(header) if c.startswith("file")), None)
+        if file_idx is None:
+            continue
+        columns = [_col(header, ("kib",)), _col(header, _TOKEN_HEADERS), _col(header, ("role",))]
+        for row_idx in _table_rows(lines, header_idx):
+            cells = _cells(_split_eol(lines[row_idx])[0], len(header))
+            if file_idx >= len(cells):
+                continue
+            key = _surface_key(cells[file_idx], path, own, plan_root, project_root)
+            if key is None:
+                continue
+            whole = len(cells) == len(header)  # a shifted row names its path and no figure
+            kib, tokens, role = (cells[i] if whole and i is not None else None for i in columns)
+            add(key, kib, tokens, ((role or "").split() or ["READ"])[0], label)
+    out = list(entries.values())
+    return out[:fixed] + sorted(out[fixed:], key=lambda e: e["path"])
+
+
+def surface_row(entry: dict) -> str:
+    """One table row of the block."""
+    flagged = entry["role"] == "CREATE" or entry["tokens"] is None
+    role = f"{entry['role']} {PLAN_TIME_FLAG}" if flagged else entry["role"]
+    path = entry["path"].replace("|", "\\|")
+    return (f"| `{path}` | {role} | {entry['kib']} | {_fmt_k(entry['tokens'] or 0)} "
+            f"| {', '.join(entry['by']) or 'none'} |")
+
+
+def surface_total(entries: list[dict]) -> str:
+    """The block's total line: the sum of the printed `~Tokens` cells, and the row count."""
+    total = sum((_parse_token_cell(_fmt_k(e["tokens"] or 0)) for e in entries), Decimal(0))
+    return (f"{_SURFACE_LABEL} {_fmt_k(total)} tokens over {len(entries)} files "
+            "(information only)")
+
+
+def _surface_tasks(buf: _Buffers, session_dir: Path) -> list[tuple[Path, str]]:
+    """(path, text) of every task file in the folder: this run's text when loaded, else the disk's."""
+    tasks = []
+    for path in sorted(session_dir.glob("*.md")):
+        text = ("\n".join(buf.lines[path]) if path in buf.lines
+                else path.read_bytes().decode("utf-8", errors="replace"))
+        if (re.search(r"^\*\*Agent:\*\*", text, re.MULTILINE)
+                and re.search(r"^##+\s*Required Context", text, re.MULTILINE)):
+            tasks.append((path, text))
+    return tasks
+
+
+def _kept_rows(rows: list[str], kept: Counter) -> list[str]:
+    """The path cells of the rows that `kept` counts, in file order."""
+    left, out = Counter(kept), []
+    for row in rows:
+        if left[row] > 0:
+            left[row] -= 1
+            out.append(_cells(row, len(_SURFACE_COLUMNS))[0])
+    return out
+
+
+def _write_session_surface(buf: _Buffers, report: dict, orch: Path, plan_root: Path,
+                           project_root: Path, cache: _FileCache) -> None:
+    """Rewrite the `## Session Surface` rows and total; any failure leaves the file as it was.
+
+    An Orchestration without the heading is left alone and not reported. The
+    block holds the Orchestration's own row, so the pass repeats until the
+    byte count settles, as `_write_task` does.
+    """
+    lines, fail = _guard(buf, report, orch)
+    what = "Session Surface"
+    try:
+        bounds = _section_bounds(lines, what)
+        if bounds is None:
+            return
+        head = next((i for i in range(*bounds) if _table_header_at(lines, i)), None)
+        if head is None or _table_header_at(lines, head) != _SURFACE_COLUMNS:
+            fail(what, "no table with the block's columns")
+            return
+        before = [_split_eol(lines[i])[0] for i in _table_rows(lines, head)]
+        total_at = next((i for i in range(head, bounds[1])
+                         if lines[i].startswith(_SURFACE_LABEL)), None)
+        if total_at is None:
+            fail(what, "total line not found")
+            return
+        old_total = _split_eol(lines[total_at])[0]
+        present = {}
+        for row in before:
+            cells = _cells(row, len(_SURFACE_COLUMNS))
+            if len(cells) == len(_SURFACE_COLUMNS):
+                present[cells[0].replace("`", "").strip()] = (cells[2], cells[3])
+        tasks = [t for t in _surface_tasks(buf, orch.parent) if t[0] != orch]
+        models = {parse_agent(text) for _, text in tasks} or {None}
+
+        def plan_file(name: str, own_bytes: int) -> tuple:
+            best = None
+            for model in models:
+                try:
+                    price = price_row(name, orch, plan_root, project_root, model, cache, own_bytes)
+                except OSError:
+                    continue
+                if price["priced"] and (best is None or price["tokens"] > best["tokens"]):
+                    best = price
+            if best is None:
+                return (name, *present.get(name, (None, None)))
+            return name, _fmt_kib(best["bytes"]), _fmt_k(best["tokens"])
+
+        recovery = orch.name.replace("Orchestration", "Recovery")
+        eol = _split_eol(lines[head])[1]
+        for _ in range(_SELF_ROW_PASSES):
+            measured = _text_bytes(lines)
+            entries = surface_entries(tasks, [plan_file(orch.name, measured),
+                                              plan_file(recovery, measured)],
+                                      plan_root, project_root)
+            total_at = next(i for i in range(head, len(lines))
+                            if lines[i].startswith(_SURFACE_LABEL))
+            lines[total_at] = surface_total(entries) + _split_eol(lines[total_at])[1]
+            rows = _table_rows(lines, head)
+            lines[head + 2:head + 2 + len(rows)] = [surface_row(e) + eol for e in entries]
+            if _text_bytes(lines) == measured:
+                break
+        else:
+            fail(what, f"the byte count still moved after {_SELF_ROW_PASSES} passes")
+            return
+    except Exception as exc:  # noqa: BLE001 - the block never blocks the other writes
+        fail(what, f"{type(exc).__name__}: {exc}")
+        return
+    after = [surface_row(e) for e in entries]
+    pairs = [("", row) for row in (Counter(after) - Counter(before)).elements()]
+    pairs += [(row, "") for row in (Counter(before) - Counter(after)).elements()]
+    old_order, new_order = (_kept_rows(rows, Counter(before) & Counter(after))
+                            for rows in (before, after))
+    if old_order != new_order:
+        pairs.append(("row order: " + ", ".join(old_order), "row order: " + ", ".join(new_order)))
+    if surface_total(entries) != old_total:
+        pairs.append((old_total, surface_total(entries)))
+    report["changes"].extend({"file": str(orch), "line": head + 1, "what": what,
+                              "old": old, "new": new} for old, new in pairs)
+
+
 def _reroll_task_table(buf: _Buffers, report: dict, path: Path, bounds: tuple[int, int],
                        task_totals: list[tuple[str, str, str]], fail, label: str,
                        total_required: bool) -> str | None:
@@ -989,6 +1245,7 @@ def write_estimates(
             if orch is None:
                 continue
             total_text = _write_orchestration(buf, report, orch, totals)
+            _write_session_surface(buf, report, orch, plan_root, project_root, cache)
             if total_text is None:
                 continue
             sprint_plan = _one_file(session_dir.parent, "*Sprint-Plan*.md", report,
