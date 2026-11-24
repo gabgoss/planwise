@@ -397,6 +397,57 @@ def test_a_folder_match_starts_at_a_path_component_boundary(tmp_path, output, pa
     assert sp.role_for(path, {"outputs": [output]}, sprint, sprint["sessions"][0], root) == expected
 
 
+@pytest.mark.parametrize("output,path,expected", [
+    *((f"{name}{tail}", name, role)
+      for name, role in (("src/orchard/ledger.py", "EDIT"), ("src/orchard/new.py", "CREATE"))
+      for tail in (" (new)", ":10", ":10 (new)", " (new) (draft)")),
+    ("src/orchard/ (new)", "src/orchard/ledger.py", "EDIT"),
+    ("src/orchard (new)", "src/orchard/new.py", "CREATE"),
+    ("Outputs/QZX-parse.md (new)", "Outputs/QZX-parse.md", "CREATE"),
+    ("./Outputs/ (new)", "Outputs/QZX-parse.md", "CREATE"),
+    ("src/orchard/ledger.py (new)", "src/orchard/other.py", "READ"),
+    ("src/orchard (new)", "src/orchard2/ledger.py", "READ"),
+    ("docs/orchard-guide.md (old)", "docs/orchard-guide.md", "READ"),  # the output is the file of that full name
+])
+def test_a_qualified_output_matches_a_plain_row(tmp_path, output, path, expected):
+    sprint, root = make_spec()["sprints"][0], _project(tmp_path)
+    (root / "docs/orchard-guide.md (old)").write_text("An old rule.\n", encoding="utf-8")
+    env = SimpleNamespace(task={"outputs": [output]}, sprint=sprint, session=sprint["sessions"][0], project_root=root)
+    assert sp.row_role(_path_row(1, path), env).split()[0] == expected
+    if output.startswith(path) and expected != "READ":
+        # The output text itself reads the same first word.
+        assert sp.role_for(output, env.task, env.sprint, env.session, root) == expected
+
+
+def test_a_qualified_own_file_gives_the_self_row_the_plain_role(tmp_path):
+    root, spec = _project(tmp_path), make_spec()
+    own = f"plans/QZX/{TASK_REL}"
+    self_cell = f"`{Path(TASK_REL).name}`"
+    for on_disk, expected in ((False, CREATE_CELL), (True, "EDIT")):
+        if on_disk:
+            (root / own).parent.mkdir(parents=True)
+            (root / own).write_text("# Task\n", encoding="utf-8")
+        for output in (own, f"{own} (new)"):
+            _t0(spec)["outputs"] = [output]
+            assert _roles(spec, root)[self_cell] == expected, output
+
+
+@pytest.mark.parametrize("output", ["Outputs", "./Outputs/", "Outputs\\x.md", ".\\Outputs\\x.md", "`Outputs/x.md`",
+                                    "Outputs (new)", "./Outputs/ (new)", "Outputs:10 (new)"])
+def test_a_session_outputs_spelling_is_in_no_write_set(output):
+    spec, plain = make_spec(), make_spec()
+    _t0(spec)["outputs"] = [output, "docs/Outputs/x.md"]
+    _t0(plain)["outputs"] = ["docs/Outputs/x.md"]
+    paths = sp.write_paths(spec["sprints"][0])
+    assert "docs/Outputs/x.md" in paths
+    assert paths == sp.write_paths(plain["sprints"][0])
+    rel = sp.sprint_plan_path(spec, spec["sprints"][0])
+    got, want = (re.findall(r"^\| `.+ \| QZX-S01-\d\d-\d\d \|.*$", sp.render_all(s, TEMPLATES)[0][rel], re.MULTILINE)
+                 for s in (spec, plain))
+    assert any("docs/Outputs/x.md" in row for row in got)
+    assert got == want
+
+
 def test_role_expands_the_root_placeholders(tmp_path):
     root = _project(tmp_path)
     (root / "planwise").mkdir()

@@ -4,6 +4,7 @@ Every fixture is the real renderer's output, written to a project under tmp_path
 real write-back. No surface row is typed by hand.
 """
 
+import json
 import re
 import sys
 from decimal import Decimal
@@ -14,8 +15,11 @@ import pytest
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
+import plan_build as pb
 import scaffold_plan as sp
+import token_saver_scan as tss
 import token_saver_writeback as tsw
+from test_plan_build import Build, bodies_set
 
 TEMPLATES = sp.DEFAULT_TEMPLATES
 SPRINT = "Sprint-01-LedgerCore"
@@ -398,3 +402,82 @@ def test_a_delegated_orchestration_lists_plan_files_only(tree):
             "QZX-Master-Plan.md", "QZX-S01-01-Recovery.md"]
     assert sp.unmasked_braces(tree.files[ORCH]) == []
     assert sp.check_headings([tree.plan / ORCH], TEMPLATES)[0]["stray"] == []
+
+
+# ---- the project root of the two production callers
+
+@pytest.fixture
+def outside(tmp_path, monkeypatch):
+    """(project root, its config, a spec file): the working directory is a sibling of the project."""
+    root = tmp_path / "project"
+    for rel, text in ((LEDGER, "ledger = {}\n"), ("docs/guide.md", "A rule.\n"),
+                      ("planwise/config.yaml", "project:\n  name: Demo\nplan_statuses:\n  - 1\n")):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_bytes(text.encode("utf-8"))
+    spec = tmp_path / "spec.json"
+    spec.write_text(json.dumps(make_spec()), encoding="utf-8")
+    (tmp_path / "elsewhere").mkdir()
+    monkeypatch.chdir(tmp_path / "elsewhere")
+    return root, root / "planwise/config.yaml", spec
+
+
+def _ledger_role(plan):
+    text = (plan / TASK_2).read_bytes().decode("utf-8").replace("\r\n", "\n")
+    row = next(ln for ln in text.split("\n") if ln.startswith("|") and "ledger.py`" in ln)
+    return sp.split_row_cells(row)[4].strip()
+
+
+def test_plan_build_outside_the_project_reads_the_config_root(tmp_path, outside, capsys):
+    _root, config, spec = outside
+    (tmp_path / "b").mkdir()
+    build = Build(tmp_path / "b", capsys, bodies_set(pb.render_core(str(spec), TEMPLATES)[2]), make_spec())
+    build.config = config
+    _code, out = build.run()
+    assert "built " in out, out
+    assert _ledger_role(build.out) == "EDIT"
+
+
+def test_scaffold_render_outside_the_project_reads_the_config_root(tmp_path, outside):
+    _root, config, spec = outside
+    assert sp.main(["render", "--spec", str(spec), "--out", str(tmp_path / "plan"), "--config", str(config)]) == 0
+    assert _ledger_role(tmp_path / "plan") == "EDIT"
+
+
+@pytest.mark.parametrize("inside,expected", [(True, "EDIT"), (False, CREATE)], ids=["inside", "outside"])
+def test_scaffold_render_without_a_config_reads_the_working_directory(tmp_path, outside, monkeypatch, inside, expected):
+    root, _config, spec = outside
+    if inside:
+        monkeypatch.chdir(root)
+    assert sp.main(["render", "--spec", str(spec), "--out", str(tmp_path / "plan")]) == 0
+    assert _ledger_role(tmp_path / "plan") == expected
+
+
+@pytest.mark.parametrize("command", ["lint-spec", "render", "keys"])
+def test_every_caller_lints_at_the_config_root(tmp_path, outside, monkeypatch, capsys, command):
+    root, config, spec = outside
+    seen, real = [], sp.lint_spec
+
+    def spy(spec, templates_dir=TEMPLATES, project_root=None):
+        seen.append(project_root)
+        return real(spec, templates_dir, project_root)
+
+    monkeypatch.setattr(sp, "lint_spec", spy)
+    main = pb.main if command == "keys" else sp.main
+    out = ["--out", str(tmp_path / "plan")] if command == "render" else []
+    assert main([command, "--spec", str(spec), *out, "--config", str(config)]) == 0
+    assert seen == [root.resolve()]
+    # The config's own warning prints once, although the caps and the root both read the file.
+    assert capsys.readouterr().err.count("plan_statuses entry") == 1
+
+
+def test_one_function_derives_the_root_and_a_bad_config_gives_none(tmp_path, outside, capsys):
+    root, config, _spec = outside
+    assert tss.config_project_root({"_project_root": root}) == root.resolve()
+    assert tss.config_project_root({"project_root": str(tmp_path), "_project_root": root}) == tmp_path.resolve()
+    assert sp.config_root(str(config)) == root.resolve()
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("plans_dir: [unterminated\n", encoding="utf-8")
+    capsys.readouterr()
+    for path in (None, tmp_path / "absent.yaml", bad):
+        assert sp.config_root(path) is None
+    assert capsys.readouterr() == ("", "")

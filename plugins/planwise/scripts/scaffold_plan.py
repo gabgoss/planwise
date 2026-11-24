@@ -37,9 +37,9 @@ a sprint or session folder name, `Sprint-NN-<Name>` or `Session-NN-<Name>`. `fil
 Name part that would pass its cap on a PascalCase word boundary, and prints one NOTE line
 per cut. A cut Name also prints a NOTE for each spec value that still holds the old
 folder or file text, because the spec's own paths are not rewritten. `path_max` (default
-160) bounds the path of any generated file from the project root, which is the working
+160) bounds the path of any generated file from the working
 directory. Render refuses the whole plan and prints one PATH-CAP line per path over it,
-with the measured length. An --out folder outside the project root is measured inside the
+with the measured length. An --out folder outside the working directory is measured inside the
 plan folder only. The Consolidated Context part names a plan author writes by hand are not
 generated here and stay uncapped.
 
@@ -115,7 +115,10 @@ optional and takes the default shown. Any key not listed here is a lint error.
     `outputs`, or below a folder in `outputs`, reads EDIT when it exists under
     the project root and CREATE when it does not. A folder needs no trailing
     slash and need not exist. Every other row, a command row included, reads
-    READ. A CREATE cell also carries the plan-time estimate flag.
+    READ. A CREATE cell also carries the plan-time estimate flag. A trailing qualifier
+    on an output or a row, such as `(new)` or `:10`, is not part of the name. The project
+    root of these cells and of the path lint is the one the --config file names. Without
+    --config, or when it cannot be read, the root is the working directory.
 
 An `optional_sections` entry is the heading text without `## ` and without its
 marker comment, for example "Out of Scope". Every OPTIONAL section, including
@@ -161,7 +164,9 @@ at depth 0, so an odd fence count cannot spread past its own section.
 """
 
 import argparse
+import contextlib
 import copy
+import io
 import json
 import os
 import re
@@ -177,6 +182,7 @@ from markdown_parser import split_row_cells
 from read_limits import estimate_tokens
 from token_saver_scan import (
     _clean_file_cell,
+    config_project_root,
     content_class_for,
     substitute_roots,
     unresolved_reason,
@@ -504,12 +510,25 @@ def dep_text(task, sep=", "):
     return sep.join(parts) or "-"
 
 
+def plain_path(text):
+    """`text` with forward slashes, no leading `./` and no trailing slash."""
+    return re.sub(r"^(?:\./+)+", "", text.replace("\\", "/")).rstrip("/")
+
+
+def is_outputs_path(path):
+    """Whether a spec path is the session's own `Outputs` folder or a path below it, trailing qualifiers aside."""
+    text = plain_path(_clean_file_cell(path))
+    while m := _QUALIFIER_RE.search(text):
+        text = text[:m.start()]
+    return f"{text}/".startswith("Outputs/")
+
+
 def write_paths(sprint):
     paths = []
     for s in sprint["sessions"]:
         for t in s["tasks"]:
             for o in t["outputs"]:
-                if not o.startswith("Outputs/") and o not in paths:
+                if not is_outputs_path(o) and o not in paths:
                     paths.append(o)
     return paths
 
@@ -719,7 +738,7 @@ def s_writeset_rows(lines, i, env):
     for se in env.sprint["sessions"]:
         for t in se["tasks"]:
             tid = task_id(env.spec, env.sprint, se, t)
-            rows.extend(f"| `{o}` | {tid} |" for o in t["outputs"] if not o.startswith("Outputs/"))
+            rows.extend(f"| `{o}` | {tid} |" for o in t["outputs"] if not is_outputs_path(o))
     if not rows:
         return None
     n = table_run(lines, i)
@@ -948,9 +967,8 @@ def role_key(path, sprint, session, root):
     folder. Any other path below `root`, on disk or not, is keyed by its path
     from `root`, so an absent file and its folder get one spelling.
     """
-    text = substitute_roots(_clean_file_cell(path), root.resolve())
-    text = re.sub(r"^(?:\./+)+", "", text.replace("\\", "/")).rstrip("/")
-    if f"{text}/".startswith("Outputs/"):
+    text = plain_path(substitute_roots(_clean_file_cell(path), root.resolve()))
+    if is_outputs_path(path):
         return f"{session_dir(sprint, session)}/{text}", True
     if text:
         try:
@@ -978,7 +996,8 @@ def role_for(path, task, sprint, session, root):
     A path matches an output when it, or a folder above it, is that output. A
     folder output needs no trailing slash and need not exist. The role comes from
     the path's own existence, not the folder's. A trailing qualifier, such as
-    `(helpers)` or `:10`, is not part of the name.
+    `(helpers)` or `:10`, is not part of the name. An output's trailing qualifier
+    is not part of its name either.
 
     The plan folder is unknown here, so a session `Outputs/` file counts as absent,
     and a path that ends in its session-relative text is the same file, whichever
@@ -994,9 +1013,9 @@ def role_for(path, task, sprint, session, root):
         if not out_key:
             continue
         # A folder above the session folder is one that every plan may hold, so its tail proves nothing.
-        if any(name == out_key or (out_in_session and name.endswith("/" + out_key))
-               or (row_in_session and name.startswith(own_dir) and out_key.endswith("/" + name))
-               for name in names):
+        if any(name == out_name or (out_in_session and name.endswith("/" + out_name))
+               or (row_in_session and name.startswith(own_dir) and out_name.endswith("/" + name))
+               for out_name in role_spellings(out_key, root) for name in names):
             in_session = row_in_session or out_in_session
             return "EDIT" if not in_session and os.path.exists(root / spellings[-1]) else "CREATE"
     return "READ"
@@ -1080,7 +1099,8 @@ def self_row(example_rows, env, role_at):
     prios = [int(r["priority"]) for r in env.task["required_context"]
              if str(r["priority"]).isdigit()]
     own = next((o for o in env.task["outputs"]
-                if role_key(o, env.sprint, env.session, env.project_root)[0].split("/")[-1] == env.self_name),
+                if any(name.split("/")[-1] == env.self_name for name in role_spellings(
+                    role_key(o, env.sprint, env.session, env.project_root)[0], env.project_root))),
                env.self_name)
     role = role_cell(role_for(own, env.task, env.sprint, env.session, env.project_root))
     size = env.self_bytes
@@ -1524,6 +1544,21 @@ def load_name_caps(config_path):
     return config_loader.get_plan_names_config(config), None
 
 
+def config_root(config_path):
+    """The project root a config file names, or None when there is no path or it cannot be read.
+
+    `load_name_caps` reads the same file and reports why it cannot be read, so this read prints nothing.
+    """
+    if not config_path:
+        return None
+    import config_loader
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            return config_project_root(config_loader.load_config(config_path=Path(config_path)))
+    except (Exception, SystemExit):  # noqa: BLE001
+        return None
+
+
 def _spec_strings(value, skip="name"):
     """Every string of a spec, leaving out the values of `skip` keys (the Name parts themselves)."""
     if isinstance(value, str):
@@ -1747,7 +1782,8 @@ def cmd_render(args):
     if err:
         print(f"REFUSED: {err}. Fix: pass a readable UTF-8 JSON spec.")
         return 2
-    errors = lint_spec(spec, args.templates)
+    root = config_root(args.config)
+    errors = lint_spec(spec, args.templates, root)
     if errors:
         for e in errors:
             print(f"LINT: {e}")
@@ -1769,7 +1805,7 @@ def cmd_render(args):
         print(f"REFUSED: {len(cap_errors)} name cap error(s). Fix: raise the cap in the config's plan_names block.")
         return 2
     try:
-        files, _rec = render_all(spec, args.templates, args.date)
+        files, _rec = render_all(spec, args.templates, args.date, root)
     except SPEC_VALUE_ERRORS as exc:  # defence in depth: lint_spec should reject any spec that fails here
         reason = " ".join(f"{type(exc).__name__}: {exc}".split())
         print(f"REFUSED: the render failed on a lint-clean spec ({reason}). Fix: correct the spec; "
@@ -1795,7 +1831,7 @@ def cmd_lint(args):
     if err:
         print(f"ERROR: {err}")
         return 2
-    errors = lint_spec(spec, args.templates)
+    errors = lint_spec(spec, args.templates, config_root(args.config))
     for e in errors:
         print(f"LINT: {e}")
     if not errors:
@@ -1851,11 +1887,13 @@ def main(argv=None):
     r.add_argument("--out", required=True)
     r.add_argument("--templates", default=str(DEFAULT_TEMPLATES))
     r.add_argument("--date", help="YYYY-MM-DD for every date placeholder (default: the spec's created)")
-    r.add_argument("--config", help="the project config whose plan_names block sets the name caps (default: the shipped caps)")
+    r.add_argument("--config", help="the project config: its plan_names block sets the name caps and its project is the root "
+                   "(default: the shipped caps and the working directory)")
     s = sub.add_parser("lint-spec", help="validate a spec")
     s.add_argument("--spec", required=True)
     s.add_argument("--templates", default=str(DEFAULT_TEMPLATES))
-    s.add_argument("--config", help="the project config whose plan_names block sets the name caps (default: the shipped caps)")
+    s.add_argument("--config", help="the project config: its plan_names block sets the name caps and its project is the root "
+                   "(default: the shipped caps and the working directory)")
     c = sub.add_parser("check-headings", help="report H2 headings outside the template set")
     c.add_argument("paths", nargs="+", metavar="PATH")
     c.add_argument("--templates", default=str(DEFAULT_TEMPLATES))
