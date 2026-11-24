@@ -152,6 +152,65 @@ class TestCreateNextIdUnderLock(_UpdateBacklogFixtureBase):
         self.assertGreaterEqual(len(calls), 2)
         self.assertFalse(self.lock.exists())
 
+    def test_unwritable_folder_names_the_real_cause(self):
+        self.write_index(THREE_ROWS)
+
+        def denied_open(path, flags, *args):
+            raise PermissionError(13, "Access is denied", path)
+
+        with (
+            mock.patch.object(parse_backlog.os, "open", side_effect=denied_open),
+            mock.patch.object(parse_backlog, "CREATE_LOCK_TIMEOUT", 0.2),
+        ):
+            _out, err, code = self._create("next", "BB-NNN-01-TEST-Topic.md")
+
+        self.assertEqual(code, 1)
+        self.assertIn("Access is denied", err)
+        self.assertNotIn("delete the lock file", err)
+        self.assertEqual(self._item_files(), [])
+
+    def test_lock_removal_is_retried_on_permission_error(self):
+        # On Windows another process that holds the lock file open makes
+        # unlink raise PermissionError until it lets go.
+        self.write_index(THREE_ROWS)
+        real_unlink = Path.unlink
+        calls = []
+
+        def flaky_unlink(path, *args, **kwargs):
+            if path == self.lock:
+                calls.append(path)
+                if len(calls) == 1:
+                    raise PermissionError(13, "Access is denied", str(path))
+            return real_unlink(path, *args, **kwargs)
+
+        with mock.patch.object(Path, "unlink", flaky_unlink):
+            out, err, code = self._create("next", "BB-NNN-01-TEST-Topic.md")
+
+        self.assertIsNone(code, err)
+        self.assertIn("Created backlog item 004", out)
+        self.assertGreaterEqual(len(calls), 2)
+        self.assertFalse(self.lock.exists())
+
+    def test_unremovable_lock_warns_and_still_prints_the_id(self):
+        self.write_index(THREE_ROWS)
+        real_unlink = Path.unlink
+
+        def stuck_unlink(path, *args, **kwargs):
+            if path == self.lock:
+                raise PermissionError(13, "Access is denied", str(path))
+            return real_unlink(path, *args, **kwargs)
+
+        with (
+            mock.patch.object(Path, "unlink", stuck_unlink),
+            mock.patch.object(parse_backlog, "LOCK_RELEASE_TIMEOUT", 0.2),
+        ):
+            out, err, code = self._create("next", "BB-NNN-01-TEST-Topic.md")
+
+        self.assertIsNone(code, err)
+        self.assertIn("Created backlog item 004", out)
+        self.assertIn("could not remove the backlog creation lock", err)
+        self.assertEqual(self._item_files(), ["BB-004-01-TEST-Topic.md"])
+
     def test_explicit_id_with_nnn_is_refused(self):
         self.write_index(THREE_ROWS)
 

@@ -393,9 +393,35 @@ def next_free_id(config: dict) -> tuple[int, list[str]]:
 # Seconds `creation_lock` waits for another `--create` to release the lock.
 CREATE_LOCK_TIMEOUT = 10.0
 
+# Seconds the lock's release retries a removal that Windows refuses because
+# another process holds the file open.
+LOCK_RELEASE_TIMEOUT = 2.0
+
 
 class CreationLockTimeout(Exception):
     """Raised when the backlog creation lock stays held past the timeout."""
+
+
+def _release_creation_lock(lock: Path) -> None:
+    """Remove the lock file. On Windows the removal raises PermissionError
+    while another process holds the file open, so retry briefly. A lock that
+    stays gets a warning, never an exception: the item file may already be
+    written, and the caller still has to print its id.
+    """
+    deadline = time.monotonic() + LOCK_RELEASE_TIMEOUT
+    while True:
+        try:
+            lock.unlink(missing_ok=True)
+            return
+        except PermissionError as e:
+            if time.monotonic() >= deadline:
+                print(
+                    f"WARNING: could not remove the backlog creation lock at {lock}: "
+                    f"{e.strerror}. Delete it before the next update_backlog.py --create.",
+                    file=sys.stderr,
+                )
+                return
+            time.sleep(0.05)
 
 
 @contextmanager
@@ -408,6 +434,7 @@ def creation_lock(backlog_dir: Path, timeout: float | None = None):
     `timeout` defaults to `CREATE_LOCK_TIMEOUT`, read at call time. A timeout
     raises `CreationLockTimeout` and never deletes the lock, because another
     caller holds it. The lock is removed when the body exits, even on error.
+    A refused removal is retried, then warned about (`_release_creation_lock`).
     """
     if timeout is None:
         timeout = CREATE_LOCK_TIMEOUT
@@ -418,10 +445,15 @@ def creation_lock(backlog_dir: Path, timeout: float | None = None):
     while True:
         try:
             fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except (FileExistsError, PermissionError):
+        except (FileExistsError, PermissionError) as e:
             # On Windows a lock file another process is still deleting
             # raises PermissionError, not FileExistsError: retry it the same.
             if time.monotonic() >= deadline:
+                if isinstance(e, PermissionError) and not lock.exists():
+                    raise CreationLockTimeout(
+                        f"could not create the backlog creation lock at {lock}: "
+                        f"{e.strerror}. Check that the folder is writable."
+                    ) from None
                 raise CreationLockTimeout(
                     f"could not take the backlog creation lock at {lock} "
                     f"within {timeout:g}s. If no other update_backlog.py "
@@ -435,7 +467,7 @@ def creation_lock(backlog_dir: Path, timeout: float | None = None):
             os.close(fd)
             yield lock
         finally:
-            lock.unlink(missing_ok=True)
+            _release_creation_lock(lock)
         return
 
 

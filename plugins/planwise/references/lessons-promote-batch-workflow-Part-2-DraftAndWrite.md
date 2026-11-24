@@ -47,7 +47,7 @@ The prohibition above governs **this session** re-reading bodies it already hold
 
 Part-1 §3.4's full-body read is **unchanged and still BINDING** — grouping genuinely needs it, and it precedes any dispatch. What changes is only that Phase 3's drafting may happen in a spawned context instead of this one.
 
-Dispatch the backlog creation process ([`backlog-creation-process.md`](backlog-creation-process.md) §3) once per bucket: [`../agents/backlog-preflight.md`](../agents/backlog-preflight.md) over the bucket's lesson paths, [`../agents/backlog-planner.md`](../agents/backlog-planner.md) for the one item the bucket becomes, and [`../agents/backlog-author.md`](../agents/backlog-author.md) once per batch of at most 8 items, batches in sequence, one author instance at a time. A set over 8 runs as sequential batches, per [`backlog-creation-process.md`](backlog-creation-process.md) § 7 Constraints. **Never dispatch two of these agents concurrently.** The id-allocation race is the only remaining reason: `--next-id` reads the generated index files, and those change only when `generate_backlog_index.py --write` runs at the end of a dispatch, so two concurrent dispatches can read the same next-free id and file two items under it. This guard can retire once id allocation stops depending on the regenerated index. After each author dispatch, run the post-author index check, `generate_backlog_index.py --config {planwise_root}/config.yaml --check`, then `--write` on exit 1. Dispatch foreground-only — a background subagent silently auto-denies its own Write/Edit/Bash calls. Under `--dry-run`, skip the dispatch entirely; do not dispatch with a no-write flag.
+Dispatch the backlog creation process ([`backlog-creation-process.md`](backlog-creation-process.md) §3) once per bucket: [`../agents/backlog-preflight.md`](../agents/backlog-preflight.md) over the bucket's lesson paths, [`../agents/backlog-planner.md`](../agents/backlog-planner.md) for the one item the bucket becomes, and [`../agents/backlog-author.md`](../agents/backlog-author.md) once per batch of at most 8 items. A set over 8 runs as several dispatches of at most 8, per [`backlog-creation-process.md`](backlog-creation-process.md) § 7 Constraints. After the author dispatch, or once after the last one of a set over 8, run the post-author index check, `generate_backlog_index.py --config {planwise_root}/config.yaml --check`, then `--write` on exit 1. Dispatch foreground-only — a background subagent silently auto-denies its own Write/Edit/Bash calls. Under `--dry-run`, skip the dispatch entirely; do not dispatch with a no-write flag.
 
 Lesson capture (§6.5) is **not** delegated: the status flip, the archive move, and the lessons-index update stay with this session, and the agent never touches a lesson file.
 
@@ -148,30 +148,28 @@ The Notes section also records a rule adjacency that Part-1 §4.5 found:
 
 ## 6. Phase 4 — Write BB Files, Then Regenerate the Index Once
 
-### 6.1 Determine the next BB number
+### 6.1 The BB number comes from `--create`
 
-```bash
-python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.yaml --next-id
-```
-
-`--next-id` reads the generated index files. It cannot see a BB this run files until §6.3 runs, so increment the returned id locally for each subsequent BB in the same batch. Do not skip numbers.
+`--create --id next` allocates each BB's id under a lock, so this phase computes no id.
 
 ### 6.2 Write each BB file
 
-Path: `{backlog_dir}/BB-{ID}-{SB}-DOC-PromoteLessons{BucketSlug}.md`
+Path: `{backlog_dir}/BB-NNN-{SB}-DOC-PromoteLessons{BucketSlug}.md`
 
 | Component | Source | Example |
 |-----------|--------|---------|
-| `{ID}` | 3-digit zero-padded, sequential from §6.1 | `001` |
-| `{SB}` | 2-digit sub-backlog number (`01` for a single-file BB; bump on file splits per the read-gate token budget) | `01` |
+| `NNN` | Literal token that `update_backlog.py` replaces with the allocated id (§6.1) | `001` |
+| `{SB}` | 2-digit sub-backlog number, always `01`. `--create --id next` gives each file its own id, so a BB over the read-gate token budget becomes several BBs | `01` |
 | `DOC` | Fixed domain abbreviation for promotion BBs (matches `config.yaml: abbreviations.DOC`) | `DOC` |
 | `{BucketSlug}` | PascalCase of the bucket's `slug` field from `config.yaml: categorization.buckets[].slug` (e.g., `database` → `Database`, `task-files` → `TaskFiles`) | `Database` |
 
 File each BB through the guarded writer:
 
 ```bash
-python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --create --id "{NNN}" --feature "{one-line title, 120 characters or fewer}" --priority "{High|Medium|Low}" --abbrev DOC --files "BB-{NNN}-{SB}-DOC-PromoteLessons{BucketSlug}.md"
+python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --create --id next --feature "{one-line title, 120 characters or fewer}" --priority "{High|Medium|Low}" --abbrev DOC --files "BB-NNN-{SB}-DOC-PromoteLessons{BucketSlug}.md"
 ```
+
+`NNN` is the one literal token in this command. Type `NNN` as written, with no braces and no number. `update_backlog.py` replaces it with the allocated id. Read the new id from the `Created backlog item {id}` line, and use it for the item's file name in the `Edit` that follows.
 
 `--create` writes only the item file. It appends no index row and does not regenerate the index. It rejects a `--feature` longer than 120 characters, writes nothing, and names the actual length and the cap — it never truncates. Shorten the title and move the overflow into the item body's `## Problem` section (§7). Never drop that detail. Then use `Edit` to fill the body with the §7 structure specification.
 

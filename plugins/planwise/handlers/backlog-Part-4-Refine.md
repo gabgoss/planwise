@@ -10,7 +10,7 @@ This file is Part 4 of `handlers/backlog.md`. Read it when `--refine` is present
 
 `<ids>` is one item id or a comma-separated list. `--refine` is a different flag from `--refine-max N`, which caps the refine step of a loop run.
 
-The mode dispatches the same three agents as the loop's refine step, in the same order. The orchestrator relays every question, because no spawned agent can ask the user. Every dispatch follows `references/backlog-creation-process.md` § 7 Constraints: foreground only, one preflight and one author per batch, never two authors at once.
+The mode dispatches the same three agents as the loop's refine step, in the same order. The orchestrator relays every question, because no spawned agent can ask the user. Every dispatch follows `references/backlog-creation-process.md` § 7 Constraints: foreground only, one preflight per batch.
 
 ---
 
@@ -59,7 +59,7 @@ In Auto Mode, ask nothing and follow the unattended branch of `references/backlo
 
 ### Step 5: Rewrite the batch
 
-After every planner of the batch has returned its final design, dispatch `planwise:backlog-author` once in `refine` mode with the batch ids, in the foreground. It rewrites each item in place and regenerates the index once. Cap each batch at 8 items and run a larger set as sequential batches. After each author dispatch, run the post-author index check, `generate_backlog_index.py --check`, per `references/backlog-creation-process.md` § 7 Constraints.
+After every planner of the batch has returned its final design, dispatch `planwise:backlog-author` once in `refine` mode with the batch ids, in the foreground. It rewrites each item in place and regenerates the index once. Cap each batch at 8 items and run a larger set as several dispatches of at most 8. After the author dispatch, or once after the last one of a set over 8, run the post-author index check, `generate_backlog_index.py --check`, per `references/backlog-creation-process.md` § 7 Constraints.
 
 ### Step 6: Close an ALREADY_MET item
 

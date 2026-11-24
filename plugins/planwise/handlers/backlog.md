@@ -594,8 +594,8 @@ For the accepted candidate set — the gate below applies per candidate, the han
 3. On a `QUESTIONS` return, brief the user and ask each question per the Question briefing of `references/backlog-creation-process.md` §5, using the candidate's title, problem and preflight `EVIDENCE` line as context. Then send the answers with `SendMessage` to the planner's dispatch name (`references/backlog-creation-process.md` §5).
 4. Dispatch `backlog-author` once in `file` mode after the last planner returns. It files the batch and regenerates the index. It sets no status: a status change runs through `update_backlog.py --status` here. Then run the post-author index check, `generate_backlog_index.py --check`, per `references/backlog-creation-process.md` § 7 Constraints.
 
-> [!constraint] One dispatch, never a fan-out
-> Dispatch one agent at a time, in the foreground, with at most 8 candidates per dispatch. A larger set runs as sequential batches, per `references/backlog-creation-process.md` § 7 Constraints.
+> [!constraint] At most 8 per dispatch
+> One foreground dispatch takes at most 8 candidates. A set over 8 runs as several, per `references/backlog-creation-process.md` § 7 Constraints, with one step 4 check at the end.
 
 **Result handling:** render Step 7.4 from the author's status block. `ITEMS_FILED < CANDIDATES_IN` is a valid COMPLETE — name each retirement the author lists under `ITEMS_RETIRED`, with its evidence, in the summary. Reconcile each source document listed under `SOURCE_RECONCILE` per `references/verify-backlog-citation-freshness.md` §10.4; the author does not touch those files. If the preflight's `SOURCE_PINS` shows a source file whose line count differs from this session's own read, re-read it before trusting the item drafted from it.
 
