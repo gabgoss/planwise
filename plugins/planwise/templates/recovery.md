@@ -11,6 +11,8 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Recovery.md`.
 *Bump to today's date with a short parenthetical (≤120 characters) naming what changed. **Replace the previous value — do not preserve it.** History belongs in a changelog file, not in this line.*
 **Current Step:** NOT STARTED
 **Session Status:** NOT_STARTED
+**Orchestrator:** - (last write -)
+*The token is the timestamp of the orchestrator's own Phase 1 READ, minted once per conversation. The run handler rewrites the token and the time at every Recovery write. A takeover writes a Change Log row with Status `OWNER` and both tokens in Notes.*
 
 ---
 

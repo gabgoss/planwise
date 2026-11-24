@@ -559,6 +559,7 @@ def test_stage_17_a_gitignore_helper_import_failure_stays_inside_stage_17(tmp_pa
 def test_stage_17_an_inexpressible_feedback_dir_is_not_checked(tmp_path):
     config = _project(tmp_path)
     config["_feedback_dir"] = Path(config["_planwise_root"]) / "Feed[back]"  # a glob character
+    config["_feedback_rel"] = "Feed[back]"  # the ignore line is built from this key
     out = _run(dp._stage_17, config)
     assert f"{_IGNORE_ROW} not checked (the check failed:" in out
     assert _IGNORE_REMEDY not in out

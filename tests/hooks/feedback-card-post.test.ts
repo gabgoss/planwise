@@ -293,10 +293,16 @@ const liveHost = (present: boolean | Error, current: string | Error) => {
   }
 }
 
-test('liveConfigPath: a stored path whose file exists wins and the root is never searched', async () => {
+test('liveConfigPath: the current root config wins over a stored path that still exists', async () => {
   const host = liveHost(true, MAIN_CONFIG)
+  assert.equal(await liveConfigPath(host, WORKTREE_CONFIG), MAIN_CONFIG)
+  assert.deepEqual(host.calls, ['current'])
+})
+
+test('liveConfigPath: a current root with no config keeps a stored path that exists', async () => {
+  const host = liveHost(true, '')
   assert.equal(await liveConfigPath(host, WORKTREE_CONFIG), WORKTREE_CONFIG)
-  assert.deepEqual(host.calls, ['exists ' + WORKTREE_CONFIG])
+  assert.deepEqual(host.calls, ['current', 'exists ' + WORKTREE_CONFIG])
 })
 
 test('liveConfigPath: a stored path whose file is gone gives the current root config', async () => {
@@ -311,11 +317,12 @@ test('liveConfigPath: an empty stored path searches the root without an existenc
 })
 
 test('liveConfigPath: an existence check that throws keeps the stored path', async () => {
-  assert.equal(await liveConfigPath(liveHost(new Error('fs down'), MAIN_CONFIG), WORKTREE_CONFIG), WORKTREE_CONFIG)
+  assert.equal(await liveConfigPath(liveHost(new Error('fs down'), ''), WORKTREE_CONFIG), WORKTREE_CONFIG)
 })
 
 test('liveConfigPath: a root search that throws gives an empty path, never the dead one', async () => {
   assert.equal(await liveConfigPath(liveHost(false, new Error('list failed')), WORKTREE_CONFIG), '')
+  assert.equal(await liveConfigPath(liveHost(true, new Error('list failed')), WORKTREE_CONFIG), WORKTREE_CONFIG)
 })
 
 test('press: a failure with empty stderr logs the no-error-text reason', async () => {

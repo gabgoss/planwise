@@ -16,6 +16,25 @@ at WARNING or UNCERTAIN exits 1 and no finding exits 0.
 
 ``measure_summary`` returns how many Required Context rows Check 48 examined,
 skipped and measured, so a caller can tell an empty input from a clean one.
+
+Checks 61 and 62 read the first ``**Output:**`` line of each task file and measure
+every file it names with ``measure_files`` at its default ratio. A file is near-cap
+at 0.9 of ``READ_TOKEN_WARN``, ``READ_LINE_CAP`` or ``READ_BYTE_WARN``.
+
+- Check 61, predicate: a task names a near-cap file on its Output line and no line
+  of the task holds ``measure_files``, that file's basename and ``HALT``. Input: the
+  task file and the file on disk. Severity: WARNING. It cannot see a path the task
+  edits but does not list on its Output line, a measurement written in another form
+  than a ``measure_files`` line, or a ceiling figure that is itself wrong.
+- Check 62, predicate: a near-cap file is named on the Output lines of two or more
+  task files in one folder and no Orchestration file there holds a budget line for it,
+  or the budget line's headroom is not its cap minus its live figure, or its ``<= +n``
+  terms do not sum below the headroom. Input: the task files, the Orchestration files
+  of that folder and the file on disk. Severity: WARNING. It cannot see a stale live
+  figure on a budget line.
+
+Each of the two writes ``output paths examined E, resolved R, near-cap K`` to stderr
+when a task file names at least one Output path.
 """
 
 import re
@@ -32,6 +51,7 @@ from lint_gate_checks_commands import (
     _is_count_stage,
 )
 from lint_gate_checks_dispatch import _required_context_rows
+from lint_gate_checks_plan import _output_paths
 from lint_gate_checks_verify import (
     SEVERITY_ERROR,
     SEVERITY_UNCERTAIN,
@@ -40,6 +60,7 @@ from lint_gate_checks_verify import (
     _task_files,
 )
 from measure_files import measure_files
+from read_limits import READ_BYTE_WARN, READ_LINE_CAP, READ_TOKEN_WARN
 
 # --- Check 48: a Required Context size figure against a fresh reading (measurement-discipline.md §8.1) ---
 _TOLERANCE = 0.20
@@ -586,6 +607,194 @@ def _check53_blob_bytes_against_checkout_pin(context) -> list:
     return findings
 
 
+# --- Checks 61 and 62: a near-cap file on a task's Output line (measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md §8.14) ---
+_NEAR_CAP_FRACTION = 0.9
+_OUTPUT_LINE_RE = re.compile(r"^[\s>]*(?:[-*+]\s+)?\*\*Outputs?:\*\*")
+_BUDGET_TERM_RE = re.compile(r"<=\s*\+\s*(\d[\d,]*)")
+_ANCHOR = "measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md"
+
+
+def _is_near_cap(fresh: dict) -> bool:
+    """True when a ``measure_files`` reading is at 0.9 of the token warn, the line cap
+    or the byte warn."""
+    return (
+        fresh["tokens"] >= _NEAR_CAP_FRACTION * READ_TOKEN_WARN
+        or fresh["lines"] >= _NEAR_CAP_FRACTION * READ_LINE_CAP
+        or fresh["bytes"] >= _NEAR_CAP_FRACTION * READ_BYTE_WARN
+    )
+
+
+def _output_line_number(lines) -> int:
+    for number, line in enumerate(lines, start=1):
+        if _OUTPUT_LINE_RE.match(line):
+            return number
+    return 0
+
+
+def _near_cap_outputs(context, check: int) -> list:
+    """Return ``(rel, line_number, lines, path_text, resolved)`` for each near-cap file
+    that resolves from the first ``**Output:**`` line of a task file, once for each task.
+    The path resolves as Check 48's does. The file is measured with ``measure_files`` at
+    its default ratio, the Read gate's own. The summary ``Check N: output paths examined
+    E, resolved R, near-cap K`` goes to stderr when any path was examined, so a run that
+    resolved nothing shows ``resolved 0`` and never reads as clean. A plan with no Output
+    path prints nothing, as Check 48 does for a plan with no Required Context row."""
+    root = Path(context.plan_root)
+    examined = resolved_count = 0
+    near_cap: dict = {}
+    rows = []
+    for rel, lines in _task_files(context):
+        task_dir = (root / rel).parent
+        number = _output_line_number(lines)
+        seen = set()
+        for path_text in _output_paths(lines):
+            examined += 1
+            if _UNRESOLVED_CHARS_RE.search(path_text):
+                continue
+            resolved = _resolve(task_dir, path_text)
+            if resolved is None:
+                continue
+            resolved_count += 1
+            key = str(resolved.resolve())
+            if key in seen:
+                continue
+            seen.add(key)
+            if key not in near_cap:
+                result = measure_files([key], model=None)
+                near_cap[key] = bool(result["files"]) and _is_near_cap(result["files"][0])
+            if near_cap[key]:
+                rows.append((rel, number, lines, path_text, resolved))
+    if examined:
+        print(
+            f"Check {check}: output paths examined {examined}, resolved {resolved_count}, "
+            f"near-cap {len(rows)}",
+            file=sys.stderr,
+        )
+    return rows
+
+
+def _check61_near_cap_output_without_gate(context) -> list:
+    """Check 61 -- a task names a near-cap file on its first ``**Output:**`` line and no
+    line of the task holds ``measure_files``, that file's basename and ``HALT``
+    (measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md §8.14). Near-cap is 0.9
+    of ``READ_TOKEN_WARN``, ``READ_LINE_CAP`` or ``READ_BYTE_WARN``, read from a fresh
+    ``measure_files`` run. A task that grows such a file can cross the gate with no step
+    noticing, so it needs a before and after reading against a stated ceiling. One
+    finding per near-cap file, at the Output line. WARNING. It cannot see a path the task
+    edits but does not list on its Output line. It cannot see a measurement written in
+    another form than a ``measure_files`` line. It cannot see a ceiling figure that is
+    itself wrong.
+    """
+    findings = []
+    for rel, number, lines, path_text, resolved in _near_cap_outputs(context, 61):
+        base = resolved.name
+        if any("measure_files" in line and base in line and "HALT" in line for line in lines):
+            continue
+        findings.append(_finding(
+            check=61, severity=SEVERITY_WARNING, file=rel, line=number, command=path_text,
+            message=(
+                f"This task names {base!r} on its Output line, and a fresh measurement puts "
+                "that file at 0.9 of a Read gate or more. No line of the task holds "
+                f"measure_files, {base!r} and HALT. A task that grows the file can cross the "
+                "gate unseen. Measure it before and after against a stated ceiling, and HALT "
+                f"above it ({_ANCHOR}, §8.14)"
+            ),
+        ))
+    return findings
+
+
+def _budget_lines(context, folder: Path, base: str) -> list:
+    """Return ``(rel, number, live, cap, headroom, text)`` for each budget line of ``base``
+    in the Orchestration files of ``folder``."""
+    root = Path(context.plan_root)
+    pattern = re.compile(
+        rf"{re.escape(base)}: live ([0-9,]+) \(cap ([0-9,]+), headroom ([0-9,]+)\)"
+    )
+    found = []
+    for path in context.markdown_files():
+        if path.parent != folder or "orchestration" not in path.name.lower():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        try:
+            rel = path.relative_to(root).as_posix()
+        except ValueError:
+            rel = path.name
+        for number, raw in enumerate(text.split("\n"), start=1):
+            line = raw.rstrip("\r")
+            match = pattern.search(line)
+            if match:
+                live, cap, headroom = (int(g.replace(",", "")) for g in match.groups())
+                found.append((rel, number, live, cap, headroom, line))
+    return found
+
+
+def _check62_shared_near_cap_file_without_budget(context) -> list:
+    """Check 62 -- a near-cap file is named on the Output lines of two or more task files
+    in one folder (measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md §8.14).
+    Each task can pass its own ceiling while the sum crosses the cap, so the folder's
+    Orchestration file needs one budget line of the form ``{basename}: live N (cap C,
+    headroom H)`` with ``<= +x`` terms. The check warns once when no Orchestration file in
+    the folder holds that line. It also warns on a budget line whose headroom is not the
+    cap minus the live figure, and on one whose ``<= +x`` terms do not sum below the
+    headroom. Near-cap is the same reading as Check 61's. WARNING. It cannot see a stale
+    live figure on a budget line. The dispatch-time re-take of the live figure is the
+    control for that.
+    """
+    root = Path(context.plan_root)
+    groups: dict = {}
+    for rel, number, _lines, _path_text, resolved in _near_cap_outputs(context, 62):
+        groups.setdefault(((root / rel).parent, str(resolved.resolve())), []).append(
+            (rel, number, resolved)
+        )
+    findings = []
+    for (folder, _key), members in groups.items():
+        if len(members) < 2:
+            continue
+        rel, number, resolved = members[0]
+        base = resolved.name
+        budgets = _budget_lines(context, folder, base)
+        if not budgets:
+            findings.append(_finding(
+                check=62, severity=SEVERITY_WARNING, file=rel, line=number, command=base,
+                message=(
+                    f"{len(members)} tasks in this folder name {base!r} on their Output lines, "
+                    "and a fresh measurement puts it at 0.9 of a Read gate or more. No "
+                    "Orchestration file here holds a budget line for it. Each task can pass "
+                    "its own ceiling while the sum crosses the cap. Add one line: "
+                    f"'{base}: live N (cap C, headroom H); Task 01 <= +a, Task 02 <= +b; "
+                    f"sum s < H' ({_ANCHOR}, §8.14)"
+                ),
+            ))
+            continue
+        for budget_rel, budget_number, live, cap, headroom, text in budgets:
+            terms = sum(int(t.replace(",", "")) for t in _BUDGET_TERM_RE.findall(text))
+            if headroom != cap - live:
+                findings.append(_finding(
+                    check=62, severity=SEVERITY_WARNING, file=budget_rel, line=budget_number,
+                    command=text.strip(),
+                    message=(
+                        f"This budget line for {base!r} states headroom {headroom:,}, and "
+                        f"cap {cap:,} minus live {live:,} is {cap - live:,}. Correct the "
+                        f"arithmetic ({_ANCHOR}, §8.14)"
+                    ),
+                ))
+            if terms >= headroom:
+                findings.append(_finding(
+                    check=62, severity=SEVERITY_WARNING, file=budget_rel, line=budget_number,
+                    command=text.strip(),
+                    message=(
+                        f"The '<= +' terms of this budget line for {base!r} sum to {terms:,}, "
+                        f"which is not below the headroom of {headroom:,}. The tasks can cross "
+                        "the cap together. Lower a term, or move the builder logic to a new "
+                        f"module ({_ANCHOR}, §8.14)"
+                    ),
+                ))
+    return findings
+
+
 CHECKS = [
     _check48_required_context_size_mismatch,
     _check49_diff_matcher_without_counts,
@@ -593,4 +802,6 @@ CHECKS = [
     _check51_char_count_in_byte_identity,
     _check52_character_class_after_diff_sign,
     _check53_blob_bytes_against_checkout_pin,
+    _check61_near_cap_output_without_gate,
+    _check62_shared_near_cap_file_without_budget,
 ]

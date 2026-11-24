@@ -1269,3 +1269,103 @@ def test_blocked_list_says_so_when_nothing_is_blocked_and_writes_nothing(fdir, c
     assert code == 0 and out.strip() == "no blocked drafts"
     assert {p.name: p.read_bytes() for p in fdir.iterdir()} == before
     assert draft.exists()
+
+
+# ---------------------------------------------------------------- blocked drafts in list and sweep-list
+
+
+def blocked_promoted(directory: Path, capsys, draft_id: str, name: str) -> "tuple[Path, Path]":
+    """A model draft, promoted by the real `promote`, then marked blocked by the real `mark-blocked`.
+
+    Returns (model draft, promoted file). The title carries `name`, so each call promotes to its own file.
+    """
+    model = make_draft(directory, f"2026-11-18-draft-bug-{name}.md", draft_id=draft_id, title=f"Blocked {name}")
+    code, out, _ = run(["promote", draft_id, "--feedback-dir", str(directory)], capsys)
+    assert code == 0
+    promoted = Path(out.strip())
+    assert mark(promoted, capsys)[0] == 0
+    return model, promoted
+
+
+def post_as_comment(promoted: Path) -> Path:
+    """What a comment-route post leaves: a comment draft named by `feedback_post`, and a `.posted` sidecar on it."""
+    import feedback_post
+
+    comment = promoted.with_name(feedback_post._comment_draft_name(42, promoted))
+    comment.write_text("comment body\n", encoding="utf-8")
+    feedback_post._marker_path(comment).write_text("posted: 2026-11-19\nurl: u\nroute: comment\n", encoding="utf-8")
+    return comment
+
+
+def test_list_table_groups_a_blocked_promoted_draft_after_queued(fdir, capsys):
+    make_draft(fdir, "2026-01-01-draft-bug-q.md", draft_id="q1", title="Queued one")
+    make_draft(fdir, "2026-01-01-draft-bug-stale.md", draft_id="s1", created_at=iso(40), title="Stale one")
+    model, _ = blocked_promoted(fdir, capsys, "b1", "leaky")
+    code, out, _ = run(["list", "--table", "--all", "--feedback-dir", str(fdir)], capsys)
+    assert code == 0
+    assert out.index("Queued (1)") < out.index("Blocked by the privacy check (1)") < out.index("Expired (1)")
+    assert out.index("Blocked by the privacy check (1)") < out.index(f"`{model.name}`") < out.index("Expired (1)")
+    assert "Promoted" not in out
+
+
+def test_list_json_reports_a_blocked_promoted_draft_with_status_blocked_and_unchanged_keys(fdir, capsys):
+    make_draft(fdir, "2026-01-01-draft-bug-q.md", draft_id="q1", title="Queued one")
+    model, _ = blocked_promoted(fdir, capsys, "b1", "leaky")
+    on_disk = model.read_bytes()
+    code, out, _ = run(["list", "--json", "--feedback-dir", str(fdir)], capsys)
+    assert code == 0
+    items = {item["draft_id"]: item for item in json.loads(out)}
+    assert {key: item["status"] for key, item in items.items()} == {"q1": "queued", "b1": "blocked"}
+    assert list(items["b1"]) == [*fd.FRONTMATTER_KEYS, "path"]
+    assert model.read_bytes() == on_disk
+    assert fm_value(model, "status") == "promoted"
+
+
+def test_list_drops_a_blocked_draft_once_dismissed_or_posted(fdir, capsys):
+    _, kept = blocked_promoted(fdir, capsys, "k1", "kept")
+    _, dismissed = blocked_promoted(fdir, capsys, "d1", "dismissed")
+    _, posted = blocked_promoted(fdir, capsys, "p1", "posted")
+    _, commented = blocked_promoted(fdir, capsys, "c1", "commented")
+    assert fd.count_blocked(fdir) == 4
+    assert run(["dismiss-blocked", "--draft", str(dismissed)], capsys)[0] == 0
+    (fdir / (posted.name + ".posted")).write_text("posted: 2026-11-19\nurl: u\nroute: issue\n", encoding="utf-8")
+    post_as_comment(commented)
+    _, out, _ = run(["list", "--json", "--feedback-dir", str(fdir)], capsys)
+    assert {item["draft_id"]: item["status"] for item in json.loads(out)} == {"k1": "blocked"}
+    _, out_all, _ = run(["list", "--json", "--all", "--feedback-dir", str(fdir)], capsys)
+    assert {item["draft_id"]: item["status"] for item in json.loads(out_all)} == {"k1": "blocked", "d1": "promoted", "p1": "promoted", "c1": "promoted"}
+    _, table, _ = run(["list", "--table", "--feedback-dir", str(fdir)], capsys)
+    assert "Blocked by the privacy check (1)" in table
+    assert fd.count_blocked(fdir) == 1
+    assert kept.is_file()
+
+
+def test_blocked_list_counts_a_comment_route_post_as_posted(fdir, capsys):
+    import feedback_post
+
+    _, promoted = blocked_promoted(fdir, capsys, "c1", "commented")
+    assert fd.count_blocked(fdir) == 1
+    assert fd.was_posted(promoted) is False
+    post_as_comment(promoted)
+    assert fd.was_posted(promoted) is True
+    assert feedback_post._was_posted(promoted) is True
+    assert fd.count_blocked(fdir) == 0
+    code, out, _ = run(["blocked-list", "--feedback-dir", str(fdir)], capsys)
+    assert code == 0 and out.strip() == "no blocked drafts"
+    _, out_all, _ = run(["blocked-list", "--all", "--feedback-dir", str(fdir)], capsys)
+    assert [row.split("\t")[1] for row in out_all.splitlines()] == ["posted"]
+
+
+def test_sweep_list_names_a_blocked_sidecar_and_reports_an_orphan_one(fdir, capsys):
+    _, posted = blocked_promoted(fdir, capsys, "p1", "posted")
+    (fdir / (posted.name + ".posted")).write_text("posted: 2026-11-19\nurl: https://example.test/issues/9\nroute: issue\n", encoding="utf-8")
+    _, gone = blocked_promoted(fdir, capsys, "g1", "gone")
+    gone.unlink()
+    before = {p.name: p.read_bytes() for p in fdir.iterdir()}
+    code, out, _ = run(["sweep-list", "--feedback-dir", str(fdir)], capsys)
+    assert code == 0
+    assert {p.name: p.read_bytes() for p in fdir.iterdir()} == before
+    lines = out.splitlines()
+    assert lines[lines.index(str(posted)) + 4] == f"  blocked sidecar: {sidecar_of(posted)}"
+    assert f"orphan sidecar (left in place): {sidecar_of(gone)}" in lines
+    assert lines[-1] == "1 draft(s) already posted are eligible to archive."

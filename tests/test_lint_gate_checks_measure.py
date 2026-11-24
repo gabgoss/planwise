@@ -393,6 +393,193 @@ class TestCheck53BlobBytesAgainstCheckoutPin(unittest.TestCase):
         self.assertEqual(_lint(53, _task(verification=_verification(after=after))), [])
 
 
+# The lines below were copied once from real task files of a closed plan. The one path
+# each check resolves is renamed to ``big_module.py``, the generated file of a test. The
+# other paths stay as written and resolve to nothing in a temp folder.
+BIG = "x" * 60000  # 60,000 bytes: 23,077 tokens at the Read gate's ratio, near-cap
+SMALL = "x" * 10000  # 10,000 bytes: 3,847 tokens, below the near-cap reading
+
+_PREFIX = "cloned-repos/planwise/plugins/planwise"
+# Output line of a task that grows a near-cap script and measures only its new module.
+REAL_OUTPUT_UNMEASURED = (
+    f"**Output:** `{_PREFIX}/scripts/migrate_backlog_relocate.py` (new), "
+    "`big_module.py` (the \"content regeneration would drop\" site and `plan_changelog` wiring), "
+    f"`{_PREFIX}/scripts/backlog_migration.py` (ledger count and banner line), "
+    "`cloned-repos/planwise/tests/test_migrate_backlog_index.py`, "
+    "`cloned-repos/planwise/tests/test_backlog_migration.py`, "
+    "and `Outputs/URD-S02-02-ProseRelocation.md`"
+)
+# The step of that task that measures: it names measure_files and the new module, never the near-cap file.
+REAL_STEP_NEW_MODULE_ONLY = (
+    "8. **Lint** the three scripts and two tests; `measure_files.py` on the new module (under 8 KiB). "
+    "**Scope:** name-only count over the five declared paths → 5; `git -C PLUGIN status --porcelain -- "
+    "plugins/planwise/scripts/migrate_backlog_relocate.py` → one `??` line. Then the dirty-set gate: "
+    "save `git -C PLUGIN status --porcelain` to `dirty-after.txt`, run `comm -13` on the sorted before "
+    "and after files, and remove from its output every line that names one of the five Output scripts "
+    "and tests (the new module, `backlog_migration.py` and the two test files appear as new lines; "
+    "`migrate_backlog_index.py` is already dirty from Task 01 and does not). Expected: no lines remain. "
+    "Presence floor: at least 4 lines named a declared path before the removal."
+)
+# The ceiling line of another task: measure_files, the file, a ceiling and a HALT in one line.
+REAL_CEILING_LINE = (
+    "   - `measure_files.py` on `big_module.py`: <!-- ceiling: start figure + 300 tokens, and never "
+    "above 25,000 (the page cap; HALT and report if a change would cross it). floor: `config not read "
+    "by` >= 1 and `gap detection` >= 1 in init_project.py --> and on `artifact_upgrade.py` "
+    "(ceiling: start + 100 tokens)."
+)
+# Output lines of two tasks of one session that both edit the same near-cap script.
+REAL_OUTPUT_SHARED_FIRST = (
+    "**Output:** `big_module.py` (the config-read guard, the version check and the "
+    f"Skipped rows), `{_PREFIX}/scripts/artifact_upgrade.py` (`load_artifact_manifest`'s degraded "
+    f"return), `{_PREFIX}/handlers/init.md` (Step 10's degraded row), "
+    "`cloned-repos/planwise/tests/test_init_missing_pyyaml.py` (new), and `Outputs/URD-S03-03-PyYamlSentinel.md`"
+)
+REAL_OUTPUT_SHARED_SECOND = (
+    f"**Output:** `{_PREFIX}/scripts/pyyaml_remedy.py` (new: the remediation command builder), "
+    "`big_module.py` (wiring only: the import, the call sites and the two "
+    f"bare-command sites in it), `{_PREFIX}/handlers/init.md` (Step 10 offer and the bare-command site "
+    f"in the sample row), `{_PREFIX}/handlers/upgrade.md` (Step 2.6, the install offer), "
+    "`cloned-repos/planwise/tests/test_init_missing_pyyaml.py`, and `Outputs/URD-S03-03-PyYamlRemedy.md`"
+)
+BUDGET_OK = (
+    "big_module.py: live 24,460 (cap 25,000, headroom 540); Task 01 <= +300 (wiring), "
+    "Task 02 <= +100 (wiring); sum 400 < 540"
+)
+BUDGET_SUM_BAD = (
+    "big_module.py: live 24,460 (cap 25,000, headroom 540); Task 01 <= +300 (wiring), "
+    "Task 02 <= +350 (wiring); sum 650 < 540"
+)
+BUDGET_HEADROOM_BAD = (
+    "big_module.py: live 24,460 (cap 25,000, headroom 600); Task 01 <= +300 (wiring), "
+    "Task 02 <= +100 (wiring); sum 400 < 600"
+)
+
+
+def _near_task(output_line, steps=""):
+    return (
+        "# Task: Fixture\n\n"
+        f"{output_line}\n\n"
+        "## Objective\n\nDo the work.\n\n"
+        f"## Execution Steps\n\n{steps}\n"
+    )
+
+
+def _orchestration(*lines):
+    body = "".join(f"{line}\n" for line in lines)
+    return f"# Orchestration: Fixture\n\n## Budget\n\n{body}"
+
+
+def _stderr_of(text, files):
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / "TASK-01-Fixture.md").write_text(text, encoding="utf-8", newline="\n")
+        for rel, body in files.items():
+            (Path(tmp) / rel).write_text(body, encoding="utf-8", newline="\n")
+        captured = StringIO()
+        with redirect_stderr(captured):
+            lint_plan(Path(tmp), execute=False)
+    return captured.getvalue()
+
+
+class TestCheck61NearCapOutputWithoutGate(unittest.TestCase):
+    @property
+    def FILES(self):
+        return {"big_module.py": BIG}
+
+    def _bad(self):
+        return _near_task(REAL_OUTPUT_UNMEASURED, REAL_STEP_NEW_MODULE_ONLY)
+
+    def test_bad_near_cap_file_on_the_output_line_with_no_gate_line(self):
+        findings = _lint(61, self._bad(), files=self.FILES)
+        self.assertEqual([(f["check"], f["severity"], f["file"]) for f in findings],
+                         [(61, "WARNING", "TASK-01-Fixture.md")])
+        self.assertEqual(findings[0]["line"], 3)
+        self.assertIn("big_module.py", findings[0]["message"])
+        self.assertIn("§8.14", findings[0]["message"])
+
+    def test_good_repaired_with_the_ceiling_line(self):
+        text = _near_task(REAL_OUTPUT_UNMEASURED, REAL_STEP_NEW_MODULE_ONLY + "\n" + REAL_CEILING_LINE)
+        self.assertEqual(_lint(61, text, files=self.FILES), [])
+
+    def test_good_below_threshold_control_is_silent(self):
+        self.assertEqual(_lint(61, self._bad(), files={"big_module.py": SMALL}), [])
+
+    def test_a_measure_line_without_halt_still_warns(self):
+        no_halt = REAL_CEILING_LINE.replace("HALT", "stop")
+        text = _near_task(REAL_OUTPUT_UNMEASURED, no_halt)
+        self.assertEqual(len(_lint(61, text, files=self.FILES)), 1)
+
+    def test_a_halt_line_that_names_another_file_still_warns(self):
+        other = REAL_CEILING_LINE.replace("big_module.py", "other_module.py")
+        text = _near_task(REAL_OUTPUT_UNMEASURED, other)
+        self.assertEqual(len(_lint(61, text, files=self.FILES)), 1)
+
+    def test_the_gate_line_may_sit_in_a_verification_block(self):
+        steps = "```\nmeasure_files.py big_module.py   # HALT above 25,000\n```"
+        self.assertEqual(_lint(61, _near_task(REAL_OUTPUT_UNMEASURED, steps), files=self.FILES), [])
+
+    def test_summary_counts_the_paths_and_the_near_cap_file(self):
+        err = _stderr_of(self._bad(), self.FILES)
+        self.assertRegex(err, r"Check 61: output paths examined \d+, resolved 1, near-cap 1")
+
+    def test_a_run_that_resolves_nothing_says_resolved_zero(self):
+        err = _stderr_of(self._bad(), {})
+        self.assertRegex(err, r"Check 61: output paths examined \d+, resolved 0, near-cap 0")
+        self.assertEqual(_lint(61, self._bad()), [])
+
+
+class TestCheck62SharedNearCapFileWithoutBudget(unittest.TestCase):
+    def _files(self, *orchestration_lines, big=BIG):
+        files = {
+            "TASK-02-Fixture.md": _near_task(REAL_OUTPUT_SHARED_SECOND),
+            "big_module.py": big,
+        }
+        if orchestration_lines:
+            files["TASK-Orchestration.md"] = _orchestration(*orchestration_lines)
+        return files
+
+    def _first(self):
+        return _near_task(REAL_OUTPUT_SHARED_FIRST)
+
+    def test_bad_two_tasks_name_one_near_cap_file_and_no_budget_line(self):
+        findings = _lint(62, self._first(), files=self._files("A budget is a good idea."))
+        self.assertEqual([(f["check"], f["severity"], f["file"]) for f in findings],
+                         [(62, "WARNING", "TASK-01-Fixture.md")])
+        self.assertIn("big_module.py", findings[0]["message"])
+        self.assertIn("§8.14", findings[0]["message"])
+
+    def test_bad_no_orchestration_file_at_all(self):
+        self.assertEqual(len(_lint(62, self._first(), files=self._files())), 1)
+
+    def test_good_repaired_budget_line(self):
+        self.assertEqual(_lint(62, self._first(), files=self._files(BUDGET_OK)), [])
+
+    def test_bad_arithmetic_terms_do_not_sum_below_the_headroom(self):
+        findings = _lint(62, self._first(), files=self._files(BUDGET_SUM_BAD))
+        self.assertEqual([(f["check"], f["file"]) for f in findings], [(62, "TASK-Orchestration.md")])
+        self.assertIn("650", findings[0]["message"])
+        self.assertIn("540", findings[0]["message"])
+
+    def test_bad_headroom_is_not_cap_minus_live(self):
+        findings = _lint(62, self._first(), files=self._files(BUDGET_HEADROOM_BAD))
+        self.assertEqual(len(findings), 1)
+        self.assertIn("540", findings[0]["message"])
+
+    def test_good_single_task_is_silent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "TASK-01-Fixture.md").write_text(self._first(), encoding="utf-8", newline="\n")
+            (Path(tmp) / "big_module.py").write_text(BIG, encoding="utf-8", newline="\n")
+            with redirect_stderr(StringIO()):
+                found = [f for f in lint_plan(Path(tmp), execute=False) if f["check"] == 62]
+        self.assertEqual(found, [])
+
+    def test_good_below_threshold_control_is_silent(self):
+        self.assertEqual(_lint(62, self._first(), files=self._files(big=SMALL)), [])
+
+    def test_summary_counts_the_near_cap_file(self):
+        err = _stderr_of(self._first(), self._files(BUDGET_OK))
+        self.assertRegex(err, r"Check 62: output paths examined \d+, resolved 2, near-cap 2")
+
+
 class TestRegistrationContract(unittest.TestCase):
     def test_every_check_is_registered_once(self):
         for check in measure_module.CHECKS:
@@ -400,7 +587,7 @@ class TestRegistrationContract(unittest.TestCase):
 
     def test_check_numbers(self):
         names = [check.__name__.split("_")[1] for check in measure_module.CHECKS]
-        self.assertEqual(names, [f"check{number}" for number in range(48, 54)])
+        self.assertEqual(names, [f"check{number}" for number in (48, 49, 50, 51, 52, 53, 61, 62)])
 
     def test_severity_constants_match_the_linter(self):
         for name in ("SEVERITY_ERROR", "SEVERITY_WARNING", "SEVERITY_UNCERTAIN"):

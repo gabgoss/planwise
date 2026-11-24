@@ -53,6 +53,7 @@ If your own reading contradicts the sheet, say so explicitly: re-measure — `wc
 - [ ] Required Context file paths exist on disk
 - [ ] Sprint plan links to session orchestration files resolve
 - [ ] Master plan links to sprint plans resolve
+- [ ] Anchored links (`file.md#heading`) in every checked link resolve to a heading in the target file. Slug the heading by lowercasing it and dropping punctuation, then each whitespace character becomes its own dash. Never collapse a run of whitespace into one dash. A heading such as `### File Size Limits — Generated Artifacts (BINDING)` slugs to `file-size-limits--generated-artifacts-binding`. Collapsing the run gives the one-dash form and reports a live anchor as broken. Before you report any anchor broken, slug one live heading that holds an em dash and confirm it matches. Also confirm that a mangled anchor still reports broken
 
 ## Format Compliance
 

@@ -28,6 +28,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
@@ -76,7 +77,7 @@ def _row(item_id: str, status: str = "NOT_STARTED", feature: str | None = None) 
 
 class _ParseBacklogFixtureBase(unittest.TestCase):
     """CLI-path fixture: temp planwise tree + injected argv, mirroring
-    test_update_backlog.py's `_UpdateBacklogFixtureBase` pattern."""
+    update_backlog_fixture.py's `_UpdateBacklogFixtureBase` pattern."""
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="parse_backlog_test_"))
@@ -167,6 +168,55 @@ class TestNextIdAllocatorMatrix(_ParseBacklogFixtureBase):
         self.write_index(rows)
         out, err = self.run_next_id()
         self.assertEqual(out, "011")
+        self.assertEqual(err, "")
+
+    def write_item_file(self, directory: Path, item_id: str, name: str) -> Path:
+        """Write one item file with the frontmatter shape a real item carries."""
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / name
+        path.write_text(
+            "---\n"
+            f"id: {item_id}\n"
+            'title: "Item filed between two index writes"\n'
+            "priority: Medium\n"
+            "status: NOT_STARTED\n"
+            "abbrev: INFRA\n"
+            "created: 2026-11-19\n"
+            "blocks: []\n"
+            "---\n\n"
+            f"# BB-{item_id}-01-INFRA-Filed: Item filed between two index writes\n",
+            encoding="utf-8",
+        )
+        return path
+
+    def test_item_file_absent_from_the_index_counts(self):
+        self.write_index("".join(_row(f"{i:03d}") for i in range(1, 6)))
+        self.write_item_file(self.backlog_dir, "009", "BB-009-01-INFRA-Filed.md")
+        out, err = self.run_next_id()
+        self.assertEqual(out, "010")
+        self.assertEqual(err, "")
+
+    def test_archive_only_item_file_counts(self):
+        self.write_index("".join(_row(f"{i:03d}") for i in range(1, 6)))
+        self.write_item_file(self.backlog_dir / "Archive", "020", "BB-020-01-INFRA-Closed.md")
+        out, err = self.run_next_id()
+        self.assertEqual(out, "021")
+        self.assertEqual(err, "")
+
+    def test_item_file_without_frontmatter_is_skipped(self):
+        self.write_index("".join(_row(f"{i:03d}") for i in range(1, 6)))
+        (self.backlog_dir / "BB-099-01-INFRA-NoFrontmatter.md").write_text(
+            "# no frontmatter block here\n", encoding="utf-8"
+        )
+        out, err = self.run_next_id()
+        self.assertEqual(out, "006")
+        self.assertEqual(err, "")
+
+    def test_item_file_already_indexed_does_not_shift_the_id(self):
+        self.write_index("".join(_row(f"{i:03d}") for i in range(1, 6)))
+        self.write_item_file(self.backlog_dir, "005", "BB-005-01-INFRA-Indexed.md")
+        out, err = self.run_next_id()
+        self.assertEqual(out, "006")
         self.assertEqual(err, "")
 
 
@@ -1008,6 +1058,111 @@ class TestArchivedBlockerInLegacyDependenciesTable(unittest.TestCase):
         self.assertEqual(
             parse_backlog.collect_archived_closed_ids(config), frozenset({normalize_id("100")})
         )
+
+
+class TestOpenBlockerMap(unittest.TestCase):
+    """`open_blocker_map` is the one home of the open-blocker join: hub-family rows
+    that carry `blocks`, the legacy `## Dependencies` table and the archived-closed
+    ids. Each case reads the files from a real temp tree, so `rows=None` and
+    `index_text=None` take their default readers."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="parse_backlog_open_blocker_map_test_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.backlog_dir = self.tmp / "planwise" / "Backlog"
+        self.archive_dir = self.backlog_dir / "Archive"
+        self.archive_dir.mkdir(parents=True, exist_ok=True)
+        self.index_path = self.backlog_dir / "00-Index-Backlog.md"
+        self.config = {
+            "_index_path": self.index_path,
+            "_backlog_dir": self.backlog_dir,
+            "_archive_dir": self.archive_dir,
+        }
+
+    def write_hub(self, text: str) -> str:
+        self.index_path.write_text(text, encoding="utf-8")
+        return text
+
+    def write_archive_shard(self, text: str) -> None:
+        (self.archive_dir / "Index-Backlog-100-100.md").write_text(text, encoding="utf-8")
+
+    def test_row_level_blocks_edge_blocks_the_named_item(self):
+        self.write_hub(
+            GENERATED_9COL_HEADER
+            + _row9("001", blocks="[002]")
+            + _row9("002")
+        )
+
+        self.assertEqual(
+            parse_backlog.open_blocker_map(self.config),
+            {normalize_id("002"): [normalize_id("001")]},
+        )
+
+    def test_closed_hub_blocker_does_not_block(self):
+        self.write_hub(
+            GENERATED_9COL_HEADER
+            + _row9("001", status="COMPLETE", blocks="[002]", score="-")
+            + _row9("002")
+        )
+
+        self.assertEqual(parse_backlog.open_blocker_map(self.config), {})
+
+    def test_dependencies_edge_from_an_archived_closed_blocker_is_resolved(self):
+        content = self.write_hub(
+            HEADER + _row("002") + DEPENDENCIES_HEADER + "| 100 | 002 |\n"
+        )
+        self.assertTrue(parse_dependencies_table(content), "fixture's Dependencies table failed to parse")
+        self.write_archive_shard(
+            GENERATED_9COL_HEADER + _row9("100", status="COMPLETE", score="-")
+        )
+
+        self.assertEqual(parse_backlog.open_blocker_map(self.config), {})
+
+    def test_unknown_blocker_stays_open(self):
+        content = self.write_hub(
+            HEADER + _row("002") + DEPENDENCIES_HEADER + "| 999 | 002 |\n"
+        )
+        self.assertTrue(parse_dependencies_table(content), "fixture's Dependencies table failed to parse")
+        self.write_archive_shard(
+            GENERATED_9COL_HEADER + _row9("100", status="COMPLETE", score="-")
+        )
+
+        self.assertEqual(
+            parse_backlog.open_blocker_map(self.config),
+            {normalize_id("002"): [normalize_id("999")]},
+        )
+
+    def test_passed_rows_and_index_text_replace_the_default_readers(self):
+        # The hub on disk says nothing is blocked. The arguments say 002 waits on 001.
+        self.write_hub(GENERATED_9COL_HEADER + _row9("001") + _row9("002"))
+        rows = parse_backlog_table(
+            GENERATED_9COL_HEADER + _row9("001", blocks="[002]") + _row9("002")
+        )
+
+        self.assertEqual(parse_backlog.open_blocker_map(self.config), {})
+        self.assertEqual(
+            parse_backlog.open_blocker_map(self.config, rows=rows, index_text=""),
+            {normalize_id("002"): [normalize_id("001")]},
+        )
+
+    def test_unreadable_index_counts_as_empty(self):
+        rows = parse_backlog_table(
+            GENERATED_9COL_HEADER + _row9("001", blocks="[002]") + _row9("002")
+        )
+        self.assertFalse(self.index_path.exists())
+
+        self.assertEqual(
+            parse_backlog.open_blocker_map(self.config, rows=rows),
+            {normalize_id("002"): [normalize_id("001")]},
+        )
+
+    def test_archive_shards_are_not_read_without_a_dependencies_table(self):
+        self.write_hub(GENERATED_9COL_HEADER + _row9("001", blocks="[002]") + _row9("002"))
+
+        with mock.patch.object(
+            parse_backlog, "collect_archived_closed_ids", side_effect=AssertionError("archive read")
+        ):
+            parse_backlog.open_blocker_map(self.config)
 
 
 # --- Item-file flags: --clusters, --cross-cutting, --in-flight ---

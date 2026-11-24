@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+"""Tests for the feedback folder of a project that sits in a git linked worktree.
+
+`load_config` used to build `_feedback_dir` under the planwise root of the tree
+it was started in. A linked worktree then got its own drafts folder, and
+removing the worktree deleted the drafts. The loader now takes the base from
+`install_check.main_checkout_root`, so a worktree and its main checkout share
+one folder. Every reader of `_feedback_dir` follows the loader.
+
+The fixture is a real git repository with a real linked worktree, so the loader
+reads the `.git` file that `git worktree add` writes.
+
+Run with:  python -m pytest tests/test_feedback_dir_worktree.py -q
+"""
+
+import contextlib
+import io
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from unittest import mock
+
+import pytest
+
+# Allow imports whether pytest is launched from the repo root or scripts/.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
+
+import config_loader
+import doctor_probes as dp
+
+pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+
+FEEDBACK_REL = Path("Feedback") / "Feedback-Drafts"
+
+
+def _git(repo: Path, *args: str) -> None:
+    proc = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert proc.returncode == 0, f"git {' '.join(args)} failed: {proc.stderr}"
+
+
+def _config_text(feedback_dir=None) -> str:
+    lines = ['plugin_version: "1.0.4"', "project:", "  name: Fixture", "  backlog_dir: Backlog", "  plans_dir: Plans"]
+    if feedback_dir is not None:
+        lines.append(f"  feedback_dir: {feedback_dir}")
+    return "\n".join(lines) + "\n"
+
+
+def _write_project(root: Path, feedback_dir=None) -> Path:
+    """Write a minimal planwise project under `root` and return its config path."""
+    planwise = root / "planwise"
+    for name in ("Backlog", "Plans"):
+        (planwise / name).mkdir(parents=True)
+        (planwise / name / ".gitkeep").write_text("", encoding="utf-8")
+    config_path = planwise / "config.yaml"
+    config_path.write_text(_config_text(feedback_dir), encoding="utf-8")
+    return config_path
+
+
+def _make_pair(tmp_path: Path, feedback_dir=None):
+    """A committed main checkout and one linked worktree. Return both config paths."""
+    main = tmp_path / "main"
+    main.mkdir()
+    _git(main, "init")
+    main_config = _write_project(main, feedback_dir)
+    _git(main, "add", "-A")
+    _git(main, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "init")
+    wt = tmp_path / "wt"
+    _git(main, "worktree", "add", "-b", "wt-branch", str(wt))
+    return main_config, wt / "planwise" / "config.yaml"
+
+
+def _feedback_dir(config_path: Path) -> Path:
+    return Path(config_loader.load_config(config_path=config_path)["_feedback_dir"]).resolve()
+
+
+def _run(func, config):
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        func(config)
+    return buf.getvalue()
+
+
+def _stage_17_folder(out: str) -> Path:
+    """The folder the stage's `feedback directory:` line names."""
+    for line in out.splitlines():
+        if line.strip().startswith("feedback directory:"):
+            return Path(line.split(":", 1)[1].strip()).resolve()
+    raise AssertionError(f"no `feedback directory:` line in:\n{out}")
+
+
+def test_worktree_feedback_dir_is_the_main_checkouts(tmp_path):
+    main_config, wt_config = _make_pair(tmp_path)
+    expected = (main_config.parent / FEEDBACK_REL).resolve()
+    assert _feedback_dir(wt_config) == expected
+
+
+def test_plain_checkout_feedback_dir_is_unchanged(tmp_path):
+    main_config, _ = _make_pair(tmp_path)
+    assert _feedback_dir(main_config) == (main_config.parent / FEEDBACK_REL).resolve()
+
+
+def test_folder_outside_git_is_unchanged(tmp_path):
+    plain = tmp_path / "plain"
+    config_path = _write_project(plain)
+    # A repository above the temp folder must not be found.
+    with mock.patch.dict(os.environ, {"GIT_CEILING_DIRECTORIES": str(tmp_path)}):
+        assert _feedback_dir(config_path) == (plain / "planwise" / FEEDBACK_REL).resolve()
+
+
+def test_stage_17_in_a_worktree_names_the_main_checkouts_folder(tmp_path):
+    main_config, wt_config = _make_pair(tmp_path)
+    config = config_loader.load_config(config_path=wt_config)
+    out = _run(dp._stage_17, config)
+    assert _stage_17_folder(out) == (main_config.parent / FEEDBACK_REL).resolve()
+    assert "(the check failed:" not in out
+
+
+def test_legacy_layout_folders_in_a_worktree_find_nothing_on_the_default(tmp_path):
+    _, wt_config = _make_pair(tmp_path)
+    config = config_loader.load_config(config_path=wt_config)
+    assert dp._legacy_layout_folders(config) == []
+
+
+@pytest.mark.parametrize("old", ["feedback-drafts", "Feedback"])
+def test_legacy_layout_folders_in_a_worktree_still_name_a_legacy_config(tmp_path, old):
+    # The config, not the resolved folder, names the legacy layout, so a worktree
+    # reports it the way a plain checkout does.
+    main_config, wt_config = _make_pair(tmp_path, feedback_dir=old)
+    for config_path in (main_config, wt_config):
+        config = config_loader.load_config(config_path=config_path)
+        assert dp._legacy_layout_folders(config) == [(f"{old}/", "Feedback/Feedback-Drafts/")]

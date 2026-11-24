@@ -200,8 +200,11 @@ def scan_backlog(
     for item_id, paths in paths_by_id.items():
         if len(paths) > 1:
             joined = ", ".join(str(p) for p in paths)
+            scripts_dir = Path(__file__).resolve().parent.as_posix()
             errors.append(
                 f"duplicate id {item_id}: claimed by {len(paths)} item files: {joined}"
+                f'. Fix: python "{scripts_dir}/reconcile_backlog.py" --renumber {item_id}'
+                " <next free id> --file <one of those file names>"
             )
 
     if errors:
@@ -366,8 +369,11 @@ def detect_blocks_cycles(blocks_index: dict) -> list:
 # `B waits for A` is written as `blocks: [B]` in A's file. An item whose prose says it waits on N, and
 # whose own `blocks:` lists N, has the edge written backwards. The phrase list is the one the authoring
 # rule names. The window stops at a full stop or a line end, so a later sentence cannot lend its id.
+# A phrase whose object is "this item", "this sub-item" or "this one" is skipped, because the linked
+# item is then the one that waits.
 _WAIT_PHRASE_RE = re.compile(
-    r"\b(?:blocked by|depends on|lands after|waits for)\b[^.\n]{0,80}?\bBB-(\d+)((?:\s*(?:,|and|&|/)\s*BB-\d+)*)",
+    r"\b(?:blocked by|depends on|lands after|waits (?:for|on))\b(?!\s+this\s+(?:sub-item|item|one)\b)"
+    r"[^.\n]{0,80}?\bBB-(\d+)((?:\s*(?:,|and|&|/)\s*BB-\d+)*)",
     re.IGNORECASE,
 )
 _WAIT_TAIL_ID_RE = re.compile(r"BB-(\d+)")

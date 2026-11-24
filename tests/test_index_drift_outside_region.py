@@ -22,7 +22,7 @@ import pytest
 # Allow imports whether pytest is launched from the repo root or tests/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import test_generate_backlog_index as tgb
+import generate_backlog_index_fixtures as tgb
 import test_generate_lessons_index as tgl
 
 SIX_CELL_ROW = "| {id} | alpha | beta | gamma | delta | epsilon |"

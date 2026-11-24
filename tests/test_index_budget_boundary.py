@@ -28,9 +28,9 @@ import backlog_index_budget as bib
 import lessons_index_budget as lib
 from backlog_index_render import render_table_body
 from backlog_index_schema import GeneratorError
+from generate_backlog_index_fixtures import _make_item
 from lessons_index_render import _render_lessons_table_body
 from lessons_index_schema import LessonsGeneratorError
-from test_generate_backlog_index import _make_item
 from test_generate_lessons_index import _make_lesson_item
 
 WRAPPER_TOKENS = 50

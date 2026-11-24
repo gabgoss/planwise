@@ -374,6 +374,10 @@ class TestDetectDrift(_LessonsFixtureBase):
         self.assertEqual(dup_anomalies[0]["id"], "LL-001")
         self.assertIn("LL-001-PROC-Fixture1.md", dup_anomalies[0]["file"])
         self.assertIn("LL-001-PROC-Fixture1Duplicate.md", dup_anomalies[0]["file"])
+        self.assertIn(
+            'reconcile_lessons.py" --renumber LL-001 <next free id> --file ',
+            dup_anomalies[0]["reason"],
+        )
         # The read-only computation still succeeds despite the duplicate.
         self.assertEqual(result["next_id"], "LL-002")
 

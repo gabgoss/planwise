@@ -415,6 +415,48 @@ The spawn prompt owns the scratch namespace. Every runner in a session writes to
 > [full HARD CONSTRAINTS + SCOPE BOUNDARY block]"
 > ```
 
+### 1.8.2 A Read Boundary Is Not a Capability List — Name the Route to Every Declared Output
+
+A Required Context table lists files to read. Nothing in a typical dispatch lists commands the runner may run. The runner reads a Context Boundary as a read restriction and then takes it as a description of its capabilities. Those are different things. The inference table shows where the reading goes wrong:
+
+| The boundary says | The runner infers | Correct? |
+|---|---|---|
+| "read these files" | these are my inputs | yes |
+| "do not read X" | X's content is unavailable to me | yes |
+| *(silence about scripts)* | **no other route to that data exists** | **no** |
+
+> [!constraint] A declared output with no source among the readable files needs a named route
+> WRONG — the boundary lists readable files, and an output field has no source among them:
+> ```
+> Required Context: adjudicated verdicts | {Abbrev} master plan | this task file
+> Do NOT read any backlog item file or the backlog index.
+> Expected Output: ... | Combined Score | ...        ← no listed input carries a score
+> ```
+> CORRECT — the derivation route sits beside the read restriction:
+> ```
+> Required Context: adjudicated verdicts | {Abbrev} master plan | this task file
+> Do NOT read any backlog item file or the backlog index.
+> PERMITTED COMMANDS (do not breach the boundary — compute and print, write nothing):
+>   python -B {plugin_root}/scripts/score_backlog.py --dry-run --config {planwise_root}/config.yaml
+>     → emits `ID nnn | NN pts | High/Medium/Low | title` for every open item
+> Expected Output: ... | Combined Score = sum of member scores, shown as `sum (n items)` | ...
+> ```
+
+1. **Walk the Expected Output field by field.** Point at the Required Context row that supplies each field. A field with no row is underivable, so fix the task. Or a tool the runner was not told about reaches it, so name the tool.
+2. **Add a Permitted Commands line beside the Context Boundary** when a derivation needs one. Give the full invocation and the reason it does not breach the boundary.
+3. **Treat "the runner says X is underivable" as a claim about the dispatch, not the runner.** Look for a sanctioned script before accepting the limit or relaxing the boundary. Relaxing the boundary is the expensive wrong fix. A 90K-token index read would have cost the window the boundary protects, to get a value a script prints for free.
+4. **A runner that refuses to fabricate a value and reports the gap behaves correctly.** The missing route is the error, not the `n/a`.
+
+Good boundary compliance selects for this failure. A runner that stays inside its declared inputs concludes "no other route exists" every time. The failure will not appear in the runners you trust least.
+
+### 1.8.3 The Dispatch Author's Silence Audit
+
+> [!practice] Before dispatching, ask what a compliant runner concludes from what the prompt does not say
+> Three conclusions have caused failures. Each repair states the positive fact and does not trust the inference.
+> - **No route exists to a declared output.** Name the route, as §1.8.2 requires.
+> - **A brief's step still stands when a contract overrides it.** Name the superseded step, as the §1.13 subsection "Name the Task-File Step the Parallel Contract Supersedes" requires.
+> - **A quiet runner is a dead runner.** This one is the orchestrator's own error. Establish death from the runner's transcript before dispatching a replacement, as [`agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md`](agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md) §1.30 requires.
+
 ## 1.9 Tier-Rank Fixes by Invasiveness
 
 When a DELEGATED task produces results requiring fixes, rank the fixes by invasiveness before dispatching a follow-up:
@@ -541,8 +583,10 @@ For Recovery specifically, **Option C is the binding default whenever 3 or more 
 > The orchestrator reconciles Recovery centrally after all parallel runners return.
 >
 > ## Status Block delivery (REQUIRED)
-> Deliver your status block by calling the SendMessage tool with to="main".
-> Plain-text output does NOT reach the orchestrator.
+> If your harness returns your final message to the orchestrator (a subagent
+> hand-back), make the status block that final message and do not also call SendMessage.
+> Otherwise deliver it by calling the SendMessage tool with to="main".
+> Plain-text output then does NOT reach the orchestrator.
 > ```
 >
 > Paste the status-block field names and the 18-line ceiling from [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) § "1.28 Status-Block Return Contract" into the Status Block section of every spawn prompt.
@@ -572,6 +616,36 @@ For Recovery specifically, **Option C is the binding default whenever 3 or more 
 > [!pitfall] Sequential-Phase Tail After Parallel Dispatch
 > **Problem:** A session that runs 3+ parallel runners followed by a single sequential verification task. If the verifier follows the standard Recovery-write protocol (`agents/task-runner.md` §5.A), Recovery gets written twice — once by the orchestrator's reconciliation, once by the verifier — and the second write may clobber the first if the verifier read Recovery before reconciliation completed.
 > **Solution:** Reconcile Recovery centrally BEFORE dispatching the sequential tail. The tail task may then write Recovery directly per the normal `agents/task-runner.md` §5.A protocol — it runs alone, so no race exists.
+
+### Name the Task-File Step the Parallel Contract Supersedes
+
+A task file written for the sequential default may tell the runner to read Recovery. The parallel contract for 3+ concurrent runners forbids that read. Both statements are correct alone. The conflict exists only in the pairing, and no single file holds both halves. The brief sits in the task file, and the contract sits in a reference the task file never cites. Plan review misses it for that reason. This section covers the superseded step. Literal injection of the value follows §1.6. Orchestrator ownership of a shared precondition follows [`agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md`](agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md) §1.31.
+
+> [!constraint] The spawn prompt names the step the contract supersedes
+> WRONG — pass the brief through unchanged and let each runner resolve it ad hoc:
+> ```
+> spawn prompt: "Execute the task file. Follow its Execution Steps in order."
+> # Runner hits Step 1, reads Recovery anyway (reads look harmless), or
+> # improvises a re-derivation, or halts. Three runners, three resolutions,
+> # none recorded.
+> ```
+> CORRECT — the orchestrator supersedes the conflicting step explicitly and says so:
+> ```
+> spawn prompt:
+>   ## PARALLEL DISPATCH — Recovery Handling
+>   Do NOT read, edit, or write the Recovery file during this task. Its Step 1
+>   says to read the baseline from Recovery; that value is injected below
+>   instead, so you do not need the file at all.
+>
+>   {ABBREV}_S{NN}_BASE = <verified value>
+>   Do NOT re-derive it with `rev-parse HEAD`.
+> ```
+
+- **Audit the whole layer.** When a session declares a parallel layer, check every task file in it for instructions that assume sequential dispatch. The Recovery read is the common one. The class is broader. It covers any read of state a sibling runner produces at the same time, and any assumption that a predecessor's bookkeeping write has landed.
+- **Resolve it at dispatch, never by relaxing either rule.** Injecting the value satisfies both constraints. It beats permitting the read, because the orchestrator has already verified the value on disk.
+- **Name the superseded step.** A runner that reads "do not touch Recovery" beside a brief that says "read Recovery" cannot know which wins unless the prompt says so. Silence produces the three ad-hoc resolutions.
+
+Reviewer rule: a parallel layer whose task files each instruct a Recovery read is a finding, even though each file is correct alone. Check the layer, not the file.
 
 #### Reviewer Check 052 — DELEGATED Round-2 Compliance
 

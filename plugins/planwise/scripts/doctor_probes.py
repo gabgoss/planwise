@@ -275,7 +275,7 @@ def _draft_ignore_check(config: dict) -> tuple:
     planwise_root, project_root = Path(config["_planwise_root"]), Path(config["_project_root"])
     line = gitignore_entry.model_draft_line(
         planwise_root.relative_to(project_root).as_posix(),
-        Path(config["_feedback_dir"]).relative_to(planwise_root).as_posix(),
+        Path(config["_feedback_rel"]).as_posix(),
     )
     path = project_root / ".gitignore"
     return gitignore_entry.read_state(path, line), line, path
@@ -292,9 +292,8 @@ def _legacy_layout_folders(config: dict) -> list:
         except ValueError:
             plans_rel = Path(config["_plans_dir"]).as_posix()
         found.append(("plan-build/", f"{plans_rel}/Plan-Build/"))
-    feedback_dir = Path(config["_feedback_dir"])
     for old in ("feedback-drafts", "Feedback"):
-        if feedback_dir == planwise_root / old:
+        if Path(config["_feedback_rel"]) == Path(old):
             found.append((f"{old}/", "Feedback/Feedback-Drafts/"))
     return found
 

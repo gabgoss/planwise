@@ -57,21 +57,28 @@ the title, which nothing keeps in sync. The invariant this mode audits:
 
     an item file carries no `**Status:**` line in its header block.
 
-The header block is the run of lines after the first H1 (`# `) line that
-follows the frontmatter, up to the first line that is exactly `---` or
-starts with `## `. Lines inside a fenced code block never count: a fenced
-line is never the H1, never closes the block, and is never a hit. A
-header-block line that starts with `**Status:**` at column 0 is drift,
-whether or not it agrees with frontmatter. Each drift carries a `kind`:
-`disagrees` (the body value's first token differs from frontmatter
-`status:`) or `redundant` (it agrees today). A file with no such line
-reports nothing: absence is the goal state, not an anomaly.
+The header block runs from the first line after the frontmatter close, past
+the first H1 (`# `) line, to the first line after the H1 that is exactly
+`---` or starts with `## `. Before the H1 only a `## ` heading ends the
+scan, so a status line above the H1 is a hit. Lines inside a fenced code
+block never count: a fenced line is never the H1, never closes the block,
+and is never a hit. A header-block line that starts with `**Status:**` at
+column 0 is drift, whether or not it agrees with frontmatter. Each drift
+carries a `kind`: `disagrees` (the body value's first token differs from
+frontmatter `status:`) or `redundant` (it agrees today). Frontmatter
+`status:` is compared after its inline comment, its quotes and any
+block-scalar header are removed. A file with no such line reports nothing:
+absence is the goal state, not an anomaly.
 
-Anomalies are reported and never stripped: a header-block status line in a
-file whose frontmatter `status:` cannot be read; two or more header-block
-status lines in one file; and a file with no H1 title whose region before
-the first `## ` heading holds a column-0 status line outside a fence (the
-header block is undefined there).
+Anomalies are reported and never stripped. A file reports one row per
+condition it meets. The pass builds five classes: the file itself cannot be
+read; a header-block status line in a file whose frontmatter `status:`
+cannot be read; two or more header-block status lines in one file; a file
+with no H1 title whose region before the first `## ` heading holds a
+column-0 status line outside a fence (the header block is undefined there);
+and a status line that holds a bare carriage return mid-line, so its
+reported value is not the whole line. The unreadable-file row stands alone,
+and a file with no H1 title reports only the no-H1 row.
 
   - detect_body_status(config): read-only. Same item-file iterator and
     frontmatter reader as the archival mode.
@@ -104,6 +111,7 @@ from generate_backlog_index import (
     _read_frontmatter_map,
     _strip_quotes,
 )
+from item_frontmatter import _strip_inline_comment
 from markdown_parser import id_number
 from parse_backlog import collect_all_known_ids
 from parse_lessons import lesson_files
@@ -230,8 +238,16 @@ def detect_drift(config: dict) -> dict:
             others = [
                 p["path"].name for p in paths_by_key[item["key"]] if p["path"] != path
             ]
+            scripts_dir = Path(__file__).resolve().parent.as_posix()
+            fix = (
+                f'. Fix: python "{scripts_dir}/reconcile_backlog.py" --renumber {base["id"]}'
+                f" <next free id> --file {path.name}"
+            )
             anomalies.append(
-                {**base, "reason": f"id also carried by {', '.join(others)} — never moved"}
+                {
+                    **base,
+                    "reason": f"id also carried by {', '.join(others)} — never moved{fix}",
+                }
             )
             continue
 
@@ -395,12 +411,14 @@ def _scan_body_status(text: str) -> dict:
          "has_h1": bool,
          "pre_h2_hits_without_h1": [(line_index, value), ...]}
 
-    `line_index` is 0-based. `header_hits_with_cr` lists the header hits
-    that still hold a `\\r` after one trailing `\\r` is set aside: the value
-    stops at that `\\r`, so the reported value is not the whole line.
-    `pre_h2_hits_without_h1` is filled only when the file has no H1 title:
-    the column-0 status lines found before the first `## ` heading, where
-    the header block is undefined.
+    `line_index` is 0-based. The header block starts at the first line after
+    the frontmatter close, so the hits found before the H1 (outside a fence
+    and before any `## ` heading) lead `header_hits`. `header_hits_with_cr`
+    lists the header hits that still hold a `\\r` after one trailing `\\r` is
+    set aside: the value stops at that `\\r`, so the reported value is not
+    the whole line. `pre_h2_hits_without_h1` is filled only when the file has
+    no H1 title: the column-0 status lines found before the first `## `
+    heading, where the header block is undefined.
     """
     lines = text.split("\n")
     fence = None
@@ -409,6 +427,7 @@ def _scan_body_status(text: str) -> dict:
     header_hits = []
     cr_hits = []
     pre_h2_hits = []
+    pre_h2_cr_hits = []
 
     for index in range(_body_start_index(text), len(lines)):
         raw = lines[index]
@@ -431,6 +450,10 @@ def _scan_body_status(text: str) -> dict:
         if not has_h1:
             if line.startswith("# "):
                 has_h1 = True
+                # The header block starts after the frontmatter close, so the
+                # hits above the H1 join it ahead of the hits below.
+                header_hits.extend(pre_h2_hits)
+                cr_hits.extend(pre_h2_cr_hits)
                 continue
             if line.startswith("## "):
                 seen_h2 = True
@@ -438,6 +461,8 @@ def _scan_body_status(text: str) -> dict:
                 match = _BODY_STATUS_RE.match(line)
                 if match:
                     pre_h2_hits.append((index, match.group(1)))
+                    if "\r" in line:
+                        pre_h2_cr_hits.append(index)
             continue
 
         # Inside the header block, which the first `---` or `## ` closes.
@@ -472,6 +497,36 @@ def _body_status_token(value: str) -> str:
     return token.upper()
 
 
+# A YAML block-scalar header: `>` or `|`, with an optional chomping sign and
+# indentation digit in either order.
+_BLOCK_SCALAR_HEADER_RE = re.compile(r"[>|](?:[1-9][+-]?|[+-][1-9]?)?")
+
+
+def _frontmatter_status_value(status: str | None) -> str | None:
+    """Return the frontmatter `status:` value in the form the body line is compared in.
+
+    `status` is the raw value text `_read_item` returns, which keeps an
+    inline comment and the continuation lines of a block scalar. This strips
+    the trailing ` #` comment, reads the first content line when the value is
+    a block scalar (`>` or `|`, with an optional chomping sign), removes one
+    layer of quotes, and returns the first whitespace token. It returns None
+    when nothing is left, or when `status` is None. Used by the body-status
+    path only: `_read_item` stays unchanged because its docstring binds it to
+    the generator's rendering, and the archival mode shares it.
+    """
+    if status is None:
+        return None
+    lines = _strip_inline_comment(status).split("\n")
+    value = lines[0].strip()
+    if value.startswith("#"):
+        # The comment leaves nothing: `status: # note`.
+        value = ""
+    elif _BLOCK_SCALAR_HEADER_RE.fullmatch(value):
+        value = next((line.strip() for line in lines[1:] if line.strip()), "")
+    parts = _strip_quotes(value).split()
+    return parts[0] if parts else None
+
+
 def _item_path(config: dict, entry: dict) -> Path:
     directory = config["_archive_dir"] if entry["in_archive"] else config["_backlog_dir"]
     return directory / entry["file"]
@@ -498,9 +553,10 @@ def detect_body_status(config: dict) -> dict:
     for path in _iter_item_files(backlog_dir, archive_dir, index_path):
         in_archive = archive_dir.exists() and _same_dir(path.parent, archive_dir)
         display_id, _compare_key, status, _closed_date = _read_item(path)
+        status_value = _frontmatter_status_value(status)
         base = {
             "id": display_id or "?",
-            "status": status or "?",
+            "status": status_value or "?",
             "file": path.name,
             "in_archive": in_archive,
         }
@@ -532,8 +588,12 @@ def detect_body_status(config: dict) -> dict:
         if not hits:
             continue
 
-        if status is None:
-            anomalies.append(
+        # One row per condition the file meets, in this order: the status
+        # cannot be read, two or more status lines, a bare carriage return.
+        # Any row keeps the file out of the drift list, so it is never stripped.
+        file_anomalies = []
+        if status_value is None:
+            file_anomalies.append(
                 {
                     **base,
                     "line": hits[0][0] + 1,
@@ -541,11 +601,9 @@ def detect_body_status(config: dict) -> dict:
                     "status cannot be read — never stripped",
                 }
             )
-            continue
-
         if len(hits) > 1:
             numbers = ", ".join(str(index + 1) for index, _value in hits)
-            anomalies.append(
+            file_anomalies.append(
                 {
                     **base,
                     "line": hits[0][0] + 1,
@@ -553,22 +611,24 @@ def detect_body_status(config: dict) -> dict:
                     "— never stripped",
                 }
             )
-            continue
-
-        index, value = hits[0]
         if scan["header_hits_with_cr"]:
-            anomalies.append(
+            file_anomalies.append(
                 {
                     **base,
-                    "line": index + 1,
+                    "line": scan["header_hits_with_cr"][0] + 1,
                     "reason": "status line holds a bare carriage return (\\r) mid-line, so "
                     "the reported value is not the whole line — never stripped",
                 }
             )
+        if file_anomalies or status_value is None:
+            # An unreadable status always adds a row above, so the second
+            # test only narrows the type for the comparison below.
+            anomalies.extend(file_anomalies)
             continue
 
+        index, value = hits[0]
         body_status = value.strip()
-        if _body_status_token(body_status) == status.upper():
+        if _body_status_token(body_status) == status_value.upper():
             kind = "redundant"
             reason = "redundant body status line — frontmatter is the only status field"
         else:
@@ -577,7 +637,7 @@ def detect_body_status(config: dict) -> dict:
         drifts.append(
             {
                 "id": base["id"],
-                "status": status,
+                "status": status_value,
                 "body_status": body_status,
                 "kind": kind,
                 "file": path.name,
@@ -622,7 +682,7 @@ def reconcile_body_status(config: dict) -> int:
                 not scan["has_h1"]
                 or len(scan["header_hits"]) != 1
                 or scan["header_hits_with_cr"]
-                or status is None
+                or _frontmatter_status_value(status) is None
             ):
                 continue
             index, _value = scan["header_hits"][0]

@@ -1124,8 +1124,9 @@ class TestReleasedPriorBodies(_MigrationFixtureBase):
                 report = self._migrate()
 
                 self.assertFalse(installed.exists())
-                self.assertTrue(any(filename in e and "stale subset" in e
+                self.assertTrue(any(filename in e and "matched an earlier shipped body" in e
                                     for e in report["removed"]), report)
+                self.assertFalse(any("stale subset" in e for e in report["removed"]), report)
                 self.assertEqual(report["acted_on"], [filename])
                 self.assertEqual(self._backup_of(installed).read_bytes(), original)
 
@@ -1140,7 +1141,8 @@ class TestReleasedPriorBodies(_MigrationFixtureBase):
 
                 self.assertEqual(finding["verdict"], "REMOVABLE")
                 self.assertEqual(finding["confidence"], "exact")
-                self.assertTrue(finding["reason"].startswith("stale subset"), finding)
+                self.assertTrue(
+                    finding["reason"].startswith("matched an earlier shipped body"), finding)
                 self.assertEqual(installed.read_bytes(), before, "the sweep is read-only")
 
     # -- mutation: one added line defeats the history match -----------------
@@ -1196,7 +1198,7 @@ class TestReleasedPriorBodies(_MigrationFixtureBase):
                 installed = self._install(filename, self._prior(filename))
                 report = self._migrate()
                 self.assertFalse(installed.exists())
-                self.assertTrue(any(filename in e and "stale subset" in e
+                self.assertTrue(any(filename in e and "matched an earlier shipped body" in e
                                     for e in report["removed"]), report)
             with self.subTest(filename=filename, copy="mutated"):
                 self._fresh_tree(filename)

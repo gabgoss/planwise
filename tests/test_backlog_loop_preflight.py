@@ -32,8 +32,10 @@ from backlog_loop import (
     MARKER_FORMAT,
     NEEDS_PLAN_REASON,
     PLACEMENT_REASON,
+    USER_RUN_REASON,
 )
-from test_backlog_loop import _LoopFixtureBase, item_filename
+from item_shape import compute_item_shape
+from test_backlog_loop import _LoopFixtureBase, item_filename, item_text
 
 LEGACY_SECTION = [
     "## Loop Decision Needed",
@@ -109,6 +111,67 @@ class TestInitPreflight(_PreflightBase):
         self.assertIn(f"warning: item 010 dropped: {DECISION_PENDING_REASON}", payload["warnings"])
         self.assertIn(f"warning: item 011 dropped: {PLACEMENT_REASON}", payload["warnings"])
         self.assertIn(f"warning: item 011 dropped: {PLACEMENT_REASON}", text)
+
+
+USER_RUN_LINE = "# user-run: open the live probe -> the probe prints PASS"
+EXPECT_BLOCK = "python -m pytest -q\n# expect: all pass\n"
+
+
+class TestUserRunVerification(_PreflightBase):
+    """A refined item whose Verification fence holds a `# user-run:` line never queues."""
+
+    def add_refined(self, item_id: str, marker: str | None) -> None:
+        """Write one refined, shape-passing item. A marker replaces the fenced command pair."""
+        text = item_text(item_id, "NOT_STARTED", "refined")
+        self.assertIn(EXPECT_BLOCK, text)
+        if marker is not None:
+            text = text.replace(EXPECT_BLOCK, marker + "\n")
+        (self.backlog_dir / item_filename(item_id)).write_text(text, encoding="utf-8", newline="\n")
+        index = self.backlog_dir / "00-Index-Backlog.md"
+        row = (
+            f"| {item_id} | Fixture {item_id} | Low | NOT_STARTED | INFRA | 2026-10-01 | "
+            f" | 0 | [01]({item_filename(item_id)}) |\n"
+        )
+        index.write_text(index.read_text(encoding="utf-8") + row, encoding="utf-8")
+
+    def test_all_mode_excludes_the_marked_item_and_queues_the_unmarked_one(self):
+        self.add_refined("020", USER_RUN_LINE)
+        self.add_refined("021", None)
+        payload = self.init("--mode", "all")
+
+        by_id = {entry["id"]: entry for entry in payload["excluded"]}
+        self.assertEqual(by_id["020"]["reason"], USER_RUN_REASON)
+        self.assertTrue(by_id["020"]["refined"])
+        self.assertIsNotNone(by_id["020"]["route"])
+        queued = {q["id"] for q in payload["queue"]}
+        self.assertIn("021", queued, "the no-marker control must queue")
+        self.assertNotIn("020", queued)
+
+    def test_specific_mode_drops_the_marked_item_with_a_warning(self):
+        self.add_refined("020", USER_RUN_LINE)
+        self.add_refined("021", None)
+        code, text, payload = self.loop("--init", "--mode", "specific", "--items", "020,021")
+
+        self.assertEqual(code, 0, payload)
+        self.assertEqual([q["id"] for q in payload["queue"]], ["021"])
+        self.assertIn(f"warning: item 020 dropped: {USER_RUN_REASON}", payload["warnings"])
+        self.assertIn(f"warning: item 020 dropped: {USER_RUN_REASON}", text)
+
+    def test_shape_field_reads_a_fenced_line_in_any_case_and_ignores_prose(self):
+        def shape(verification: list[str]) -> dict:
+            body = "\n".join(["## Resolution", "", "1. Do the work.", "", "## Verification", "", *verification, ""])
+            return compute_item_shape({"refined": True, "_body": body})
+
+        cases = [
+            ("fenced, lower case", ["```", USER_RUN_LINE, "```"], True),
+            ("fenced, mixed case and indent", ["```", "  #  User-Run: step -> result", "```"], True),
+            ("fenced, no marker", ["```", "python -m pytest -q", "# expect: all pass", "```"], False),
+            ("prose outside the fence", ["The step is `# user-run: x -> y`.", "# user-run: x -> y", "```", "ls", "```"], False),
+        ]
+        for name, verification, expected in cases:
+            with self.subTest(case=name):
+                self.assertIs(shape(verification)["user_run_verification"], expected)
+        self.assertFalse(compute_item_shape({"refined": True, "_body": "## Resolution\n\n1. x\n"})["user_run_verification"])
 
 
 class TestDryRun(_PreflightBase):

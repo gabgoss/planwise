@@ -136,6 +136,7 @@ Read these files completely (not skim):
 2. Recovery file -- check for resumption state. Distrust a `-` commit pin or missing `GATE_PENDING` row: check `git log`, fix Recovery first ([protocol](../references/session-execution-protocol.md))
 3. All task files listed in the Task Files table (read file headers, objectives, agents)
 4. The measurements those task files assert. Re-run each task file's Before commands at the session base, at least one Before block per distinct command shape, before CONFIRM, then compare each reading with the task's `# pre-edit:` annotation and its "does not exist yet" claims. A changed reading is a Step 1.2a structural finding. See [gate-diff-baseline-pinning.md §8.6](../references/gate-diff-baseline-pinning.md#86-a-base-is-a-statement-about-one-moment-commits-after-it-inside-the-gates-paths-break-every-delta-gate)
+5. Run `Grep` for `^\*\*Split index:\*\*` over every Required Context file the task files list. When a task lists an index file and none of the sub-parts its `**Split index:**` line names, that is a Step 1.2a structural finding. The fix adds the sub-parts that hold the task's sections to its Required Context, before CONFIRM
 
 While reading, watch for structural findings beyond the literal task scope -- latent defects in adjacent sections, anchors, or enumerations that the directive did not name but that the minimum coherent fix requires touching. See [read-confirm-act-protocol.md §1.2](../references/read-confirm-act-protocol.md#12-structural-findings-beyond-literal-scope) for the full rule.
 
@@ -312,8 +313,10 @@ For each task in the orchestration's Session Task List (respecting dependency or
 
 1. Read the task file completely
 2. If the Orchestration carries `## User-Action Gate`, find each row whose Blocks Task names this task. If that gate's row in the Recovery `## User-Action Gate` table reads `OPEN`, log `GATE_PENDING: {gate}` in the Change Log and stop for the user's answer. A row that reads `REJECTED` stops the session and reports the gate.
-3. Mark task IN_PROGRESS in recovery file
-4. **(Track B)** Update the task list: `TaskUpdate(taskId: "{id}", status: "in_progress")`
+3. Re-read the Recovery `**Orchestrator:**` line and the last Change Log row. A token or row this orchestrator did not write means STOP: dispatch nothing and ask the user who owns the session. A `-` token over a Change Log that holds only `CREATED`, or this orchestrator's own token, means write its own token and the time. A window that cannot recall its own token asks.
+4. Mark task IN_PROGRESS in recovery file
+5. Run the Step 1.1 split-index check again over this task's Required Context files that an earlier task of this session wrote, because those files did not exist at Step 1.1. A task that lists an index file and none of the sub-parts its `**Split index:**` line names stops dispatch and goes to the Step 1.2a gate
+6. **(Track B)** Update the task list: `TaskUpdate(taskId: "{id}", status: "in_progress")`
 
 ### Step 3.2: Dispatch by Execution Mode
 
@@ -342,7 +345,7 @@ Before dispatching, read the DELEGATED dispatch discipline for the sections each
 - `references/agent-orchestration-delegated.md` — §1.3 (context boundary), §1.6 (path-rule injection), §1.8 (HARD CONSTRAINTS skeleton), §1.13 (shared-edit-target strategy; parallel-dispatch Recovery contract).
 - `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` — §1.17 (classify every return before consuming it), §1.19 (Model-Floor Bridge), §1.20 (1M-Exception Dispatch), §1.21 (Background vs Foreground Gate), §1.22 (Anti-Patterns checklist).
 - `references/agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md` — §1.29 (a subagent's world is its definition plus its prompt — name the delivery channel).
-- `references/parallel-layer-shared-objects.md` — before composing the layer: the allocation namespace two members share but neither writes.
+- `references/parallel-layer-shared-objects.md` — before composing the layer: anything two members share but neither writes, file or not.
 - `references/dispatch-batch-gate.md` — after the batch returns green and before consolidating: the cross-checks only the orchestrator can run.
 - `references/verify-verdict-source.md` — §12 at acceptance, sequential or parallel: gate a runner's method, consolidation or coverage claim with an instrument that can fail on it, not on output shape.
 - `references/dispatch-boundary-evidence.md` — while writing the prompt and reading the return: confirm each inbound flag arrived (§5) before resolving its consumer (§2).
@@ -397,13 +400,7 @@ inside the project environment:
 
 **Parallel dispatch (3+ tasks):** launch all task-runners in the layer in a single message (multiple Agent tool calls in one assistant turn — they run concurrently). Include the PARALLEL DISPATCH addendum and Status Block format from `references/agent-orchestration-delegated.md` §1.13 in each spawn prompt, and omit the `Recovery file:` parameter — parallel runners must not touch Recovery. Before dispatch, repeat the called-symbol grep on each brief, routed flags included (`references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §17.4): a layer-mate's symbol makes the layer sequential, and so does a read of a layer-mate's Output path (same §17.4). After all runners return, classify each per `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17, then reconcile Recovery centrally per §1.13's orchestrator contract and Step 3.3's "After a parallel batch" instructions below.
 
-Every parallel spawn prompt names the **delivery channel** as well as the block's format. A named runner's plain-text final message reaches you only after your turn ends, inside an idle notification, so a prompt giving the shape alone produces a block you cannot use in time (`references/agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md` §1.29.1). Add these two lines above the Status Block format in each parallel spawn prompt:
-
-```markdown
-## Status Block delivery (REQUIRED)
-Deliver your status block by calling the SendMessage tool with to="main".
-Plain-text output does NOT reach the orchestrator.
-```
+Every parallel spawn prompt keeps the skeleton's `## Status Block delivery (REQUIRED)` block above the Status Block format, so the prompt names the delivery channel as well as the block's format (`references/agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md` §1.29.1).
 
 > [!pitfall] Mixed-Mode Layer
 > **Problem:** A dependency layer where two tasks share an output file. Dispatching the whole layer in parallel races on that shared file (separate from the Recovery-file question).
@@ -448,7 +445,7 @@ After each task completes (DIRECT or DELEGATED, sequential):
 
 After a **parallel batch** of 3+ task-runners returns:
 
-1. Parse the status block each runner delivered by `SendMessage` (schema: `TASK_STATUS / TASK_ID / OUTPUT_FILES / LINES_PRODUCED / KEY_FINDINGS / ISSUES`)
+1. Parse the status block each runner delivered, by its hand-back or by `SendMessage` (schema: `TASK_STATUS / TASK_ID / OUTPUT_FILES / LINES_PRODUCED / KEY_FINDINGS / ISSUES`)
 2. **On a missing block, name the tool AND the recipient in the re-request.** This resumes the same runner for the same unit of work, so check it against the size ceiling in `agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17.7 first. A generic re-request — "reply with your status block" — reproduces the original failure, because it leaves the channel unnamed a second time. Send the runner: `Deliver your status block now by calling the SendMessage tool with to="main". Plain-text output does not reach me.` Acceptance does not wait on this: run the on-disk deliverable gate (`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17.4) meanwhile, which confirms COMPLETE independently of the block. The recovered block then supplies KEY_FINDINGS for the reconciliation below (`references/agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md` §1.29.1).
 3. Verify referenced OUTPUT_FILES exist on disk for every COMPLETE row
 4. **Recovery file** -- write ONCE for the entire batch:
@@ -635,10 +632,15 @@ Ask the user: "Were any lessons learned during this session?"
 
 ### Step 4.3: Update Plan Status
 
-1. Mark recovery file Session Status: COMPLETE
-2. Update orchestration: Status -> COMPLETE
-3. Update Sprint Plan session status (if sprint plan exists)
-4. Update Master Plan Status field:
+1. Run the closeout writer as a dry run, read its report, then run it again with `--apply`. Take `--master-status` from item 4. Pass `--sprint-status` with `COMPLETE` when this was the sprint's last session and `IN_PROGRESS` otherwise. Omit it when no sprint plan exists.
+
+   ```bash
+   python {plugin_root}/scripts/closeout_session.py --config {planwise_root}/config.yaml --session {session-id} --sprint-status {value} --master-status {value}
+   ```
+
+2. The writer sets the Recovery `Session Status` and the orchestration `Status` to COMPLETE. It sets the sprint plan and Master Plan `Status` tokens to the given values. It writes this session's Master Plan `## Session Completion Tracking` row. A second `--apply` changes nothing.
+3. Exit 1 means the writer refused and wrote nothing. Read each `REFUSED` line, fix the file it names by hand, and run the writer again.
+4. Decide the Master Plan status for `--master-status`. The writer flips the token only, so append ` — awaiting {user action}` to the Status line by hand when a gate is pending:
    - If all sprints COMPLETE AND no user-action gates pending → `Status: COMPLETE`
    - If all sprints COMPLETE BUT user-action gates pending (per Master Plan "Project Complete When" section) → `Status: IN_PROGRESS — awaiting {user action}` (per `references/session-execution-protocol.md` Discovery / Meta-Plan Status section)
    - If not all sprints COMPLETE → `Status: IN_PROGRESS`
@@ -668,33 +670,18 @@ Ask the user: "Were any lessons learned during this session?"
 > [!binding] Downstream-Propagation Gate
 > Every row in the Recovery file's `Cross-Task Coordination Flags` section MUST be propagated into the downstream consumer's plan file BEFORE the Git Commit step. A flag recorded only in upstream Recovery and never propagated is functionally a dropped constraint. See [references/read-confirm-act-protocol.md §1.3](../references/read-confirm-act-protocol.md#13-cross-task-coordination-flags) for the full lifecycle and destination matrix.
 
-1. Read the Recovery file's `Cross-Task Coordination Flags` section. If the section is empty or absent, skip to Step 4.5.
+1. Run `Grep` for `^\*\*Split index:\*\*` over this session's task Output files first. For each file with a `**Split index:**` line, run `Grep` for its name over the task files of every not-yet-run session. Add one Recovery `Cross-Task Coordination Flags` row per downstream session that names the index, its sub-parts, and the sections each consuming task reads. Step 2's destination matrix then routes those rows. Read the Recovery file's `Cross-Task Coordination Flags` section. If the section is empty or absent, skip to Step 4.5.
 
-   Then assert that flag ids are unique. Run this over the Recovery file:
-
-   ```
-   awk -F'|' '/^## /{f=($0 ~ /^## Cross-Task Coordination Flags/)} f && $2 ~ /^ *F?[0-9]+ *$/ {gsub(/[ F]/,"",$2); print $2}' {recovery} | sort | uniq -d
-   ```
-
-   The output MUST be empty. The same pipeline ending in `wc -l` MUST print the table's row count, and that count MUST be non-zero. A duplicate stops the step. Renumber the later-written row to the highest id plus 1, add a Change Log row, and mirror the id in the Summary. Then re-run the check before step 2.
-2. For each flag row, route per the destination table in `references/read-confirm-act-protocol.md` §1.3:
-
-   | Downstream Consumer | Propagate To |
-   |---------------------|--------------|
-   | A specific named task in a later session, already scaffolded | That session's orchestration file under `## Pre-Known Cross-Task Coordination Flags`, naming every task whose deliverable the flag's text names — the receiver routes it into each task file at Step 1.1a |
-   | A whole session (consumer task unclear) | That session's orchestration file under `## Pre-Known Cross-Task Coordination Flags` |
-   | A future sprint, downstream sessions NOT yet scaffolded on disk | That sprint plan's `## Carried-Forward Coordination Flags` section |
-   | A future sprint whose downstream session is ALREADY scaffolded on disk | That session's orchestration file under `## Pre-Known Cross-Task Coordination Flags` (the sprint-plan `Carried-Forward` entry remains as the record) |
-   | A follow-up plan not yet written | The current Master Plan's `## Carried-Forward Coordination Flags` section + the rollup/handoff task file |
+   The Step 4.3 writer (`closeout_session.py`) has already routed each flag. It refuses a repeated Flag # and writes nothing. Renumber the later-written row to the highest id plus 1, add a Change Log row, mirror the id in the Summary, and run the writer again.
+2. The writer routes each flag to one front door by the destination matrix in `references/read-confirm-act-protocol.md` §1.3. A consumer whose session is scaffolded on disk gets that session's orchestration file. An unscaffolded session gets its sprint plan. A consumer that names a follow-up plan and no id gets the Master Plan. A consumer that resolves to none of these, or to a sprint whose sessions are scaffolded, makes it refuse. Name the session in the Downstream Consumer cell and run it again.
 
    > [!constraint] "Future sprint" → `Carried-Forward` applies ONLY while the downstream session is unscaffolded
    > The sprint-plan `Carried-Forward Coordination Flags` destination reaches a downstream session ONLY at that session's scaffold time. Once the downstream session already exists on disk, it never re-reads the sprint plan's `Carried-Forward` section at its own start — so a flag dropped there after scaffolding is invisible to it. When the downstream session is already scaffolded, deliver the flag to that session's orchestration file front door instead (keep the sprint-plan entry as the record). The sending side NEVER edits another session's task files: it does not own that decomposition and risks racing a concurrent session. The receiving session routes the flag the last hop into its own task files at its Phase-1 Flag-Reconciliation Preflight (Step 1.1a).
 
-3. Use the Propagated Flag Block format from `references/read-confirm-act-protocol.md` §1.3 — write one `### From {source-session-id} — recorded {date}` block per source session, with the flags in the block's table. Append a new block for each later source session.
-4. If the destination file does not yet have a `## Pre-Known Cross-Task Coordination Flags` (or `## Carried-Forward Coordination Flags`) section, create it; if it does, append under it.
-5. Name every consuming task in the entry whenever any is known. Naming one representative task per downstream session does not satisfy this. The receiving orchestrator then routes it at Step 1.1a without re-deriving the consumers. It stamps the entry `✅ ROUTED {date} into {task file}` once routed (`references/read-confirm-act-protocol.md` §1.3).
-6. Update the Summary file's `Cross-Task Coordination Flags` block (in Context Notes) to fill the `Propagated To` column with the destination path for every flag.
-7. Verify: every Recovery flag row now has a non-empty `Propagated To` entry in the Summary. A flag with no destination is a closeout error — return to step 2 and route it. Also check that every task named in a flag's text appears in that flag's entry.
+3. The writer uses the Propagated Flag Block format from `references/read-confirm-act-protocol.md` §1.3. It writes one `### From {source-session-id} — recorded {date}` block per source session and adds only the rows that block lacks. It creates a missing section. It refuses an existing block for the session that holds no table, so add that flag by hand.
+4. Name every consuming task in the flag's Downstream Consumer cell whenever any is known. The writer copies each into the entry's Consuming Task cell, so the receiving orchestrator routes it at Step 1.1a without re-deriving the consumers. The receiver stamps the entry `✅ ROUTED {date} into {task file}` once routed.
+5. Update the Summary file's `Cross-Task Coordination Flags` block (in Context Notes) to fill the `Propagated To` column. Use the destination each `flag N -> {path}` line of the writer's report names.
+6. Verify: every Recovery flag row now has a non-empty `Propagated To` entry in the Summary. A flag with no destination is a closeout error — return to step 2 and route it. Also check that every task named in a flag's text appears in that flag's entry.
 
 ### Step 4.5: Git Commit
 
@@ -773,6 +760,7 @@ The recovery file follows [templates/recovery.md](../templates/recovery.md). Req
 - `Last Updated:` -- timestamp
 - `Current Step:` -- task number or COMPLETE
 - `Session Status:` -- NOT_STARTED / IN_PROGRESS / COMPLETE
+- `Orchestrator:` -- the owner's run token and last-write time, rewritten at every Recovery write (Step 3.1 reads it)
 - Step Completion Status table with all tasks
 - Key Findings section
 - Files Modified section

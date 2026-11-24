@@ -26,7 +26,7 @@ PLUGIN = Path(__file__).resolve().parent.parent / "plugins" / "planwise"
 TEMPLATE = PLUGIN / "config.yaml.template"
 SCHEMA_REF = PLUGIN / "references" / "lessons-schema.md"
 
-DECLARED = ["documented", "promoted", "applied", "rule", "orphaned"]
+DECLARED = ["documented", "promoted", "applied", "rule", "orphaned", "superseded"]
 
 
 def template_lesson_statuses(text: str) -> list[str]:
@@ -81,7 +81,7 @@ class TestLessonStatusVocabulary(unittest.TestCase):
 
     def test_parser_fires_on_a_known_bad_template(self):
         """Direction dry-run: the same extractor must see a missing value."""
-        mutated = self.template_text.replace("  - orphaned\n", "", 1)
+        mutated = self.template_text.replace(f"  - {DECLARED[-1]}\n", "", 1)
         self.assertEqual(template_lesson_statuses(mutated), DECLARED[:-1])
 
 

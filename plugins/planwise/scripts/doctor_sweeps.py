@@ -27,6 +27,7 @@ except ImportError:
 
 try:
     from rule_divergence import (
+        _HISTORY_VERDICT_SOURCE,
         _classify_diverged,
         _destructively_removable,
         _extract_paths_value,
@@ -410,9 +411,14 @@ def sweep_stale_descoped_rules(cfg: "InitConfig") -> list[dict]:
         # present so a human sees the caveat before acting on the verdict.
         notes_suffix = f" ({v.notes})" if getattr(v, "notes", "") else ""
         if _destructively_removable(v):
+            if getattr(v, "source", "") == _HISTORY_VERDICT_SOURCE:
+                removable_reason = ("matched an earlier shipped body of the reference; "
+                                    "handler-loaded from references/")
+            else:
+                removable_reason = ("stale subset of the now-grown shipped reference; "
+                                    "handler-loaded from references/")
             findings.append({**base, "verdict": "REMOVABLE", "confidence": v.confidence,
-                             "reason": "stale subset of the now-grown shipped reference; "
-                                       "handler-loaded from references/"})
+                             "reason": removable_reason})
         elif is_subset(v) and is_safe_to_remove(v):
             # Safe-to-remove EXCEPT the notes field is non-empty — the matcher
             # tolerated installed-only content (e.g. sub-noise-floor fragments).

@@ -447,6 +447,8 @@ authors the plan.
 
    If a hit needs repointing, return it to the fix-agent (Route A) or open a follow-up task (Route B) requesting the shell command be repointed. Do NOT proceed to step 4 with unrepointed hits outstanding.
 
+**Review tier (main session only):** run `review_tier.py --config {config_path} --repo . {changed paths}` as [`references/backlog-review-tier.md`](../references/backlog-review-tier.md) directs. Tier `none` keeps the gates above. Any other tier runs `/code-review {tier}`, and the findings print before step 4.
+
 In loop mode, before step 4 run `backlog_loop.py --mark --phase verifying --run {run-id} --id {item_id}`. Then skip step 4 and step 5: all gates passing means COMPLETE, and a failing gate is a documented skip that reverts nothing (Part 2 § No questions after setup). Verification commands are in scope, never a reason to skip (Part 2 § Verification is in scope).
 
 <!-- AUTO-MODE: critical -->
@@ -464,6 +466,7 @@ In loop mode, before step 4 run `backlog_loop.py --mark --phase verifying --run 
 1. Verify all tasks are marked completed
 2. Show summary of changes made
    In loop mode, before step 3 run `backlog_loop.py --mark --phase verifying --run {run-id} --id {item_id}`. Then skip step 3: every task completed means COMPLETE, and any other state is a documented skip.
+   **Review tier (main session only):** run `review_tier.py --config {config_path} --repo . {changed paths}` as [`references/backlog-review-tier.md`](../references/backlog-review-tier.md) directs. Tier `none` keeps the checks above. Any other tier runs `/code-review {tier}`, and the findings print before step 3.
 <!-- AUTO-MODE: critical -->
 3. Use `AskUserQuestion`: Approve (COMPLETE) or Revert (NOT_STARTED)
 

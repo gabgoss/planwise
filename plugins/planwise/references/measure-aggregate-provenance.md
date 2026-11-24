@@ -1,13 +1,13 @@
 ---
-description: A figure is not verified until its derivation is. Covers why recomputing a total proves only that the author can add, why a filtered denominator is wrong only where it bites, why a bare count in prose has to be re-derived at every hop that depends on it, and why a measurement written into its own subject needs a convergence argument. Consult when about to report, verify or repair a figure that is a sum, a labelled aggregate, or a count stated in prose. Also covers why every operand of a byte-equality gate must come from one byte instrument, because a character count in a byte identity reads as lost content. Also covers four more shapes. An occurrence count comes from a findall over the bare pattern. Both readings of a before/after level gate come from one instrument. Two recounts that disagree are reconciled by their unmatched lists, not their totals. A fan-out pins the selection grain as a literal beside the instrument.
-consult-when: About to report, verify or repair a total, a labelled aggregate, or a count stated in prose — verify the addends, state the population beside the figure, name the members inline, and take every operand of a byte-equality gate from one byte instrument (a character count in a byte identity reads as lost content), pin an occurrence count from a findall over the bare pattern, read both sides of a before/after level gate from one instrument, reconcile two recounts by their unmatched lists, and pin a fan-out's selection grain as a literal
+description: A figure is not verified until its derivation is. Covers why recomputing a total proves only that the author can add, why a filtered denominator is wrong only where it bites, why a bare count in prose has to be re-derived at every hop that depends on it, and why a measurement written into its own subject needs a convergence argument. Consult when about to report, verify or repair a figure that is a sum, a labelled aggregate, or a count stated in prose. Also covers why every operand of a byte-equality gate must come from one byte instrument, because a character count in a byte identity reads as lost content. Also covers four more shapes. An occurrence count comes from a findall over the bare pattern. Both readings of a before/after level gate come from one instrument. Two recounts that disagree are reconciled by their unmatched lists, not their totals. A fan-out pins the selection grain as a literal beside the instrument. Also covers restating a measured figure in a second artifact: carry its scope, the search behind an absence claim, and the ingestion path and turn count behind a token figure.
+consult-when: About to report, verify or repair a total, a labelled aggregate, or a count stated in prose — verify the addends, state the population beside the figure, name the members inline, and take every operand of a byte-equality gate from one byte instrument (a character count in a byte identity reads as lost content), pin an occurrence count from a findall over the bare pattern, read both sides of a before/after level gate from one instrument, reconcile two recounts by their unmatched lists, pin a fan-out's selection grain as a literal, and, when restating a measured figure in a second artifact, carry its scope, the search behind an absence claim, and the ingestion path and turn count behind a token figure
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Aggregate Provenance — A Figure Is Not Verified Until Its Derivation Is
 
 **Purpose:** Three defect shapes in which a reported figure was correct, or correctable, while the derivation behind it was unreproducible — and in every case the check that was actually run could not have discovered that. These are not arithmetic errors. An arithmetic error is wrong everywhere and the next consumer catches it. These defects are **right everywhere the flaw is inert**, which is why they survive review, spot-checks, and an honest re-derivation of the wrong quantity.
 
-**Read this when** you are about to report a total, label an aggregate, state a count in prose, repair a figure a reviewer questioned, or record a measurement inside the artifact it measures.
+**Read this when** you are about to report a total, label an aggregate, state a count in prose, repair a figure a reviewer questioned, record a measurement inside the artifact it measures, or restate a measured figure in a second artifact.
 
 The three share one structure: a number was verified at a grain **coarser than the grain at which it can fail**. A grand total cannot expose two offsetting component errors. A label naming a population cannot expose a filter applied two steps upstream. A numeral in prose cannot expose which of two same-sized sets it was counting. In each case the verification was performed diligently and reported clean.
 
@@ -24,6 +24,7 @@ Three neighbouring rules own adjacent machinery. [`measurement-discipline.md`](m
 - [7. Both Readings of a Before/After Level Gate Come From One Instrument](#7-both-readings-of-a-beforeafter-level-gate-come-from-one-instrument)
 - [8. Two Recounts Disagree by Tokenizer: Reconcile the Unmatched Lists, Never the Totals](#8-two-recounts-disagree-by-tokenizer-reconcile-the-unmatched-lists-never-the-totals)
 - [9. A Fan-Out Pins the Selection Grain as a Literal, Not Only the Instrument](#9-a-fan-out-pins-the-selection-grain-as-a-literal-not-only-the-instrument)
+- [10. A Propagated Figure Keeps Its Scope, Search and Method](#10-a-propagated-figure-keeps-its-scope-search-and-method)
 
 ---
 
@@ -270,4 +271,103 @@ The trigger is any fan-out where several runners each produce a figure that a la
 
 ---
 
-*Cross-reference: [`measurement-discipline.md`](measurement-discipline.md) §8.9 (the recorded figure a gate compares against) · [`gate-heuristic-verifier-patterns.md`](gate-heuristic-verifier-patterns.md) §4 (denominator scoping for a coverage gate) · [`exit-criteria-fidelity.md`](exit-criteria-fidelity.md) §16.10.2 (a gate on a derived ratio names its column, grain and denominator) · [`session-context-budget.md`](session-context-budget.md) § File Size Limits (the three Read-tool gates a self-measuring header reports against)*
+## 10. A Propagated Figure Keeps Its Scope, Search and Method
+
+A measurement can be correct at its source and false three hops later. In the three cases below, nothing was measured wrong. Each time a qualifier fell off the number as it was restated, and the bare number kept its authority. The qualifier was the scope in §10.1, the search in §10.2 and the method in §10.3. §10.4 gives the check to run before a figure is restated.
+
+### 10.1 A Measured Claim Carries a Scope, and the Scope Is the First Thing Lost When It Is Summarised
+
+A verifiable measurement read: `/context` reads issued as the sole first turn of a fresh session bill zero tokens. It was true at authoring and still true at execution, with 20 of 20 transcripts reporting `billable: 0`. Three hops later it read "the sprint is essentially free" and fed a campaign's `≈37.5M` headline. The same sprint's own designs specified four model-reaching probes that bill by construction. Its task files told runners to exclude those transcripts because they bill by design. Measured at execution, the sprint spent **417,471 billable tokens against a forecast of ~0**. The refuting evidence sat inside the same plan.
+
+The table shows the same claim at each hop. Only the first row is true.
+
+| Where | What it says | Still true? |
+|---|---|---|
+| The instrument note | `/context` reads bill zero | **Yes** |
+| Forecast table | The sprint ungated `~0`, gated `0` | **No** |
+| Sprint Plan objective | "The sprint is essentially free" | **No** |
+| Master Plan sprint row | `~0 / 0`, feeding the `≈37.5M` headline | **No** |
+
+> [!constraint] The claim's subject drifts from an invocation form to a sprint, and the number never changes
+> The first hop counts one invocation form. Every later hop counts a whole sprint. The figure is identical at every hop, so nothing in the later artifacts signals that the subject moved.
+>
+> WRONG — the subject changes silently while the figure stays:
+> ```
+> measured:  "/context reads bill 0"
+> forecast:  "the sprint ungated ~0"      <- subject changed, silently
+> objective: "the sprint is essentially free"
+> ```
+> CORRECT — the scope travels with the number, and the aggregate is derived rather than asserted:
+> ```
+> measured:  "/context reads bill 0"
+> forecast:  "the sprint: /context reads ~0 + the model-reaching probes ~N = total"
+> ```
+
+Five rules follow.
+
+- **A forecast for an aggregate must enumerate the classes it aggregates.** "This costs ~0" is checkable only if it lists what it counted. A bare `~0` cannot be audited against the designs, which is why nobody noticed it disagreed with four of them.
+- **When a plan tells runners to exclude a class from a gate, that class is a forecast input.** The exclusion instruction is a written admission that the class exists and behaves differently. Search the plan for its own exclusions and check that each one appears in the cost model.
+- **Cross-check a headline number against the artifacts that consume it, not against the source it came from.** Re-reading the instrument note would have confirmed the claim forever. Reading the task files refuted the forecast in one pass.
+- **Do not retro-edit the pinned artifact.** A forecast table records what was believed at authoring time. Route the correction forward to the reconciliation point that already recomputes the total from measured registers, and leave the original standing and annotated.
+- **Suspect the sibling rows.** If one row's forecast lost a class this way, check whether the same premise understates the others. The propagation mechanism is not specific to one row.
+
+### 10.2 Never Propagate an Absence Claim Without the Search That Produced It
+
+An absence claim and a presence claim certify different things:
+
+- **"X is present at P"** is established by one positive observation. The search that found it is irrelevant once it is found.
+- **"X is absent from P"** is a claim about the *search*, not about P. It is only as strong as the search's coverage: which names were tried, which sub-structures were walked, which items were skipped.
+
+A runner reported, with evidence, that a `contextUsage` object was confirmed absent from a CLI's JSON envelope. It had genuinely looked. The orchestrator propagated that as a binding block into five downstream task files, including the one whose calibration gate cross-checks against exactly that object. Two tasks later another runner found the data present under `context_usage`, snake_case, on `type:"assistant"` items, verified on four live captures. The first runner had tested one spelling in one item type. Its finding was true and its conclusion was false.
+
+The propagated block carried the conclusion and dropped the search. Downstream, nobody could tell it had tested one spelling in one item type, because that detail was no longer in the artifact. The phrasing also invited confirmation: a runner searching for `contextUsage`, finding nothing, would have read its own null result as agreement.
+
+Three rules follow.
+
+1. **When a finding is "X is not there", the artifact carries the exact identifiers searched for, the locations and sub-structures walked, and what was not inspected.** A consumer must be able to see the shape of the hole.
+2. **Before relaying someone else's absence claim, re-derive its coverage.** Ask what a positive result would have looked like and whether the search could have produced it. For a named field, ask whether naming conventions were varied (camelCase, snake_case, kebab-case) and whether every container type was walked, not only the ones the searcher expected the field to live in. [`gate-predicate-discrimination.md`](gate-predicate-discrimination.md) §3 covers case blindness, and §4 covers a negative asserted from a pattern shaped for a different positive.
+3. **Two findings that appear to contradict may be complementary.** Resolve a contradiction by comparing the searches, not by picking the more recent or more confident source. Here both findings were right about different surfaces: one spelling on one surface and the other spelling on the other. The artifact now states both. Picking a winner would have discarded a true finding.
+
+The near-miss sizes the stake. The design most exposed was a calibration gate that would have looked for the camelCase name and found nothing. It would have read that absence as a rendered-versus-structured disagreement, declared an instrument defect and halted a batch that was working correctly. That halt would have re-gated roughly forty downstream designs on a false negative.
+
+### 10.3 State the Ingestion Path Beside Every Token Figure, and Budget the Turns
+
+A campaign booked every probe a cost band derived from a pre-computed token target. Measured against live execution, the model was low by a factor of 5 to 25, consistently in one direction. The table shows three readings.
+
+| Measured | Booked | Ratio |
+|---|---|---|
+| One design's actual spend, ~380K billable | ~72K | **5.3×** |
+| Two designs in a later batch | per design | **~24–25×** |
+| One design's single manual `/compact` — 730K | its entire 6-fill band, ~660K | **>1×** the whole band |
+
+Two calibration errors caused it. Both have the same shape: a number produced by one method was spent through another.
+
+1. **The unit rate was tool-specific and was treated as universal.** The same generated content measured **≈0.951 tokens/char** when read through a Bash file-display command and **≈0.515–0.549 tokens/char** when read through the Read tool. That is a **1.8× spread on identical bytes**. A fixture calibrated one way and consumed the other missed its target by **−42.3%** on the first attempt.
+2. **The target modelled content, not turns.** The overshoot rides per-driven-turn tool-use overhead, which the target never included. Isolating this made the model fixable. `/context`, `/compact`, `/autocompact`, `/clear` and a `/rewind` rejection are all free (measured 2026-08-22, CLI build not recorded). Cost tracks the driven turns that make tool calls, not fill size, which is what everyone assumed they were buying.
+
+Neither error is noise. Both are systematic and one-directional, which is why the whole schedule was wrong the same way instead of wrong on average.
+
+Five rules follow.
+
+- **State the ingestion path beside every token figure.** A characters-to-tokens rate is a property of the reader, not of the content. A figure without its method is not a measurement.
+- **Budget the turns, not just the bytes.** Any estimate for agent-driven work needs an explicit per-driven-turn overhead term. Content size alone systematically under-books anything that makes tool calls.
+- **Bound the single call, and check it after the first rep, not at the end.** After the first rep of any banded unit, sum the actual spend and compare it with that unit's per-rep implied budget. If it exceeds about 2×, stop the set, record the measured figure and the overshoot ratio, and re-cost before continuing. Completing a full set at an unbudgeted multiple and reconciling afterwards is running-total budgeting, which is exactly what failed here.
+- **Report measured against booked, never booked alone.** A signoff that cites booked figures for work whose real cost was measured publishes a number known to be false. Where a re-cost pushes an item past a gate threshold, route it to the gated set. That is the honest outcome, not a failure of the estimate.
+- **An unaffordable-mid-flight decision belongs to the human.** Scope against cost has an owner. A guard that says "stop and re-cost" must state whether the runner re-costs and continues, or stops and escalates.
+
+The cost of skipping the check was concrete. A runner found its designs unaffordable mid-batch and ran four at reduced reps. That breached a rep-equality exit criterion stated identically in three plan files.
+
+### 10.4 The Three Qualifiers to Carry With Any Propagated Number
+
+> [!practice] Attach the qualifier before the figure travels
+> Before restating a measured figure in a second artifact, attach whichever of the three qualifiers applies, and check that the sentence's subject has not changed:
+>
+> - **Scope.** What population and what invocation form the figure covers (§10.1).
+> - **Search.** If the claim is an absence, what was tried and what was skipped (§10.2).
+> - **Method.** If the claim is a rate or a cost, which reader and which ingestion path produced it, and whether it counts turns or bytes (§10.3).
+>
+> A number that arrives without its qualifier is not a measurement. It is a rumour with a decimal point.
+
+---
+
+*Cross-reference: [`measurement-discipline.md`](measurement-discipline.md) §8.9 (the recorded figure a gate compares against) · [`gate-heuristic-verifier-patterns.md`](gate-heuristic-verifier-patterns.md) §4 (denominator scoping for a coverage gate) · [`exit-criteria-fidelity.md`](exit-criteria-fidelity.md) §16.10.2 (a gate on a derived ratio names its column, grain and denominator) · [`session-context-budget.md`](session-context-budget.md) § File Size Limits (the three Read-tool gates a self-measuring header reports against) · [`gate-predicate-discrimination.md`](gate-predicate-discrimination.md) §3 and §4 (case blindness and a negative from a wrong-shaped pattern, the search behind an absence claim)*

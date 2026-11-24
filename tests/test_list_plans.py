@@ -17,6 +17,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
@@ -210,6 +211,36 @@ class TestBanner(_Base):
         self.assertIn("Drift detected", out)
         self.assertIn("  - DRF: index=IN_PROGRESS -> Master Plan=COMPLETE", out)
         self.assertNotIn("No drift detected", out)
+
+    def test_the_plans_index_is_read_exactly_once(self):
+        # The banner and the table take one read of the index, so a concurrent
+        # regenerate cannot split them. Count the reads of the index path through
+        # both modules' bound names, with and without the banner.
+        self.write_master_plan("Alpha", "AAA", "COMPLETE")
+        index_path = self.write_index(_row("AAA", "Alpha", "COMPLETE"))
+        want = index_path.resolve()
+
+        for flags in ((), ("--no-check",)):
+            with self.subTest(flags=flags):
+                with (
+                    mock.patch.object(
+                        list_plans, "read_text_preserving_newlines", wraps=list_plans.read_text_preserving_newlines
+                    ) as in_list,
+                    mock.patch.object(
+                        reconcile_plans,
+                        "read_text_preserving_newlines",
+                        wraps=reconcile_plans.read_text_preserving_newlines,
+                    ) as in_reconcile,
+                ):
+                    code, out, _err = self.run_list(*flags)
+                self.assertEqual(code, 0)
+                self.assertIn("1 plan(s) shown.", out)
+                reads = [
+                    call
+                    for call in in_list.call_args_list + in_reconcile.call_args_list
+                    if Path(call.args[0]).resolve() == want
+                ]
+                self.assertEqual(len(reads), 1, reads)
 
     def test_could_not_run_prints_could_not_run_header(self):
         # The index holds a row but no Master Plan exists on disk, so no row is compared.

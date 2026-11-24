@@ -54,8 +54,9 @@ KEEP = "Unique sentence that must survive the repair."
 
 
 def item_text(number, *, title="A fixture item", extra_fm=(), extra_body="", priority_line: str | None = "**Priority:** Medium",
-              domain_line: str | None = "**Domain:** INFRA", footer: str | None = "*Created: 2026-11-18*", eol="\n"):
-    lines = ["---", f"id: {number:03d}", f'title: "{title}"', "priority: Medium", "status: NOT_STARTED", "abbrev: INFRA",
+              domain_line: str | None = "**Domain:** INFRA", footer: str | None = "*Created: 2026-11-18*", eol="\n",
+              status="NOT_STARTED"):
+    lines = ["---", f"id: {number:03d}", f'title: "{title}"', "priority: Medium", f"status: {status}", "abbrev: INFRA",
              "created: 2026-11-18", "blocks: []", *extra_fm, "---", "", f"# BB-{number:03d}-01-INFRA-Fixture: {title}", ""]
     lines += [line for line in (priority_line, domain_line) if line is not None]
     lines += ["", "---", ""]
@@ -94,8 +95,8 @@ def _snapshot(folder: Path) -> dict:
     return {p.relative_to(folder).as_posix(): p.read_bytes() for p in folder.rglob("*") if p.is_file()}
 
 
-def _run(cfg):
-    return mbi.migrate_backlog_items(cfg, "1.0", "1.1")
+def _run(cfg, answers=None):
+    return mbi.migrate_backlog_items(cfg, "1.0", "1.1", answers)
 
 
 def _item_path(backlog: Path, number: int) -> Path:
@@ -274,6 +275,113 @@ def test_a_raising_step_never_fails_the_report(tmp_path, monkeypatch):
     monkeypatch.setattr(mbi, "_plan_item", lambda *_a: (_ for _ in ()).throw(RuntimeError("boom")))
     report = _run(cfg)
     assert report.state == "error" and "boom" in report.detail
+
+
+def _archived(backlog: Path, number: int) -> Path:
+    return backlog / "Archive" / f"BB-{number:03d}-01-INFRA-Fixture.md"
+
+
+def _fixture_scores_as_open(cfg, number: int) -> bool:
+    """True when the live scorer reads the item as open, the way `/planwise backlog` does."""
+    config = config_loader.load_config(Path(__file__), config_path=Path(cfg.project_root) / "planwise" / "config.yaml")
+    return mbi._routes(config, [f"{number:03d}"])[f"{number:03d}"] in ("A", "B", "C")
+
+
+def test_a_mapped_status_is_written_and_scores_as_open(tmp_path):
+    original = item_text(1, status="OPEN")
+    cfg, backlog = _project(tmp_path, {1: original, 2: item_text(2)})
+    control = _item_path(backlog, 2).read_bytes()
+    assert not _fixture_scores_as_open(cfg, 1)  # known-bad arm: before the repair the scorer cannot read it
+    report = _run(cfg, {"status_map": ["OPEN->IN_PROGRESS"]})
+    assert report.state == "migrated", report.detail
+    assert (report.generator_write_exit, report.generator_check_exit) == (0, 0)
+    assert _item_path(backlog, 1).read_bytes() == original.replace(b"status: OPEN\n", b"status: IN_PROGRESS\n")
+    assert _item_path(backlog, 2).read_bytes() == control
+    assert _fixture_scores_as_open(cfg, 1)
+    assert report.counts == {"status": 1} and report.refused == {} and report.remaining == {}
+    assert not _archived(backlog, 1).exists()
+    assert scan_item_shapes(backlog).classes["status-invalid"] == []
+
+
+def test_a_quoted_status_line_is_replaced_whole_and_crlf_stays(tmp_path):
+    original = item_text(1, status='"OPEN"', eol="\r\n")
+    cfg, backlog = _project(tmp_path, {1: original})
+    report = _run(cfg, {"status_map": ["OPEN->NOT_STARTED"]})
+    assert report.state == "migrated", report.detail
+    data = _item_path(backlog, 1).read_bytes()
+    assert data == original.replace(b'status: "OPEN"\r\n', b"status: NOT_STARTED\r\n")
+    assert data.count(b"\r\n") == data.count(b"\n")
+
+
+def test_an_unanswered_status_is_refused_and_its_file_is_not_written(tmp_path):
+    odd = item_text(1, status="OPEN", footer=None)  # a mechanical drift too: the file stays whole
+    cfg, backlog = _project(tmp_path, {1: odd, 2: item_text(2, status="DONE")})
+    before = _snapshot(backlog.parent)
+    for answers in (None, {}, {"status_map": ["TODO->NOT_STARTED"]}):
+        report = _run(cfg, answers)
+        assert report.state == "clean" and report.refused == {"DONE": ["002"], "OPEN": ["001"]}
+        assert _snapshot(backlog.parent) == before  # no file, backup or index was written
+        assert report.backed_up == [] and report.written == []
+        notes = [n for n in report.notes if "has no answer" in n]
+        assert len(notes) == 2 and all("status_map" in n and "re-run /planwise upgrade" in n for n in notes)
+        assert any("'OPEN'" in n and "001" in n and '"OPEN->NOT_STARTED"' in n for n in notes)
+
+
+def test_an_unanswered_status_does_not_block_an_answered_one(tmp_path):
+    cfg, backlog = _project(tmp_path, {1: item_text(1, status="OPEN"), 2: item_text(2, status="DONE")})
+    odd = _item_path(backlog, 2).read_bytes()
+    report = _run(cfg, {"status_map": ["OPEN->NOT_STARTED"]})
+    assert report.state == "migrated" and report.refused == {"DONE": ["002"]}
+    assert b"status: NOT_STARTED\n" in _item_path(backlog, 1).read_bytes()
+    assert _item_path(backlog, 2).read_bytes() == odd
+    assert set(report.remaining) == {"status-invalid"} and report.remaining["status-invalid"] == ["002"]
+
+
+def test_a_status_mapped_to_a_closed_status_moves_the_file_to_archive(tmp_path):
+    original = item_text(1, status="DONE")
+    cfg, backlog = _project(tmp_path, {1: original, 2: item_text(2, status="WONTFIX"), 3: item_text(3)})
+    report = _run(cfg, {"status_map": ["DONE->COMPLETE", "WONTFIX->CLOSED"]})
+    assert report.state == "migrated", report.detail
+    assert (report.generator_write_exit, report.generator_check_exit) == (0, 0)  # the regenerated index passes --check
+    assert not _item_path(backlog, 1).exists() and not _item_path(backlog, 2).exists()
+    assert _item_path(backlog, 3).is_file()
+    assert _archived(backlog, 1).read_bytes() == original.replace(b"status: DONE\n", b"status: COMPLETE\n")
+    assert b"status: CLOSED\n" in _archived(backlog, 2).read_bytes()
+    assert report.counts == {"status": 2, "archived": 2}
+    assert [r for r in report.routes if r[0] in ("001", "002")] == [("001", "?", "archived"), ("002", "?", "archived")]
+    backup = backlog.parent / "upgrade-backups" / "1.0-to-1.1" / "backlog-items" / "BB-001-01-INFRA-Fixture.md"
+    assert backup.read_bytes() == original  # the pre-image of the moved file is kept byte-exact
+    again = _run(cfg, {"status_map": ["DONE->COMPLETE", "WONTFIX->CLOSED"]})
+    assert again.state == "clean" and again.written == []
+
+
+def test_the_banner_names_the_mapped_and_archived_counts(tmp_path, capsys):
+    cfg, _backlog = _project(tmp_path, {1: item_text(1, status="OPEN"), 2: item_text(2, status="DONE"),
+                                         3: item_text(3, status="LATER")})
+    report = _run(cfg, {"status_map": ["OPEN->NOT_STARTED", "DONE->COMPLETE"]})
+    mbi._emit_backlog_items_banner(report)
+    out = capsys.readouterr().out
+    assert "statuses mapped 2" in out and "items archived 1" in out and "002: ? -> archived" in out
+    assert "action: 003: the status 'LATER' has no answer, so its file was not written" in out
+
+
+def test_a_failed_archive_move_restores_every_file(tmp_path):
+    cfg, backlog = _project(tmp_path, {1: item_text(1, status="OPEN", footer=None), 2: item_text(2, status="DONE")})
+    squatter = _archived(backlog, 2)
+    squatter.write_bytes(b"an earlier archived item with the same name\n")
+    before = _snapshot(backlog.parent)
+    report = _run(cfg, {"status_map": ["OPEN->NOT_STARTED", "DONE->COMPLETE"]})
+    assert report.state == "write_failed" and "could not archive BB-002" in report.detail
+    assert "destination already exists" in report.detail and "restored" in report.detail
+    after = {k: v for k, v in _snapshot(backlog.parent).items() if not k.startswith("upgrade-backups/")}
+    assert after == before  # both item files are back to their bytes, and the squatter was not replaced
+
+
+def test_a_raising_status_map_never_fails_the_report(tmp_path):
+    cfg, _backlog = _project(tmp_path, {1: item_text(1, status="OPEN")})
+    for answers in ({"status_map": "OPEN->NOT_STARTED"}, {"status_map": [7, None, "OPEN"]}, {"status_map": None}):
+        report = _run(cfg, answers)
+        assert report.state == "clean" and report.refused == {"OPEN": ["001"]}  # a bad entry maps nothing
 
 
 def _spy_on_the_call_sites(monkeypatch):

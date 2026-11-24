@@ -41,6 +41,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 import config_loader
 import generate_plans_index
+import reconcile_plans
 from generate_plans_index import TABLE_SEPARATOR, render_plans_index
 from reconcile_plans import (
     LegacyIndexError,
@@ -196,6 +197,30 @@ class TestReconcilePlans(_ReconcileFixtureBase):
         self.assertEqual(prc["status"], "COMPLETE")
         # Mirrors the Master Plan's own Last Updated footer date — NOT today.
         self.assertEqual(prc["last_updated"], "2026-03-19")
+
+    def test_write_json_renders_once(self):
+        """One `--write --json` run renders the index once, and `Reconciled` counts the rows the write changed.
+
+        Both import sites are patched, each wrapping the original, so neither
+        mock wraps the other. The fixture has one stale row (ALP) and one
+        Master Plan the index lacks (BET), so the write changes 2 rows.
+        """
+        self.write_index(_row("ALP", "Alpha", "IN_PROGRESS", "2026-01-01", "2026-01-01", "Alpha/"))
+        self.write_master_plan("Alpha/", "ALP", "COMPLETE", "2026-01-01")
+        self.write_master_plan("Beta/", "BET", "IN_PROGRESS", "2026-01-01")
+        original = generate_plans_index.render_plans_index
+
+        with (
+            mock.patch.object(reconcile_plans, "render_plans_index", wraps=original) as from_reconcile,
+            mock.patch.object(generate_plans_index, "render_plans_index", wraps=original) as from_generator,
+        ):
+            code, out, _ = self.run_cli("--write", "--json")
+
+        json_path = Path(out.splitlines()[-1].removeprefix("JSON: "))
+        self.addCleanup(shutil.rmtree, json_path.parent, ignore_errors=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(from_reconcile.call_count + from_generator.call_count, 1)
+        self.assertEqual(out.splitlines()[0], "Reconciled 2 row(s).")
 
     def test_gated_suffix_not_drift(self):
         # A trailing note suffix on the Master Plan's Status must not
@@ -538,6 +563,33 @@ class TestZeroComparisonAndShape(_ReconcileFixtureBase):
 
         self.assertEqual(code, 0)
         self.assertEqual(out.splitlines(), [self.ALL_CLEAR, "1 of 1 rows compared."])
+
+    def test_detect_drift_honours_content_passed_by_the_caller(self):
+        # A caller that already read the index passes it as `content`, and the
+        # function reads no file. Each arm differs from the disk, so a function
+        # that ignores the parameter fails one of them.
+        self.write_master_plan("Alpha/", "ALP", "COMPLETE", "2026-01-01")
+        clean_row = _row("ALP", "Alpha", "COMPLETE", "2026-01-01", "2026-01-01", "Alpha/")
+        drifting_row = _row("ALP", "Alpha", "IN_PROGRESS", "2026-01-01", "2026-01-01", "Alpha/")
+
+        # Disk drifts, content is clean.
+        self.write_index(drifting_row)
+        self.assertGreaterEqual(len(detect_drift(self.config)["drifts"]), 1)
+        clean = detect_drift(self.config, content=self.index_text(clean_row))
+        self.assertEqual(clean["drifts"], [])
+        self.assertEqual(clean["status"], "ran")
+
+        # Disk is clean, content drifts.
+        self.write_index(clean_row)
+        self.assertEqual(detect_drift(self.config)["drifts"], [])
+        drifting = detect_drift(self.config, content=self.index_text(drifting_row))
+        self.assertGreaterEqual(len(drifting["drifts"]), 1)
+
+        # The file is absent, and content still counts as a present index.
+        (self.plans_dir / "00-Index-Plans.md").unlink()
+        self.assertEqual(detect_drift(self.config)["status"], "could-not-run")
+        present = detect_drift(self.config, content=self.index_text(clean_row))
+        self.assertEqual((present["status"], present["drifts"]), ("ran", []))
 
     def test_root_path_row_over_an_exec_plan_exits_3(self):
         # A root Path row whose Master Plan sits in an Exec- child folder: the

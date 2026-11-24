@@ -8,6 +8,7 @@ CLI-version probe, so no run starts `claude`.
 import hashlib
 import json
 import os
+import shlex
 import sys
 import types
 from pathlib import Path
@@ -101,6 +102,36 @@ def test_grants_normalize(tmp_path, capsys):
     grants = json.loads(settings(box).read_text(encoding="utf-8"))["permissions"]["additionalDirectories"]
     norm = [os.path.normcase(os.path.normpath(g)) for g in grants]
     assert norm == [os.path.normcase(os.path.normpath(p)) for p in (unrelated, FAMILY)]
+
+
+def test_declined_task_tools_offer_applies_cleanly(tmp_path, capsys):
+    """The printed Decline rule lets a declined offer drop its flags, so the apply call needs no skip value."""
+    box = ucp.upgraded(tmp_path)
+    ucp.drop_env_key(settings(box), TODO)
+    seed_pinned_grant(box)
+    offers = upgrade_run.build_offers(box.resolve(), ucp.config_path(box), PAIR, None, "")
+    ids = [o["id"] for o in offers]
+    assert "task-tools:add" in ids and "grants:normalize" in ids, ids
+    capsys.readouterr()
+    upgrade_run.print_offers(offers, box.resolve(), PAIR)
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[-1].startswith("Accept all: "), lines  # the two splitlines()[-1] readers need it last
+    assert any(line.startswith("Decline: ") for line in lines[:-1]), lines
+    words = shlex.split(lines[-1].removeprefix("Accept all: "))
+    at = words.index("--task-tools")
+    assert words[at + 1] == "add"
+    del words[at:at + 2]  # the person declined the task-tools offer, so its flags go and nothing replaces them
+    args = words[words.index("--project-root") + 2:]
+    assert args, words  # the grants offer is still accepted
+    code, out = apply(capsys, box, *args)
+    assert code == 0, out
+    assert TODO not in env_of(settings(box))
+    grants = json.loads(settings(box).read_text(encoding="utf-8"))["permissions"]["additionalDirectories"]
+    assert os.path.normcase(os.path.normpath(FAMILY)) in [os.path.normcase(os.path.normpath(g)) for g in grants]
+    # known-bad arm: the improvised skip value is still refused, so the printed rule is what prevents it
+    with pytest.raises(SystemExit) as refused:
+        upgrade_apply.main(["--project-root", str(box), "--task-tools", "skip"])
+    assert refused.value.code == 2
 
 
 def test_no_flags_prints_nothing_to_apply(tmp_path, capsys):

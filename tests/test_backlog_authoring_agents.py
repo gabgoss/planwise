@@ -133,6 +133,16 @@ class BacklogAuthoringAgentContractTests(unittest.TestCase):
     def test_planner_never_authors_a_session_plan(self):
         self.assertIn("never authors a session plan", _read(PLANNER))
 
+    def test_absence_evidence_needs_spellings_and_control(self):
+        preflight = _section(_read(PREFLIGHT), "### 2.6")
+        for literal in ("searched:", "control:", "absence unproven"):
+            with self.subTest(preflight_literal=literal):
+                self.assertIn(literal, preflight)
+        planner = _section(_read(PLANNER), "## 3. DECIDE")
+        for literal in ("rests on an absence claim", "positive control"):
+            with self.subTest(planner_literal=literal):
+                self.assertIn(literal, planner)
+
     def test_every_agent_cites_the_creation_process_reference(self):
         for path in ALL_AGENTS:
             with self.subTest(agent=path.name):

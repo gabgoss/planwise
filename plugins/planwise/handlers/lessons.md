@@ -14,7 +14,7 @@
 
 ## Config Gate (Auto-Init Fallback)
 
-1. Resolve config.yaml: a) `planwise/config.yaml`; b) `*/config.yaml` one level down from project root.
+1. Resolve config.yaml: a) `planwise/config.yaml`; b) `*/config.yaml` one level down from project root. Resolution is exactly these two locations, checked from the invocation directory, and is never inferred from a path string. A `config.yaml` anywhere else belongs to another project and is never read.
 2. If found → continue (extract `plugin_root`, `project.planwise_root`, `project.plans_dir`, `project.lessons_dir`, `project.index_files.lessons`).
 3. If NOT found: announce, resolve `{plugin_root}` from handler location, invoke `init_project.py` with `--auto-from "lessons"`, RE-RESOLVE, fail loud if still missing.
 

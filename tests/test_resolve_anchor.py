@@ -10,6 +10,7 @@ import contextlib
 import io
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -58,6 +59,13 @@ TABLE_DOC = """# Error Pattern Catalog
 | 1 | Something | Low |
 | 109 | Something else | High |
 """
+
+
+def _git(cwd: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-c", "user.name=test", "-c", "user.email=test@example.test", "-c", "commit.gpgsign=false", *args],
+        cwd=cwd, check=True, capture_output=True,
+    )
 
 
 class _ResolveAnchorFixtureBase(unittest.TestCase):
@@ -239,6 +247,58 @@ class TestClaimsLedger(_ResolveAnchorFixtureBase):
 
         self.assertEqual(Path(result["ledger"]), self.tmp / ".anchor-claims.json")
         self.assertTrue((self.tmp / ".anchor-claims.json").exists())
+
+    def test_a_linked_worktree_shares_the_main_checkout_ledger(self):
+        # A real repository and a real linked worktree, built by git itself, so the
+        # script reads the producer's own `.git` file and `commondir` bytes.
+        main = self.tmp.resolve() / "main"
+        (main / "refs").mkdir(parents=True)
+        (main / "refs" / "ref.md").write_text(TOPLEVEL_DOC, encoding="utf-8")
+        _git(main, "init", "-q", "-b", "main")
+        _git(main, "add", "-A")
+        _git(main, "commit", "-q", "-m", "init")
+        linked = main / ".claude" / "worktrees" / "wt"
+        _git(main, "worktree", "add", "-q", str(linked), "-b", "wt")
+        shared = (main / ".anchor-claims.json").resolve()
+
+        first = self.run_json(
+            ["--file", str(main / "refs" / "ref.md"), "--scheme", "heading-toplevel",
+             "--claim", "item-a"]
+        )
+        second = self.run_json(
+            ["--file", str(linked / "refs" / "ref.md"), "--scheme", "heading-toplevel",
+             "--claim", "item-b"]
+        )
+
+        # Neither caller inserted anything. The worktree caller sees the main
+        # checkout caller's live claim on the same repository-relative file.
+        self.assertEqual(first["claimed"], 12)
+        self.assertEqual(second["claimed"], 13)
+        self.assertEqual(second["prior_live_claims"], [12])
+        self.assertEqual(Path(first["ledger"]).resolve(), shared)
+        self.assertEqual(Path(second["ledger"]).resolve(), shared)
+        self.assertFalse((linked / ".anchor-claims.json").exists())
+
+    def test_a_shared_ledger_override_keeps_two_repositories_apart(self):
+        docs = []
+        for name in ("repo-a", "repo-b"):
+            root = self.tmp / name
+            (root / ".git").mkdir(parents=True)
+            (root / "refs").mkdir()
+            doc = root / "refs" / "ref.md"
+            doc.write_text(TOPLEVEL_DOC, encoding="utf-8")
+            docs.append(doc)
+
+        results = [
+            self.run_json(
+                ["--file", str(doc), "--scheme", "heading-toplevel",
+                 "--ledger", str(self.ledger), "--claim", "item"]
+            )
+            for doc in docs
+        ]
+
+        # The same repository-relative path in two repositories is two files.
+        self.assertEqual([r["claimed"] for r in results], [12, 12])
 
     def test_a_malformed_ledger_is_reported_not_silently_reset(self):
         doc = self.write_doc("ref.md", TOPLEVEL_DOC)

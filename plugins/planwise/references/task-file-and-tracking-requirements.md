@@ -79,6 +79,8 @@ Never leave many-to-many mappings for the agent to infer.
 
 {What the subagent should produce - be specific}
 
+**Field Source Rule:** Every declared Expected Output field names the Required Context row that supplies it. A field with no such row needs one of two repairs. Either the task carries a Permitted Commands line with the full derivation invocation, or the Required Context is corrected. See `agent-orchestration-delegated.md` §1.8.2 for the mechanism.
+
 ---
 
 ## Success Criteria

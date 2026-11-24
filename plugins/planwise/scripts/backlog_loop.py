@@ -61,13 +61,12 @@ from parse_backlog import (
     _enumerate_generated_files,
     _index_naming,
     _read_backlog_items,
-    build_blocked_by_map,
     collect_archived_closed_ids,
     duplicate_row_ids,
     duplicate_row_ids_message,
     filter_items,
+    open_blocker_map,
     order_with_blockers,
-    parse_dependencies_table,
 )
 from reconcile_common import read_text_preserving_newlines
 from scoped_rules import (
@@ -124,6 +123,8 @@ DECISION_PENDING_REASON = "decision pending"
 DECISION_PENDING_HINT = "decision pending: run scripts/backlog_questions.py --fold, then --answer each question"
 # The item's scoped-rule verdict is `placement`: a human decides where a file goes.
 PLACEMENT_REASON = "placement"
+# The item's Verification fence holds a `# user-run:` line: only the user can run that step.
+USER_RUN_REASON = "user-run verification"
 USER_INPUT_NOTE = "USER INPUT NEEDED: see ## Open Questions in the item file"
 ACTIONS = ("init", "next", "mark", "boundary", "end")
 
@@ -333,15 +334,7 @@ def open_blockers_now(config: dict, rows_by_norm: dict, item_id: str, cache: dic
     The edges come from `hub_family_rows`, because the scored rows carry no `blocks`.
     """
     if "map" not in cache:
-        try:
-            index_text = config["_index_path"].read_text(encoding="utf-8")
-        except OSError:
-            index_text = ""
-        dependencies = parse_dependencies_table(index_text)
-        cache["archived"] = collect_archived_closed_ids(config) if dependencies else None
-        cache["map"] = build_blocked_by_map(
-            dependencies, hub_family_rows(config), cache["archived"] or frozenset()
-        )
+        cache["map"] = open_blocker_map(config, rows=hub_family_rows(config))
     still_open: list[str] = []
     for blocker in cache["map"].get(normalize_id(item_id), []):
         if not blocker_closed_now(config, rows_by_norm, blocker, cache):
@@ -506,17 +499,9 @@ def cmd_init(args, config: dict) -> int:
         raise LoopExit(EXIT_USAGE, "No items found in backlog index.")
     refuse_repeated_row_ids(items)
 
-    # The scored rows carry no `blocks`; join it from parse_backlog's own reader.
-    blocks_by_norm = {normalize_id(row["id"]): row.get("blocks", []) for row in hub_rows}
-    for item in items:
-        item["blocks"] = list(blocks_by_norm.get(normalize_id(item["id"]), []))
-    try:
-        index_text = config["_index_path"].read_text(encoding="utf-8")
-    except OSError:
-        index_text = ""
-    dependencies = parse_dependencies_table(index_text)
-    archived_closed_ids = collect_archived_closed_ids(config) if dependencies else frozenset()
-    blocked_by = build_blocked_by_map(dependencies, items, archived_closed_ids)
+    # The scored rows carry no `blocks`, so the hub rows from parse_backlog's own
+    # reader feed the shared open-blocker map.
+    blocked_by = open_blocker_map(config, rows=hub_rows)
 
     criteria = FilterCriteria(
         status=args.status or None, priority=args.priority, abbrev=args.abbrev
@@ -549,6 +534,8 @@ def cmd_init(args, config: dict) -> int:
         shape = signals["shape"]
         if (signals["scoped_rules"] or {}).get("verdict") == VERDICT_PLACEMENT:
             return signals, PLACEMENT_REASON
+        if shape["user_run_verification"]:
+            return signals, USER_RUN_REASON
         if shape["open_questions"] == "unanswered":
             return signals, OPEN_QUESTIONS_REASON
         if signals["route"] == "C" and shape["shape_ok"]:
@@ -672,7 +659,8 @@ def cmd_init(args, config: dict) -> int:
                 # A named unrefined item is always refined, so only a reason
                 # that holds whatever the cap can drop it here.
                 if excluded_reason[key] in (
-                    NEEDS_PLAN_REASON, DECISION_PENDING_REASON, PLACEMENT_REASON, OPEN_QUESTIONS_REASON
+                    NEEDS_PLAN_REASON, DECISION_PENDING_REASON, PLACEMENT_REASON, USER_RUN_REASON,
+                    OPEN_QUESTIONS_REASON,
                 ):
                     why = excluded_reason[key]
                 else:

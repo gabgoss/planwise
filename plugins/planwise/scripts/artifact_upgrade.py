@@ -69,6 +69,7 @@ except ImportError:
 
 try:
     from rule_divergence import (
+        _HISTORY_VERDICT_SOURCE,
         _classify_diverged,
         _extract_paths_value,
         _verdict_not_analyzed,
@@ -228,9 +229,18 @@ def _resolve_diverged_rule(
             write_sidecar(dst, sidecar_dst, shipped_raw)
         else:
             dst.write_text(render(shipped_raw, installed_raw), encoding="utf-8")
+            # A body that matched an earlier shipped body (verdict source
+            # shipped-history) is no structural subset, so the reason names
+            # the history match instead of a stale subset.
+            if getattr(verdict, "source", "") == _HISTORY_VERDICT_SOURCE:
+                adopt_reason = ("installed rule body matched an earlier shipped "
+                                "body (rule-history manifest)")
+            else:
+                adopt_reason = ("installed rule body was a stale subset of the "
+                                "grown shipped body")
             _append_disposition_log(
                 cfg, from_version, to_version, dst, "auto-adopted shipped",
-                "installed rule body was a stale subset of the grown shipped body")
+                adopt_reason)
             refreshed.append(str(dst))
             refreshed_subsets.append(str(dst))     # banner sub-count
             if sidecar_dst.exists():

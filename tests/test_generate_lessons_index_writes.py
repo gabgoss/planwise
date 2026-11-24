@@ -352,6 +352,8 @@ class TestDriftClasses(_DriftFixtureBase):
         code, out, _err = self.run_main("--check")
         self.assertEqual(code, 1)
         self.assertIn("[duplicate-id] LL-001", out)
+        # One file, two index rows: --renumber would move the only claimant.
+        self.assertNotIn("--renumber", out)
 
     def test_location_anomaly_reports_class_and_exit_code(self):
         lesson_path = self.lessons_dir / "LL-002-PROC-Fixture2.md"
@@ -487,9 +489,12 @@ class TestF2DuplicateIdOnDiskAfterWrite(_GenerateLessonsIndexFixtureBase):
         self.assertIn("[duplicate-id] LL-002", out)
         self.assertIn("Fixture2.md", out)
         self.assertIn("Fixture2-dup.md", out)
+        fix = 'reconcile_lessons.py" --renumber LL-002 <next free id> --file '
+        self.assertIn(fix, out)
 
-        code, _out, _err = self.run_main("--write")
+        code, _out, err = self.run_main("--write")
         self.assertEqual(code, 2)
+        self.assertIn(fix, err)
 
 
 class TestWriteThenCheckIdempotent(_GenerateLessonsIndexFixtureBase):

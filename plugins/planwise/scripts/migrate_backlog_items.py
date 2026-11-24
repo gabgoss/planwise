@@ -9,10 +9,13 @@ drift classes that need no judgment:
 - a missing `*Created: ...*` footer is added from `created:`
 - a frontmatter key outside the item template moves into a bullet under `## Notes`. A `blocked_by`
   key moves too, and the report says it was not converted into `blocks:`, which runs the other way.
+- a status outside the valid statuses is set to the target the answers file's `status_map` names for
+  it. A target of COMPLETE or CLOSED moves the file to Archive through `archive_item_files`. A status
+  with no answer is refused: its file is not written, and the action line names the fix.
 
 Everything else stays as written and is listed as an action: an over-cap title, a heading outside
-the template, a missing core section, an invalid status, and a body line or footer that differs from
-the frontmatter. The step never sets `refined` and never raises.
+the template, a missing core section, and a body line or footer that differs from the frontmatter.
+The step never sets `refined` and never raises.
 
 Order of work, so no write happens before its backup and no rewrite goes unchecked:
 
@@ -22,9 +25,11 @@ Order of work, so no write happens before its backup and no rewrite goes uncheck
    (`backlog_migration._backup`). A failed backup means no write is attempted.
 4. Write each file atomically, then read it back and run the preservation diff: every non-blank line
    of the original must survive in the written file, except the frontmatter lines that moved into
-   `## Notes` and the loop's own marker and callout lines in a folded section. One miss restores
-   every file this run wrote and refuses.
-5. Regenerate the index and check it, then capture each route again and print before and after.
+   `## Notes`, the old `status:` line of a mapped item, and the loop's own marker and callout lines
+   in a folded section. One miss restores every file this run wrote and refuses.
+5. Move each item mapped to COMPLETE or CLOSED to Archive. A failed move puts the moved files back
+   and restores every file this run wrote.
+6. Regenerate the index and check it, then capture each route again and print before and after.
 
 A second run finds nothing to repair, writes nothing and backs up nothing.
 """
@@ -42,7 +47,9 @@ try:
     import backlog_migration as bm
     import backlog_questions as bq
     import config_loader
+    import constants
     import migrate_backlog_support as sup
+    import migration_answers
     import score_backlog
     from frontmatter_parser import (
         FM_KEY_LINE_RE,
@@ -53,6 +60,7 @@ try:
     from markdown_parser import normalize_id
     from reconcile_common import read_text_preserving_newlines as read_text
     from scoped_rules import TOP_HEADING_RE
+    from update_backlog import archive_item_files, restore_item_files
 except ImportError as exc:
     raise ImportError(
         f"migrate_backlog_items could not import a sibling module ({exc}); "
@@ -65,7 +73,8 @@ BACKUP_FOLDER = "backlog-items"
 MECHANICAL = ("legacy-decision", "priority-line", "domain-line", "footer", "key-nontemplate")
 # The banner's name for each count a rewrite adds.
 COUNT_LABELS = {"fold": "legacy sections folded", "lines": "Priority and Domain lines added",
-                "footer": "footers added", "keys": "frontmatter keys moved into Notes"}
+                "footer": "footers added", "keys": "frontmatter keys moved into Notes",
+                "status": "statuses mapped", "archived": "items archived"}
 _BOM = "﻿"
 _H1_RE = re.compile(r"^# \S")
 _NOTES_RE = re.compile(r"^## Notes[ \t]*$")
@@ -81,18 +90,50 @@ class ItemRepairReport(bm.BacklogMigrationReport):
     remaining: dict = dataclasses.field(default_factory=dict)  # drift class key -> ids, after it
     routes: list = dataclasses.field(default_factory=list)  # (id, route before, route after)
     notes: list = dataclasses.field(default_factory=list)  # one action line each
+    refused: dict = dataclasses.field(default_factory=dict)  # out-of-set status -> ids left unwritten
 
 
 def migrate_backlog_items(cfg, from_version: str, to_version: str, answers: dict | None = None) -> ItemRepairReport:
     """Repair the project's open backlog item files. Never raises.
 
-    `answers` is the parsed answers file. Both call sites pass it, and no key is read here."""
+    `answers` is the parsed answers file. The only key read here is `status_map`."""
     report = ItemRepairReport(state="absent", index_path=None)
     try:
-        _migrate(cfg, from_version, to_version, report)
+        _migrate(cfg, from_version, to_version, report, answers)
     except Exception as exc:  # noqa: BLE001 -- the caller's upgrade must never fail on this step
         report.state, report.detail = "error", repr(exc)
     return report
+
+
+def _status_targets(answers: dict | None) -> dict:
+    """`{status: target}` from the answers' `status_map`. The loader checked each entry, so a
+    malformed one is skipped here."""
+    targets = {}
+    entries = answers.get("status_map") if isinstance(answers, dict) else None
+    for entry in entries if isinstance(entries, list) else []:
+        pair = migration_answers.parse_status_map_entry(entry)
+        if pair is not None:
+            targets[pair[0]] = pair[1]
+    return targets
+
+
+def _status_of(text: str) -> str:
+    """The unquoted `status:` value of an item's LF text, or "" when its frontmatter cannot be read."""
+    block = split_frontmatter_block(text)
+    fm = parse_frontmatter_map(block[0]) if block is not None else None
+    return shape._unquote((fm or {}).get("status") or "")
+
+
+def _set_status(fm_text: str, target: str) -> tuple:
+    """The frontmatter text with its one `status:` line set to `target`, and the line it replaced.
+    A frontmatter with no single `status:` line comes back unchanged with None."""
+    lines = fm_text.split("\n")
+    at = [i for i, line in enumerate(lines) if (match := FM_KEY_LINE_RE.match(line)) and match.group(1) == "status"]
+    if len(at) != 1:
+        return fm_text, None
+    old = lines[at[0]].rstrip()
+    lines[at[0]] = f"status: {target}"
+    return "\n".join(lines), old
 
 
 def _find(lines: list, flags: list, pattern) -> int | None:
@@ -209,13 +250,22 @@ def _add_footer(body: str, created: str) -> tuple:
     return "\n".join([*lines, *opener, "", f"*Created: {created}*"]) + "\n", True
 
 
-def _plan_item(path: Path, ident: str, hits: dict, notes: list):
-    """The rewrite of one item as a plan dict, or None when its text would not change."""
+def _plan_item(path: Path, ident: str, hits: dict, notes: list, targets: dict, refused: dict):
+    """The rewrite of one item as a plan dict, or None when its text would not change.
+
+    `targets` is the answered `status_map`. An item whose out-of-set status has no answer is added to
+    `refused` and gets no plan, so its file is not written."""
     raw = path.read_bytes()
     text = raw.decode("utf-8")
     eol = "\r\n" if "\r\n" in text else "\n"
     bom = _BOM if text.startswith(_BOM) else ""
     lf = text[len(bom):].replace("\r\n", "\n")
+    status, status_to = _status_of(lf), None
+    if "status-invalid" in hits and status:  # a blank status gives the user nothing to map from
+        status_to = targets.get(status)
+        if status_to is None:
+            refused.setdefault(status, []).append(ident)
+            return None
     reference, changes = lf, []
     if "legacy-decision" in hits:
         folded = _fold(raw[len(bom.encode("utf-8")):], ident, notes)
@@ -243,6 +293,14 @@ def _plan_item(path: Path, ident: str, hits: dict, notes: list):
         if "blocked_by" in extras:
             notes.append(f"{ident}: `blocked_by` now sits under Notes. Add {ident} to its prerequisite's "
                          "`blocks:` by hand, because the key names the opposite direction")
+    if status_to is not None:
+        fm_text, old_line = _set_status(fm_text, status_to)
+        if old_line is None:
+            notes.append(f"{ident}: the status {status!r} was left in place (the frontmatter has no single status line)")
+            status_to = None
+        else:
+            moved.append(old_line)
+            changes.append(("status", 1, f"mapped status {status} to {status_to}"))
     body, added = _add_lines(body, unquote(fm.get("priority") or ""), unquote(fm.get("abbrev") or ""))
     if added:
         changes.append(("lines", len(added), "added the " + " and ".join(added) + " line"))
@@ -253,7 +311,7 @@ def _plan_item(path: Path, ident: str, hits: dict, notes: list):
     if new.encode("utf-8") == raw:
         return None
     return {"path": path, "id": ident, "data": new.encode("utf-8"), "reference": reference,
-            "moved": moved, "changes": changes}
+            "moved": moved, "changes": changes, "status_to": status_to}
 
 
 def _dropped(reference: str, written: str, moved: list) -> list:
@@ -282,7 +340,25 @@ def _routes(config: dict, ids: list) -> dict:
     return result
 
 
-def _migrate(cfg, from_version: str, to_version: str, report: ItemRepairReport) -> None:
+def _archive(closing: list, backlog_dir, archive_dir, pre: dict, report: ItemRepairReport) -> bool:
+    """Move the items mapped to COMPLETE or CLOSED into Archive. A failed move puts the moved files
+    back, restores every file this run wrote and returns False."""
+    results = archive_item_files(Path(backlog_dir), Path(archive_dir), [plan["path"].name for plan in closing])
+    failed = [f"{name} ({message})" for name, ok, message in results if not ok]
+    if not failed:
+        return True
+    restore_item_files(Path(backlog_dir), Path(archive_dir), [name for name, ok, _message in results if ok])
+    report.detail = "could not archive " + "; ".join(failed)
+    bm._write_failed(report, pre, f"fix what the archive move names, {bm.RERUN}")
+    return False
+
+
+def _status_fix(status: str) -> str:
+    return (f'answer the status question in /planwise upgrade, or write "{status}->NOT_STARTED" (or another '
+            "valid status) into status_map in the answers file, then re-run /planwise upgrade")
+
+
+def _migrate(cfg, from_version: str, to_version: str, report: ItemRepairReport, answers: dict | None) -> None:
     config_path = Path(cfg.project_root) / cfg.planwise_root / "config.yaml"
     if not config_path.is_file():
         return
@@ -299,11 +375,15 @@ def _migrate(cfg, from_version: str, to_version: str, report: ItemRepairReport) 
     before = shape.scan_item_shapes(backlog_dir)
     report.scanned, report.found = before.scanned, {k: v for k, v in before.classes.items() if v}
     graded, _unreadable = shape.graded_items(backlog_dir)
-    plans = []
+    plans, targets = [], _status_targets(answers)
     for path, ident, hits in graded:
-        planned = _plan_item(path, ident, hits, report.notes) if any(key in hits for key in MECHANICAL) else None
+        wanted = "status-invalid" in hits or any(key in hits for key in MECHANICAL)
+        planned = _plan_item(path, ident, hits, report.notes, targets, report.refused) if wanted else None
         if planned is not None:
             plans.append(planned)
+    for status, ids in report.refused.items():
+        report.notes.append(f"{shape._id_list(ids)}: the status {status!r} has no answer, so "
+                            f"{'its file was' if len(ids) == 1 else 'their files were'} not written. {_status_fix(status)}")
     if not plans:
         report.state, report.remaining = "clean", report.found
         return
@@ -332,17 +412,23 @@ def _migrate(cfg, from_version: str, to_version: str, report: ItemRepairReport) 
         bm._write_failed(report, pre, "report this to the plugin's maintainers with the backups; nothing was kept")
         report.state = "refused"
         return
+    closing = [plan for plan in plans if plan["status_to"] in constants.ARCHIVE_STATUSES]
+    if closing and not _archive(closing, backlog_dir, config["_archive_dir"], pre, report):
+        return
     for plan in plans:
         reason = "; ".join(text for _tag, _n, text in plan["changes"]) + "; " + bm._kept_at(plan["path"], backlog_dir, report)
         bm._log(cfg, from_version, to_version, plan["path"], ACTION, reason, report)
         for tag, count, _text in plan["changes"]:
             report.counts[tag] = report.counts.get(tag, 0) + count
+    if closing:
+        report.counts["archived"] = len(closing)
     if not bm._regenerate(cfg, from_version, to_version, config, index_path, report):
         if report.state != "backup_failed":
             report.state, report.fix = "write_failed", f"fix what the generator names, {bm.RERUN}"
         return
     routes_after = _routes(config, ids)
-    report.routes = [(ident, routes_before[ident], routes_after[ident]) for ident in ids]
+    shut = {plan["id"] for plan in closing}  # an archived item has no open route to read
+    report.routes = [(ident, routes_before[ident], "archived" if ident in shut else routes_after[ident]) for ident in ids]
     report.remaining = {k: v for k, v in shape.scan_item_shapes(backlog_dir).classes.items() if v}
     report.state = "migrated"
 

@@ -37,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 from config_loader import load_config
 from generate_plans_index import (
+    PlansRender,
     diff_index_rows,
     index_matches_render,
     plans_index_path,
@@ -154,10 +155,13 @@ def _drift_record(finding: dict, disk_by_line: dict, rendered_by_path: dict) -> 
     return record
 
 
-def detect_drift(config: dict) -> dict:
+def detect_drift(config: dict, render: PlansRender | None = None, *, content: str | None = None) -> dict:
     """Compare the on-disk plans index with the index the generator would render.
 
-    Read-only. Never writes. Returns:
+    Read-only. Never writes. A caller that already holds a render of this tree
+    passes it as `render`, so the tree is walked once. A caller that already
+    read the index passes its text as `content`, and the function then performs
+    no read and treats the index as present. Returns:
         {"drifts": [{"class", "abbrev", "path", "message", ...}, ...],
          "anomalies": [{"class", "abbrev", "reason", "expected_path", ...}, ...],
          "compared": int, "total": int, "status": str}
@@ -170,8 +174,11 @@ def detect_drift(config: dict) -> dict:
     `legacy-shape`, `could-not-run`, `incomplete`, `index-missing` or `ran`.
     """
     index_path = plans_index_path(config)
-    exists = index_path.is_file()
-    content = read_text_preserving_newlines(index_path) if exists else ""
+    if content is not None:
+        exists = True
+    else:
+        exists = index_path.is_file()
+        content = read_text_preserving_newlines(index_path) if exists else ""
     table = parse_index_table(content)
 
     if detect_index_shape(content) == "legacy":
@@ -183,7 +190,7 @@ def detect_drift(config: dict) -> dict:
         }
         return {"drifts": [], "anomalies": [anomaly], "compared": 0, "total": len(table.table_lines), "status": "legacy-shape"}
 
-    render = render_plans_index(config)
+    render = render if render is not None else render_plans_index(config)
     findings = diff_index_rows(table.rows, render.rows)
     disk_by_line = {row.line_number: row for row in table.rows}
     rendered_by_path: dict = {}
@@ -268,17 +275,19 @@ def detect_drift(config: dict) -> dict:
     return {"drifts": drifts, "anomalies": anomalies, "compared": compared, "total": total, "status": status}
 
 
-def _write_through_generator(config: dict) -> tuple[int, int, str | None]:
-    """Write the index through the generator. Returns (rows changed, write exit code, budget warning).
+def _write_through_generator(config: dict) -> tuple[int, int, str | None, PlansRender]:
+    """Write the index through the generator. Returns (rows changed, write exit code, budget warning, render).
 
     Re-reads the index fresh, so a row healed since an earlier `detect_drift`
     is not counted. When the file already equals the render (the `Generated:`
     line masked) nothing is written. The count is the number of Paths whose
-    row the render adds, drops or changes. When the generator refuses the
-    write, this raises `WriteRefusedError` with the generator's message. A
-    render written over the budget returns as any other write, with the
-    generator's budget warning as the third item (`None` otherwise). This
-    function prints nothing.
+    row the render adds, drops or changes, counted from the index text the
+    write itself read. When the generator refuses the write, this raises
+    `WriteRefusedError` with the generator's message. A render written over
+    the budget returns as any other write, with the generator's budget
+    warning as the third item (`None` otherwise). The fourth item is the one
+    render this call made, so the caller can reuse it. This function prints
+    nothing.
     """
     index_path = plans_index_path(config)
     exists = index_path.is_file()
@@ -289,14 +298,14 @@ def _write_through_generator(config: dict) -> tuple[int, int, str | None]:
     render = render_plans_index(config)
     anomaly_code = 1 if render.anomalies else 0
     if exists and index_matches_render(disk, render):
-        return 0, anomaly_code, None
+        return 0, anomaly_code, None, render
 
-    findings = diff_index_rows(parse_index_table(disk).rows, render.rows)
-    changed = len({finding["path"] for finding in findings if finding["class"] in _ROW_CLASSES})
-    result = write_plans_index(config)
+    result = write_plans_index(config, render=render)
     if result.refusal is not None:
         raise WriteRefusedError(result.refusal)
-    return changed, result.exit_code, result.budget_warning
+    findings = diff_index_rows(parse_index_table(result.disk).rows, render.rows)
+    changed = len({finding["path"] for finding in findings if finding["class"] in _ROW_CLASSES})
+    return changed, result.exit_code, result.budget_warning, render
 
 
 def reconcile(config: dict) -> int:
@@ -378,7 +387,7 @@ def _report_write(config: dict, index_path: Path, want_json: bool) -> int:
         print(f"Error: Plans index not found at {index_path}", file=sys.stderr)
         return 1
     try:
-        written, code, budget_warning = _write_through_generator(config)
+        written, code, budget_warning, render = _write_through_generator(config)
     except (LegacyIndexError, WriteRefusedError) as exc:
         print(exc, file=sys.stderr)
         return 2
@@ -386,7 +395,7 @@ def _report_write(config: dict, index_path: Path, want_json: bool) -> int:
         print(budget_warning, file=sys.stderr)
     print(f"Reconciled {written} row(s).")
     if want_json:
-        _print_json(detect_drift(config))
+        _print_json(detect_drift(config, render=render))
     return code
 
 

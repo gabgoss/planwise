@@ -122,6 +122,15 @@ A count in a candidate ("three records carry lists") is a measurement taken once
 
 Never re-target to a guessed replacement. Full discipline: `references/verify-backlog-citation-freshness.md` §11.
 
+### 2.6 Absence claims used as evidence
+
+When an `EVIDENCE` line or a criterion proof says something is absent, the line must show that the search could see its subject. Record two things in that line:
+
+1. **Every spelling searched.** List each name the subject can go by in that source: the feature word, its option or flag name, its object keys and its message text. One word is not a search of a feature.
+2. **One positive control.** Run one search for a term known to be present in the same source, with the same tool and path, and record its hit count.
+
+Write the line as `{claim} -- searched: {spelling} | {spelling}; control: {term} -> {n} hits`. An absence line that lacks either part reads `absence unproven`, and no disposition rests on it alone.
+
 ---
 
 ## 3. WRITE — One Fact Sheet for the Batch

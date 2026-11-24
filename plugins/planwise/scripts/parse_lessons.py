@@ -660,7 +660,12 @@ def _format_duplicates_report(known: dict) -> str:
         lines.append("Duplicate lesson ids on disk:")
         for lesson_id in sorted(known["duplicates_on_disk"]):
             paths = known["duplicates_on_disk"][lesson_id]
-            lines.append(f"  {format_id(lesson_id)}: {', '.join(paths)}")
+            scripts_dir = Path(__file__).resolve().parent.as_posix()
+            fix = (
+                f'. Fix: python "{scripts_dir}/reconcile_lessons.py" --renumber {format_id(lesson_id)}'
+                f" <next free id> --file {Path(str(paths[0])).name}"
+            )
+            lines.append(f"  {format_id(lesson_id)}: {', '.join(paths)}{fix}")
     if known["duplicates_in_index"]:
         lines.append("Duplicate row ids in the index:")
         for lesson_id in sorted(known["duplicates_in_index"]):

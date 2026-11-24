@@ -23,7 +23,7 @@ This handler spans **three files**, split by topic because the combined text exc
 
 ## Config Gate
 
-1. Resolve config.yaml: a) `planwise/config.yaml`; b) `*/config.yaml` one level down from project root.
+1. Resolve config.yaml: a) `planwise/config.yaml`; b) `*/config.yaml` one level down from project root. Resolution is exactly these two locations, checked from the invocation directory, and is never inferred from a path string. A `config.yaml` anywhere else belongs to another project and is never read.
 2. If found → continue. Extract `plugin_root`, `project.planwise_root`, `project.plans_dir`, `project.backlog_dir`, `project.lessons_dir` (absent → skip Stage 13), `project.feedback_dir` (absent → default `Feedback/Feedback-Drafts`), `project.index_files`, and the `context:` Token Saver keys (`token_saver`, `token_saver_runner_overhead`, `token_saver_orchestrator_overhead`, `token_saver_session_target`, `token_saver_overhead_measured_on`, `token_saver_context_breakdown`) plus the pinned `plugin_version`.
 3. If NOT found: this install is **not initialized**. Recommend `/planwise init` and **STOP** — `doctor` is read-only and never initializes on the user's behalf. (This is the same "not initialized" outcome the Preflight version-state gate reports; do not auto-init.)
 

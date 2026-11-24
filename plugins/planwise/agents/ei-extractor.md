@@ -40,7 +40,7 @@ The spawn prompt supplies these fields. It carries the sprint's facts only. This
 | `sprint_id` | `S{XX}` |
 | `sprint_folder` | absolute path of the sprint folder under the plan root |
 | `meta_root` | absolute path of `Meta-{Abbrev}/` |
-| `source_map` | rows `Spec #{N} \| {filename} \| T{1,2,3} \| {absolute path}` for this sprint's sources |
+| `source_map` | rows `Spec #{N} \| {filename} \| T{1,2,3} \| {absolute path} \| {scope}` for this sprint's sources. `{scope}` is `primary \| reference`. The caller sets `reference` for a cross-sprint reference part |
 | `ei_sections` | rows `§{n} \| {Topic} \| {task ids} \| {Spec #N list}`, fixed by the caller |
 | `deferred_targets` | rows `{sprint id} \| {sprint name}` for every other sprint, the legal Target values of the Deferred log |
 | `spec_path` | absolute path of the metadata spec, read only |
@@ -49,7 +49,7 @@ The spawn prompt supplies these fields. It carries the sprint's facts only. This
 
 1. Confirm that `sprint_folder` exists, and that every `source_map` path exists, with `Glob`. A missing path is a `BLOCKED` return that names it.
 2. Confirm that `source_map` holds at least one `T1` row. A Tier 1 raw output exists for every Discovery sprint, and skipping Tier 1 is a blocker. With no `T1` row, return `BLOCKED` and name the gap.
-3. Measure every `source_map` file once. The sum of the token figures is `SOURCE_TOKENS`:
+3. Measure every `source_map` file once. The sum of the token figures of the `primary` rows is `SOURCE_TOKENS`. The sum of the token figures of the `reference` rows is `REFERENCE_TOKENS`. Reference rows stay in `Extracted from:` and Cross-References, and never enter the denominator:
    ```
    python "{plugin_root}/scripts/measure_files.py" {every source_map path}
    ```
@@ -159,7 +159,7 @@ python "{plugin_root}/scripts/measure_files.py" {EI files} {Deferred log}
 
 - `EI_TOKENS` is the summed token figure of the EI file or parts.
 - `DEFERRED_TOKENS` is the Deferred log's token figure.
-- `RETENTION_PCT` = `(EI_TOKENS + DEFERRED_TOKENS) / SOURCE_TOKENS × 100`, to one decimal.
+- `RETENTION_PCT` = `(EI_TOKENS + DEFERRED_TOKENS) / SOURCE_TOKENS × 100`, to one decimal. `SOURCE_TOKENS` counts primary source tokens only. `REFERENCE_TOKENS` is reported and never graded.
 
 Write the figure into Part 1 as the header line `**Retention:** {RETENTION_PCT}%`, directly under the `**Source lines:**` line, with one `Edit`. The lint rule `retention-threshold` reads that line from Part 1 and warns when it is absent. Write the number and the percent sign, for example `**Retention:** 96.4%`. A file split into parts carries the line in Part 1 only. If an edit changes a measured file after this step, measure again and correct the line.
 
@@ -200,7 +200,8 @@ TASK_ID:          {Abbrev}-S{XX}
 OUTPUT_FILES:     {absolute paths, comma-separated, or none}
 LINES_PRODUCED:   {sum across OUTPUT_FILES}
 EI_SECTION_MAP:   §{n}={EI filename}; §{n}={EI filename}; ...
-SOURCE_TOKENS:    {sum of Tier 1+2+3 source tokens, measured}
+SOURCE_TOKENS:    {sum of primary source tokens, measured}
+REFERENCE_TOKENS: {sum of reference source tokens, measured, ungraded}
 EI_TOKENS:        {sum of EI section tokens, measured}
 DEFERRED_TOKENS:  {Deferred log tokens, measured}
 RETENTION_PCT:    {(EI_TOKENS + DEFERRED_TOKENS) / SOURCE_TOKENS x 100, one decimal}

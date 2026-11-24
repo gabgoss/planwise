@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Dispatch preflight set checks: output overlap, prerequisites, siblings, decomposition.
+"""Dispatch preflight set checks: output overlap, prerequisites, siblings, decomposition, upstream Outputs.
 
-Four subcommands, each a set comparison that prints the number of subjects
+Five subcommands, each a set comparison that prints the number of subjects
 it saw before its verdict. Every subcommand exits 0 when its sets agree, 1
 when it lists a difference, and 2 on unreadable or missing input.
 
@@ -37,11 +37,31 @@ when it lists a difference, and 2 on unreadable or missing input.
     ``N``, default 2, optionally only those starting with ``P``). Both
     differences are listed. Names compare after case folding, whitespace
     collapsing, backtick removal and dropping a leading section number.
+
+``upstream --candidate <task file> --plan-root <dir>``
+    Each Required Context path into an ``Outputs/`` folder (a code span that
+    holds an ``Outputs`` segment and ends in a file extension) is resolved
+    against the live listing. Prints ``required-context output paths: N``,
+    then one line per path. ``resolved`` means the path exists beside the task
+    file or exactly one file of that basename sits in an ``Outputs`` folder
+    under the plan root. Otherwise the basename's task-id prefix
+    (``ABC-S01-02-03-``) is matched against every ``Outputs`` folder: one hit
+    prints ``drift: {row} -> {live path}``, no hit prints ``missing: {row}``
+    (the producer has not written the file), and two or more print
+    ``ambiguous: {row} -> {list}`` and never pick one. Two files that share
+    the basename also print ``ambiguous``. A basename with no task-id prefix
+    and no file prints ``unresolved: {row}``. Exit 0 when every path resolved
+    (also when N is 0), 1 on any other line, 2 on an unreadable candidate, a
+    plan root that is not a folder, or a candidate with no Required Context
+    section. Cannot see: an Output named in prose or by a glob or a
+    placeholder, a path outside Required Context, and changed content under an
+    unchanged name.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from datetime import date
@@ -74,6 +94,9 @@ _SHORT_SPRINT_RE = re.compile(
 _RANGE_RE = re.compile(r"(\d+)(?:\s*(?:[–—-]|\bto\b)\s*(\d+))?", re.IGNORECASE)
 _FOLDER_RE = re.compile(r"^Sprint-(\d+)")
 _SECTION_NUMBER_RE = re.compile(r"^\d+(?:\.\d+)*\.?\s+")
+# A task id: letters and digits, -S, sprint, session, task number, an optional letter, then a hyphen.
+_TASK_ID_RE = re.compile(r"^([A-Za-z0-9]+-S\d+-\d+-\d+[A-Za-z]?)-")
+_PLACEHOLDER_CHARS = frozenset("*?{}[]<>")
 
 
 # --- shared parsing ---------------------------------------------------------
@@ -436,6 +459,94 @@ def _cmd_decomposition(args: argparse.Namespace) -> int:
     return 1
 
 
+# --- upstream ---------------------------------------------------------------
+
+
+def required_context_outputs(text: str) -> list[str] | None:
+    """``Outputs/`` file paths in the Required Context section, in order, once each.
+
+    ``None`` when the text has no Required Context heading. A code span that holds a
+    glob or a placeholder character is skipped, because it names no one file.
+    """
+    lines = section_lines(text, "required context")
+    if lines is None:
+        return None
+    found: list[str] = []
+    for line in lines:
+        for token in _CODE_SPAN_RE.findall(line):
+            path = normalise_path(token)
+            if "Outputs" not in path.split("/") or not _EXTENSION_RE.search(path):
+                continue
+            if _PLACEHOLDER_CHARS & set(path) or path in found:
+                continue
+            found.append(path)
+    return found
+
+
+def outputs_index(plan_root: Path) -> dict[str, list[str]]:
+    """Basename to the plan-root-relative paths of every file under an ``Outputs`` folder."""
+    index: dict[str, list[str]] = {}
+    for dirpath, _dirs, files in os.walk(plan_root):
+        rel_dir = Path(dirpath).relative_to(plan_root).as_posix()
+        if "Outputs" not in rel_dir.split("/"):
+            continue
+        for name in sorted(files):
+            index.setdefault(name, []).append(f"{rel_dir}/{name}")
+    return index
+
+
+def classify_output(row: str, task_dir: Path, index: dict[str, list[str]]) -> tuple[str, str]:
+    """Verdict and detail for one Required Context Output path.
+
+    The verdict is ``resolved``, ``drift``, ``missing``, ``ambiguous`` or ``unresolved``.
+    The detail is the live path (drift) or the comma-joined candidates (ambiguous).
+    """
+    if (task_dir / row).is_file():
+        return "resolved", ""
+    name = row.rsplit("/", 1)[-1]
+    same = index.get(name, [])
+    if len(same) == 1:
+        return "resolved", ""
+    if len(same) > 1:
+        return "ambiguous", ", ".join(same)
+    match = _TASK_ID_RE.match(name)
+    if not match:
+        return "unresolved", ""
+    prefix = match.group(1) + "-"
+    hits = sorted(path for live, paths in index.items() if live.startswith(prefix) for path in paths)
+    if not hits:
+        return "missing", ""
+    if len(hits) == 1:
+        return "drift", hits[0]
+    return "ambiguous", ", ".join(hits)
+
+
+def _cmd_upstream(args: argparse.Namespace) -> int:
+    try:
+        text = args.candidate.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"error: {exc}")
+        return 2
+    if not args.plan_root.is_dir():
+        print(f"error: --plan-root is not a folder: {args.plan_root}")
+        return 2
+    rows = required_context_outputs(text)
+    if rows is None:
+        print(f"error: no Required Context section in {args.candidate}")
+        return 2
+    print(f"required-context output paths: {len(rows)}")
+    index = outputs_index(args.plan_root)
+    failed = False
+    for row in rows:
+        verdict, detail = classify_output(row, args.candidate.parent, index)
+        if verdict == "resolved":
+            print(f"resolved: {row}")
+            continue
+        failed = True
+        print(f"{verdict}: {row} -> {detail}" if detail else f"{verdict}: {row}")
+    return 1 if failed else 0
+
+
 # --- CLI --------------------------------------------------------------------
 
 
@@ -466,6 +577,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--heading-level", type=int, default=2)
     p.add_argument("--heading-prefix", default="")
     p.set_defaults(func=_cmd_decomposition)
+
+    p = sub.add_parser("upstream", help="Required Context Output paths against the live Outputs listing")
+    p.add_argument("--candidate", required=True, type=Path)
+    p.add_argument("--plan-root", required=True, type=Path)
+    p.set_defaults(func=_cmd_upstream)
     return parser
 
 

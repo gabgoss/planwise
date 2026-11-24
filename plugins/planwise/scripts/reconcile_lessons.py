@@ -298,12 +298,20 @@ def detect_drift(config: dict) -> dict:
     # one entry.
     for lesson_id in sorted(src["duplicates_on_disk"]):
         paths = src["duplicates_on_disk"][lesson_id]
+        scripts_dir = Path(__file__).resolve().parent.as_posix()
+        fix = (
+            f'. Fix: python "{scripts_dir}/reconcile_lessons.py" --renumber {format_id(lesson_id)}'
+            f" <next free id> --file {paths[0].name}"
+        )
         anomalies.append(
             {
                 "kind": "duplicate_id",
                 "id": format_id(lesson_id),
                 "file": ", ".join(p.name for p in paths),
-                "reason": f"{len(paths)} lesson files claim {format_id(lesson_id)} — reported by id, never last-wins",
+                "reason": (
+                    f"{len(paths)} lesson files claim {format_id(lesson_id)} — "
+                    f"reported by id, never last-wins{fix}"
+                ),
             }
         )
 

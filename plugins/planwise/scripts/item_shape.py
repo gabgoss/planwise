@@ -39,6 +39,8 @@ _THEMATIC_BREAK_RE = re.compile(r"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*\r?$")
 # The empty forms of `## Open Questions`, compared lower-case.
 _EMPTY_QUESTIONS = ("none", "none.")
 _NUMBERED_RE = re.compile(r"^(\d+)\.\s")
+# A step only the user can run, written as one line inside the Verification fence.
+_USER_RUN_RE = re.compile(r"^\s*#\s*user-run:", re.IGNORECASE)
 # A fence line at any indent: leading whitespace, a run of 3+ backticks or
 # 3+ tildes, then the rest of the line.
 _ANY_INDENT_FENCE_RE = re.compile(r"^([ \t]*)(`{3,}|~{3,})(.*)$")
@@ -275,6 +277,11 @@ def compute_item_shape(frontmatter: dict, *, body: str | None = None, blanked: s
         lines[index].strip() and not blank_lines[index]
         for index in range(*spans["Verification"])
     )
+    # A fenced `# user-run:` line is a step the loop cannot run, so the item cannot close in a loop.
+    user_run_verification = "Verification" in spans and any(
+        not blank_lines[index] and _USER_RUN_RE.match(lines[index])
+        for index in range(*spans["Verification"])
+    )
     open_questions = _open_questions_state(blanked_section("Open Questions"))
 
     shape_ok = (
@@ -294,6 +301,7 @@ def compute_item_shape(frontmatter: dict, *, body: str | None = None, blanked: s
         "needs_plan": needs_plan,
         "resolution_steps": resolution_steps,
         "has_verification": has_verification,
+        "user_run_verification": user_run_verification,
         "open_questions": open_questions,
         "shape_ok": shape_ok,
         "missing": missing,

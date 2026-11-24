@@ -21,13 +21,22 @@ sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__py
 from config_loader import load_config
 from constants import CLOSED_STATUSES, HOLD_STATUSES
 from frontmatter_parser import parse_frontmatter_map, split_frontmatter_block
-from generate_backlog_index import _index_naming, is_generated_index_file, shard_for
+from generate_backlog_index import (
+    GeneratorError,
+    _index_naming,
+    _iter_item_files,
+    _read_frontmatter_map,
+    _strip_quotes,
+    is_generated_index_file,
+    shard_for,
+)
 from markdown_parser import (
     id_number,
     normalize_id,
     parse_markdown_table,
 )
 from migrate_backlog_support import dependency_cell_parts
+from worktree_scan import sibling_dirs
 
 # The heading a hand-authored legacy index carries above its table.
 # generate_backlog_index.py's hub/overflow-leaf/Archive-shard output never
@@ -295,6 +304,11 @@ def collect_all_known_ids(config: dict) -> list[str]:
     every Archive shard. `--next-id` unions across all three (Execution
     Step 5) -- a hub-only max would reissue an id that already exists in a
     shard, the collision this whole resolution exists to prevent.
+
+    The union also covers the same backlog and Archive folders of every
+    other linked git worktree of the repository (`worktree_scan.sibling_dirs`),
+    so two worktrees do not allocate the same id. Only local worktree
+    folders are read. A remote branch or a fetched ref is never read.
     """
     naming = _index_naming(config["_index_path"])
     ids: list[str] = []
@@ -302,7 +316,58 @@ def collect_all_known_ids(config: dict) -> list[str]:
         ids.extend(item["id"] for item in _read_backlog_items(path))
     for path in _enumerate_generated_files(config["_archive_dir"], naming):
         ids.extend(item["id"] for item in _read_backlog_items(path))
+    sibling_folders = sibling_dirs(config["_backlog_dir"]) + sibling_dirs(config["_archive_dir"])
+    for folder in sibling_folders:
+        for path in _enumerate_generated_files(folder, naming):
+            ids.extend(item["id"] for item in _read_backlog_items(path))
     return ids
+
+
+def collect_disk_item_ids(config: dict) -> list[str]:
+    """Every id an on-disk item file's OWN frontmatter carries, in `Backlog/`
+    and `Archive/`.
+
+    `collect_all_known_ids` reads only generated index files, and those change
+    only when `generate_backlog_index.py --write` runs. An item file filed
+    between two index writes has no row anywhere, so the index read alone
+    prints its id again. Reads through the generator's own item-file iterator
+    and frontmatter reader, so a "00-" file and a generated index file are
+    never counted as items. A file whose frontmatter cannot be read, or that
+    carries no id, is skipped and never guessed at.
+    """
+    ids: list[str] = []
+    for path in _iter_item_files(config["_backlog_dir"], config["_archive_dir"], config["_index_path"]):
+        try:
+            fm_map = _read_frontmatter_map(path)
+        except (GeneratorError, OSError, UnicodeDecodeError):
+            continue
+        raw = fm_map.get("id")
+        if raw is None:
+            continue
+        item_id = normalize_id(_strip_quotes(str(raw).strip()))
+        if item_id:
+            ids.append(item_id)
+    return ids
+
+
+def next_free_id(config: dict) -> str:
+    """The next id `--next-id` prints: one past the highest numeric id across
+    the index files (`collect_all_known_ids`) and the on-disk item files
+    (`collect_disk_item_ids`).
+
+    Prints the no-numeric-id warning to stderr when rows or files exist but
+    none carries a numeric id, and then allocates 001.
+    """
+    all_ids = collect_all_known_ids(config) + collect_disk_item_ids(config)
+    numbers = [n for n in (id_number(i) for i in all_ids) if n is not None]
+    max_id = max(numbers, default=0)
+    if not numbers and all_ids:
+        print(
+            f"WARNING: {len(set(all_ids))} row(s) parsed but none carried a numeric ID; "
+            f"allocating 001. Check the index's ID column format.",
+            file=sys.stderr,
+        )
+    return f"{max_id + 1:03d}"
 
 
 def resolve_closed_item_shard(item_id: str, config: dict) -> tuple[Path | None, bool]:
@@ -422,6 +487,39 @@ def build_blocked_by_map(
                 existing.append(blocker)
 
     return blocked_by
+
+
+def open_blocker_map(
+    config: dict,
+    rows: list[dict] | None = None,
+    index_text: str | None = None,
+) -> dict[str, list[str]]:
+    """The map of each blocked item id to its open blocker ids, joined in one place.
+
+    Joins the hub-family rows (which carry ``blocks``), the legacy
+    ``## Dependencies`` table and the archived-closed ids, then calls
+    ``build_blocked_by_map``. A caller that already holds the rows or the
+    index text passes them. ``rows=None`` reads the hub family. ``index_text=None``
+    reads ``config["_index_path"]``, and an unreadable index counts as empty.
+    The Archive shards are read only when a ``## Dependencies`` table exists,
+    so a generated corpus pays no extra read.
+    """
+    if rows is None:
+        naming = _index_naming(config["_index_path"])
+        rows = []
+        for path in _enumerate_generated_files(config["_backlog_dir"], naming):
+            rows.extend(_read_backlog_items(path))
+    text: str = ""
+    if index_text is not None:
+        text = index_text
+    else:
+        try:
+            text = config["_index_path"].read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+    dependencies = parse_dependencies_table(text)
+    archived_closed_ids = collect_archived_closed_ids(config) if dependencies else frozenset()
+    return build_blocked_by_map(dependencies, rows, archived_closed_ids)
 
 
 def order_with_blockers(
@@ -919,19 +1017,11 @@ def main():
     content = index_path.read_text(encoding="utf-8")
 
     if args.next_id:
-        # Union across the hub, every hub overflow leaf, and every Archive
-        # shard -- a hub-only max would reissue an id a shard already
-        # holds.
-        all_ids = collect_all_known_ids(config)
-        numbers = [n for n in (id_number(i) for i in all_ids) if n is not None]
-        max_id = max(numbers, default=0)
-        if not numbers and all_ids:
-            print(
-                f"WARNING: {len(all_ids)} row(s) parsed but none carried a numeric ID; "
-                f"allocating 001. Check the index's ID column format.",
-                file=sys.stderr,
-            )
-        print(f"{max_id + 1:03d}")
+        # Union across the hub, every hub overflow leaf, every Archive
+        # shard and every on-disk item file -- a hub-only max would reissue
+        # an id a shard already holds, and an index-only max would reissue
+        # the id of an item file filed since the last index write.
+        print(next_free_id(config))
         return
 
     # Union across the hub and every hub overflow leaf -- an open item
@@ -960,11 +1050,7 @@ def main():
         if shard_path is not None:
             all_items.extend(_read_backlog_items(shard_path))
 
-    dependencies = parse_dependencies_table(content)
-    # The Archive shards are read only when a legacy `## Dependencies` table
-    # exists: a generated corpus has none, so it pays no extra read.
-    archived_closed_ids = collect_archived_closed_ids(config) if dependencies else frozenset()
-    blocked_by_map = build_blocked_by_map(dependencies, all_items, archived_closed_ids)
+    blocked_by_map = open_blocker_map(config, rows=all_items, index_text=content)
 
     criteria = FilterCriteria(
         status=args.status,

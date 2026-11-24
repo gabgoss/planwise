@@ -139,8 +139,8 @@ A design file's `DESIGN` value maps to the item as the author's mapping table st
 
 ## 7. Constraints
 
-- Dispatch every agent in the foreground. A background dispatch loses its Write, Edit and Bash calls silently.
-- Dispatch one author at a time, with at most 8 candidates (file mode) or items (refine mode) per dispatch. Two concurrent authors can read the same next free id.
+- Request the foreground with `run_in_background: false`, as the spawn prompts below do. The harness can still run a dispatch in the background, and the caller cannot override it (seen on Claude Code 2.1.312 and 2.1.331). A background agent keeps every write that the session's permission mode and allow rules grant. It loses a call that needs approval, and the caller's denial count does not show the loss (measured headless on 2.1.310). So the gate is the file on disk, not the dispatch mode. After the preflight, `{handover_dir}/preflight.md` must exist before any planner runs. After each planner, its design file must exist, and section 5 routes a missing one. After the author, run the post-author index check below. A missing fact sheet stops the run, and the orchestrator reports it.
+- Dispatch one author at a time, with at most 8 candidates (file mode) or items (refine mode) per dispatch. Two concurrent authors in one tree can read the same next free id. `--next-id` unions the backlog of every linked git worktree of the same repository, so authors in separate worktrees do not collide. It never reads a remote branch or a fetched ref.
 - A set over 8 runs as sequential batches of at most 8. Each batch goes through the whole process with its own `handover_dir`, one after another. Run the post-author index check between batches, so the next `--next-id` sees the last batch's ids.
 - Dispatch the preflight once per batch, never once per candidate.
 - No spawned agent has a question tool. A user decision is a returned disposition or a `QUESTIONS` return, and the orchestrator asks.
