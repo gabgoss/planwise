@@ -8,7 +8,8 @@ reference and the agent files agree in both directions: every agent file is
 named in the table, every table row matches the file's `effort`, and an agent
 the table lists as inherited sets no `effort`. Every `model`, `effort` and
 `permissionMode` value comes from the set the reference's quick-reference table
-lists, and a YAML boolean is lowercase.
+lists, and a YAML boolean is lowercase. No agent names a tool in both its
+`tools` list and its `disallowedTools` list.
 
 Input. The real agents folder and `references/agent-authoring.md`. The table
 and the value sets are parsed from the reference at run time, never copied
@@ -18,11 +19,13 @@ Cannot see. The meaning of a pinned level (the table's Basis column), the
 agent body, and any key the reference does not list.
 
 Reference sections pinned. `agent-authoring.md §2` (Required Fields,
-Shipped Effort Levels, Validation Notes).
+Shipped Effort Levels, Validation Notes) and `agent-authoring.md §2b` (Common
+Configuration Mistakes: a tool in both lists).
 
 Controls. The live tree passes (positive). A renamed `name`, a removed table
 row, a drifted `effort`, a stray `effort` on an inherited agent, a bad
-`model`, and an uppercase boolean each fail and name the item (mutation). A
+`model`, an uppercase boolean, and a tool both granted and denied each fail
+and name the item (mutation). A
 file with no frontmatter, and a reference with no table, fail loudly (parse).
 
 Run with:  python -m pytest tests/test_agent_frontmatter.py -q
@@ -193,6 +196,27 @@ def check_values(agents: dict, value_sets: dict) -> list:
     return findings
 
 
+def tool_set(value: str) -> set:
+    """Return the tool names of a `tools` or `disallowedTools` value.
+
+    The flat frontmatter map appends every line after the key to its value,
+    including full-line YAML comments, so those are dropped before the split.
+    """
+    lines = [line for line in value.split("\n") if not line.lstrip().startswith("#")]
+    return {name.strip() for name in ",".join(lines).split(",") if name.strip()}
+
+
+def check_tool_lists(agents: dict) -> list:
+    """Return one finding per tool that an agent both grants and denies."""
+    findings = []
+    for stem, fields in agents.items():
+        granted = tool_set(fields.get("tools", ""))
+        denied = tool_set(fields.get("disallowedTools", ""))
+        for tool in sorted(granted & denied):
+            findings.append(f"{stem}: {tool} is in both tools and disallowedTools")
+    return findings
+
+
 def _live_findings() -> list:
     agents = load_agents(AGENTS)
     text = REFERENCE.read_text(encoding="utf-8")
@@ -201,6 +225,7 @@ def _live_findings() -> list:
         check_identity(agents)
         + check_effort_table(agents, pinned, inherited)
         + check_values(agents, parse_value_sets(text))
+        + check_tool_lists(agents)
     )
 
 
@@ -215,6 +240,12 @@ class LiveTreeTests(unittest.TestCase):
         pinned, inherited = parse_effort_table(REFERENCE.read_text(encoding="utf-8"))
         self.assertGreaterEqual(len(agents), 1)
         self.assertEqual(set(pinned) | inherited, set(agents))
+        # an empty parse of both lists would let check_tool_lists pass on any tree
+        both = [
+            stem for stem, fields in agents.items()
+            if tool_set(fields.get("tools", "")) and tool_set(fields.get("disallowedTools", ""))
+        ]
+        self.assertGreaterEqual(len(both), 1, "no agent has both a tools set and a disallowedTools set")
 
     def test_plan_preflight_is_pinned_high(self):
         pinned, _ = parse_effort_table(REFERENCE.read_text(encoding="utf-8"))
@@ -244,6 +275,7 @@ class MutationControlTests(unittest.TestCase):
             check_identity(agents)
             + check_effort_table(agents, pinned, inherited)
             + check_values(agents, parse_value_sets(self.text))
+            + check_tool_lists(agents)
         )
 
     def test_renamed_name_fails(self):
@@ -283,6 +315,12 @@ class MutationControlTests(unittest.TestCase):
         self._edit("fix-agent", "model: sonnet", "model: sonnet\nbackground: True")
         findings = self._all()
         self.assertTrue(any(f.startswith("fix-agent:") and "background" in f for f in findings), findings)
+
+    def test_tool_granted_and_denied_fails(self):
+        # Breaks agent-authoring.md §2b Common Configuration Mistakes: a tool is granted or denied, never both.
+        self._edit("ei-extractor", "disallowedTools: NotebookEdit", "disallowedTools: Write, NotebookEdit")
+        findings = self._all()
+        self.assertTrue(any(f.startswith("ei-extractor:") and "Write" in f for f in findings), findings)
 
     def test_overlong_description_fails(self):
         # Breaks agent-authoring.md §2 Required Fields: description is at most 1024 characters.
