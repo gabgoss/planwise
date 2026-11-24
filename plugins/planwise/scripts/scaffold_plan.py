@@ -197,6 +197,7 @@ from token_saver_writeback import (
     PLAN_TIME_FLAG,
     _fmt_k,
     _fmt_kib,
+    _write_set_keys,
     keyed_write_set,
     role_spellings,
     surface_entries,
@@ -849,16 +850,26 @@ def o_layers(lines, i, env):
 
 
 def o_intersection(lines, i, env):
+    """One row per layer: the files two members write, as the first of them spells each."""
     n = table_run(lines, i)
     consume(env, lines, i, n, "derived")
     tasks = {t["number"]: t for t in env.session["tasks"]}
+    # The plan folder is unknown here, so the session folder stands in for the plan root.
+    folder = env.project_root / session_dir(env.sprint, env.session)
+    own = {task_filename(env.spec, env.sprint, env.session, t): folder for t in tasks.values()}
     rows = []
     for k, members in layers(env.session["tasks"]).items():
-        targets = [set(tasks[m]["outputs"]) for m in members]
-        shared = set()
-        for a in range(len(targets)):
-            for b in range(a + 1, len(targets)):
-                shared |= targets[a] & targets[b]
+        first, shared = {}, set()
+        for m in members:
+            outputs = tasks[m]["outputs"]
+            # `Outputs/` reads from the parent of the task file, whose name does not matter.
+            keyed = _write_set_keys([(o, "m") for o in outputs], {"m": (folder / "m", None)}, own,
+                                    folder, env.project_root)
+            mine = {}
+            for (key, _ids), out in zip(keyed, outputs):
+                mine.setdefault(key, out)
+            shared |= {first[key] for key in mine if key in first}
+            first = {**mine, **first}
         wt = " / ".join(", ".join(f"`{o}`" for o in tasks[m]["outputs"]) for m in members)
         verdict = ("✅ single member" if len(members) == 1 else
                    "✅ disjoint — parallel stands" if not shared else "❌ NOT disjoint — serialized")
@@ -1339,7 +1350,7 @@ def render_all(spec, templates_dir=DEFAULT_TEMPLATES, date=None, project_root=No
     # Per sprint, each path key with its first authored spelling.
     menv.spellings = [{key: row[0] for key, row in reversed(keyed_write_set(rows, all_tasks, folder, root))}
                       for folder, rows in write_sets]
-    put(f"{a}-Master-Plan.md",render_doc(bodies["master"], menv, MASTER, spec.get("optional_sections", ())))
+    put(f"{a}-Master-Plan.md", render_doc(bodies["master"], menv, MASTER, spec.get("optional_sections", ())))
     for rel, text in plan_files:
         put(rel, text)
     return files, rec

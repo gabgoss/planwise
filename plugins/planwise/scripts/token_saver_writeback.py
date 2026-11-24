@@ -231,7 +231,37 @@ def _fmt_k(tokens: Decimal | int, places: str = "0.1") -> str:
 
 
 class _FileCache(dict):
-    """Per-run cache: each span file is read and split once, however many rows cite it."""
+    """Per-pass cache: each span file is read and split once, however many rows cite it.
+
+    `held` maps a resolved path to the bytes the run will write there. They
+    stand in for the disk copy, which predates the run's edits. `sized` and
+    `spanned` collect every resolved path whose size or text a price read.
+    """
+
+    def __init__(self, held: dict[Path, bytes] | None = None):
+        super().__init__()
+        self.held = held or {}
+        self.sized: set[Path] = set()
+        self.spanned: set[Path] = set()
+
+    def _held(self, path: Path, read: set[Path]) -> bytes | None:
+        full = path.resolve()
+        read.add(full)
+        return self.held.get(full)
+
+    def moved(self, original: dict[Path, bytes], new: dict[Path, bytes]) -> list[Path]:
+        """The read files whose `new` text or size is not the one this pass priced."""
+        out = []
+        for path in self.sized | self.spanned:
+            was, now = (texts.get(path, original.get(path)) for texts in (self.held, new))
+            if was != now and (path in self.spanned or len(was) != len(now)):
+                out.append(path)
+        return sorted(out)
+
+    def size(self, path: Path) -> int:
+        """The file's size: the run's own text when held, else the disk's."""
+        data = self._held(path, self.sized)
+        return os.path.getsize(path) if data is None else len(data)
 
     def lines(self, path: Path) -> list[bytes]:
         """The file's lines as bytes, each with its own line ending."""
@@ -243,7 +273,9 @@ class _FileCache(dict):
 
     def _load(self, path: Path) -> tuple[list[bytes], tuple[list, dict]]:
         if path not in self:
-            data = path.read_bytes()
+            data = self._held(path, self.spanned)
+            if data is None:
+                data = path.read_bytes()
             parts = data.split(b"\n")
             lines = [p + b"\n" for p in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
             heads = extract_headings(data.decode("utf-8", errors="replace"))
@@ -321,8 +353,9 @@ def price_row(
     row was priced with. A whole-file row is priced only when the
     cell holds a bare path: text after the path that is not one of the two
     span forms means the author priced something narrower than the file.
-    `cache` is the run's `_FileCache`, so a file cited by several span rows
-    is read once. File I/O errors propagate as `OSError` to the caller.
+    `cache` is the pass's `_FileCache`, so a file cited by several span rows
+    is read once, and a file the run rewrites is priced at the text it will
+    write. File I/O errors propagate as `OSError` to the caller.
     `own_bytes` is the encoded size of the task file's in-memory text. A
     whole-file row that resolves to the task file itself takes that size, not
     the size on disk, because the disk copy predates this run's edits.
@@ -370,7 +403,7 @@ def price_row(
         if resolved is None:
             return {"priced": False, "reason": unresolved_reason(cell, project_root)}
         num_bytes = (own_bytes if own_bytes is not None and _same_file(resolved, task_path)
-                     else os.path.getsize(resolved))
+                     else cache.size(resolved))
 
     _, content = content_class_for(resolved)
     tokens = estimate_tokens(num_bytes, model or "", content)
@@ -1025,7 +1058,7 @@ def writeset_figures(rows: list[tuple[str, str]], tasks: list[tuple[Path, str]],
     output tokens of a task split over its rows that reach this step. A row
     with none of the three gets (None, None, None). Rows that name one file
     get one figure. A row that names no path gets (None, None, "no path") and
-    takes no share. `size_of` gives the size of a file this run holds in memory.
+    takes no share. `size_of` gives the present size of the file that holds the rows.
     """
     cache = cache if cache is not None else _FileCache()
     named = {_task_id(text.split("\n"), path): (path, parse_agent(text)) for path, text in tasks}
@@ -1129,7 +1162,8 @@ def _write_writeset(buf: _Buffers, report: dict, sprint_plan: Path, plan_root: P
                                        "reason": "cell count differs from the header"})
 
         def size_of(path: Path) -> int | None:
-            return next((_text_bytes(ls) for p, ls in buf.lines.items() if _same_file(p, path)), None)
+            # Any other file this run rewrites is priced from `cache`.
+            return _text_bytes(lines) if _same_file(sprint_plan, path) else None
 
         for _ in range(_SELF_ROW_PASSES):
             measured = _text_bytes(lines)
@@ -1257,8 +1291,8 @@ def _sprint_plan_rows(buf: _Buffers, sprint_dir: Path) -> list[tuple] | None:
 
 
 def _write_master(buf: _Buffers, report: dict, plan_dir: Path, plan_root: Path,
-                  project_root: Path) -> bool:
-    """Re-roll the Master Plan's `### Write-Sets` sizes and total. True when its byte count moved.
+                  project_root: Path) -> None:
+    """Re-roll the Master Plan's `### Write-Sets` sizes and total.
 
     Every figure sums the printed cells of the Sprint Plans beside the Master
     Plan: this run's text when loaded, else the disk's. A row whose sprint has no
@@ -1267,7 +1301,7 @@ def _write_master(buf: _Buffers, report: dict, plan_dir: Path, plan_root: Path,
     """
     found = sorted(plan_dir.glob("*-Master-Plan.md"))
     if len(found) != 1:
-        return False
+        return
     master, what = found[0], "Write-Sets"
     fail = None
     try:
@@ -1277,14 +1311,13 @@ def _write_master(buf: _Buffers, report: dict, plan_dir: Path, plan_root: Path,
             lines = master.read_bytes().decode("utf-8", errors="replace").split("\n")
         start = next((i for i, ln in enumerate(lines) if re.match(rf"^###\s+{what}\b", ln)), None)
         if start is None:
-            return False
+            return
         stop = next((j for j in range(start + 1, len(lines)) if re.match(r"^#{1,3}\s", lines[j])), len(lines))
         table = _write_set_table(lines, (start, stop), [("sprint",), ("count",), ("kib",), _TOKEN_HEADERS])
         total_at = next((i for i in range(start, stop) if lines[i].startswith(_MASTER_LABEL)), None)
         if table is None and total_at is None:
-            return False
+            return
         lines, fail = _guard(buf, report, master)
-        before = _text_bytes(lines)
         folders: dict[int, list[Path]] = {}
         tasks: list[tuple[Path, str]] = []
         for folder in sorted(p for p in plan_dir.iterdir() if p.is_dir()):
@@ -1319,48 +1352,29 @@ def _write_master(buf: _Buffers, report: dict, plan_dir: Path, plan_root: Path,
                 lines[total_at] = new + eol
                 report["changes"].append({"file": str(master), "line": total_at + 1,
                                           "what": "Write-set total", "old": old, "new": new})
-        return _text_bytes(lines) != before
     except Exception as exc:  # noqa: BLE001 - the Master Plan never blocks the other writes
         reason = f"{type(exc).__name__}: {exc}"
         if fail is not None:
             fail(what, reason)
         else:
             report["unreadable"].append({"file": str(master), "what": what, "reason": reason})
-        return False
 
 
 def _write_write_sets(buf: _Buffers, report: dict, sprint_dirs: list[Path], plan_root: Path,
                       project_root: Path, cache: _FileCache) -> None:
     """Price the Sprint Plans' Write-Sets, then sum them in the Master Plan.
 
-    A Write-Set may name the Master Plan, whose size the sums change. So both
-    repeat until its byte count settles. The report keeps one record per cell.
+    A Write-Set may name the Master Plan, whose size the sums change, or another
+    sprint's Sprint Plan. `write_estimates` repeats the whole pass until they settle.
     """
-    marks = {key: len(report[key]) for key in _PASS_LISTS}
-    n_changes = len(report["changes"])
-    merged: dict[tuple, dict] = {}
     root = plan_root.resolve()
-    plan_dirs = [d for d in dict.fromkeys(s.parent for s in sprint_dirs)
-                 if d.resolve() == root or root in d.resolve().parents]
-    for _ in range(_SELF_ROW_PASSES):
-        for key, n in marks.items():
-            del report[key][n:]  # each pass lists them again
-        for sprint_dir in sprint_dirs:
-            found = sorted(sprint_dir.glob("*Sprint-Plan*.md"))
-            if len(found) == 1:
-                _write_writeset(buf, report, found[0], plan_root, project_root, cache)
-        moved = [d for d in plan_dirs if _write_master(buf, report, d, plan_root, project_root)]
-        for change in report["changes"][n_changes:]:
-            hit = merged.setdefault((change["file"], change["line"], change["what"]), dict(change))
-            hit["new"] = change["new"]
-        del report["changes"][n_changes:]
-        if not moved:
-            break
-    else:
-        report["unreadable"].extend(
-            {"file": str(d), "what": "Write-Sets",
-             "reason": f"the Master Plan's byte count still moved after {_SELF_ROW_PASSES} passes"} for d in moved)
-    report["changes"].extend(c for c in merged.values() if c["old"] != c["new"])
+    for sprint_dir in sprint_dirs:
+        found = sorted(sprint_dir.glob("*Sprint-Plan*.md"))
+        if len(found) == 1:
+            _write_writeset(buf, report, found[0], plan_root, project_root, cache)
+    for plan_dir in dict.fromkeys(s.parent for s in sprint_dirs):
+        if plan_dir.resolve() == root or root in plan_dir.resolve().parents:
+            _write_master(buf, report, plan_dir, plan_root, project_root)
 
 
 def _is_orchestration(path: Path) -> bool:
@@ -1610,12 +1624,45 @@ def write_estimates(
     run reports exactly what a real run would write. A second run over the
     same tree writes nothing. `today` dates the `**Measured:**` footer and
     defaults to the current date, so a test can pin it.
+
+    A row may price a file that the same run rewrites after it. So the whole
+    pass repeats over the authored text, and prices each such file at the text
+    the pass before gave it, until a pass moves no size that a row reads and no
+    text that a span row reads. The report is the last pass's. When the passes do not settle, every
+    file stays as authored and each file that still moved is reported.
     """
     stamp = (today or datetime.now().astimezone().date()).isoformat()
-    report = {"plan": str(plan_root), "dry_run": dry_run, "tasks": [str(p) for p in task_paths],
-              "changes": [], "left": [], "spans": [], "unreadable": [],
-              "written": [], "errors": []}
-    buf, cache = _Buffers(), _FileCache()
+    held: dict[Path, bytes] = {}
+    original: dict[Path, bytes] = {}
+    for _ in range(_SELF_ROW_PASSES):
+        report = {"plan": str(plan_root), "dry_run": dry_run, "tasks": [str(p) for p in task_paths],
+                  "changes": [], "left": [], "spans": [], "unreadable": [],
+                  "written": [], "errors": []}
+        buf, cache = _Buffers(), _FileCache(held)
+        _write_pass(buf, report, task_paths, plan_root, project_root, cache, stamp)
+        new = {p.resolve(): "\n".join(buf.lines[p]).encode("utf-8") for p in buf.changed()}
+        original.update((p.resolve(), text.encode("utf-8")) for p, text in buf.original.items())
+        moved = cache.moved(original, new)
+        if report["errors"] or not moved:
+            break
+        held = new
+    else:
+        buf = _Buffers()
+        report["changes"].clear()
+        report["unreadable"].extend(
+            {"file": str(p), "what": "cited file",
+             "reason": f"its size or text still moved after {_SELF_ROW_PASSES} passes (every file left as authored)"}
+            for p in moved)
+
+    # All-or-nothing: an error before the write phase replaces no file.
+    if not dry_run and not report["errors"]:
+        buf.commit(report)
+    return report
+
+
+def _write_pass(buf: _Buffers, report: dict, task_paths: list[Path], plan_root: Path,
+                project_root: Path, cache: _FileCache, stamp: str) -> None:
+    """One pass of `write_estimates` over the authored text: every edit, in memory."""
     by_session: dict[Path, list[tuple[str, str, str]]] = {}
     try:
         for task_path in task_paths:
@@ -1647,11 +1694,6 @@ def write_estimates(
         report["errors"].append({"file": exc.args[0], "error": exc.args[1]})
     except OSError as exc:  # a file the run must rewrite could not be read
         report["errors"].append({"file": str(exc.filename or "?"), "error": str(exc)})
-
-    # All-or-nothing: an error before the write phase replaces no file.
-    if not dry_run and not report["errors"]:
-        buf.commit(report)
-    return report
 
 
 def format_write_report(report: dict) -> str:

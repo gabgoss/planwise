@@ -915,6 +915,175 @@ def test_every_token_header_gets_the_token_cell_and_an_unknown_one_prints_na(tmp
         assert want and got == [f"{ln} n/a |" for ln in want]
 
 
+# ---- a cited file that the same run resizes
+
+ALL_TASKS = (TASK_1, TASK_2, OTHER_TASK, TASK_S2)
+EOLS = pytest.mark.parametrize("eol", ["\n", "\r\n"], ids=["lf", "crlf"])
+# The row whose KiB cell each cited file re-prices, so a long cell there is a file that this run shrinks.
+PRICED_ROW = {MASTER: "| Sprint-02 | `", PLAN: "| `src/orchard/calls.py` |", PLAN_2: "| `src/orchard/extra.py` |",
+              ORCH: "| `docs/guide.md` |", TASK_2: "| 1 | `docs/guide.md` |"}
+
+
+def _citing(tmp_path, *cells, eol="\n"):
+    spec = _two_sprints()
+    spec["sprints"][0]["sessions"][0]["tasks"][0]["required_context"] += [_row(c, 1.0) for c in cells]
+    return Tree(tmp_path, eol, spec=spec)
+
+
+def _lengthen(tree, rel, digits=400):
+    """Give one derived KiB cell of `rel` a long figure."""
+    text = tree.text(rel)
+    row = next(ln for ln in text.split("\n") if ln.startswith(PRICED_ROW[rel]))
+    parts = row.split("|")
+    at = next(i for i, p in enumerate(parts) if re.fullmatch(r" [\d.,]+ ", p) and "." in p)
+    parts[at] = f" {'9' * digits} "
+    tree.set(rel, text.replace(row, "|".join(parts)))
+    assert len(tree.text(rel)) > len(text) + digits - 20
+
+
+def _assert_stable(tree, *names):
+    before = tree.snapshot()
+    report = tree.write_back(*names)
+    assert (report["written"], report["changes"], report["unreadable"]) == ([], [], [])
+    assert tree.snapshot() == before
+
+
+def _assert_one_record_each(report):
+    for key, fields in (("changes", ("file", "line", "what")), ("spans", ("file", "row")), ("left", ("file", "row"))):
+        seen = [tuple(item[f] for f in fields) for item in report[key]
+                if not (key == "changes" and item["what"] in ("Session Surface", "Estimated Tokens"))]
+        assert len(seen) == len(set(seen)), key
+
+
+@EOLS
+@pytest.mark.parametrize("pad", [0, 13, 38, 51, 77, 102])
+def test_a_cited_master_plan_settles_over_every_padding(tmp_path, eol, pad):
+    tree = _citing(tmp_path, f"plans/QZX/{MASTER}", eol=eol)
+    tree.set(MASTER, tree.text(MASTER) + "x" * pad)
+    report = tree.write_back(*ALL_TASKS)
+    assert report["unreadable"] == [] and any(p.endswith(MASTER) for p in report["written"])
+    _assert_one_record_each(report)
+    _assert_stable(tree, *ALL_TASKS)
+    want = sp._fmt_kib((tree.plan / MASTER).stat().st_size)
+    assert _task_figure(tree.text(TASK_1), MASTER)[0] == _rows(tree.text(ORCH))[f"plans/QZX/{MASTER}"][1] == want
+
+
+@EOLS
+@pytest.mark.parametrize("rel", [MASTER, PLAN, ORCH, TASK_2], ids=["master", "sprint", "orchestration", "task"])
+def test_a_cited_file_that_the_run_shrinks_settles(tmp_path, eol, rel):
+    tree = _citing(tmp_path, f"plans/QZX/{rel}", eol=eol)
+    _lengthen(tree, rel)
+    before = (tree.plan / rel).stat().st_size
+    report = tree.write_back(*ALL_TASKS)
+    assert report["unreadable"] == []
+    _assert_one_record_each(report)
+    size = (tree.plan / rel).stat().st_size
+    assert sp._fmt_kib(size) != sp._fmt_kib(before)  # the control: the run resized it
+    _assert_stable(tree, *ALL_TASKS)
+    assert _task_figure(tree.text(TASK_1), Path(rel).name)[0] == sp._fmt_kib(size)
+    data = (tree.plan / rel).read_bytes()
+    assert data.count(b"\r\n") == (data.count(b"\n") if eol == "\r\n" else 0)
+
+
+@EOLS
+def test_a_cited_span_of_a_file_that_the_run_rewrites_settles(tmp_path, eol):
+    tree = _citing(tmp_path, eol=eol)
+    _lengthen(tree, MASTER)
+    last = tree.text(MASTER).count("\n")
+    text = tree.text(TASK_1)
+    row = next(ln for ln in text.split("\n") if ln.startswith("|") and "ledger.py` lines 1-10" in ln)
+    tree.set(TASK_1, text.replace(row, row + "\n" + row.replace(LEDGER, f"plans/QZX/{MASTER}").replace("1-10", f"1-{last}")))
+    report = tree.write_back(*ALL_TASKS)
+    assert report["unreadable"] == []
+    _assert_one_record_each(report)
+    _assert_stable(tree, *ALL_TASKS)
+    kept = (tree.plan / MASTER).read_bytes().split(b"\n")[:last]
+    assert _task_figure(tree.text(TASK_1), MASTER)[0] == sp._fmt_kib(sum(len(ln) + 1 for ln in kept))
+
+
+@EOLS
+def test_a_write_set_row_of_another_sprint_plan_settles(tmp_path, eol):
+    spec = _two_sprints()
+    spec["sprints"][0]["sessions"][0]["tasks"][0]["outputs"].append(f"plans/QZX/{PLAN_2}")
+    tree = Tree(tmp_path, eol, spec=spec)
+    # No sized table and no total line, so the Master Plan does not move.
+    text = tree.text(MASTER).replace("| Sprint | Write-set | Count |", "| Sprint | Write-set | Size |")
+    tree.set(MASTER, text.replace("**Write-set total:**", "**Total:**"))
+    _lengthen(tree, PLAN_2)
+    report = tree.write_back(*ALL_TASKS)
+    assert report["unreadable"] == [] and not any(p.endswith(MASTER) for p in report["written"])
+    _assert_one_record_each(report)
+    _assert_stable(tree, *ALL_TASKS)
+    row = next(r for r in _write_set(tree.text(PLAN)) if r[0].endswith(PLAN_2))
+    assert row[3] == sp._fmt_kib((tree.plan / PLAN_2).stat().st_size)
+
+
+@pytest.mark.parametrize("cited,passes", [(False, 1), (True, 2)], ids=["none-cited", "cited"])
+def test_the_run_repeats_only_for_a_cited_file(tmp_path, monkeypatch, cited, passes):
+    tree = _citing(tmp_path, *([f"plans/QZX/{MASTER}"] if cited else []))
+    read = {rel: tree.text(rel).split("\n") for rel in ALL_TASKS}
+    calls, real = [], tsw._write_task
+    monkeypatch.setattr(tsw, "_write_task", lambda *a: calls.append(a[2]) or real(*a))
+    report = tree.write_back(*ALL_TASKS)
+    assert len(calls) == passes * len(ALL_TASKS)
+    _assert_one_record_each(report)
+    assert sum(c["what"] == "Measured footer" for c in report["changes"]) == len(ALL_TASKS)
+    for rel, lines in read.items():  # each record holds the value as read and the value as written
+        after = tree.text(rel).split("\n")
+        for c in report["changes"]:
+            if c["file"].endswith(Path(rel).name) and c["what"].startswith("row "):
+                assert c["old"] in lines[c["line"] - 1] and c["new"] in after[c["line"] - 1]
+
+
+def test_a_cell_that_ends_where_it_began_moves_no_footer_date(tmp_path):
+    tree = _citing(tmp_path, f"plans/QZX/{MASTER}")
+    paths = [tree.plan / r for r in ALL_TASKS]
+    tsw.write_estimates(paths, tree.plan, tree.root, today=tsw.date(2030, 1, 15))
+    before = tree.snapshot()
+    _lengthen(tree, MASTER)  # the row reads stale for one pass only
+    report = tsw.write_estimates(paths, tree.plan, tree.root, today=tsw.date(2030, 2, 20))
+    assert [Path(p).name for p in report["written"]] == [MASTER]
+    assert {Path(c["file"]).name for c in report["changes"]} == {MASTER}
+    assert tree.snapshot() == before
+
+
+def test_a_run_that_does_not_settle_writes_no_file(tmp_path, monkeypatch):
+    tree = _citing(tmp_path, f"plans/QZX/{MASTER}")
+    calls, real = [], tsw._write_master
+
+    def grow(buf, *args):
+        real(buf, *args)
+        calls.append("x" * 200)
+        buf.get(tree.plan / MASTER).append("".join(calls))
+
+    monkeypatch.setattr(tsw, "_write_master", grow)
+    before = tree.snapshot()
+    report = tree.write_back(*ALL_TASKS)
+    assert len(calls) == tsw._SELF_ROW_PASSES
+    assert (report["written"], report["changes"]) == ([], [])
+    assert [(Path(u["file"]).name, u["what"]) for u in report["unreadable"]] == [(MASTER, "cited file")]
+    assert tree.snapshot() == before
+    monkeypatch.undo()
+    assert tree.write_back(*ALL_TASKS)["written"]  # the control: the same tree has work to write
+
+
+def test_a_failed_task_keeps_its_bytes_and_blocks_no_other_file(tmp_path):
+    tree = _citing(tmp_path, f"plans/QZX/{MASTER}")
+    _lengthen(tree, MASTER)
+    tree.set(OTHER_TASK, tree.text(OTHER_TASK).replace("**Context subtotal:**", "**Subtotal:**"))
+    kept = tree.text(OTHER_TASK)
+    report = tree.write_back(*ALL_TASKS)
+    assert [(Path(u["file"]).name, u["what"]) for u in report["unreadable"]] == [
+        (Path(OTHER_TASK).name, "Context subtotal")]
+    assert not any(p.endswith(Path(OTHER_ORCH).name) for p in report["written"])
+    assert {TASK_1, MASTER} <= {Path(p).relative_to(tree.plan).as_posix() for p in report["written"]}
+    body = [ln for ln in kept.split("\n") if not ln.startswith(("|", "**Measured:**"))]
+    assert [ln for ln in tree.text(OTHER_TASK).split("\n") if not ln.startswith(("|", "**Measured:**"))][:20] == body[:20]
+    before = tree.snapshot()
+    assert tree.write_back(*ALL_TASKS)["written"] == []
+    assert tree.snapshot() == before
+
+
 # ---- the project root of the two production callers
 
 @pytest.fixture

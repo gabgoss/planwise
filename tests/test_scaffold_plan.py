@@ -510,6 +510,33 @@ def test_every_master_write_sets_row_has_the_header_cell_count(tmp_path, width):
     assert rows[1] == ["Sprint-02", "none", "0", "0.0", "~0.0K"][:width]
 
 
+INDEX = "src/orchard/index.py"
+OWN_OUTPUT = "Sprint-01-LedgerCore/Session-01-ReadPath/Outputs/QZX-a.md"
+
+
+@pytest.mark.parametrize("first,second,shared", [
+    ([INDEX], [f"{INDEX} (rows)"], [INDEX]),
+    ([f"{INDEX}:1-9", "b.py"], ["c.py", f"./{INDEX}"], [f"{INDEX}:1-9"]),
+    (["src\\orchard\\index.py"], [INDEX], ["src\\orchard\\index.py"]),
+    (["Outputs/QZX-a.md"], [f"plans/QZX/{OWN_OUTPUT}"], ["Outputs/QZX-a.md"]),
+    ([INDEX, "Outputs/QZX-a.md"], ["Outputs/QZX-a.md", INDEX], ["Outputs/QZX-a.md", INDEX]),  # plain: as before
+    (["none"], ["none"], ["none"]),  # plain: as before
+    ([INDEX, f"{INDEX} (rows)"], ["src/orchard/parse.py"], []),  # one task, two spellings
+    (["Outputs/QZX-a.md"], [f"plans/QZX/{OWN_OUTPUT.replace('-01-ReadPath', '-02-WritePath')}"], []),
+])
+def test_two_spellings_in_one_layer_are_not_disjoint(tmp_path, first, second, shared):
+    spec = make_spec()
+    spec["sprints"][0]["sessions"][0]["tasks"] = [_task(1, "ParseRows", "Sonnet", [], first),
+                                                  _task(2, "IndexRows", "Opus", [], second)]
+    files = sp.render_all(spec, TEMPLATES, project_root=tmp_path)[0]
+    text = next(t for rel, t in files.items() if rel.endswith("S01-01-Orchestration.md"))
+    row = next(ln for ln in text.split("\n") if ln.startswith("| L1 | {1, 2} |"))
+    cells = [c.strip() for c in row.strip("|").split("|")]
+    assert cells[2] == " / ".join(", ".join(f"`{o}`" for o in outs) for outs in (first, second))
+    assert cells[3] == (", ".join(f"`{s}`" for s in shared) or "∅")
+    assert ("NOT" in cells[4]) == bool(shared)
+
+
 def test_role_expands_the_root_placeholders(tmp_path):
     root = _project(tmp_path)
     (root / "planwise").mkdir()
