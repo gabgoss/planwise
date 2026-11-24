@@ -8,6 +8,8 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,6 +20,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 # Import shared config loader
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
+from backlog_index_scan import _strip_inline_comment
 from config_loader import load_config
 from constants import CLOSED_STATUSES, HOLD_STATUSES
 from frontmatter_parser import parse_frontmatter_map, split_frontmatter_block
@@ -341,33 +344,99 @@ def collect_disk_item_ids(config: dict) -> list[str]:
             fm_map = _read_frontmatter_map(path)
         except (GeneratorError, OSError, UnicodeDecodeError):
             continue
-        raw = fm_map.get("id")
-        if raw is None:
-            continue
-        item_id = normalize_id(_strip_quotes(str(raw).strip()))
+        item_id = frontmatter_item_id(fm_map)
         if item_id:
             ids.append(item_id)
     return ids
 
 
-def next_free_id(config: dict) -> str:
-    """The next id `--next-id` prints: one past the highest numeric id across
-    the index files (`collect_all_known_ids`) and the on-disk item files
-    (`collect_disk_item_ids`).
+def frontmatter_item_id(fm_map: dict) -> str | None:
+    """Return an item file's frontmatter id, normalized, or None.
 
-    Prints the no-numeric-id warning to stderr when rows or files exist but
-    none carries a numeric id, and then allocates 001.
+    The one reading the allocator and the duplicate guard share, so the two
+    can never drift: strip the raw value, drop an inline YAML comment the way
+    the index generator does, drop the enclosing quotes, then `normalize_id`.
+    `id: 047  # split from 012` reads as 047. Returns None when the id is
+    absent or empty.
     """
-    all_ids = collect_all_known_ids(config) + collect_disk_item_ids(config)
-    numbers = [n for n in (id_number(i) for i in all_ids) if n is not None]
-    max_id = max(numbers, default=0)
-    if not numbers and all_ids:
+    raw = fm_map.get("id")
+    if raw is None:
+        return None
+    text = _strip_quotes(_strip_inline_comment(str(raw).strip()).strip())
+    return normalize_id(text) or None
+
+
+def warn_if_no_numeric_id(all_ids: list[str]) -> None:
+    """Warn on stderr when ids were collected but none carries a number.
+
+    `next_free_id` then allocates 001, which is right for an empty backlog
+    and suspicious for a non-empty one whose id column has another format.
+    """
+    if all_ids and all(id_number(i) is None for i in all_ids):
         print(
             f"WARNING: {len(set(all_ids))} row(s) parsed but none carried a numeric ID; "
             f"allocating 001. Check the index's ID column format.",
             file=sys.stderr,
         )
-    return f"{max_id + 1:03d}"
+
+
+def next_free_id(config: dict) -> tuple[int, list[str]]:
+    """Return the next free id as an int, with the union of index ids and
+    on-disk item-file ids it was derived from. The next id is the highest
+    numeric component plus one, or 1 when no id carries a number.
+    """
+    all_ids = collect_all_known_ids(config) + collect_disk_item_ids(config)
+    numbers = [n for n in (id_number(i) for i in all_ids) if n is not None]
+    return max(numbers, default=0) + 1, all_ids
+
+
+# Seconds `creation_lock` waits for another `--create` to release the lock.
+CREATE_LOCK_TIMEOUT = 10.0
+
+
+class CreationLockTimeout(Exception):
+    """Raised when the backlog creation lock stays held past the timeout."""
+
+
+@contextmanager
+def creation_lock(backlog_dir: Path, timeout: float | None = None):
+    """Hold `{backlog_dir}/.backlog-create.lock` for the body of a `with`.
+
+    Two `--create` calls that compute the next id and then write the item
+    file must not interleave, or both take the same id. O_CREAT|O_EXCL
+    succeeds for exactly one caller, so the lock file serialises them.
+    `timeout` defaults to `CREATE_LOCK_TIMEOUT`, read at call time. A timeout
+    raises `CreationLockTimeout` and never deletes the lock, because another
+    caller holds it. The lock is removed when the body exits, even on error.
+    """
+    if timeout is None:
+        timeout = CREATE_LOCK_TIMEOUT
+    backlog_dir = Path(backlog_dir)
+    backlog_dir.mkdir(parents=True, exist_ok=True)
+    lock = backlog_dir / ".backlog-create.lock"
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except (FileExistsError, PermissionError):
+            # On Windows a lock file another process is still deleting
+            # raises PermissionError, not FileExistsError: retry it the same.
+            if time.monotonic() >= deadline:
+                raise CreationLockTimeout(
+                    f"could not take the backlog creation lock at {lock} "
+                    f"within {timeout:g}s. If no other update_backlog.py "
+                    f"--create is running, delete the lock file."
+                ) from None
+            time.sleep(0.05)
+            continue
+        # This call created the lock file, so from here on every exit path,
+        # an interrupt included, removes it.
+        try:
+            os.close(fd)
+            yield lock
+        finally:
+            lock.unlink(missing_ok=True)
+        return
 
 
 def resolve_closed_item_shard(item_id: str, config: dict) -> tuple[Path | None, bool]:
@@ -1021,7 +1090,9 @@ def main():
         # shard and every on-disk item file -- a hub-only max would reissue
         # an id a shard already holds, and an index-only max would reissue
         # the id of an item file filed since the last index write.
-        print(next_free_id(config))
+        next_n, all_ids = next_free_id(config)
+        warn_if_no_numeric_id(all_ids)
+        print(f"{next_n:03d}")
         return
 
     # Union across the hub and every hub overflow leaf -- an open item
