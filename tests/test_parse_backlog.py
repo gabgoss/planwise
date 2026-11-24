@@ -1163,5 +1163,99 @@ class TestInFlightFlag(_ItemFlagFixtureBase):
         self.assertIn("no symbol named", out)
 
 
+# waiting id -> its blockers, the shape of a decomposed backlog: two chains, two
+# parents that wait for their sub-items, and one item (088) that stands alone.
+FOURTEEN = {
+    "082": ["095"],
+    "083": ["082"],
+    "084": ["085", "086", "087"],
+    "086": ["085"],
+    "089": ["090", "091", "092", "093"],
+    "094": ["082", "083", "095"],
+}
+FOURTEEN_BASE = [f"{n:03d}" for n in range(82, 96)]
+
+
+class TestOrderWithBlockers(unittest.TestCase):
+    """`order_with_blockers` admits a blocked id only behind its blockers.
+
+    `blocked_by` maps a waiting id to its open blockers, the shape
+    `build_blocked_by_map` returns.
+    """
+
+    def order(self, base, blocked_by, **kwargs):
+        return parse_backlog.order_with_blockers(base, blocked_by, **kwargs)
+
+    def assert_blockers_first(self, order, blocked_by):
+        for position, item_id in enumerate(order):
+            for blocker in blocked_by.get(item_id, []):
+                with self.subTest(item=item_id, blocker=blocker):
+                    self.assertIn(blocker, order[:position])
+
+    def test_unblocked_ids_keep_the_base_order(self):
+        self.assertEqual(self.order(["c", "a", "b"], {}), (["c", "a", "b"], []))
+
+    def test_a_chain_named_backwards_runs_blocker_first(self):
+        order, left_out = self.order(["c", "b", "a"], {"c": ["b"], "b": ["a"]})
+        self.assertEqual((order, left_out), (["a", "b", "c"], []))
+
+    def test_a_blocker_outside_the_base_order_leaves_the_item_out(self):
+        self.assertEqual(self.order(["a", "b"], {"b": ["q"]}), (["a"], ["b"]))
+
+    def test_an_item_behind_a_left_out_item_is_left_out_too(self):
+        order, left_out = self.order(["a", "b", "c"], {"b": ["q"], "c": ["b"]})
+        self.assertEqual((order, left_out), (["a"], ["b", "c"]))
+
+    def test_a_cycle_is_never_admitted(self):
+        order, left_out = self.order(["a", "b", "c", "d"], {"a": ["c"], "b": ["a"], "c": ["b"]})
+        self.assertEqual((order, left_out), (["d"], ["a", "b", "c"]))
+
+    def test_a_reciprocal_pair_is_never_admitted(self):
+        self.assertEqual(self.order(["a", "b"], {"a": ["b"], "b": ["a"]}), ([], ["a", "b"]))
+
+    def test_accept_is_asked_only_once_every_blocker_is_in(self):
+        asked = []
+
+        def accept(item_id):
+            asked.append(item_id)
+            return item_id != "b"
+
+        order, left_out = self.order(["a", "b", "c"], {"b": ["a"], "c": ["b"]}, accept=accept)
+
+        self.assertEqual((order, left_out), (["a"], ["b", "c"]))
+        # `c` waits for `b`, and `b` was refused, so `c` is never examined.
+        self.assertEqual(asked, ["b"])
+
+    def test_no_blocker_moves_ahead_for_an_item_that_is_left_out(self):
+        # `x` waits for `b1` (in the run) and `b2` (not in the run).
+        order, left_out = self.order(["x", "y", "b1"], {"x": ["b1", "b2"]})
+        self.assertEqual((order, left_out), (["y", "b1"], ["x"]))
+
+    def test_the_fourteen_item_shape(self):
+        order, left_out = self.order(FOURTEEN_BASE, FOURTEEN)
+
+        self.assertEqual(
+            order,
+            ["095", "082", "083", "085", "086", "087", "084", "088", "090", "091", "092", "093", "089", "094"],
+        )
+        self.assertEqual(left_out, [])
+        self.assert_blockers_first(order, FOURTEEN)
+
+    def test_a_limit_takes_an_item_with_its_blockers_or_passes_it_over(self):
+        blocked_by = {"d": ["z"]}
+        base = ["a", "d", "b", "z"]
+
+        # `d` needs two places (`z` and itself) and one is left, so `b` takes it.
+        self.assertEqual(self.order(base, blocked_by, limit=2)[0], ["a", "b"])
+        self.assertEqual(self.order(base, blocked_by, limit=3)[0], ["a", "z", "d"])
+
+    def test_every_limited_prefix_holds_its_own_blockers(self):
+        for limit in range(1, 15):
+            with self.subTest(limit=limit):
+                order, _left_out = self.order(FOURTEEN_BASE, FOURTEEN, limit=limit)
+                self.assertLessEqual(len(order), limit)
+                self.assert_blockers_first(order, FOURTEEN)
+
+
 if __name__ == "__main__":
     unittest.main()

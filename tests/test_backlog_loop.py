@@ -12,9 +12,10 @@ Fixture items (scores use the default weights: High 30, Medium 20, Low 10):
   001  High    route A   short file (under 50 lines)
   002  Medium  route B   50+ lines, three numbered steps, no exact-fix evidence
   003  High    route C   carries the word "multi-sprint"
-  004  High    BLOCKED   held, never selectable
-  005  Medium  blocked by 006 through the Blocks cell on 006's hub row
-  006  Low     route A   short file; blocks 005
+  004  High    BLOCKED   held, never selectable; blocks 005
+  005  Medium  blocked by 004 through the Blocks cell on 004's hub row.
+               004 is never in a run, so 005 is never queued
+  006  Low     route A   short file
   007  Low     route A   short file
   008  Low     excluded  one `### Q1.` block with an empty `Answer:` (open questions unanswered)
   009  Low     excluded  `needs_plan: true` (marked for a planning session)
@@ -63,9 +64,9 @@ FIXTURE_ITEMS = [
     ("001", "Short fix", "High", "NOT_STARTED", "", "short"),
     ("002", "Stepwise change", "Medium", "NOT_STARTED", "", "steps"),
     ("003", "Big plan", "High", "NOT_STARTED", "", "multi"),
-    ("004", "Held item", "High", "BLOCKED", "", "short"),
+    ("004", "Held item", "High", "BLOCKED", "[005]", "short"),
     ("005", "Dependent item", "Medium", "NOT_STARTED", "", "short"),
-    ("006", "Blocker item", "Low", "NOT_STARTED", "[005]", "short"),
+    ("006", "Low item", "Low", "NOT_STARTED", "", "short"),
     ("007", "Low extra", "Low", "NOT_STARTED", "", "short"),
     ("008", "Asked item", "Low", "NOT_STARTED", "", "questions"),
     ("009", "Needs plan", "Low", "NOT_STARTED", "", "needs_plan"),
@@ -168,7 +169,7 @@ class TestInit(_LoopFixtureBase):
 
         queue = payload["queue"]
         # Queue order is (-score, id): High 001 (30), Medium 002 (20), then the
-        # two Low items by id. 003 is route C, 004 is held, 005 is blocked.
+        # two Low items by id. 003 is route C, 004 is held, 005 waits for 004.
         # No --refine-max cap: nothing is refined, so every item runs.
         self.assertEqual([q["id"] for q in queue], ["001", "002", "006", "007"])
         routes = {q["id"]: q["route_at_init"] for q in queue}
@@ -186,8 +187,8 @@ class TestInit(_LoopFixtureBase):
         self.assertEqual(reasons["008"], backlog_loop.OPEN_QUESTIONS_REASON)
         self.assertEqual(reasons["009"], backlog_loop.NEEDS_PLAN_REASON)
 
-        # Neither the BLOCKED item nor the item blocked by an open dependency
-        # reaches the queue, and neither is reported as excluded.
+        # Neither the BLOCKED item nor the item that waits for it reaches the
+        # queue, and neither is reported as excluded.
         queued_ids = {q["id"] for q in queue}
         self.assertTrue({"004", "005"}.isdisjoint(queued_ids))
         self.assertTrue({"004", "005"}.isdisjoint({e["id"] for e in payload["excluded"]}))
@@ -260,7 +261,7 @@ class TestRepeatedRowId(_LoopFixtureBase):
     def test_baseline_without_a_repeat_still_queues(self):
         payload = self.init("--mode", "all")
 
-        # 005 stays held: 006's Blocks cell names it.
+        # 005 stays out: 004's Blocks cell names it, and 004 is on hold.
         self.assertEqual([q["id"] for q in payload["queue"]], ["001", "002", "006", "007"])
 
     def test_init_refuses_a_repeated_id_and_writes_no_run_file(self):
@@ -274,13 +275,13 @@ class TestRepeatedRowId(_LoopFixtureBase):
         self.assertEqual(self.run_files(), [])
 
     def test_init_refuses_a_repeat_that_would_drop_a_blocks_edge(self):
-        # 006's second copy has an empty Blocks cell. Last-wins keying released 005.
-        self.repeat_row("006", blocks="")
+        # 004's second copy has an empty Blocks cell. Last-wins keying released 005.
+        self.repeat_row("004", blocks="")
 
         code, _text, payload = self.loop("--init", "--mode", "all")
 
         self.assertEqual(code, 1)
-        self.assertIn("006", payload["error"])
+        self.assertIn("004", payload["error"])
         self.assertNotIn("007", payload["error"])
         self.assertEqual(self.run_files(), [])
 
