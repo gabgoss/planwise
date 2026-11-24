@@ -243,7 +243,7 @@ python {plugin_root}/scripts/parse_backlog.py [OPTIONS]
 | `--id ID` | No | Filter by specific item ID |
 | `--include-closed` | No | Include COMPLETE/CLOSED items |
 | `--show-blocked` | No | Include items blocked by open dependencies (hidden by default) |
-| `--next-id` | No | Print the next available BLI ID (NNN form, zero-padded) and exit |
+| `--next-id` | No | Print one more than the highest id found in the generated index files and in every item file under the backlog folder and its `Archive/` folder (NNN form, zero-padded), and exit |
 
 **Output:** Formatted table of selectable items + blocked items summary + `JSON: /tmp/backlog-XXXXX/items.json` path on last line.
 
@@ -286,7 +286,7 @@ python {plugin_root}/scripts/update_backlog.py --id ID --fixed-in SHA [--fixed-i
 
 # Create a new backlog item (writes the BLI file from the template only; the
 # caller regenerates the index with generate_backlog_index.py --write)
-python {plugin_root}/scripts/update_backlog.py --create --id ID --feature FEATURE \
+python {plugin_root}/scripts/update_backlog.py --create --id ID|next --feature FEATURE \
   --priority PRIORITY --abbrev ABBREV --files FILES [--status=STATUS]
 ```
 
@@ -294,7 +294,7 @@ Pass a status or outcome value joined to its flag with `=`, as in `--status=COMP
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `--id ID` | Yes | Item ID (e.g., 002); in create mode, the new item's ID |
+| `--id ID` | Yes | Item ID (e.g., 002); in create mode, the new item's ID, or the literal `--id next` to have `--create` allocate it under the creation lock (the first `--files` entry must then carry the literal `NNN`, which the allocated three-digit id replaces; read the id from the `Created backlog item {id}` line) |
 | `--status=STATUS` | Update: Yes — Create: No | New status (NOT_STARTED, PLANNING, IN_PROGRESS, BLOCKED, COMPLETE, CLOSED). In `--create` mode it is optional and defaults to NOT_STARTED |
 | `--create` | No | Create a new backlog item instead of updating an existing item's status |
 | `--feature FEATURE` | Create only | Feature / recommendation summary, 120 characters or fewer once escaped for frontmatter storage — `--create` rejects a value that overflows the cap after escaping and writes nothing (required with `--create`) |
@@ -306,6 +306,8 @@ Pass a status or outcome value joined to its flag with `=`, as in `--status=COMP
 | `--resolution-file PATH` | No (with `--status=COMPLETE` only) | After the status flip and the archive move, append the file's text under `## Resolution`; when `## Resolution` already exists, the file's text is appended below it as a dated `### Closed {date}` block; on an item already COMPLETE the append still runs |
 | `--fixed-in SHA` | No (repeatable) | Append one dated `- {date}: Fixed in: {sha}` line per fixing commit under the item's `## Notes`, creating the section when absent (before `## Related`). Runs alone on an item that is already COMPLETE, in `Archive/` or not, because the squash-merge commit exists only after the close, or together with `--status=COMPLETE`. The sha is 7 to 64 hex characters. A sha already recorded is skipped. The command exits 1 and writes nothing for a sha that is not hex or is shorter than 7 characters, for an item that is not COMPLETE, and in combination with `--create`, `--mark-needs-plan` or `--approve-placement` |
 | `--completes SHA` | No (repeatable, needs `--fixed-in`) | Mark that `--fixed-in` sha with the suffix ` (completes the fix)`. A value absent from `--fixed-in` exits 1 and writes nothing |
+
+Every `--create` holds the lock file `{backlog_dir}/.backlog-create.lock` while it allocates, checks and writes. A held lock makes `--create` wait up to 10 s. It then exits 1 with `Error: could not take the backlog creation lock at {lock} within {timeout}s. If no other update_backlog.py --create is running, delete the lock file. Nothing was written.` Nothing is written. `--id next` without `NNN` in the first `--files` entry exits 1 with `Error: --id next needs the literal NNN in the first --files entry, for example BB-NNN-01-Domain-Topic.md. Nothing was written.` An explicit `--id` with `NNN` in the first `--files` entry exits 1 with `Error: --files carries the literal NNN, which only --id next replaces. Pass --id next, or name the file with its id. Nothing was written.`
 
 **Automatic archival (COMPLETE/CLOSED):** Moves the item file to `{backlog_dir}/Archive/`. It never edits the index. The next `generate_backlog_index.py --write` renders the new link from the file's new location. `--mark-needs-plan` writes `needs_plan: true` without changing the status. `--status=COMPLETE --resolution-file P` appends the file's text under `## Resolution` after the status flip and the archive move, and, when `## Resolution` already exists, appends the file's text below it as a dated `### Closed {date}` block.
 

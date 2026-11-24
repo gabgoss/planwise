@@ -57,7 +57,14 @@ from generate_backlog_index import (
     _strip_quotes,
 )
 from markdown_parser import infer_predominant_id_form, normalize_id, render_id
-from parse_backlog import collect_all_known_ids
+from parse_backlog import (
+    CreationLockTimeout,
+    collect_all_known_ids,
+    creation_lock,
+    frontmatter_item_id,
+    next_free_id,
+    warn_if_no_numeric_id,
+)
 from reconcile_common import (
     read_text_preserving_newlines,
     write_text_preserving_newlines,
@@ -438,12 +445,12 @@ def _frontmatter_id(fm_map: dict) -> str | None:
     `id_format` infers "prefixed" from an existing hand-authored index.
     `normalize_id` recognizes bare and prefixed forms alike and never
     raises. Returns None only when the file has no id value at all.
+
+    Delegates to `parse_backlog.frontmatter_item_id`, the reading the id
+    allocator also uses, so the duplicate guard and the allocator agree on
+    every id, an inline YAML comment after it included.
     """
-    raw = fm_map.get("id")
-    if raw is None:
-        return None
-    normalized = normalize_id(_strip_quotes(str(raw).strip()))
-    return normalized or None
+    return frontmatter_item_id(fm_map)
 
 
 def _scan_item_frontmatter(backlog_dir: Path, archive_dir: Path, index_path: Path):
@@ -692,11 +699,26 @@ def create_backlog_item(args) -> None:
     if not files_list:
         print("Error: --files must name at least one file.", file=sys.stderr)
         sys.exit(1)
+    allocate_next = args.id == "next"
+    if allocate_next and files_list[0].count("NNN") != 1:
+        print(
+            "Error: --id next needs the literal NNN in the first --files entry, "
+            "for example BB-NNN-01-Domain-Topic.md. Nothing was written.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if not allocate_next and "NNN" in files_list[0]:
+        print(
+            "Error: --files carries the literal NNN, which only --id next "
+            "replaces. Pass --id next, or name the file with its id. "
+            "Nothing was written.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     config = load_config(Path(__file__))
     index_path = config["_index_path"]
     backlog_dir = config["_backlog_dir"]
-    archive_dir = config["_archive_dir"]
 
     if not index_path.exists():
         print(f"Error: Backlog index not found at {index_path}", file=sys.stderr)
@@ -732,7 +754,47 @@ def create_backlog_item(args) -> None:
             file=sys.stderr,
         )
         id_format = "bare"
-    item_id = render_id(args.id, id_format, prefix=prefix)
+
+    # The id computation, the duplicate guard and the write run under one
+    # creation lock, so two concurrent --create calls can never claim one id.
+    # Every check above needs no id and stays outside the lock, so a refused
+    # call holds it only briefly. A sys.exit inside the region still runs the
+    # lock's cleanup, so a refusal leaves no lock behind.
+    try:
+        with creation_lock(backlog_dir):
+            item_id, bli_path = _create_under_lock(
+                args.id, allocate_next, config, files_list, id_format, prefix,
+                feature, priority, status, abbrev,
+            )
+    except CreationLockTimeout as e:
+        print(f"Error: {e} Nothing was written.", file=sys.stderr)
+        sys.exit(1)
+
+    print(
+        f"Created backlog item {item_id}: {feature} [{priority}/{status}/{abbrev}] "
+        f"({bli_path.name}). Regenerate the index: generate_backlog_index.py --write"
+    )
+
+
+def _create_under_lock(
+    raw_id, allocate_next, config, files_list, id_format, prefix,
+    feature, priority, status, abbrev,
+) -> tuple[str, Path]:
+    """Allocate or render the id, run the duplicate guard, and write the file.
+
+    The caller holds the creation lock. `--id next` takes the next free id
+    from the index and the on-disk item files, and substitutes it for the
+    literal NNN in the first --files entry. Returns (item_id, bli_path).
+    """
+    backlog_dir = config["_backlog_dir"]
+    archive_dir = config["_archive_dir"]
+    index_path = config["_index_path"]
+    if allocate_next:
+        next_n, all_ids = next_free_id(config)
+        warn_if_no_numeric_id(all_ids)
+        raw_id = f"{next_n:03d}"
+        files_list = [files_list[0].replace("NNN", raw_id), *files_list[1:]]
+    item_id = render_id(raw_id, id_format, prefix=prefix)
 
     # The generator's own frontmatter reader (`_normalize_id_text`, used by
     # `_extract_fields`/`scan_backlog`) requires a pure-digit id and raises
@@ -818,16 +880,23 @@ def create_backlog_item(args) -> None:
         print(f"  BLI file already exists, carries id {item_id}: {bli_path.name}")
     else:
         bli_path.parent.mkdir(parents=True, exist_ok=True)
-        bli_path.write_text(
-            _render_bli_file(item_id, feature, priority, status, abbrev, files_list),
-            encoding="utf-8",
-        )
+        # Exclusive create: the open fails if any writer made the file since
+        # the check above. No newline argument, so the bytes match what
+        # write_text produced before (platform newline translation).
+        text = _render_bli_file(item_id, feature, priority, status, abbrev, files_list)
+        try:
+            with open(bli_path, "x", encoding="utf-8") as handle:
+                handle.write(text)
+        except FileExistsError:
+            print(
+                f"Error: {bli_path.name} was created by another writer while "
+                f"item {item_id} was being filed. Nothing was written.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         print(f"  Created BLI file: {bli_path.name}")
 
-    print(
-        f"Created backlog item {item_id}: {feature} [{priority}/{status}/{abbrev}] "
-        f"({bli_path.name}). Regenerate the index: generate_backlog_index.py --write"
-    )
+    return item_id, bli_path
 
 
 def _locate_single_item(item_id: str) -> tuple[Path, Path, Path, Path]:
@@ -1179,7 +1248,15 @@ def main():
         default=None,
         help="Path to config.yaml; overrides default config search.",
     )
-    parser.add_argument("--id", required=True, help="Item ID (e.g., 003)")
+    parser.add_argument(
+        "--id",
+        required=True,
+        help=(
+            "Item ID (e.g., 003). In --create mode, 'next' allocates the next "
+            "free id under the creation lock and substitutes it for the "
+            "literal NNN in the first --files entry."
+        ),
+    )
     parser.add_argument(
         "--status",
         required=False,

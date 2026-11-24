@@ -33,6 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 import parse_backlog
+import update_backlog
 from constants import ARCHIVE_STATUSES, CLOSED_STATUSES
 from markdown_parser import normalize_id
 from parse_backlog import (
@@ -167,6 +168,48 @@ class TestNextIdAllocatorMatrix(_ParseBacklogFixtureBase):
         self.write_index(rows)
         out, err = self.run_next_id()
         self.assertEqual(out, "011")
+        self.assertEqual(err, "")
+
+    def _write_item_file(self, directory: Path, item_id: str, quote_id: bool = False) -> Path:
+        """Write one item file built by the real producer, `_render_bli_file`."""
+        name = f"{item_id}-DOC-DiskOnlyItem.md"
+        text = update_backlog._render_bli_file(
+            item_id, "Disk only item", "Low", "NOT_STARTED", "DOC", [name]
+        )
+        if quote_id:
+            # The one hand edit a person makes: wrap the id value in quotes.
+            text = text.replace(f"id: {item_id}\n", f'id: "{item_id}"\n', 1)
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / name
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_item_file_absent_from_index_raises_next_id(self):
+        self.write_index("".join(_row(f"{i:03d}") for i in range(1, 6)))
+        self._write_item_file(self.backlog_dir, "040")
+        self._write_item_file(self.backlog_dir, "047", quote_id=True)
+        out, err = self.run_next_id()
+        self.assertEqual(out, "048")
+        self.assertEqual(err, "")
+
+    def test_archive_only_item_file_raises_next_id(self):
+        self.write_index("".join(_row(f"{i:03d}") for i in range(1, 6)))
+        self._write_item_file(self.backlog_dir / "Archive", "210")
+        out, err = self.run_next_id()
+        self.assertEqual(out, "211")
+        self.assertEqual(err, "")
+
+    def test_inline_comment_after_the_id_is_stripped(self):
+        # An inline YAML comment that names a lower id must not become the id.
+        self.write_index("".join(_row(f"{i:03d}") for i in range(1, 6)))
+        path = self._write_item_file(self.backlog_dir, "047")
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("id: 047\n", text)
+        path.write_text(
+            text.replace("id: 047\n", "id: 047  # split from 012\n", 1), encoding="utf-8"
+        )
+        out, err = self.run_next_id()
+        self.assertEqual(out, "048")
         self.assertEqual(err, "")
 
 
