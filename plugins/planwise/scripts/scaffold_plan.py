@@ -112,9 +112,10 @@ optional and takes the default shown. Any key not listed here is a lint error.
     template row's class suffix, and the command cell keeps the template's
     size tail.
     The `Role` cell is derived, so no row key carries it. A path in the task's
-    `outputs` reads EDIT when it exists under the project root and CREATE when
-    it does not. Every other row, a command row included, reads READ. A CREATE
-    cell also carries the plan-time estimate flag.
+    `outputs`, or below a folder in `outputs`, reads EDIT when it exists under
+    the project root and CREATE when it does not. A folder needs no trailing
+    slash and need not exist. Every other row, a command row included, reads
+    READ. A CREATE cell also carries the plan-time estimate flag.
 
 An `optional_sections` entry is the heading text without `## ` and without its
 marker comment, for example "Out of Scope". Every OPTIONAL section, including
@@ -181,6 +182,7 @@ from token_saver_scan import (
     unresolved_reason,
 )
 from token_saver_writeback import (
+    _QUALIFIER_RE,
     PLAN_TIME_FLAG,
     _fmt_k,
     _fmt_kib,
@@ -942,37 +944,61 @@ def role_key(path, sprint, session, root):
     """(comparison key, whether it is a session `Outputs/` path) of one spec path.
 
     The key has forward slashes, no leading `./`, no trailing slash and its root
-    placeholders expanded. An `Outputs/` path reads from the session folder. An
-    absolute path, or one that exists, is keyed by its path from `root`.
+    placeholders expanded. `Outputs` and any path below it read from the session
+    folder. Any other path below `root`, on disk or not, is keyed by its path
+    from `root`, so an absent file and its folder get one spelling.
     """
     text = substitute_roots(_clean_file_cell(path), root.resolve())
     text = re.sub(r"^(?:\./+)+", "", text.replace("\\", "/")).rstrip("/")
-    if text.startswith("Outputs/"):
+    if f"{text}/".startswith("Outputs/"):
         return f"{session_dir(sprint, session)}/{text}", True
-    if text and (Path(text).is_absolute() or os.path.exists(root / text)):
+    if text:
         try:
             return (root / text).resolve().relative_to(root.resolve()).as_posix(), False
-        except ValueError:  # outside the project root: the text is the key
+        except (ValueError, OSError):  # outside the project root, or no valid path: the text is the key
             pass
     return text, False
 
 
+def role_spellings(key, root):
+    """`key`, then each shorter spelling without a trailing qualifier, up to one that exists."""
+    spellings = [key]
+    while not os.path.exists(root / spellings[-1]):
+        m = _QUALIFIER_RE.search(spellings[-1])
+        bare = spellings[-1][:m.start()].rstrip("/") if m else ""
+        if not bare:
+            break
+        spellings.append(bare)
+    return spellings
+
+
 def role_for(path, task, sprint, session, root):
     """READ, EDIT or CREATE: what `task` does to `path`, from its `outputs` and the disk.
+
+    A path matches an output when it, or a folder above it, is that output. A
+    folder output needs no trailing slash and need not exist. The role comes from
+    the path's own existence, not the folder's. A trailing qualifier, such as
+    `(helpers)` or `:10`, is not part of the name.
 
     The plan folder is unknown here, so a session `Outputs/` file counts as absent,
     and a path that ends in its session-relative text is the same file, whichever
     of the row and the output has the longer spelling.
     """
     key, row_in_session = role_key(path, sprint, session, root)
+    spellings = role_spellings(key, root)
+    split = [spelling.split("/") for spelling in spellings]
+    names = ["/".join(parts[:n]) for parts in split for n in range(len(parts), 0, -1)]
+    own_dir = session_dir(sprint, session)
     for out in task["outputs"]:
         out_key, out_in_session = role_key(out, sprint, session, root)
         if not out_key:
             continue
-        if (key == out_key or (out_in_session and key.endswith("/" + out_key))
-                or (row_in_session and out_key.endswith("/" + key))):
+        # A folder above the session folder is one that every plan may hold, so its tail proves nothing.
+        if any(name == out_key or (out_in_session and name.endswith("/" + out_key))
+               or (row_in_session and name.startswith(own_dir) and out_key.endswith("/" + name))
+               for name in names):
             in_session = row_in_session or out_in_session
-            return "EDIT" if not in_session and os.path.exists(root / out_key) else "CREATE"
+            return "EDIT" if not in_session and os.path.exists(root / spellings[-1]) else "CREATE"
     return "READ"
 
 

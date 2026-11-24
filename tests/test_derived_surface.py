@@ -65,7 +65,7 @@ def make_spec():
 class Tree:
     """A rendered plan in a project folder, with the subtotal fills answered."""
 
-    def __init__(self, base, eol="\n"):
+    def __init__(self, base, eol="\n", spec=None):
         self.root = base / "project"
         self.plan = self.root / "plans/QZX"
         for rel, text in (("src/orchard/ledger.py", "ledger = {}\n" * 900), ("docs/guide.md", "A rule.\n" * 300),
@@ -73,7 +73,7 @@ class Tree:
             path = self.root / rel
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(text.encode("utf-8"))
-        self.files = sp.render_all(make_spec(), TEMPLATES, project_root=self.root)[0]
+        self.files = sp.render_all(spec or make_spec(), TEMPLATES, project_root=self.root)[0]
         sp.write_tree({rel: text.replace("<!-- FILL: {O} -->", "2").replace("<!-- FILL: {W} -->", "1")
                        .replace("\n", eol) for rel, text in self.files.items()}, self.plan)
 
@@ -211,6 +211,36 @@ def test_roles_flags_and_outputs_paths(tree):
         assert rows[f"{READ_PATH}/Outputs/QZX-parse.md"] == [CREATE, "1.2", "~0.6K", "01, 02"]
         assert rows["docs/guide.md"][0] == "READ"
         assert "Grep" not in _block(text)
+
+
+def test_a_file_below_an_output_folder_keeps_its_own_role(tmp_path):
+    spec = make_spec()
+    first, second = spec["sprints"][0]["sessions"][0]["tasks"]
+    first["outputs"], second["outputs"] = ["src/orchard/"], ["Outputs/QZX-index.md"]
+    tree = Tree(tmp_path, spec=spec)
+    for step in ("render", "write-back"):
+        if step == "write-back":
+            tree.write_back(TASK_1, TASK_2)
+        rows = _rows(tree.text(ORCH))
+        assert [rows[p][0] for p in (LEDGER, PARSE, "docs/guide.md")] == ["EDIT", CREATE, "READ"], step
+        roles = []
+        for cell in ("ledger.py` lines 1-10", f"`{PARSE}`"):
+            row = next(ln for ln in tree.text(TASK_1).split("\n") if ln.startswith("|") and cell in ln)
+            roles.append(sp.split_row_cells(row)[4].strip())
+        assert roles == ["EDIT", CREATE], step
+
+
+def test_the_lead_names_what_the_block_lists(tmp_path):
+    spec = make_spec()
+    spec["sprints"][0]["sessions"][0]["tasks"][0]["outputs"].append("src/orchard/unread.py")  # no row names it
+    tree = Tree(tmp_path, spec=spec)
+    lead = _block(tree.files[ORCH]).split("\n|", 1)[0]
+    assert "plan files" in lead and "Required Context rows" in lead
+    assert "Every file" not in lead
+    tree.write_back(TASK_1, TASK_2)
+    for text in (tree.files[ORCH], tree.text(ORCH)):
+        assert "src/orchard/unread.py" not in _rows(text)
+        assert PARSE in _rows(text)  # the control: an output a row names is listed
 
 
 def test_an_old_shape_task_table_feeds_the_block_as_read(tree):
