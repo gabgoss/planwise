@@ -13,6 +13,11 @@ under `## Session Details`. Each file is re-rolled whole or left as authored.
 It also rewrites the Orchestration's `## Session Surface` block: the rows and
 the total line, derived from every task file of the session folder. An
 Orchestration without that heading gets no block.
+In the Sprint Plan it prices the `KiB` and `~Tokens` cells of the `## Write-Set`
+rows. A Write-Set table without those columns is left alone.
+In the Master Plan beside the sprint folders it re-rolls the `Count`, `KiB` and
+`~Tokens` cells of the `### Write-Sets` rows and the `**Write-set total:**`
+line from the Sprint Plans. A Master Plan without them is left alone.
 It also writes one `**Measured:**` footer under the Required Context table:
 the date, the command, the model and the bytes-per-token ratio the rows were
 priced with, so a reader can re-check any row. The date moves only when a row
@@ -47,7 +52,7 @@ import sys
 import tempfile
 from collections import Counter
 from datetime import date, datetime
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, localcontext
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -982,6 +987,362 @@ def surface_total(entries: list[dict]) -> str:
             "(information only)")
 
 
+def role_spellings(key: str, root: Path) -> list[str]:
+    """`key`, then each shorter spelling without a trailing qualifier, up to one that exists."""
+    spellings = [key]
+    while not os.path.exists(root / spellings[-1]):
+        m = _QUALIFIER_RE.search(spellings[-1])
+        bare = spellings[-1][:m.start()].rstrip("/") if m else ""
+        if not bare:
+            break
+        spellings.append(bare)
+    return spellings
+
+
+def _write_set_keys(rows: list[tuple], named: dict, own: dict[str, Path], plan_root: Path,
+                    project_root: Path) -> list[tuple[str, list[str]]]:
+    """(the one key of the file, its known Task IDs) per Write-Set row of (path cell, task cell)."""
+    out = []
+    for cell, task_cell in rows:
+        ids = list(dict.fromkeys(i for i in re.findall(r"[A-Za-z0-9][\w-]*", task_cell) if i in named))
+        at = named[ids[0]][0] if ids else plan_root / "row"
+        key = _surface_key(cell, at, own, plan_root, project_root) or _clean_file_cell(cell)
+        out.append((role_spellings(key, project_root)[-1], ids))
+    return out
+
+
+def writeset_figures(rows: list[tuple[str, str]], tasks: list[tuple[Path, str]],
+                     shares: dict[str, Decimal | None], plan_root: Path, project_root: Path,
+                     cache: _FileCache | None = None, size_of=None) -> list[tuple]:
+    """(KiB cell, ~Tokens cell, source) per Write-Set row; the first source found wins.
+
+    `rows` holds (path cell, task cell), `tasks` every task file of the sprint
+    with its text, and `shares` each Task ID's output tokens. The sources:
+    "cited" is the highest Required Context figure for the path, "measured" the
+    file's own price for the costliest Agent of its tasks, and "share" the
+    output tokens of a task split over its rows that reach this step. A row
+    with none of the three gets (None, None, None). Rows that name one file
+    get one figure. `size_of` gives the size of a file this run holds in memory.
+    """
+    cache = cache if cache is not None else _FileCache()
+    named = {_task_id(text.split("\n"), path): (path, parse_agent(text)) for path, text in tasks}
+    own = {path.name: path.parent for path, _ in tasks}
+    cited: dict[str, tuple[str, Decimal]] = {}
+    for entry in surface_entries(tasks, [], plan_root, project_root):
+        key = role_spellings(entry["path"], project_root)[-1]
+        if entry["tokens"] is not None and (key not in cited or entry["tokens"] > cited[key][1]):
+            cited[key] = (entry["kib"], entry["tokens"])
+
+    keys: list[str] = []
+    row_ids: list[list[str]] = []
+    ids_of: dict[str, list[str]] = {}
+    for key, ids in _write_set_keys(rows, named, own, plan_root, project_root):
+        keys.append(key)
+        row_ids.append(ids)
+        ids_of.setdefault(key, []).extend(ids)
+
+    def measure(key: str, ids: list[str]) -> tuple | None:
+        at = own[key] / key if key in own else named[ids[0]][0] if ids else plan_root / "row"
+        best = None
+        for model in {named[i][1] for i in ids} or {None}:
+            try:
+                price = price_row(key, at, plan_root, project_root, model, cache)
+                size = size_of(Path(price["path"])) if size_of and price["priced"] else None
+                if size is not None:
+                    price = price_row(key, Path(price["path"]), plan_root, project_root,
+                                      model, cache, size)
+            except OSError:
+                continue
+            if price["priced"] and (best is None or price["tokens"] > best["tokens"]):
+                best = price
+        return best and (_fmt_kib(best["bytes"]), _fmt_k(best["tokens"]), "measured")
+
+    figures: dict[str, tuple] = {}
+    for key, ids in ids_of.items():
+        if key in cited:
+            figures[key] = (cited[key][0], _fmt_k(cited[key][1]), "cited")
+        elif (found := measure(key, ids)) is not None:
+            figures[key] = found
+    reached = Counter(i for key, ids in zip(keys, row_ids) if key not in figures for i in ids)
+    for key, ids in ids_of.items():
+        split = [(shares[i] / reached[i], named[i][1]) for i in ids
+                 if key not in figures and shares.get(i) is not None]
+        if split:
+            tokens, model = max(split, key=lambda s: s[0])
+            ratio = bytes_per_token(model or "", content_class_for(Path(key))[1])
+            with localcontext() as ctx:
+                # An estimate may hold more digits than the default precision, or than a float.
+                ctx.prec = max(ctx.prec, tokens.adjusted() + 12)
+                kib = (tokens * Decimal(str(ratio)) / 1024).quantize(Decimal("0.1"))
+                figures[key] = (f"{kib:,}", _fmt_k(tokens), "share")
+    return [figures.get(key, (None, None, None)) for key in keys]
+
+
+_OUTPUT_ADDEND_RE = re.compile(rf"\+\s*~\s*({_NUM})\s*K\s*\(output\b")
+
+
+def _output_tokens(text: str) -> Decimal | None:
+    """The output addend of the `**Context subtotal:**` line, in tokens, or None."""
+    line = next((ln for ln in text.split("\n") if ln.startswith("**Context subtotal:**")), "")
+    m = _OUTPUT_ADDEND_RE.search(line)
+    return Decimal(m.group(1).replace(",", "")) * 1000 if m else None
+
+
+def _write_writeset(buf: _Buffers, report: dict, sprint_plan: Path, plan_root: Path,
+                    project_root: Path, cache: _FileCache) -> None:
+    """Price the `## Write-Set` rows; any failure leaves the file as it was.
+
+    Only the `KiB` and `~Tokens` cells change. The columns are found by name,
+    and a table without them is left alone and not reported. The figures come
+    from every task file of the sprint, so every row is priced, also a row of a
+    session this run does not name. A row with no figure keeps its cells. The
+    Sprint Plan may be a row itself, so the pass repeats until its size settles.
+    """
+    lines, fail = _guard(buf, report, sprint_plan)
+    what = "Write-Set"
+    try:
+        bounds = _section_bounds(lines, what)
+        head, columns = None, []
+        for i in range(*bounds) if bounds else ():
+            header = _table_header_at(lines, i) or []
+            columns = [_col(header, names) for names in (("path",), ("task",), ("kib",), _TOKEN_HEADERS)]
+            if None not in columns:
+                head = i
+                break
+        if head is None:
+            return
+        path_at, task_at, kib_at, tok_at = columns
+        width = len(_table_header_at(lines, head))
+        tasks = [t for folder in sorted(sprint_plan.parent.iterdir()) if folder.is_dir()
+                 for t in _surface_tasks(buf, folder) if "Orchestration" not in t[0].name]
+        shares = {_task_id(text.split("\n"), path): _output_tokens(text) for path, text in tasks}
+        before = {}
+        for n, i in enumerate(_table_rows(lines, head), start=1):
+            cells = _cells(_split_eol(lines[i])[0], width)
+            if len(cells) == width:
+                before[i] = (n, cells)
+            else:
+                report["left"].append({"file": str(sprint_plan), "row": f"Write-Set {n}",
+                                       "reason": "cell count differs from the header"})
+
+        def size_of(path: Path) -> int | None:
+            return next((_text_bytes(ls) for p, ls in buf.lines.items() if _same_file(p, path)), None)
+
+        for _ in range(_SELF_ROW_PASSES):
+            measured = _text_bytes(lines)
+            figures = writeset_figures([(c[path_at], c[task_at]) for _, c in before.values()], tasks,
+                                       shares, plan_root, project_root, cache, size_of)
+            for (i, (_, cells)), (kib, tokens, source) in zip(before.items(), figures):
+                if source is None:
+                    known = _parse_token_cell(cells[tok_at]) is not None
+                    kib = cells[kib_at].strip() if known else ""
+                    kib, tokens = kib or "0.0", cells[tok_at].strip() if known else _fmt_k(0)
+                for at, value in ((kib_at, kib), (tok_at, tokens)):
+                    if _cells(_split_eol(lines[i])[0], width)[at].strip() != value:
+                        lines[i] = _rewrite_cell(lines[i], at, value, width)
+            if _text_bytes(lines) == measured:
+                break
+        else:
+            fail(what, f"the byte count still moved after {_SELF_ROW_PASSES} passes")
+            return
+    except Exception as exc:  # noqa: BLE001 - the table never blocks the other writes
+        fail(what, f"{type(exc).__name__}: {exc}")
+        return
+    for i, (n, cells) in before.items():
+        after = _cells(_split_eol(lines[i])[0], width)
+        report["changes"].extend(
+            {"file": str(sprint_plan), "line": i + 1, "what": f"{what} row {n} {label}",
+             "old": cells[at].strip(), "new": after[at].strip()}
+            for at, label in ((kib_at, "KiB"), (tok_at, "~Tokens"))
+            if cells[at].strip() != after[at].strip())
+
+
+_MASTER_LABEL = "**Write-set total:**"
+_KIB_CELL_RE = re.compile(rf"^{_NUM}$")
+# A path cell that names no path: empty, a dash, `none` with or without a remark, or an unanswered fill.
+_NO_PATH_RE = re.compile(r"^(?:[-–—]?|n/a|none(?:[\s(,;:–—].*)?|.*<!-- FILL.*)$", re.IGNORECASE)
+
+
+def write_set_paths(rows: list[tuple], tasks: list[tuple[Path, str]], plan_root: Path,
+                    project_root: Path) -> dict[str, tuple[Decimal, Decimal]] | None:
+    """{path key: (KiB, tokens)} of one sprint's Write-Set rows, or None when a row has no figure.
+
+    `rows` holds (path, task, KiB, ~Tokens) cells and `tasks` every task file of
+    the plan, so that a path has one key in every sprint. A path takes its
+    highest printed ~Tokens cell, and the KiB cell of that row.
+    """
+    rows = [r for r in rows if not _NO_PATH_RE.match(r[0].replace("`", "").replace("*", "").strip())]
+    named = {_task_id(text.split("\n"), path): (path, None) for path, text in tasks}
+    own = {path.name: path.parent for path, _ in tasks}
+    paths: dict[str, tuple[Decimal, Decimal]] = {}
+    keys = _write_set_keys([r[:2] for r in rows], named, own, plan_root, project_root)
+    for (key, _ids), (_path, _task, kib, tokens) in zip(keys, rows):
+        value = _parse_token_cell(tokens)
+        if value is None:
+            return None
+        if key not in paths or value > paths[key][1]:
+            kib = kib.strip()
+            paths[key] = (Decimal(kib.replace(",", "") if _KIB_CELL_RE.match(kib) else 0), value)
+    return paths
+
+
+def write_set_sums(paths: dict[str, tuple[Decimal, Decimal]]) -> tuple[str, str, str]:
+    """The (Count, KiB, ~Tokens) cells of one sprint's distinct paths, summed over printed figures."""
+    with localcontext() as ctx:
+        # An estimate may hold more digits than the default precision.
+        ctx.prec = max([ctx.prec, *(v.adjusted() + 12 for pair in paths.values() for v in pair)])
+        kib = sum((k for k, _ in paths.values()), Decimal(0)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+        return str(len(paths)), f"{kib:,}", _fmt_k(sum((t for _, t in paths.values()), Decimal(0)))
+
+
+def write_set_total(sprints: list[dict[str, tuple[Decimal, Decimal]]]) -> str:
+    """The Master Plan's total line: each path of any sprint once, at its highest figure."""
+    merged: dict[str, tuple[Decimal, Decimal]] = {}
+    for paths in sprints:
+        for key, pair in paths.items():
+            if key not in merged or pair[1] > merged[key][1]:
+                merged[key] = pair
+    count, _kib, tokens = write_set_sums(merged)
+    return f"{_MASTER_LABEL} {tokens} tokens over {count} distinct paths (information only)"
+
+
+def _write_set_table(lines: list[str], bounds: tuple[int, int] | None,
+                     names: list[tuple[str, ...]]) -> tuple[int, list[int], int] | None:
+    """(header line, the columns of `names`, width) of the first table in `bounds` that has them all."""
+    for i in range(*bounds) if bounds else ():
+        header = _table_header_at(lines, i) or []
+        columns = [_col(header, n) for n in names]
+        if None not in columns:
+            return i, columns, len(header)
+    return None
+
+
+def _sprint_plan_rows(buf: _Buffers, sprint_dir: Path) -> list[tuple] | None:
+    """The sized Write-Set rows of a sprint folder's Sprint Plan, or None when it has no readable table."""
+    found = sorted(sprint_dir.glob("*Sprint-Plan*.md"))
+    if len(found) != 1:
+        return None
+    lines = buf.lines.get(found[0])
+    if lines is None:
+        lines = found[0].read_bytes().decode("utf-8", errors="replace").split("\n")
+    table = _write_set_table(lines, _section_bounds(lines, "Write-Set"),
+                             [("path",), ("task",), ("kib",), _TOKEN_HEADERS])
+    if table is None:
+        return None
+    head, columns, width = table
+    rows = [_cells(_split_eol(lines[i])[0], width) for i in _table_rows(lines, head)]
+    if any(len(cells) != width for cells in rows):
+        return None
+    return [tuple(cells[at] for at in columns) for cells in rows]
+
+
+def _write_master(buf: _Buffers, report: dict, plan_dir: Path, plan_root: Path,
+                  project_root: Path) -> bool:
+    """Re-roll the Master Plan's `### Write-Sets` sizes and total. True when its byte count moved.
+
+    Every figure sums the printed cells of the Sprint Plans beside the Master
+    Plan: this run's text when loaded, else the disk's. A row whose sprint has no
+    sized Write-Set keeps its cells, and the total line then stays too. A
+    missing Master Plan, column or total line is left alone and not reported.
+    """
+    found = sorted(plan_dir.glob("*-Master-Plan.md"))
+    if len(found) != 1:
+        return False
+    master, what = found[0], "Write-Sets"
+    fail = None
+    try:
+        # A lenient read first, so a Master Plan with nothing to re-roll is never loaded.
+        lines = buf.lines.get(master)
+        if lines is None:
+            lines = master.read_bytes().decode("utf-8", errors="replace").split("\n")
+        start = next((i for i, ln in enumerate(lines) if re.match(rf"^###\s+{what}\b", ln)), None)
+        if start is None:
+            return False
+        stop = next((j for j in range(start + 1, len(lines)) if re.match(r"^#{1,3}\s", lines[j])), len(lines))
+        table = _write_set_table(lines, (start, stop), [("sprint",), ("count",), ("kib",), _TOKEN_HEADERS])
+        total_at = next((i for i in range(start, stop) if lines[i].startswith(_MASTER_LABEL)), None)
+        if table is None and total_at is None:
+            return False
+        lines, fail = _guard(buf, report, master)
+        before = _text_bytes(lines)
+        folders: dict[int, list[Path]] = {}
+        tasks: list[tuple[Path, str]] = []
+        for folder in sorted(p for p in plan_dir.iterdir() if p.is_dir()):
+            m = re.match(r"Sprint-(\d+)(?:-|$)", folder.name)
+            if m is None:
+                continue
+            folders.setdefault(int(m.group(1)), []).append(folder)
+            tasks.extend(t for session in sorted(folder.iterdir()) if session.is_dir()
+                         for t in _surface_tasks(buf, session) if "Orchestration" not in t[0].name)
+        paths = {}
+        for number, same in folders.items():
+            rows = _sprint_plan_rows(buf, same[0]) if len(same) == 1 else None
+            paths[number] = None if rows is None else write_set_paths(rows, tasks, plan_root, project_root)
+        head, columns, width = table or (0, [], 0)
+        for n, i in enumerate(_table_rows(lines, head) if table else (), start=1):
+            cells = _cells(_split_eol(lines[i])[0], width)
+            if len(cells) != width:
+                report["left"].append({"file": str(master), "row": f"{what} {n}",
+                                       "reason": "cell count differs from the header"})
+                continue
+            m = re.match(r"Sprint-(\d+)(?!\w)", cells[columns[0]].replace("`", "").replace("*", "").strip())
+            if m is None:
+                continue
+            known = paths.setdefault(int(m.group(1)), None)
+            if known is not None:
+                for at, value, label in zip(columns[1:], write_set_sums(known), ("Count", "KiB", "~Tokens")):
+                    _set_cell(buf, report, master, i, at, cells, value, f"{what} {m.group(0)} {label}")
+        if total_at is not None and paths and None not in paths.values():
+            old, eol = _split_eol(lines[total_at])
+            new = write_set_total(list(paths.values()))
+            if new != old:
+                lines[total_at] = new + eol
+                report["changes"].append({"file": str(master), "line": total_at + 1,
+                                          "what": "Write-set total", "old": old, "new": new})
+        return _text_bytes(lines) != before
+    except Exception as exc:  # noqa: BLE001 - the Master Plan never blocks the other writes
+        reason = f"{type(exc).__name__}: {exc}"
+        if fail is not None:
+            fail(what, reason)
+        else:
+            report["unreadable"].append({"file": str(master), "what": what, "reason": reason})
+        return False
+
+
+def _write_write_sets(buf: _Buffers, report: dict, sprint_dirs: list[Path], plan_root: Path,
+                      project_root: Path, cache: _FileCache) -> None:
+    """Price the Sprint Plans' Write-Sets, then sum them in the Master Plan.
+
+    A Write-Set may name the Master Plan, whose size the sums change. So both
+    repeat until its byte count settles. The report keeps one record per cell.
+    """
+    marks = {key: len(report[key]) for key in _PASS_LISTS}
+    n_changes = len(report["changes"])
+    merged: dict[tuple, dict] = {}
+    root = plan_root.resolve()
+    plan_dirs = [d for d in dict.fromkeys(s.parent for s in sprint_dirs)
+                 if d.resolve() == root or root in d.resolve().parents]
+    for _ in range(_SELF_ROW_PASSES):
+        for key, n in marks.items():
+            del report[key][n:]  # each pass lists them again
+        for sprint_dir in sprint_dirs:
+            found = sorted(sprint_dir.glob("*Sprint-Plan*.md"))
+            if len(found) == 1:
+                _write_writeset(buf, report, found[0], plan_root, project_root, cache)
+        moved = [d for d in plan_dirs if _write_master(buf, report, d, plan_root, project_root)]
+        for change in report["changes"][n_changes:]:
+            hit = merged.setdefault((change["file"], change["line"], change["what"]), dict(change))
+            hit["new"] = change["new"]
+        del report["changes"][n_changes:]
+        if not moved:
+            break
+    else:
+        report["unreadable"].extend(
+            {"file": str(d), "what": "Write-Sets",
+             "reason": f"the Master Plan's byte count still moved after {_SELF_ROW_PASSES} passes"} for d in moved)
+    report["changes"].extend(c for c in merged.values() if c["old"] != c["new"])
+
+
 def _surface_tasks(buf: _Buffers, session_dir: Path) -> list[tuple[Path, str]]:
     """(path, text) of every task file in the folder: this run's text when loaded, else the disk's."""
     tasks = []
@@ -1253,6 +1614,10 @@ def write_estimates(
             if sprint_plan is not None:
                 session_id = re.sub(r"-\d+$", "", totals[0][0])
                 _write_sprint_plan(buf, report, sprint_plan, session_id, total_text, totals)
+
+        # After every session, because a Write-Set row may name a file of any session.
+        _write_write_sets(buf, report, list(dict.fromkeys(folder.parent for folder in by_session)),
+                          plan_root, project_root, cache)
     except _Undecodable as exc:
         report["errors"].append({"file": exc.args[0], "error": exc.args[1]})
     except OSError as exc:  # a file the run must rewrite could not be read

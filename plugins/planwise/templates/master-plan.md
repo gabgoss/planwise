@@ -132,12 +132,15 @@ Sources the Discovery plan reads. The table names each one by reference and neve
 
 ### Write-Sets
 
-<!-- Collected from each sprint's own Sprint Plan `## Write-Set` section. -->
+<!-- Collected from each sprint's own Sprint Plan `## Write-Set` section. A path counts once, at
+     its highest figure. The total counts a path of several sprints once. -->
 
-| Sprint | Write-set |
-|--------|-----------|
-| Sprint-01 | `{path/or/directory}`, `{path/or/directory}` |
-| Sprint-02 | `{path/or/directory}`, `{path/or/directory}` |
+| Sprint | Write-set | Count | KiB | ~Tokens |
+|--------|-----------|------:|----:|--------:|
+| Sprint-01 | `{path/or/directory}`, `{path/or/directory}` | {F} | {K} | ~{X}K |
+| Sprint-02 | `{path/or/directory}`, `{path/or/directory}` | {F} | {K} | ~{X}K |
+
+**Write-set total:** ~{T}K tokens over {F} distinct paths (information only)
 
 ### Computed Write-Set Intersection
 

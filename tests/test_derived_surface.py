@@ -15,6 +15,8 @@ import pytest
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
+import estimate_reconcile as er
+import lint_verification_gates
 import plan_build as pb
 import scaffold_plan as sp
 import token_saver_scan as tss
@@ -290,7 +292,7 @@ def test_a_failed_block_pass_keeps_every_other_write(tree, monkeypatch):
     monkeypatch.setattr(tsw, "surface_entries", boom)
     report = tree.write_back(TASK_1, TASK_2)
     assert [(u["what"], u["reason"]) for u in report["unreadable"]] == [
-        ("Session Surface", "RuntimeError: planted")]
+        ("Session Surface", "RuntimeError: planted"), ("Write-Set", "RuntimeError: planted")]  # both read it
     written = {Path(p).name for p in report["written"]}
     assert written == {Path(TASK_1).name, Path(TASK_2).name, Path(ORCH).name, "QZX-S01-Sprint-Plan.md"}
     assert _block(tree.text(ORCH)) == block
@@ -402,6 +404,406 @@ def test_a_delegated_orchestration_lists_plan_files_only(tree):
             "QZX-Master-Plan.md", "QZX-S01-01-Recovery.md"]
     assert sp.unmasked_braces(tree.files[ORCH]) == []
     assert sp.check_headings([tree.plan / ORCH], TEMPLATES)[0]["stray"] == []
+
+
+# ---- the sprint Write-Set
+
+PLAN = f"{SPRINT}/QZX-S01-Sprint-Plan.md"
+NEW = "src/orchard/new|er.py"
+QUALIFIED = f"{PARSE} (new)"
+
+
+def _write_set(text):
+    """[path, task, role, KiB, ~Tokens] per row, every cell filled."""
+    section = text.replace("\r\n", "\n").split("\n## Write-Set", 1)[1].split("\n---\n", 1)[0]
+    table = [[c.strip() for c in sp.split_row_cells(ln)] for ln in section.split("\n") if ln.startswith("|")]
+    assert table[0] == ["Path", "Task", "Role", "KiB", "~Tokens"]
+    assert all(len(r) == 5 and all(r) for r in table), table
+    return [[r[0].strip("`"), *r[1:]] for r in table[2:]]
+
+
+def _sprint_spec():
+    """Task 1 writes a qualified absent file, an existing file no row cites and a folder. Two tasks write LEDGER."""
+    spec = make_spec()
+    first, second = spec["sprints"][0]["sessions"][0]["tasks"]
+    other = spec["sprints"][0]["sessions"][1]["tasks"][0]
+    first["outputs"] = [QUALIFIED, "src/orchard/calls.py", "docs/", NEW, "Outputs/QZX-parse.md"]
+    second["outputs"] = [LEDGER, PARSE]
+    other["outputs"] = [f"{LEDGER} (rows)", "src/orchard/calls.py"]
+    return spec
+
+
+@pytest.fixture
+def sprint(tmp_path):
+    calls = tmp_path / "project/src/orchard/calls.py"
+    calls.parent.mkdir(parents=True)
+    calls.write_bytes(b"call = 1\n" * 1500)
+    return Tree(tmp_path, spec=_sprint_spec())
+
+
+def _check_59(tree):
+    return [f for f in lint_verification_gates.lint_plan(tree.plan, execute=False) if f["check"] == 59]
+
+
+def test_a_write_set_row_carries_the_measured_size_or_the_flagged_estimate(sprint):
+    seed = {(r[0], r[1]): r[2:] for r in _write_set(sprint.files[PLAN])}
+    # The seed: 20 minus (1.5 + 0.4 + 0.7 + 0.3) is 17.1, over the folder and the new file.
+    assert seed[("docs/", "QZX-S01-01-01")][2] == seed[(NEW, "QZX-S01-01-01")][2] == "~8.6K"
+    sprint.write_back(TASK_1, TASK_2, OTHER_TASK)
+    rows = {(r[0], r[1]): r[2:] for r in _write_set(sprint.text(PLAN))}
+    size = (sprint.root / "src/orchard/calls.py").stat().st_size
+    want = [sp._fmt_k(sp.estimate_tokens(size, m, "code")) for m in ("haiku", "sonnet")]
+    assert Decimal(want[0].strip("~K")) < Decimal(want[1].strip("~K"))  # the control: the Agents differ
+    for task in ("QZX-S01-01-01", "QZX-S01-02-01"):  # the higher price of the two Agents, on both rows
+        assert rows[("src/orchard/calls.py", task)] == ["EDIT", sp._fmt_kib(size), want[1]]
+    # The ~2K output addend over the two rows that reach the last step.
+    kib = sp._fmt_kib(1000 * tsw.bytes_per_token("haiku", "code"))
+    assert rows[(NEW, "QZX-S01-01-01")] == [CREATE, kib, "~1.0K"]
+    assert rows[("docs/", "QZX-S01-01-01")][0::2] == ["EDIT (plan-time estimate)", "~1.0K"]
+    # An absent path that a row cites keeps the row's plan-time figure, in both spellings.
+    for path, task in ((QUALIFIED, "QZX-S01-01-01"), (PARSE, "QZX-S01-01-02")):
+        assert rows[(path, task)] == [CREATE, "1.4", "~0.7K"]
+    # The file lands: the figure moves and the Role cell stays.
+    (sprint.root / PARSE).write_bytes(b"parse = 1\n" * 4000)
+    sprint.write_back(TASK_1, TASK_2)
+    for row in _write_set(sprint.text(PLAN)):
+        if row[0] in (QUALIFIED, PARSE):
+            assert row[2:] == [CREATE, *_task_figure(sprint.text(TASK_1), f"`{PARSE}`")]
+            assert row[4] != "~0.7K"
+
+
+def test_a_row_without_a_figure_prints_zero_and_one_without_an_addend_keeps_its_seed(sprint):
+    sprint.set(TASK_1, sprint.text(TASK_1).replace("K (output", "K (written"))
+    seeded = [r for r in _write_set(sprint.text(PLAN)) if r[0] == NEW]
+    sprint.write_back(TASK_1, TASK_2)
+    assert [r for r in _write_set(sprint.text(PLAN)) if r[0] == NEW] == seeded
+    text = sprint.text(PLAN)
+    sprint.set(PLAN, text.replace(f"| {seeded[0][3]} | {seeded[0][4]} |", "|  | ~? |"))
+    sprint.write_back(TASK_1, TASK_2)
+    assert [r[3:] for r in _write_set(sprint.text(PLAN)) if r[0] == NEW] == [["0.0", "~0.0K"]]
+
+
+def test_the_sprint_role_is_what_role_for_returns(tmp_path):
+    spec = make_spec()
+    sprint, session = spec["sprints"][0], spec["sprints"][0]["sessions"][0]
+    task = session["tasks"][0]
+    task["outputs"] = [LEDGER, "src/orchard/absent.py", "src/orchard", "src/orchard/below.py", f"{LEDGER} (helpers)"]
+    tree = Tree(tmp_path, spec=spec)
+    rows = [r for r in _write_set(tree.files[PLAN]) if r[1] == "QZX-S01-01-01"]
+    assert [r[0] for r in rows] == task["outputs"]
+    roles = [r[2].split()[0] for r in rows]
+    assert roles == [sp.role_for(r[0], task, sprint, session, tree.root) for r in rows]
+    assert roles == ["EDIT", "CREATE", "EDIT", "CREATE", "EDIT"]
+
+
+def test_a_path_two_tasks_cite_carries_the_higher_figure_on_every_row(sprint):
+    for step in ("render", "write-back"):
+        if step == "write-back":
+            sprint.write_back(TASK_1, TASK_2, OTHER_TASK)
+        want = list(_task_figure(sprint.text(TASK_2), "ledger.py`"))
+        low = _task_figure(sprint.text(TASK_1), "ledger.py` lines 1-10")
+        assert Decimal(low[1].strip("~K")) < Decimal(want[1].strip("~K"))
+        rows = [r[3:] for r in _write_set(sprint.text(PLAN)) if r[0].startswith(LEDGER)]
+        assert rows == [want, want], step
+
+
+def test_check_59_passes_on_the_rendered_sprint_plan(sprint):
+    assert _check_59(sprint) == []
+    sprint.write_back(TASK_1, TASK_2, OTHER_TASK)
+    assert _check_59(sprint) == []
+    sprint.set(PLAN, sprint.text(PLAN).replace("| `src/orchard/calls.py` |", "| `src/other.py` |"))
+    assert _check_59(sprint)  # the control: the check reads these rows
+
+
+@pytest.mark.parametrize("eol", ["\n", "\r\n"], ids=["lf", "crlf"])
+def test_a_second_write_back_of_the_sprint_plan_changes_no_byte(tmp_path, eol):
+    spec = _sprint_spec()
+    # The plan prices itself and a plan file that the same run rewrites.
+    spec["sprints"][0]["sessions"][0]["tasks"][0]["outputs"] += [f"plans/QZX/{PLAN}", f"plans/QZX/{OTHER_ORCH}"]
+    tree = Tree(tmp_path, eol, spec=spec)
+    assert any(p.endswith("Sprint-Plan.md") for p in tree.write_back(TASK_1, OTHER_TASK)["written"])
+    before = tree.snapshot()
+    for names in ((TASK_1, OTHER_TASK), (OTHER_TASK,)):
+        report = tree.write_back(*names)
+        assert (report["written"], report["changes"], report["unreadable"]) == ([], [], [])
+    assert tree.snapshot() == before
+    rows = {Path(r[0]).name: r for r in _write_set(tree.text(PLAN))}
+    for rel in (PLAN, OTHER_ORCH):
+        assert rows[Path(rel).name][3] == sp._fmt_kib((tree.plan / rel).stat().st_size)
+
+
+def test_an_old_write_set_table_is_left_as_it_is(sprint):
+    lines = sprint.text(PLAN).split("\n")
+    head = lines.index("| Path | Task | Role | KiB | ~Tokens |")
+    end = next(i for i in range(head, len(lines)) if not lines[i].startswith("|"))
+    for i in range(head, end):
+        lines[i] = "| " + " | ".join(c.strip().replace("|", "\\|") for c in sp.split_row_cells(lines[i])[:2]) + " |"
+    table = lines[head:end]
+    sprint.set(PLAN, "\n".join(lines))
+    report = sprint.write_back(TASK_1, TASK_2, OTHER_TASK)
+    assert report["unreadable"] == []
+    assert not [r for r in report["left"] if "Sprint-Plan" in r["file"]]
+    assert any(p.endswith("Sprint-Plan.md") for p in report["written"])  # the control: the totals moved
+    assert "\n".join(table) in sprint.text(PLAN)
+    assert _check_59(sprint) == []
+
+
+# ---- the master Write-Sets and total
+
+MASTER = "QZX-Master-Plan.md"
+PLAN_2 = "Sprint-02-LedgerExtras/QZX-S02-Sprint-Plan.md"
+TASK_S2 = "Sprint-02-LedgerExtras/Session-01-Extras/QZX-S02-01-01-Opus-ExtraRows.md"
+
+
+def _master(text):
+    """({sprint: [Count, KiB, ~Tokens]}, total line) of the Master Plan."""
+    section = text.replace("\r\n", "\n").split("\n### Write-Sets", 1)[1].split("\n### ", 1)[0]
+    table = [[c.strip() for c in sp.split_row_cells(ln)] for ln in section.split("\n") if ln.startswith("|")]
+    assert all(len(r) == len(table[0]) and all(r) for r in table), table
+    return ({r[0]: r[2:] for r in table[2:]},
+            next(ln for ln in section.split("\n") if ln.startswith("**Write-set total:**")))
+
+
+def _two_sprints():
+    """Sprint two writes LEDGER, as sprint one does, under a second spelling. Sprint one writes PARSE in two spellings."""
+    spec = _sprint_spec()
+    extra = _task(1, "ExtraRows", "Opus", [f"{LEDGER} (extras)", "src/orchard/extra.py"], [_row(LEDGER, 9.0)])
+    spec["sprints"].append({"number": 2, "name": "LedgerExtras", "purpose": "Extend the core", "sessions": [
+        {"number": 1, "name": "Extras", "objective": "Extend", "mode": "DIRECT", "prerequisite": "The core",
+         "tasks": [extra]}]})
+    spec["sprints"].append({"number": 3, "name": "Empty", "purpose": "Report", "sessions": [
+        {"number": 1, "name": "Report", "objective": "Report", "mode": "DIRECT", "prerequisite": "The extras",
+         "tasks": [_task(1, "Report", "Opus", ["Outputs/QZX-report.md"], [_row("docs/guide.md", 0.8)])]}]})
+    return spec
+
+
+def _expected(*plans):
+    """(Count, KiB, ~Tokens) over the plans' rows: a path once at its highest figure. Every qualifier here ends in `)`."""
+    best = {}
+    for text in plans:
+        for path, _task_cell, _role, kib, tokens in _write_set(text):
+            key, figure = re.sub(r" \(.*\)$", "", path), Decimal(tokens.strip("~K"))
+            if key not in best or figure > best[key][1]:
+                best[key] = (Decimal(kib.replace(",", "")), figure)
+    kib, tokens = (sum(f[i] for f in best.values()) for i in (0, 1))
+    return [str(len(best)), f"{kib:,}", f"~{tokens}K"]
+
+
+def _assert_master(tree):
+    rows, total = _master(tree.text(MASTER))
+    one, two = _expected(tree.text(PLAN)), _expected(tree.text(PLAN_2))
+    both = _expected(tree.text(PLAN), tree.text(PLAN_2))
+    assert rows == {"Sprint-01": one, "Sprint-02": two, "Sprint-03": ["0", "0.0", "~0.0K"]}
+    assert total == f"**Write-set total:** {both[2]} tokens over {both[0]} distinct paths (information only)"
+    assert int(both[0]) == int(one[0]) + int(two[0]) - 1  # the control: the sprints share LEDGER
+    return one, two, both
+
+
+def test_the_master_total_counts_each_path_once_and_follows_a_changed_figure(tmp_path):
+    tree = Tree(tmp_path, spec=_two_sprints())
+    one, two, both = _assert_master(tree)
+    assert (one[0], two[0], both[0]) == ("5", "2", "6")  # eight rows of sprint one, with three respellings
+    tree.write_back(TASK_1, TASK_2, OTHER_TASK, TASK_S2)
+    settled = _assert_master(tree)
+    assert settled[2] != both
+    (tree.root / LEDGER).write_bytes(b"ledger = {}\n" * 9000)
+    tree.write_back(TASK_2)  # sprint two is not named, so its row keeps its Sprint Plan's present cells
+    moved = _assert_master(tree)
+    assert moved[1] == settled[1] and moved[2] != settled[2]
+
+
+@pytest.mark.parametrize("eol", ["\n", "\r\n"], ids=["lf", "crlf"])
+def test_a_second_write_back_of_the_master_plan_changes_no_byte(tmp_path, eol):
+    spec = _two_sprints()
+    # A Write-Set row prices the Master Plan, whose own cells change its size.
+    spec["sprints"][0]["sessions"][0]["tasks"][0]["outputs"].append(f"plans/QZX/{MASTER}")
+    tree = Tree(tmp_path, eol, spec=spec)
+    # With a long cell the file is larger, so one pass would price the Master Plan's row too high.
+    text = tree.text(MASTER)
+    kib = _master(text)[0]["Sprint-02"][1]
+    tree.set(MASTER, text.replace(f"| 2 | {kib} |", f"| 2 | {'9' * 400} |"))
+    assert len(tree.text(MASTER)) > len(text) + 300
+    names = (TASK_1, TASK_2, OTHER_TASK, TASK_S2)
+    report = tree.write_back(*names)
+    assert any(p.endswith(MASTER) for p in report["written"])
+    assert report["unreadable"] == []
+    before = tree.snapshot()
+    report = tree.write_back(*names)
+    assert (report["written"], report["changes"], report["unreadable"]) == ([], [], [])
+    assert tree.snapshot() == before
+    own = next(r for r in _write_set(tree.text(PLAN)) if r[0].endswith(MASTER))
+    assert own[3] == sp._fmt_kib((tree.plan / MASTER).stat().st_size)
+    data = (tree.plan / MASTER).read_bytes()
+    assert data.count(b"\r\n") == (data.count(b"\n") if eol == "\r\n" else 0)
+
+
+@pytest.mark.parametrize("gap", ["plan", "table", "row", "total", "columns", "master"])
+def test_a_missing_part_of_the_master_grain_is_silent(tmp_path, gap):
+    tree = Tree(tmp_path, spec=_two_sprints())
+    rows, total = _master(tree.text(MASTER))
+    master = tree.text(MASTER)
+    if gap == "plan":
+        (tree.plan / PLAN_2).unlink()
+    elif gap == "table":
+        tree.set(PLAN_2, tree.text(PLAN_2).replace("| Path | Task | Role | KiB | ~Tokens |", "| Path | Task | Role | A | B |"))
+    elif gap == "row":
+        tree.set(MASTER, "\n".join(ln for ln in master.split("\n") if not ln.startswith("| Sprint-02 | `")))
+    elif gap == "total":
+        tree.set(MASTER, master.replace(total + "\n", ""))
+    elif gap == "columns":
+        tree.set(MASTER, master.replace("| Sprint | Write-set | Count |", "| Sprint | Write-set | Size |"))
+    else:
+        (tree.plan / MASTER).unlink()
+    report = tree.write_back(TASK_1, TASK_2, OTHER_TASK)
+    assert report["unreadable"] == []
+    assert not [r for r in report["left"] if "Master" in r["file"]]
+    if gap == "master":
+        assert not (tree.plan / MASTER).exists()
+        return
+    text = tree.text(MASTER)
+    assert (total in text) == (gap in ("plan", "table"))
+    assert ("**Write-set total:**" in text) == (gap != "total")
+    assert ("| Sprint-01 | " in text and rows["Sprint-01"][2] in text) == (gap == "columns")
+    if gap in ("plan", "table"):
+        assert _master(text)[0]["Sprint-02"] == rows["Sprint-02"]
+
+
+# One literal header per grain, copied from the surface contract. A change there updates this table.
+HEADERS = {
+    "task": "| Priority | File | KiB | ~Tokens | Role | Purpose |",
+    "session": "| Path | Role | KiB | ~Tokens | Cited By |",
+    "sprint": "| Path | Task | Role | KiB | ~Tokens |",
+    "master": "| Sprint | Write-set | Count | KiB | ~Tokens |",
+    "master total": "**Write-set total:** ~{T}K tokens over {F} distinct paths (information only)",
+}
+
+
+def test_every_grain_renders_the_contract_header(tmp_path):
+    files = Tree(tmp_path, spec=_two_sprints()).files
+    places = {"task": (TASK_1, "## Required Context", "|"), "session": (ORCH, "## Session Surface", "|"),
+              "sprint": (PLAN, "## Write-Set", "|"), "master": (MASTER, "### Write-Sets", "|"),
+              "master total": (MASTER, "### Write-Sets", "**Write-set total:**")}
+    got = {}
+    for grain, (rel, heading, start) in places.items():
+        section = files[rel].split(f"\n{heading}", 1)[1]
+        line = next(ln for ln in section.split("\n") if ln.startswith(start))
+        got[grain] = re.sub(r"over \d+ ", "over {F} ", re.sub(r"~[\d.]+K", "~{T}K", line))
+    assert got == HEADERS
+
+
+OLD_TASK = """# Task: Probe
+
+**Task ID:** QZX-S01-01-01
+**Agent:** Sonnet
+**Estimated Tokens:** ~10K
+**Output:** `src/orchard/ledger.py`
+
+---
+
+## Required Context
+
+| Priority | File | KiB | ~Tokens | Purpose |
+|----------|------|----:|--------:|---------|
+| 1 | `src/orchard/ledger.py` | 9.9 | ~4.0K | the module |
+| 2 | `QZX-S01-01-01-Sonnet-Probe.md` | 1.0 | ~0.4K | this task file |
+
+**Context subtotal:** ~4.4K (reads) + ~5K (output) + ~1K (working) = **~10K total**
+
+---
+
+## Execution Steps
+
+1. Do the thing.
+"""
+OLD_ORCH = """# Orchestration
+
+## Session Task List
+
+| # | Task | Agent | Est. Tokens | Depends On |
+|---|------|-------|-------------|------------|
+| 1 | Probe: price the ledger | Sonnet | ~10K | - |
+
+**Total Estimated:** ~10K tokens
+
+## Dispatch Layers
+
+**Declared layers:** L1 = {1}
+"""
+OLD_SPRINT = """# Sprint Plan
+
+**Estimated Tokens:** ~10K total across all sessions
+
+## Sessions
+
+| Session | ID | Name | Objective | Est. Tokens |
+|---------|----|------|-----------|-------------|
+| 1 | QZX-S01-01 | ReadPath | Price the ledger | ~10K |
+
+## Write-Set
+
+| Path | Task |
+|------|------|
+| `src/orchard/ledger.py` | QZX-S01-01-01 |
+
+## Session Details
+
+### Session 01: ReadPath (QZX-S01-01)
+
+| # | Task | Agent | Est. Tokens | Depends On |
+|---|------|-------|-------------|------------|
+| 1 | Probe: price the ledger | Sonnet | ~10K | - |
+
+**Total Estimated:** ~10K tokens
+"""
+OLD_MASTER = """# OrchardLedger Master Plan
+
+## Execution Ordering
+
+### Write-Sets
+
+| Sprint | Write-set |
+|--------|-----------|
+| Sprint-01 | `src/orchard/ledger.py` |
+
+### Computed Write-Set Intersection
+
+| Declared pair | Intersection | Verdict |
+|---------------|--------------|---------|
+| none declared | n/a | serial order |
+"""
+
+
+def test_a_whole_plan_in_the_old_shape_stays_in_the_old_shape(tmp_path, capsys):
+    plan = tmp_path / "plans/QZX"
+    old = {f"{READ_PATH}/QZX-S01-01-01-Sonnet-Probe.md": OLD_TASK, ORCH: OLD_ORCH, PLAN: OLD_SPRINT,
+           RECOVERY: "# Recovery\n", MASTER: OLD_MASTER}
+    for rel, text in {LEDGER: "ledger = {}\n" * 900, **{f"plans/QZX/{r}": t for r, t in old.items()}}.items():
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(text.encode("utf-8"))
+    task = plan / READ_PATH / "QZX-S01-01-01-Sonnet-Probe.md"
+    for rel in (ORCH, PLAN):  # stale totals, so the write-back has work in each file
+        text = old[rel] = old[rel].replace("~10K", "~12K")
+        (plan / rel).write_bytes(text.encode("utf-8"))
+    report = tsw.write_estimates([task], plan, tmp_path)
+    assert (report["errors"], report["unreadable"], report["left"]) == ([], [], [])
+    assert {Path(p).name for p in report["written"]} == {Path(r).name for r in old} - {MASTER, Path(RECOVERY).name}
+    for rel, text in old.items():
+        after = (plan / rel).read_bytes().decode("utf-8")
+        shape = [[len(sp.split_row_cells(ln)) if ln.startswith("|") else ln.startswith("#") and ln
+                  for ln in t.split("\n") if ln.startswith(("|", "#"))] for t in (text, after)]
+        assert shape[0] == shape[1], rel  # no new column, row or heading
+        for name in ("Session Surface", "Role |", "| Count |", "**Write-set total:**", "**Session surface:**"):
+            assert name not in after, rel
+    assert (plan / MASTER).read_bytes().decode("utf-8") == OLD_MASTER
+    result = tss.scan_plan(plan, {"context": {"token_saver": True}}, tmp_path)
+    assert (result["summary"]["tasks"], result["summary"]["files"]) == (1, 2)  # the control: the scan read the rows
+    assert (result["findings"], result["unresolved"], result["over_ceiling"]) == ([], [], [])
+    capsys.readouterr()
+    code = er.main(["check", str(plan)])
+    out = capsys.readouterr().out.splitlines()
+    assert code == 0, out
+    assert out[-1] == "estimates: sessions=1 mismatches=0 unread=0"
 
 
 # ---- the project root of the two production callers

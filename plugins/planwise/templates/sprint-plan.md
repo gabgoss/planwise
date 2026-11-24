@@ -45,10 +45,10 @@ over read-sets is meaningless, since nearly every sprint reads broadly but only
 a handful of paths are ever written to. Each row's paths also appear on the named
 task's `**Output:**` line, and lint Check 59 reconciles the two.
 
-| Path | Task |
-|------|------|
-| `{path/or/directory}` | {ABBREV}-S{XX}-{YY}-{##} |
-| `{path/or/directory}` | {ABBREV}-S{XX}-{YY}-{##} |
+| Path | Task | Role | KiB | ~Tokens |
+|------|------|------|----:|--------:|
+| `{path/or/directory}` | {ABBREV}-S{XX}-{YY}-{##} | {Role} | {K} | ~{X}K |
+| `{path/or/directory}` | {ABBREV}-S{XX}-{YY}-{##} | {Role} | {K} | ~{X}K |
 
 This declaration feeds the Master Plan's `## Execution Ordering` section, where
 every declared-parallel pair's write-sets are intersected and the computed

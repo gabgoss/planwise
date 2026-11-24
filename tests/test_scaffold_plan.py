@@ -448,6 +448,58 @@ def test_a_session_outputs_spelling_is_in_no_write_set(output):
     assert got == want
 
 
+@pytest.mark.parametrize("width", [2, 5], ids=["two", "shipped"])
+def test_every_write_set_row_has_the_header_cell_count(tmp_path, width):
+    templates = tmp_path / "t"
+    shutil.copytree(TEMPLATES, templates)
+    path = templates / "sprint-plan.md"
+    lines = path.read_text(encoding="utf-8").split("\n")
+    head = next(i for i, ln in enumerate(lines) if ln.startswith("| Path | Task |"))
+    for i in range(head, head + 4):
+        cells = [c.strip() for c in sp.split_row_cells(lines[i])]
+        assert len(cells) == 5
+        lines[i] = "| " + " | ".join(cells[:width]) + " |"
+    path.write_text("\n".join(lines), encoding="utf-8")
+    spec = make_spec()
+    _t0(spec)["outputs"] = ["src/a|b.py", "src/orchard/", "src/orchard/parse.py (new)", "Outputs/x.md"]
+    text = sp.render_all(spec, templates, project_root=_project(tmp_path))[0][
+        sp.sprint_plan_path(spec, spec["sprints"][0])]
+    section = text.split("\n## Write-Set", 1)[1].split("\n---\n", 1)[0]
+    header, _sep, *rows = [sp.split_row_cells(ln) for ln in section.split("\n") if ln.startswith("|")]
+    assert [c.strip() for c in header] == ["Path", "Task", "Role", "KiB", "~Tokens"][:width]
+    assert len(rows) == 5  # three of the first task, one each of the next two
+    assert all(len(r) == width and all(c.strip() for c in r) for r in rows), rows
+    assert rows[0][0].strip() == "`src/a|b.py`"
+
+
+@pytest.mark.parametrize("width", [2, 5], ids=["two", "shipped"])
+def test_every_master_write_sets_row_has_the_header_cell_count(tmp_path, width):
+    templates = tmp_path / "t"
+    shutil.copytree(TEMPLATES, templates)
+    path = templates / "master-plan.md"
+    lines = path.read_text(encoding="utf-8").split("\n")
+    head = next(i for i, ln in enumerate(lines) if ln.startswith("| Sprint | Write-set |"))
+    for i in range(head, head + 4):
+        cells = [c.strip() for c in sp.split_row_cells(lines[i])]
+        assert len(cells) == 5
+        lines[i] = "| " + " | ".join(cells[:width]) + " |"
+    path.write_text("\n".join(lines), encoding="utf-8")
+    spec = _two_sprint_spec()
+    _t0(spec)["outputs"] = ["src/a|b.py", "src/orchard/parse.py (new)"]
+    for session in spec["sprints"][1]["sessions"]:
+        for task in session["tasks"]:
+            task["outputs"] = ["Outputs/x.md"]
+    text = sp.render_all(spec, templates, project_root=_project(tmp_path))[0]["QZX-Master-Plan.md"]
+    section = text.split("\n### Write-Sets", 1)[1].split("\n### ", 1)[0]
+    header, _sep, *rows = [[c.strip() for c in sp.split_row_cells(ln)] for ln in section.split("\n")
+                           if ln.startswith("|")]
+    assert header == ["Sprint", "Write-set", "Count", "KiB", "~Tokens"][:width]
+    assert len(rows) == 2
+    assert all(len(r) == width and all(r) for r in rows), rows
+    assert rows[0][1].startswith("`src/a|b.py`, ")
+    assert rows[1] == ["Sprint-02", "none", "0", "0.0", "~0.0K"][:width]
+
+
 def test_role_expands_the_root_placeholders(tmp_path):
     root = _project(tmp_path)
     (root / "planwise").mkdir()
