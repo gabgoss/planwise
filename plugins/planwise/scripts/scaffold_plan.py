@@ -193,9 +193,11 @@ from token_saver_scan import (
 )
 from token_saver_writeback import (
     _QUALIFIER_RE,
+    _TOKEN_HEADERS,
     PLAN_TIME_FLAG,
     _fmt_k,
     _fmt_kib,
+    keyed_write_set,
     role_spellings,
     surface_entries,
     surface_row,
@@ -528,7 +530,7 @@ def is_outputs_path(path):
     """Whether a spec path is the session's own `Outputs` folder or a path below it, trailing qualifiers aside."""
     text = plain_path(_clean_file_cell(path))
     while m := _QUALIFIER_RE.search(text):
-        text = text[:m.start()]
+        text = text[:m.start()].rstrip("/")
     return f"{text}/".startswith("Outputs/")
 
 
@@ -651,6 +653,12 @@ def m_ordering(lines, i, env):
     return ([re.sub(r"`.*`", lambda _m: f"`{env.spec['ordering']}`", lines[i])], 1)
 
 
+def sized_row(header, cells):
+    """One Write-Set row in `header` order. Every token header gets the `~tokens` cell, an unknown one `n/a`."""
+    names = ("~tokens" if name in _TOKEN_HEADERS else name for name in header)
+    return f"| {' | '.join(cells.get(name, 'n/a') for name in names)} |"
+
+
 def m_writesets(lines, i, env):
     """One row per sprint, sized by the write-back's own `write_set_sums`."""
     header = table_header(lines, i)
@@ -662,7 +670,7 @@ def m_writesets(lines, i, env):
         text = ", ".join(f"`{p}`" for p in write_paths(s)).replace("|", "\\|")
         cells = {"sprint": f"Sprint-{s['number']:02d}", "write-set": text or "none",
                  "count": count, "kib": kib, "~tokens": tokens}
-        rows.append(f"| {' | '.join(cells.get(name, '') for name in header)} |")
+        rows.append(sized_row(header, cells))
     return (rows, n)
 
 
@@ -672,15 +680,16 @@ def m_writeset_total(lines, i, env):
 
 
 def m_intersection(lines, i, env):
+    """One row per parallel pair: the files both sprints write, as the pair's first sprint spells them."""
     n = table_run(lines, i)
     consume(env, lines, i, n, "derived")
     pairs = env.spec.get("parallel_pairs") or []
     if not pairs:
         return (["| none declared | n/a - no parallel pair declared | serial order, no parallelism claimed |"], n)
-    by_num = {s["number"]: s for s in env.spec["sprints"]}
+    spellings = {s["number"]: names for s, names in zip(env.spec["sprints"], env.spellings)}
     rows = []
     for a, b in pairs:
-        shared = sorted(set(write_paths(by_num[a])) & set(write_paths(by_num[b])))
+        shared = sorted(path for key, path in spellings[a].items() if key in spellings[b])
         inter = ", ".join(f"`{p}`" for p in shared) or "∅"
         verdict = "✅ disjoint — parallel stands" if not shared else "❌ NOT disjoint — serialized"
         rows.append(f"| Sprint-{a:02d} ∥ Sprint-{b:02d} | {inter} | {verdict} |")
@@ -779,9 +788,7 @@ def sprint_write_set(env):
 
 
 def s_writeset_rows(lines, i, env):
-    """The Write-Set rows that `sprint_write_set` derived."""
-    if not env.write_set:
-        return None
+    """The Write-Set rows that `sprint_write_set` derived, or one `none` row."""
     header = table_header(lines, i)
     n = table_run(lines, i)
     consume(env, lines, i, n, "derived")
@@ -789,7 +796,9 @@ def s_writeset_rows(lines, i, env):
     for path, tid, role, kib, tokens in env.write_set:
         cells = {"path": "`{}`".format(path.replace("|", "\\|")), "task": tid, "role": role,
                  "kib": kib, "~tokens": tokens}
-        rows.append(f"| {' | '.join(cells.get(name, '') for name in header)} |")
+        rows.append(sized_row(header, cells))
+    if not rows:
+        rows.append(sized_row(header, {"path": "none", "kib": "0.0", "~tokens": _fmt_k(0)}))
     return (rows, n)
 
 
@@ -1327,7 +1336,10 @@ def render_all(spec, templates_dir=DEFAULT_TEMPLATES, date=None, project_root=No
         all_tasks.extend(senv.task_texts)
     # The Write-Sets table sums every Sprint Plan, so the Master Plan renders last and is put first.
     menv.write_sets = [write_set_paths(rows, all_tasks, folder, root) or {} for folder, rows in write_sets]
-    put(f"{a}-Master-Plan.md", render_doc(bodies["master"], menv, MASTER, spec.get("optional_sections", ())))
+    # Per sprint, each path key with its first authored spelling.
+    menv.spellings = [{key: row[0] for key, row in reversed(keyed_write_set(rows, all_tasks, folder, root))}
+                      for folder, rows in write_sets]
+    put(f"{a}-Master-Plan.md",render_doc(bodies["master"], menv, MASTER, spec.get("optional_sections", ())))
     for rel, text in plan_files:
         put(rel, text)
     return files, rec

@@ -6,6 +6,7 @@ real write-back. No surface row is typed by hand.
 
 import json
 import re
+import shutil
 import sys
 from decimal import Decimal
 from pathlib import Path
@@ -16,6 +17,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 import estimate_reconcile as er
+import lint_gate_checks_layers as layers
 import lint_verification_gates
 import plan_build as pb
 import scaffold_plan as sp
@@ -804,6 +806,113 @@ def test_a_whole_plan_in_the_old_shape_stays_in_the_old_shape(tmp_path, capsys):
     out = capsys.readouterr().out.splitlines()
     assert code == 0, out
     assert out[-1] == "estimates: sessions=1 mismatches=0 unread=0"
+
+
+# ---- edge cases of the Write-Set readers and writers
+
+def test_a_sprint_with_no_write_path_prints_one_derived_row(tmp_path):
+    tree = Tree(tmp_path, spec=_two_sprints())
+    rel = "Sprint-03-Empty/QZX-S03-Sprint-Plan.md"
+    task = "Sprint-03-Empty/Session-01-Report/QZX-S03-01-01-Opus-Report.md"
+    for step in ("render", "write-back"):
+        if step == "write-back":
+            assert tree.write_back(TASK_1, task)["unreadable"] == []
+        assert _write_set(tree.text(rel)) == [["none", "n/a", "n/a", "0.0", "~0.0K"]], step
+        assert layers._write_set_rows(tree.text(rel).split("\n")) == []  # what Check 59 reads
+        assert _master(tree.text(MASTER))[0]["Sprint-03"] == ["0", "0.0", "~0.0K"]
+
+
+def test_a_parenthesis_inside_a_path_is_part_of_the_name(tmp_path):
+    spec = _two_sprints()
+    spec["sprints"][0]["sessions"][0]["tasks"][0]["outputs"] = ["app/(shop)/", "app/", "app/:10"]
+    tree = Tree(tmp_path, spec=spec)
+    assert _master(tree.files[MASTER])[0]["Sprint-01"][0] == "6"  # three here, then LEDGER, PARSE and calls.py
+    rows = [r[0] for r in _write_set(tree.files[PLAN])]
+    assert rows[:3] == ["app/(shop)/", "app/", "app/:10"]
+    _add_rows(tree, "`docs/guide.md(2)`", "`docs/guide.md (2)`")
+    tree.write_back(TASK_1, TASK_2)
+    assert "docs/guide.md(2)" in _rows(tree.text(ORCH))
+    assert "docs/guide.md (2)" not in _rows(tree.text(ORCH))  # the control: a spaced qualifier drops
+
+
+@pytest.mark.parametrize("shape", ["old", "new"])
+def test_an_undecodable_sprint_plan_never_blocks_the_other_writes(sprint, shape):
+    sprint.set(ORCH, sprint.text(ORCH).replace("| 2 | IndexRows: ", "| 9 | IndexRows: "))
+    text = sprint.text(PLAN)
+    if shape == "old":
+        text = text.replace("| Path | Task | Role | KiB | ~Tokens |", "| Path | Task | Role | A | B |")
+    data = text.encode("utf-8") + b"\n\xff cp1252\n"
+    (sprint.plan / PLAN).write_bytes(data)
+    report = sprint.write_back(TASK_1, TASK_2)
+    assert Path(TASK_1).name in {Path(p).name for p in report["written"]}
+    whats = [u["what"] for u in report["unreadable"]]
+    assert whats == ["task row QZX-S01-01-02"] + (["Write-Set"] if shape == "new" else [])
+    assert (sprint.plan / PLAN).read_bytes() == data
+
+
+def test_a_row_that_names_no_path_keeps_its_cells_and_takes_no_share(sprint):
+    text = sprint.text(PLAN)
+    row = next(ln for ln in text.split("\n") if ln.startswith("| `docs/` |"))
+    bare = ["| none | QZX-S01-01-01 | n/a | n/a | n/a |", "| `none (reads only)` | QZX-S01-01-01 | READ | 0.0 | ~0.0K |"]
+    sprint.set(PLAN, text.replace(row, "\n".join([row, *bare])))
+    sprint.write_back(TASK_1, TASK_2, OTHER_TASK)
+    after = sprint.text(PLAN)
+    assert all(b in after.split("\n") for b in bare)
+    # The ~2K output addend still splits over the two rows that name a path.
+    assert {r[0]: r[4] for r in _write_set(after) if r[0] in ("docs/", NEW)} == {"docs/": "~1.0K", NEW: "~1.0K"}
+
+
+@pytest.mark.parametrize("form", ["~2K (output)", "~2K output", "~2K (output: one file)"])
+def test_every_addend_form_gives_the_output_share(sprint, form):
+    text = sprint.text(TASK_1)
+    assert "+ ~2K (output)" in text
+    sprint.set(TASK_1, text.replace("+ ~2K (output)", f"+ {form}"))
+    sprint.write_back(TASK_1, TASK_2, OTHER_TASK)
+    assert [r[4] for r in _write_set(sprint.text(PLAN)) if r[0] == NEW] == ["~1.0K"]
+
+
+def test_a_task_whose_name_holds_orchestration_is_a_task(tmp_path):
+    spec = _two_sprints()
+    first, second = spec["sprints"][0]["sessions"][0]["tasks"]
+    second["name"] = "OrchestrationRows"
+    name = "QZX-S01-01-02-Opus-OrchestrationRows.md"
+    second["outputs"] = [LEDGER]
+    first["outputs"] = [LEDGER, name, f"plans/QZX/{READ_PATH}/{name}"]
+    tree = Tree(tmp_path, spec=spec)
+    count = _master(tree.files[MASTER])[0]["Sprint-01"][0]
+    rel = f"{READ_PATH}/{name}"
+    assert tree.write_back(TASK_1, rel)["unreadable"] == []
+    want = _task_figure(tree.text(rel), "ledger.py`")
+    assert want[1] != "~3.0K"  # the control: the write-back moved the figure
+    assert {tuple(r[3:]) for r in _write_set(tree.text(PLAN)) if r[0] == LEDGER} == {want}
+    assert _master(tree.text(MASTER))[0]["Sprint-01"][0] == count == "3"  # LEDGER, the task file, calls.py
+
+
+def test_two_spellings_of_one_file_are_not_disjoint(tmp_path):
+    spec = _two_sprints()
+    spec["parallel_pairs"] = [[1, 2], [2, 1], [1, 3]]
+    section = Tree(tmp_path, spec=spec).files[MASTER].split("### Computed Write-Set Intersection", 1)[1]
+    rows = [[c.strip() for c in sp.split_row_cells(ln)] for ln in section.split("\n") if ln.startswith("| Sprint-")][:3]
+    assert [r[1] for r in rows] == [f"`{LEDGER}`", f"`{LEDGER} (extras)`", "∅"]
+    assert ["NOT" in r[2] for r in rows] == [True, True, False]
+
+
+@pytest.mark.parametrize("name", tsw._TOKEN_HEADERS)
+def test_every_token_header_gets_the_token_cell_and_an_unknown_one_prints_na(tmp_path, name):
+    templates = tmp_path / "t"
+    shutil.copytree(TEMPLATES, templates)
+    plain = sp.render_all(_two_sprints(), TEMPLATES, project_root=tmp_path)[0]
+    for file, start in (("sprint-plan.md", "| Path | Task |"), ("master-plan.md", "| Sprint | Write-set |")):
+        lines = (templates / file).read_text(encoding="utf-8").split("\n")
+        head = next(i for i, ln in enumerate(lines) if ln.startswith(start))
+        lines[head] = lines[head].replace("~Tokens", name.title()) + " Owner |"
+        for i, cell in ((1, "---"), (2, "{Owner}"), (3, "{Owner}")):
+            lines[head + i] += f" {cell} |"
+        (templates / file).write_text("\n".join(lines), encoding="utf-8")
+    files = sp.render_all(_two_sprints(), templates, project_root=tmp_path)[0]
+    for rel, start in ((PLAN, "| `src/"), (PLAN_2, "| `src/"), (MASTER, "| Sprint-01 | `"), (MASTER, "| Sprint-03 | none")):
+        want, got = ([ln for ln in fs[rel].split("\n") if ln.startswith(start)] for fs in (plain, files))
+        assert want and got == [f"{ln} n/a |" for ln in want]
 
 
 # ---- the project root of the two production callers

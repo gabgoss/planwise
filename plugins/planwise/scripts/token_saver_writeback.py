@@ -840,8 +840,10 @@ PLAN_TIME_FLAG = "(plan-time estimate)"
 _ROLE_RANK = {"READ": 0, "EDIT": 1, "CREATE": 2}
 _SURFACE_COLUMNS = ["path", "role", "kib", "~tokens", "cited by"]
 _SURFACE_LABEL = "**Session surface:**"
-# A trailing `:line`, `:line-line` or parenthetical. A drive colon is not a qualifier.
-_QUALIFIER_RE = re.compile(r"(?:(?<!^[A-Za-z]):\d+(?:[-–]\d+)?|\s*\([^()]*\))$")
+# A trailing `:line`, `:line-line` or parenthetical after whitespace. A drive colon is not a
+# qualifier, and neither is text that fills a whole path component, as `(shop)` in `app/(shop)`.
+_QUALIFIER_RE = re.compile(r"(?:(?<!^[A-Za-z])(?<=[^/]):\d+(?:[-–]\d+)?|(?<=\S)\s+\([^()]*\))$")
+_ORCHESTRATION_GLOB = "*-Orchestration.md"
 
 
 def _surface_number(text: str, path: Path) -> int | None:
@@ -1022,7 +1024,8 @@ def writeset_figures(rows: list[tuple[str, str]], tasks: list[tuple[Path, str]],
     file's own price for the costliest Agent of its tasks, and "share" the
     output tokens of a task split over its rows that reach this step. A row
     with none of the three gets (None, None, None). Rows that name one file
-    get one figure. `size_of` gives the size of a file this run holds in memory.
+    get one figure. A row that names no path gets (None, None, "no path") and
+    takes no share. `size_of` gives the size of a file this run holds in memory.
     """
     cache = cache if cache is not None else _FileCache()
     named = {_task_id(text.split("\n"), path): (path, parse_agent(text)) for path, text in tasks}
@@ -1036,7 +1039,8 @@ def writeset_figures(rows: list[tuple[str, str]], tasks: list[tuple[Path, str]],
     keys: list[str] = []
     row_ids: list[list[str]] = []
     ids_of: dict[str, list[str]] = {}
-    for key, ids in _write_set_keys(rows, named, own, plan_root, project_root):
+    paths = [r for r in rows if not _names_no_path(r[0])]
+    for key, ids in _write_set_keys(paths, named, own, plan_root, project_root):
         keys.append(key)
         row_ids.append(ids)
         ids_of.setdefault(key, []).extend(ids)
@@ -1075,10 +1079,11 @@ def writeset_figures(rows: list[tuple[str, str]], tasks: list[tuple[Path, str]],
                 ctx.prec = max(ctx.prec, tokens.adjusted() + 12)
                 kib = (tokens * Decimal(str(ratio)) / 1024).quantize(Decimal("0.1"))
                 figures[key] = (f"{kib:,}", _fmt_k(tokens), "share")
-    return [figures.get(key, (None, None, None)) for key in keys]
+    priced = iter([figures.get(key, (None, None, None)) for key in keys])
+    return [(None, None, "no path") if _names_no_path(r[0]) else next(priced) for r in rows]
 
 
-_OUTPUT_ADDEND_RE = re.compile(rf"\+\s*~\s*({_NUM})\s*K\s*\(output\b")
+_OUTPUT_ADDEND_RE = re.compile(rf"\+\s*~\s*({_NUM})\s*K\s*\(?output\b")
 
 
 def _output_tokens(text: str) -> Decimal | None:
@@ -1095,26 +1100,24 @@ def _write_writeset(buf: _Buffers, report: dict, sprint_plan: Path, plan_root: P
     Only the `KiB` and `~Tokens` cells change. The columns are found by name,
     and a table without them is left alone and not reported. The figures come
     from every task file of the sprint, so every row is priced, also a row of a
-    session this run does not name. A row with no figure keeps its cells. The
-    Sprint Plan may be a row itself, so the pass repeats until its size settles.
+    session this run does not name. A row with no figure, or that names no path,
+    keeps its cells. The Sprint Plan may be a row itself, so the pass repeats
+    until its size settles.
     """
-    lines, fail = _guard(buf, report, sprint_plan)
     what = "Write-Set"
+    fail = None
     try:
-        bounds = _section_bounds(lines, what)
-        head, columns = None, []
-        for i in range(*bounds) if bounds else ():
-            header = _table_header_at(lines, i) or []
-            columns = [_col(header, names) for names in (("path",), ("task",), ("kib",), _TOKEN_HEADERS)]
-            if None not in columns:
-                head = i
-                break
-        if head is None:
+        # A lenient read first, so a Sprint Plan with nothing to price is never loaded.
+        lines = buf.lines.get(sprint_plan)
+        if lines is None:
+            lines = sprint_plan.read_bytes().decode("utf-8", errors="replace").split("\n")
+        table = _write_set_table(lines, _section_bounds(lines, what), _WRITE_SET_COLUMNS)
+        if table is None:
             return
-        path_at, task_at, kib_at, tok_at = columns
-        width = len(_table_header_at(lines, head))
+        lines, fail = _guard(buf, report, sprint_plan)
+        head, (path_at, task_at, kib_at, tok_at), width = table
         tasks = [t for folder in sorted(sprint_plan.parent.iterdir()) if folder.is_dir()
-                 for t in _surface_tasks(buf, folder) if "Orchestration" not in t[0].name]
+                 for t in _surface_tasks(buf, folder) if not _is_orchestration(t[0])]
         shares = {_task_id(text.split("\n"), path): _output_tokens(text) for path, text in tasks}
         before = {}
         for n, i in enumerate(_table_rows(lines, head), start=1):
@@ -1133,6 +1136,8 @@ def _write_writeset(buf: _Buffers, report: dict, sprint_plan: Path, plan_root: P
             figures = writeset_figures([(c[path_at], c[task_at]) for _, c in before.values()], tasks,
                                        shares, plan_root, project_root, cache, size_of)
             for (i, (_, cells)), (kib, tokens, source) in zip(before.items(), figures):
+                if source == "no path":
+                    continue
                 if source is None:
                     known = _parse_token_cell(cells[tok_at]) is not None
                     kib = cells[kib_at].strip() if known else ""
@@ -1146,7 +1151,11 @@ def _write_writeset(buf: _Buffers, report: dict, sprint_plan: Path, plan_root: P
             fail(what, f"the byte count still moved after {_SELF_ROW_PASSES} passes")
             return
     except Exception as exc:  # noqa: BLE001 - the table never blocks the other writes
-        fail(what, f"{type(exc).__name__}: {exc}")
+        reason = f"{type(exc).__name__}: {exc}"
+        if fail is not None:
+            fail(what, reason)
+        else:
+            report["unreadable"].append({"file": str(sprint_plan), "what": what, "reason": reason})
         return
     for i, (n, cells) in before.items():
         after = _cells(_split_eol(lines[i])[0], width)
@@ -1161,6 +1170,22 @@ _MASTER_LABEL = "**Write-set total:**"
 _KIB_CELL_RE = re.compile(rf"^{_NUM}$")
 # A path cell that names no path: empty, a dash, `none` with or without a remark, or an unanswered fill.
 _NO_PATH_RE = re.compile(r"^(?:[-–—]?|n/a|none(?:[\s(,;:–—].*)?|.*<!-- FILL.*)$", re.IGNORECASE)
+_WRITE_SET_COLUMNS = [("path",), ("task",), ("kib",), _TOKEN_HEADERS]
+
+
+def _names_no_path(cell: str) -> bool:
+    """Whether a Write-Set path cell names no path, so its row is neither priced nor counted."""
+    return _NO_PATH_RE.match(cell.replace("`", "").replace("*", "").strip()) is not None
+
+
+def keyed_write_set(rows: list[tuple], tasks: list[tuple[Path, str]], plan_root: Path,
+                    project_root: Path) -> list[tuple[str, tuple]]:
+    """(path key, row) per Write-Set row that names a path. A row starts with its path and task cells."""
+    rows = [r for r in rows if not _names_no_path(r[0])]
+    named = {_task_id(text.split("\n"), path): (path, None) for path, text in tasks}
+    own = {path.name: path.parent for path, _ in tasks}
+    keys = _write_set_keys([r[:2] for r in rows], named, own, plan_root, project_root)
+    return [(key, row) for (key, _ids), row in zip(keys, rows)]
 
 
 def write_set_paths(rows: list[tuple], tasks: list[tuple[Path, str]], plan_root: Path,
@@ -1171,12 +1196,8 @@ def write_set_paths(rows: list[tuple], tasks: list[tuple[Path, str]], plan_root:
     the plan, so that a path has one key in every sprint. A path takes its
     highest printed ~Tokens cell, and the KiB cell of that row.
     """
-    rows = [r for r in rows if not _NO_PATH_RE.match(r[0].replace("`", "").replace("*", "").strip())]
-    named = {_task_id(text.split("\n"), path): (path, None) for path, text in tasks}
-    own = {path.name: path.parent for path, _ in tasks}
     paths: dict[str, tuple[Decimal, Decimal]] = {}
-    keys = _write_set_keys([r[:2] for r in rows], named, own, plan_root, project_root)
-    for (key, _ids), (_path, _task, kib, tokens) in zip(keys, rows):
+    for key, (_path, _task, kib, tokens) in keyed_write_set(rows, tasks, plan_root, project_root):
         value = _parse_token_cell(tokens)
         if value is None:
             return None
@@ -1225,8 +1246,7 @@ def _sprint_plan_rows(buf: _Buffers, sprint_dir: Path) -> list[tuple] | None:
     lines = buf.lines.get(found[0])
     if lines is None:
         lines = found[0].read_bytes().decode("utf-8", errors="replace").split("\n")
-    table = _write_set_table(lines, _section_bounds(lines, "Write-Set"),
-                             [("path",), ("task",), ("kib",), _TOKEN_HEADERS])
+    table = _write_set_table(lines, _section_bounds(lines, "Write-Set"), _WRITE_SET_COLUMNS)
     if table is None:
         return None
     head, columns, width = table
@@ -1273,7 +1293,7 @@ def _write_master(buf: _Buffers, report: dict, plan_dir: Path, plan_root: Path,
                 continue
             folders.setdefault(int(m.group(1)), []).append(folder)
             tasks.extend(t for session in sorted(folder.iterdir()) if session.is_dir()
-                         for t in _surface_tasks(buf, session) if "Orchestration" not in t[0].name)
+                         for t in _surface_tasks(buf, session) if not _is_orchestration(t[0]))
         paths = {}
         for number, same in folders.items():
             rows = _sprint_plan_rows(buf, same[0]) if len(same) == 1 else None
@@ -1341,6 +1361,11 @@ def _write_write_sets(buf: _Buffers, report: dict, sprint_dirs: list[Path], plan
             {"file": str(d), "what": "Write-Sets",
              "reason": f"the Master Plan's byte count still moved after {_SELF_ROW_PASSES} passes"} for d in moved)
     report["changes"].extend(c for c in merged.values() if c["old"] != c["new"])
+
+
+def _is_orchestration(path: Path) -> bool:
+    """Whether a file name is an Orchestration's, not that of a task whose name holds the word."""
+    return path.match(_ORCHESTRATION_GLOB)
 
 
 def _surface_tasks(buf: _Buffers, session_dir: Path) -> list[tuple[Path, str]]:
@@ -1602,7 +1627,7 @@ def write_estimates(
                 by_session.setdefault(task_path.parent, []).append((task_id, name, total))
 
         for session_dir, totals in by_session.items():
-            orch = _one_file(session_dir, "*Orchestration*.md", report, "Orchestration")
+            orch = _one_file(session_dir, _ORCHESTRATION_GLOB, report, "Orchestration")
             if orch is None:
                 continue
             total_text = _write_orchestration(buf, report, orch, totals)

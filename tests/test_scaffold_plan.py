@@ -390,6 +390,11 @@ FULL_OUTPUTS = f"plans/QZX/{SESSION_REL}/Outputs"
     ("src/orchard/new.py", "src/orchard/new.py:10 (helpers)", "CREATE"),
     ("docs/orchard-guide.md", "docs/orchard-guide.md (old)", "READ"),  # a file of that name exists
     ("(helpers)", "(helpers)", "CREATE"),
+    ("app/(shop)/", "app/page.tsx", "READ"),
+    ("app/(shop)/ (new)", "app/page.tsx", "READ"),
+    ("app/(shop)/", "app/(shop)/page.tsx", "CREATE"),
+    ("app/:10", "app/page.tsx", "READ"),
+    ("src/orchard/ledger.py(2)", "src/orchard/ledger.py", "READ"),
 ])
 def test_a_folder_match_starts_at_a_path_component_boundary(tmp_path, output, path, expected):
     sprint, root = make_spec()["sprints"][0], _project(tmp_path)
@@ -446,6 +451,11 @@ def test_a_session_outputs_spelling_is_in_no_write_set(output):
                  for s in (spec, plain))
     assert any("docs/Outputs/x.md" in row for row in got)
     assert got == want
+
+
+@pytest.mark.parametrize("path,expected", [("Outputs(new)", False), ("Outputs/(x)", True), ("Outputs:10/ (new)", True)])
+def test_a_session_outputs_path_drops_whole_qualifiers_only(path, expected):
+    assert sp.is_outputs_path(path) is expected
 
 
 @pytest.mark.parametrize("width", [2, 5], ids=["two", "shipped"])
