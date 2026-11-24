@@ -400,8 +400,8 @@ class TestCheck59WriteSetOutputExpectedOutputAgree(_RenderedPlan):
         self.assertEqual(self.only(edit), [])
 
 
-TASK_ONE_ONE_READ = "| 1 | `src/orchard/ledger.py` | 4.0 | ~1.5K | the module |"
-PRODUCED_READ = "| 1 | `src/orchard/parse.py` | 4.0 | ~1.5K | the module |"
+TASK_ONE_ONE_READ = "| 1 | `src/orchard/ledger.py` | 4.0 | ~1.5K | READ | the module |"
+PRODUCED_READ = "| 1 | `src/orchard/parse.py` | 4.0 | ~1.5K | READ | the module |"
 PARSE_OUTPUT = "**Output:** `src/orchard/parse.py`, and `Outputs/QZX-parse.md`\n"
 # Task 1.1 declares the folder that holds ledger.py, and keeps the report that sprint two reads.
 FOLDER_OUTPUT = "**Output:** `src/orchard/`, and `Outputs/QZX-parse.md`\n"
@@ -471,7 +471,7 @@ class TestCheck60DependsOnMirrorsProducers(_RenderedPlan):
     def test_good_a_producer_folder_on_the_output_line_holds_the_read(self):
         edits = (
             (TASK_ONE_ONE, PARSE_OUTPUT, FOLDER_OUTPUT),
-            (TASK_ONE_TWO, TASK_ONE_ONE_READ, "| 1 | `src/orchard/ledger.py` | 4.0 | ~1.5K | the module |"),
+            (TASK_ONE_TWO, TASK_ONE_ONE_READ, "| 1 | `src/orchard/ledger.py` | 4.0 | ~1.5K | READ | the module |"),
         )
         self.assertEqual(self.lint(60, *edits), [])
 
@@ -479,19 +479,19 @@ class TestCheck60DependsOnMirrorsProducers(_RenderedPlan):
         edits = (
             (TASK_ONE_ONE, PARSE_OUTPUT, FOLDER_OUTPUT),
             (TASK_ONE_TWO, INDEX_DEPENDS, "**Depends On:** -\n"),
-            (TASK_ONE_TWO, TASK_ONE_ONE_READ, "| 1 | `src/orchard/ledger.py` | 4.0 | ~1.5K | the module |"),
+            (TASK_ONE_TWO, TASK_ONE_ONE_READ, "| 1 | `src/orchard/ledger.py` | 4.0 | ~1.5K | READ | the module |"),
         )
         self.assertEqual([f["severity"] for f in self.lint(60, *edits)], ["ERROR"])
 
     def test_good_a_bare_file_name_is_never_matched(self):
         edits = (
             (TASK_ONE_TWO, INDEX_DEPENDS, "**Depends On:** -\n"),
-            (TASK_ONE_TWO, TASK_ONE_ONE_READ, "| 1 | `parse.py` | 4.0 | ~1.5K | the module |"),
+            (TASK_ONE_TWO, TASK_ONE_ONE_READ, "| 1 | `parse.py` | 4.0 | ~1.5K | READ | the module |"),
         )
         self.assertEqual(self.lint(60, *edits), [])
 
     def test_good_a_later_task_is_not_a_producer(self):
-        edit = (TASK_ONE_ONE, TASK_ONE_ONE_READ, "| 1 | `src/orchard/index.py` | 4.0 | ~1.5K | the module |")
+        edit = (TASK_ONE_ONE, TASK_ONE_ONE_READ, "| 1 | `src/orchard/index.py` | 4.0 | ~1.5K | READ | the module |")
         self.assertEqual(_only_file(self.lint(60, edit), TASK_ONE_ONE), [])
 
     def test_good_an_outputs_path_is_read_under_its_own_session_folder(self):

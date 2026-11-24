@@ -111,6 +111,10 @@ optional and takes the default shown. Any key not listed here is a lint error.
     row renders in the template's own row form: the purpose cell keeps the
     template row's class suffix, and the command cell keeps the template's
     size tail.
+    The `Role` cell is derived, so no row key carries it. A path in the task's
+    `outputs` reads EDIT when it exists under the project root and CREATE when
+    it does not. Every other row, a command row included, reads READ. A CREATE
+    cell also carries the plan-time estimate flag.
 
 An `optional_sections` entry is the heading text without `## ` and without its
 marker comment, for example "Out of Scope". Every OPTIONAL section, including
@@ -158,6 +162,7 @@ at depth 0, so an odd fence count cannot spread past its own section.
 import argparse
 import copy
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -169,8 +174,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lint_plan_strategy import plan_file_cell
 from markdown_parser import split_row_cells
 from read_limits import estimate_tokens
-from token_saver_scan import content_class_for, unresolved_reason
-from token_saver_writeback import _fmt_k, _fmt_kib
+from token_saver_scan import (
+    _clean_file_cell,
+    content_class_for,
+    substitute_roots,
+    unresolved_reason,
+)
+from token_saver_writeback import (
+    PLAN_TIME_FLAG,
+    _fmt_k,
+    _fmt_kib,
+    surface_entries,
+    surface_row,
+    surface_total,
+)
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_TEMPLATES = PLUGIN_ROOT / "templates"
@@ -803,7 +820,21 @@ def o_required_context(lines, i, env):
     return (kept, n)
 
 
+def o_surface(lines, i, env):
+    """The session surface rows, derived by the write-back's own `surface_entries`."""
+    n = table_run(lines, i)
+    consume(env, lines, i, n, "derived")
+    return ([surface_row(e) for e in env.surface], n)
+
+
+def o_surface_total(lines, i, env):
+    consume(env, lines, i, 1, "derived")
+    return ([surface_total(env.surface)], 1)
+
+
 ORCH = [
+    H(r"\| `\{path\}` \| \{Role\}", o_surface),
+    H(r"\*\*Session surface:\*\*", o_surface_total),
     H(r"\| Priority \| File \| Purpose \|", o_required_context),
     H(r"\| 1 \| \{Task 1\} \| [A-Z][a-z]+ \|", task_rows),
     H(r"\*\*Total Estimated:\*\* ~\{XX\}K", h_derived("XX", lambda env: session_total(env.session))),
@@ -907,8 +938,73 @@ def resolution_gaps(text, task):
             if rc_kind(r) in ROW_CLASS and not any(row_cell(r) in ln for ln in records)]
 
 
+def role_key(path, sprint, session, root):
+    """(comparison key, whether it is a session `Outputs/` path) of one spec path.
+
+    The key has forward slashes, no leading `./`, no trailing slash and its root
+    placeholders expanded. An `Outputs/` path reads from the session folder. An
+    absolute path, or one that exists, is keyed by its path from `root`.
+    """
+    text = substitute_roots(_clean_file_cell(path), root.resolve())
+    text = re.sub(r"^(?:\./+)+", "", text.replace("\\", "/")).rstrip("/")
+    if text.startswith("Outputs/"):
+        return f"{session_dir(sprint, session)}/{text}", True
+    if text and (Path(text).is_absolute() or os.path.exists(root / text)):
+        try:
+            return (root / text).resolve().relative_to(root.resolve()).as_posix(), False
+        except ValueError:  # outside the project root: the text is the key
+            pass
+    return text, False
+
+
+def role_for(path, task, sprint, session, root):
+    """READ, EDIT or CREATE: what `task` does to `path`, from its `outputs` and the disk.
+
+    The plan folder is unknown here, so a session `Outputs/` file counts as absent,
+    and a path that ends in its session-relative text is the same file, whichever
+    of the row and the output has the longer spelling.
+    """
+    key, row_in_session = role_key(path, sprint, session, root)
+    for out in task["outputs"]:
+        out_key, out_in_session = role_key(out, sprint, session, root)
+        if not out_key:
+            continue
+        if (key == out_key or (out_in_session and key.endswith("/" + out_key))
+                or (row_in_session and out_key.endswith("/" + key))):
+            in_session = row_in_session or out_in_session
+            return "EDIT" if not in_session and os.path.exists(root / out_key) else "CREATE"
+    return "READ"
+
+
+def role_cell(role):
+    return f"{role} {PLAN_TIME_FLAG}" if role == "CREATE" else role
+
+
+def row_role(row, env):
+    if rc_kind(row) == "command":
+        return "READ"
+    return role_cell(role_for(row["path"], env.task, env.sprint, env.session, env.project_root))
+
+
+def role_column(lines, i):
+    """The index of the `Role` column of the table that holds line `i`, or None when it has none."""
+    while i > 0 and lines[i - 1].startswith("|"):
+        i -= 1
+    header = [c.strip().lower() for c in split_row_cells(lines[i])]
+    return header.index("role") if "role" in header else None
+
+
+def context_row(cells, role, role_at):
+    """One Required Context row: `cells` with `role` at column `role_at`, or without it for None."""
+    cells = [str(c) for c in cells]
+    if role_at is not None:
+        cells.insert(role_at, role)
+    return f"| {' | '.join(cells)} |"
+
+
 def t_context_rows(lines, i, env):
     n = table_run(lines, i)
+    role_at = role_column(lines, i)
     consume(env, lines, i, n, "metadata")
     forms = row_forms(lines[i:i + n])
     rows, records = [], []
@@ -926,8 +1022,9 @@ def t_context_rows(lines, i, env):
         cell = row_cell(r)
         if kind == "command" and tail:
             cell += tail[0] + sub_line(tail[1], env, {"N": M(r["lines"]), "B": M(r["bytes"])})
-        rows.append(f"| {r['priority']} | {cell} | {r['kib']:.1f} | ~{r['tokens_k']:.1f}K | {r['purpose']}{suffix} |")
-    own = self_row(lines[i:i + n], env)
+        rows.append(context_row([r["priority"], cell, f"{r['kib']:.1f}", f"~{r['tokens_k']:.1f}K",
+                                 f"{r['purpose']}{suffix}"], row_role(r, env), role_at))
+    own = self_row(lines[i:i + n], env, role_at)
     if own:
         rows.append(own)
     if records:
@@ -941,25 +1038,30 @@ SELF_LABEL = "self row"
 SELF_ROW_RENDERS = 6  # re-renders of one task file; the figure settles in two or three
 
 
-def self_row(example_rows, env):
+def self_row(example_rows, env, role_at):
     """The task file's own Required Context row, or "" when the template gives no self row.
 
     The File cell is the task file's bare name, which the write-back resolves
     against the task file's own folder. The KiB and ~Tokens figures are a seed
     from `env.self_bytes`: the size of the previous render of this file. The
-    build write-back replaces them with the measured figures.
+    build write-back replaces them with the measured figures. The Role is READ
+    unless the task's `outputs` name this file.
     """
     example = next((r for r in example_rows if SELF_LABEL in r), None)
     if example is None:
         return ""
-    purpose = split_row_cells(example)[-1].strip()
+    purpose = [c for k, c in enumerate(split_row_cells(example)) if k != role_at][-1].strip()
     prios = [int(r["priority"]) for r in env.task["required_context"]
              if str(r["priority"]).isdigit()]
+    own = next((o for o in env.task["outputs"]
+                if role_key(o, env.sprint, env.session, env.project_root)[0].split("/")[-1] == env.self_name),
+               env.self_name)
+    role = role_cell(role_for(own, env.task, env.sprint, env.session, env.project_root))
     size = env.self_bytes
     tokens = estimate_tokens(size, env.task["agent"].lower(), content_class_for(Path("x.md"))[1])
     env.self_k = float(_fmt_k(tokens)[1:-1])
-    return (f"| {max(prios, default=0) + 1} | `{env.self_name}` | {_fmt_kib(size)} "
-            f"| {_fmt_k(tokens)} | {purpose} |")
+    return context_row([max(prios, default=0) + 1, f"`{env.self_name}`", _fmt_kib(size),
+                        _fmt_k(tokens), purpose], role, role_at)
 
 
 def t_subtotal(lines, i, env):
@@ -1031,8 +1133,12 @@ def render_doc(body, env, handlers, include_optional=()):
     return text.rstrip("\n") + "\n"
 
 
-def render_all(spec, templates_dir=DEFAULT_TEMPLATES, date=None):
-    """Return ({relative path: text}, Rec). The spec must already pass lint_spec."""
+def render_all(spec, templates_dir=DEFAULT_TEMPLATES, date=None, project_root=None):
+    """Return ({relative path: text}, Rec). The spec must already pass lint_spec.
+
+    `project_root` (default: the working directory) is where a `Role` cell looks for an output.
+    """
+    root = Path(project_root) if project_root else Path.cwd()
     rec, files = Rec(), {}
     bodies = {k: extract_body(Path(templates_dir) / f) for k, f in TEMPLATE_FILES.items()}
     day = date or spec["created"]
@@ -1044,7 +1150,7 @@ def render_all(spec, templates_dir=DEFAULT_TEMPLATES, date=None):
 
     def env_for(tmpl, item, **kw):
         e = SimpleNamespace(tmpl=tmpl, rec=rec, spec=spec, item=item, vals=dict(base),
-                            sprint=None, session=None, task=None)
+                            sprint=None, session=None, task=None, project_root=root)
         for k, v in kw.items():
             setattr(e, k, v)
         return e
@@ -1054,6 +1160,17 @@ def render_all(spec, templates_dir=DEFAULT_TEMPLATES, date=None):
         if rel in files:
             raise AssertionError(f"render would overwrite {rel}, a path it already produced")
         files[rel] = text
+
+    def settle(render):
+        # The document cites its own size, which that row changes. Re-render from
+        # the last size until the figure matches, as the write-back does.
+        text = render(0)
+        for _ in range(SELF_ROW_RENDERS):
+            again = render(len(text.encode("utf-8")))
+            if again == text:
+                break
+            text = again
+        return text
 
     a = spec["abbrev"]
     res_forms = resolution_forms(bodies["task"])
@@ -1070,14 +1187,10 @@ def render_all(spec, templates_dir=DEFAULT_TEMPLATES, date=None):
             common = {"XX": M(xx), "YY": M(f"{se['number']:02d}"), "SprintName": M(sp["name"]),
                       "Session Name": M(se["name"]), "SessionName": M(se["name"])}
             opt = se.get("optional_sections", ())
-            oenv = env_for("orchestration", se, sprint=sp, session=se)
-            oenv.vals.update(common)
-            oenv.vals.update({"DIRECT | DELEGATED": M(se["mode"]), "previous session*": M(se["prerequisite"]),
-                              "2-3 sentences describing what this session*": M(se["objective"])})
-            put(f"{sd}/{sid}-Orchestration.md", render_doc(bodies["orchestration"], oenv, ORCH, opt))
             renv = env_for("recovery", se, sprint=sp, session=se)
             renv.vals.update(common)
-            put(f"{sd}/{sid}-Recovery.md", render_doc(bodies["recovery"], renv, RECOVERY, opt))
+            recovery = render_doc(bodies["recovery"], renv, RECOVERY, opt)
+            task_texts = []
             for t in se["tasks"]:
                 name = task_filename(spec, sp, se, t)
 
@@ -1090,15 +1203,33 @@ def render_all(spec, templates_dir=DEFAULT_TEMPLATES, date=None):
                                       "X": M(t["estimate_k"])})
                     return render_doc(bodies["task"], tenv, TASK, t.get("optional_sections", ()))
 
-                # The self row cites the file's own size, which the row changes. Re-render
-                # from the last size until the figure matches, as the write-back does.
-                text = render_task(0)
-                for _ in range(SELF_ROW_RENDERS):
-                    size = len(text.encode("utf-8"))
-                    again = render_task(size)
-                    if again == text:
-                        break
-                    text = again
+                task_texts.append((name, settle(render_task)))
+
+            def render_orchestration(size, sp=sp, se=se, sd=sd, sid=sid, common=common, opt=opt,
+                                     recovery=recovery, task_texts=task_texts):
+                models = {t["agent"].lower() for t in se["tasks"]} or {""}
+                doc_class = content_class_for(Path("x.md"))[1]
+
+                def plan_file(kind, num_bytes):
+                    tokens = max(estimate_tokens(num_bytes, m, doc_class) for m in models)
+                    return f"{sid}-{kind}.md", _fmt_kib(num_bytes), _fmt_k(tokens)
+
+                # The plan folder is unknown here, so the session folder stands in for the plan root.
+                folder = root / sd
+                entries = surface_entries(
+                    [(folder / name, text) for name, text in task_texts],
+                    [plan_file("Orchestration", size),
+                     plan_file("Recovery", len(recovery.encode("utf-8")))], folder, root)
+                oenv = env_for("orchestration", se, sprint=sp, session=se, surface=entries)
+                oenv.vals.update(common)
+                oenv.vals.update({"DIRECT | DELEGATED": M(se["mode"]), "previous session*": M(se["prerequisite"]),
+                                  "2-3 sentences describing what this session*": M(se["objective"])})
+                return render_doc(bodies["orchestration"], oenv, ORCH, opt)
+
+            # The surface reads the task texts, so the Orchestration renders last and is put first.
+            put(f"{sd}/{sid}-Orchestration.md", settle(render_orchestration))
+            put(f"{sd}/{sid}-Recovery.md", recovery)
+            for name, text in task_texts:
                 put(f"{sd}/{name}", text)
             put(f"{sd}/Outputs/.gitkeep", "")
     return files, rec

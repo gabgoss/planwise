@@ -107,6 +107,18 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 
 ---
 
+## Session Surface <!-- CONDITIONAL — absent in a plan built before this block -->
+
+Every file this session's tasks name, priced once. This is not the orchestrator's read list.
+
+| Path | Role | KiB | ~Tokens | Cited By |
+|------|------|----:|--------:|----------|
+| `{path}` | {Role} | {K} | ~{X}K | {Cited By} |
+
+**Session surface:** ~{S}K tokens over {F} files (information only)
+
+---
+
 ## Dispatch Layers <!-- REQUIRED for DELEGATED mode -->
 
 **Declared layers:** L1 = {1, 2} · L2 = {3} · L3 = {4, 5} · L4 = {6, 7}

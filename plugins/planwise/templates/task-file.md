@@ -25,13 +25,13 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 
 ## Required Context <!-- REQUIRED -->
 
-| Priority | File | KiB | ~Tokens | Purpose |
-|----------|------|----:|--------:|---------|
-| 1 | {file path} | {K} | ~{X}K | {why needed} {⚠ PAGED ≥25K {model}-tok / ⚠ REFACTOR ≥256 KiB — OPTIONAL read-handling annotation, Token Saver only} |
-| 2 | {file path} | {K} | ~{X}K | {why needed} |
-| 3 | {file path} §{X}–§{Y} ({§Y} runs to EOF) | {K} | ~{X}K | {why needed} — span row, see the resolution comment below |
-| 4 | Grep {family} over {scope} — {N} lines / {B} bytes returned | {K} | ~{X}K | {why needed} — command-corpus row, priced from the dry-run below |
-| 5 | {this task file's name} | {K} | ~{X}K | this task file — self row, measured by the write-back after the last edit |
+| Priority | File | KiB | ~Tokens | Role | Purpose |
+|----------|------|----:|--------:|------|---------|
+| 1 | {file path} | {K} | ~{X}K | {Role} | {why needed} {⚠ PAGED ≥25K {model}-tok / ⚠ REFACTOR ≥256 KiB — OPTIONAL read-handling annotation, Token Saver only} |
+| 2 | {file path} | {K} | ~{X}K | {Role} | {why needed} |
+| 3 | {file path} §{X}–§{Y} ({§Y} runs to EOF) | {K} | ~{X}K | {Role} | {why needed} — span row, see the resolution comment below |
+| 4 | Grep {family} over {scope} — {N} lines / {B} bytes returned | {K} | ~{X}K | {Role} | {why needed} — command-corpus row, priced from the dry-run below |
+| 5 | {this task file's name} | {K} | ~{X}K | {Role} | this task file — self row, measured by the write-back after the last edit |
 
 **Measured:** {YYYY-MM-DD} by {command} · {model} · {ratio} B/tok
 

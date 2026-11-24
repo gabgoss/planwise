@@ -194,7 +194,7 @@ def test_chain_built_task_files_state_their_own_size(tmp_path):
     assert len(tasks) == 4, tasks
     for path in tasks:
         text = path.read_text(encoding="utf-8")
-        row = re.search(rf"^\| \d+ \| `{re.escape(path.name)}` \| ([\d,.]+) \| ~[\d.]+K \| this task file", text, re.MULTILINE)
+        row = re.search(rf"^\| \d+ \| `{re.escape(path.name)}` \| ([\d,.]+) \| ~[\d.]+K \| READ \| this task file", text, re.MULTILINE)
         assert row, path
         assert row.group(1) == f"{round(len(path.read_bytes()) / 1024, 1):,}", path  # the bytes the build left on disk
 
