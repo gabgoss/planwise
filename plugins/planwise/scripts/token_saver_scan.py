@@ -898,6 +898,14 @@ def format_report(result: dict) -> str:
     return "\n".join(out)
 
 
+def config_project_root(config: dict) -> Path:
+    """The project root that a loaded config names."""
+    return Path(
+        config.get("project_root") or config.get("_project_root")
+        or config.get("_config_dir") or Path.cwd()
+    ).resolve()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="token_saver.py --scan",
@@ -986,10 +994,7 @@ def main(argv: list[str] | None = None) -> int:
     except FileNotFoundError as exc:
         print(f"ERROR: --config: {exc}", file=sys.stderr)
         return 2
-    project_root = Path(
-        config.get("project_root") or config.get("_project_root")
-        or config.get("_config_dir") or Path.cwd()
-    ).resolve()
+    project_root = config_project_root(config)
 
     if args.write_estimates:
         # Imported here, not at the top: the write-back module imports this

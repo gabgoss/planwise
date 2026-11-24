@@ -16,7 +16,11 @@ Commands (run with `python -B`):
     `lint` get no --config. `scaffold_plan.py` documents the three caps. Pass the same
     --config to `keys`, `lint` and `build`, so each one cuts the same names. `build` also
     refuses with exit 2, before it writes a file, when a generated path is over `path_max`
-    from the project root, and prints one `PATH-CAP:` line per path.
+    from the working directory, and prints one `PATH-CAP:` line per path.
+
+    Project root. The spec lint and the `Role` cells resolve a path against the project
+    root that --config names. Without --config, or when it cannot be read, the root is the
+    working directory.
 
     keys --spec SPEC.json [--session SXX-YY] [--templates DIR] [--config FILE]
         Render in memory and print the keys of every document, in tree order:
@@ -711,18 +715,18 @@ def refuse_errors(errors, label, fix):
     print(f"REFUSED: {len(errors)} {label} error(s). Fix: {fix}")
 
 
-def render_core(spec_path, templates_dir, date=None, caps=None, spec=None):
+def render_core(spec_path, templates_dir, date=None, caps=None, spec=None, project_root=None):
     """Lint the core spec, cut its over-cap names, render it and cut its omissions. Print the refusal and return None on failure.
 
     `caps` is the `plan_names` caps dict, and the shipped defaults apply when it is None. Each cut prints a NOTE line.
-    `spec` skips the file read.
+    `spec` skips the file read. `project_root` is where the lint and the `Role` cells look for a path (default: the working directory).
     """
     spec = load_or_refuse(spec_path) if spec is None else spec
     if spec is None:
         return None
     core = core_spec(spec)
     try:
-        errors = sp.lint_spec(core, templates_dir)
+        errors = sp.lint_spec(core, templates_dir, project_root)
         if errors:
             return refuse_errors(errors, "spec lint", "correct the spec, then re-run this command.")
         core, notes, errors = sp.cap_spec_names(core, caps or sp.DEFAULT_NAME_CAPS)
@@ -740,7 +744,7 @@ def render_core(spec_path, templates_dir, date=None, caps=None, spec=None):
         if errors:
             return refuse_errors(errors, "estimate", "give the task both output_k and working_k as numbers, "
                                  "and each tokens_k a finite figure that is not negative.")
-        files, _rec = sp.render_all(core, templates_dir, date)
+        files, _rec = sp.render_all(core, templates_dir, date, project_root)
         files = omit_files(files, plan, templates_dir)
         return core, files, doc_index(files, templates_dir)
     except DocIdError as exc:
@@ -1163,7 +1167,8 @@ def render_command(args, date=None):
     """Read the spec once and render it. Return (caps, spec, core, files, index), or None on refusal."""
     caps = name_caps(args)
     spec = load_or_refuse(args.spec)
-    built = render_core(args.spec, args.templates, date, caps, spec) if spec is not None else None
+    root = sp.config_root(getattr(args, "config", None))
+    built = render_core(args.spec, args.templates, date, caps, spec, root) if spec is not None else None
     session = getattr(args, "session", None)
     if built and session and session != PLAN_GROUP and session not in {session_of(d) for d in built[2]}:
         print(f"REFUSED: session {session} is not in the spec. Fix: pass a session such as S01-01.")
@@ -1508,18 +1513,21 @@ def main(argv=None):
     k.add_argument("--spec", required=True)
     k.add_argument("--session", help="print only one session's documents, such as S01-01, or PLAN for the plan documents")
     k.add_argument("--templates", default=str(sp.DEFAULT_TEMPLATES))
-    k.add_argument("--config", help="the project config whose plan_names block sets the name caps (default: the shipped caps)")
+    k.add_argument("--config", help="the project config: its plan_names block sets the name caps and its project is the root "
+                   "(default: the shipped caps and the working directory)")
     s = sub.add_parser("lint", help="check the bodies files against the rendered skeleton")
     s.add_argument("--spec", required=True)
     s.add_argument("--bodies-dir", required=True)
     s.add_argument("--session", help="limit the check to one session, such as S01-01")
     s.add_argument("--templates", default=str(sp.DEFAULT_TEMPLATES))
-    s.add_argument("--config", help="the project config whose plan_names block sets the name caps (default: the shipped caps)")
+    s.add_argument("--config", help="the project config: its plan_names block sets the name caps and its project is the root "
+                   "(default: the shipped caps and the working directory)")
     b = sub.add_parser("build", help="write the tree with its bodies, and the sha256 manifest")
     b.add_argument("--spec", required=True)
     b.add_argument("--bodies-dir", required=True)
     b.add_argument("--out", required=True)
-    b.add_argument("--config", required=True)
+    b.add_argument("--config", required=True,
+                   help="the project config: its plan_names block sets the name caps and its project is the root")
     b.add_argument("--date", help="YYYY-MM-DD for every date placeholder (default: the spec's created)")
     b.add_argument("--force", action="store_true", help="overwrite files that differ from the manifest")
     b.add_argument("--skip-index", action="store_true", help="do not run generate_plans_index.py --write")

@@ -390,11 +390,173 @@ FULL_OUTPUTS = f"plans/QZX/{SESSION_REL}/Outputs"
     ("src/orchard/new.py", "src/orchard/new.py:10 (helpers)", "CREATE"),
     ("docs/orchard-guide.md", "docs/orchard-guide.md (old)", "READ"),  # a file of that name exists
     ("(helpers)", "(helpers)", "CREATE"),
+    ("app/(shop)/", "app/page.tsx", "READ"),
+    ("app/(shop)/ (new)", "app/page.tsx", "READ"),
+    ("app/(shop)/", "app/(shop)/page.tsx", "CREATE"),
+    ("app/:10", "app/page.tsx", "READ"),
+    ("src/orchard/ledger.py(2)", "src/orchard/ledger.py", "EDIT"),
+    ("src/orchard/ledger.py", "src/orchard/ledger.py:10(helpers)", "EDIT"),
+    ("src/orchard/new.py(helpers)", "src/orchard/new.py", "CREATE"),
+    ("docs/kept.md(old)", "docs/kept.md", "READ"),  # a file of that name exists
 ])
 def test_a_folder_match_starts_at_a_path_component_boundary(tmp_path, output, path, expected):
     sprint, root = make_spec()["sprints"][0], _project(tmp_path)
-    (root / "docs/orchard-guide.md (old)").write_text("An old rule.\n", encoding="utf-8")
+    for name in ("orchard-guide.md (old)", "kept.md(old)"):
+        (root / "docs" / name).write_text("An old rule.\n", encoding="utf-8")
     assert sp.role_for(path, {"outputs": [output]}, sprint, sprint["sessions"][0], root) == expected
+
+
+@pytest.mark.parametrize("output,path,expected", [
+    *((f"{name}{tail}", name, role)
+      for name, role in (("src/orchard/ledger.py", "EDIT"), ("src/orchard/new.py", "CREATE"))
+      for tail in (" (new)", ":10", ":10 (new)", " (new) (draft)")),
+    ("src/orchard/ (new)", "src/orchard/ledger.py", "EDIT"),
+    ("src/orchard (new)", "src/orchard/new.py", "CREATE"),
+    ("Outputs/QZX-parse.md (new)", "Outputs/QZX-parse.md", "CREATE"),
+    ("./Outputs/ (new)", "Outputs/QZX-parse.md", "CREATE"),
+    ("src/orchard/ledger.py (new)", "src/orchard/other.py", "READ"),
+    ("src/orchard (new)", "src/orchard2/ledger.py", "READ"),
+    ("docs/orchard-guide.md (old)", "docs/orchard-guide.md", "READ"),  # the output is the file of that full name
+])
+def test_a_qualified_output_matches_a_plain_row(tmp_path, output, path, expected):
+    sprint, root = make_spec()["sprints"][0], _project(tmp_path)
+    (root / "docs/orchard-guide.md (old)").write_text("An old rule.\n", encoding="utf-8")
+    env = SimpleNamespace(task={"outputs": [output]}, sprint=sprint, session=sprint["sessions"][0], project_root=root)
+    assert sp.row_role(_path_row(1, path), env).split()[0] == expected
+    if output.startswith(path) and expected != "READ":
+        # The output text itself reads the same first word.
+        assert sp.role_for(output, env.task, env.sprint, env.session, root) == expected
+
+
+def test_a_qualified_own_file_gives_the_self_row_the_plain_role(tmp_path):
+    root, spec = _project(tmp_path), make_spec()
+    own = f"plans/QZX/{TASK_REL}"
+    self_cell = f"`{Path(TASK_REL).name}`"
+    for on_disk, expected in ((False, CREATE_CELL), (True, "EDIT")):
+        if on_disk:
+            (root / own).parent.mkdir(parents=True)
+            (root / own).write_text("# Task\n", encoding="utf-8")
+        for output in (own, f"{own} (new)"):
+            _t0(spec)["outputs"] = [output]
+            assert _roles(spec, root)[self_cell] == expected, output
+
+
+@pytest.mark.parametrize("output", ["Outputs", "./Outputs/", "Outputs\\x.md", ".\\Outputs\\x.md", "`Outputs/x.md`",
+                                    "Outputs (new)", "./Outputs/ (new)", "Outputs:10 (new)"])
+def test_a_session_outputs_spelling_is_in_no_write_set(output):
+    spec, plain = make_spec(), make_spec()
+    _t0(spec)["outputs"] = [output, "docs/Outputs/x.md"]
+    _t0(plain)["outputs"] = ["docs/Outputs/x.md"]
+    paths = sp.write_paths(spec["sprints"][0])
+    assert "docs/Outputs/x.md" in paths
+    assert paths == sp.write_paths(plain["sprints"][0])
+    rel = sp.sprint_plan_path(spec, spec["sprints"][0])
+    got, want = (re.findall(r"^\| `.+ \| QZX-S01-\d\d-\d\d \|.*$", sp.render_all(s, TEMPLATES)[0][rel], re.MULTILINE)
+                 for s in (spec, plain))
+    assert any("docs/Outputs/x.md" in row for row in got)
+    assert got == want
+
+
+@pytest.mark.parametrize("path,expected", [("Outputs(new)", True),("Outputs/(x)", True), ("Outputs:10/ (new)", True)])
+def test_a_session_outputs_path_drops_whole_qualifiers_only(path, expected):
+    assert sp.is_outputs_path(path) is expected
+
+
+@pytest.mark.parametrize("width", [2, 5], ids=["two", "shipped"])
+def test_every_write_set_row_has_the_header_cell_count(tmp_path, width):
+    templates = tmp_path / "t"
+    shutil.copytree(TEMPLATES, templates)
+    path = templates / "sprint-plan.md"
+    lines = path.read_text(encoding="utf-8").split("\n")
+    head = next(i for i, ln in enumerate(lines) if ln.startswith("| Path | Task |"))
+    for i in range(head, head + 4):
+        cells = [c.strip() for c in sp.split_row_cells(lines[i])]
+        assert len(cells) == 5
+        lines[i] = "| " + " | ".join(cells[:width]) + " |"
+    path.write_text("\n".join(lines), encoding="utf-8")
+    spec = make_spec()
+    _t0(spec)["outputs"] = ["src/a|b.py", "src/orchard/", "src/orchard/parse.py (new)", "Outputs/x.md"]
+    text = sp.render_all(spec, templates, project_root=_project(tmp_path))[0][
+        sp.sprint_plan_path(spec, spec["sprints"][0])]
+    section = text.split("\n## Write-Set", 1)[1].split("\n---\n", 1)[0]
+    header, _sep, *rows = [sp.split_row_cells(ln) for ln in section.split("\n") if ln.startswith("|")]
+    assert [c.strip() for c in header] == ["Path", "Task", "Role", "KiB", "~Tokens"][:width]
+    assert len(rows) == 5  # three of the first task, one each of the next two
+    assert all(len(r) == width and all(c.strip() for c in r) for r in rows), rows
+    assert rows[0][0].strip() == "`src/a|b.py`"
+
+
+@pytest.mark.parametrize("width", [2, 5], ids=["two", "shipped"])
+def test_every_master_write_sets_row_has_the_header_cell_count(tmp_path, width):
+    templates = tmp_path / "t"
+    shutil.copytree(TEMPLATES, templates)
+    path = templates / "master-plan.md"
+    lines = path.read_text(encoding="utf-8").split("\n")
+    head = next(i for i, ln in enumerate(lines) if ln.startswith("| Sprint | Write-set |"))
+    for i in range(head, head + 4):
+        cells = [c.strip() for c in sp.split_row_cells(lines[i])]
+        assert len(cells) == 5
+        lines[i] = "| " + " | ".join(cells[:width]) + " |"
+    path.write_text("\n".join(lines), encoding="utf-8")
+    spec = _two_sprint_spec()
+    _t0(spec)["outputs"] = ["src/a|b.py", "src/orchard/parse.py (new)"]
+    for session in spec["sprints"][1]["sessions"]:
+        for task in session["tasks"]:
+            task["outputs"] = ["Outputs/x.md"]
+    text = sp.render_all(spec, templates, project_root=_project(tmp_path))[0]["QZX-Master-Plan.md"]
+    section = text.split("\n### Write-Sets", 1)[1].split("\n### ", 1)[0]
+    header, _sep, *rows = [[c.strip() for c in sp.split_row_cells(ln)] for ln in section.split("\n")
+                           if ln.startswith("|")]
+    assert header == ["Sprint", "Write-set", "Count", "KiB", "~Tokens"][:width]
+    assert len(rows) == 2
+    assert all(len(r) == width and all(r) for r in rows), rows
+    assert rows[0][1].startswith("`src/a|b.py`, ")
+    assert rows[1] == ["Sprint-02", "none", "0", "0.0", "~0.0K"][:width]
+
+
+INDEX = "src/orchard/index.py"
+OWN_OUTPUT = "Sprint-01-LedgerCore/Session-01-ReadPath/Outputs/QZX-a.md"
+
+
+@pytest.mark.parametrize("first,second,shared", [
+    ([INDEX], [f"{INDEX} (rows)"], [INDEX]),
+    ([f"{INDEX}:1-9", "b.py"], ["c.py", f"./{INDEX}"], [f"{INDEX}:1-9"]),
+    (["src\\orchard\\index.py"], [INDEX], ["src\\orchard\\index.py"]),
+    (["Outputs/QZX-a.md"], [f"plans/QZX/{OWN_OUTPUT}"], ["Outputs/QZX-a.md"]),
+    ([INDEX, "Outputs/QZX-a.md"], ["Outputs/QZX-a.md", INDEX], ["Outputs/QZX-a.md", INDEX]),  # plain: as before
+    (["none"], ["none"], []),  # no path is named
+    (["`none (reads only)`", "n/a"], ["none (reads only)", "n/a"], []),
+    ([INDEX, f"{INDEX} (rows)"], ["src/orchard/parse.py"], []),  # one task, two spellings
+    (["Outputs/QZX-a.md"], [f"plans/QZX/{OWN_OUTPUT.replace('-01-ReadPath', '-02-WritePath')}"], []),
+    ([f"plans/QZX/{OWN_OUTPUT}"], [f"plans/ABC/{OWN_OUTPUT}"], []),  # two plans
+    ([f"plans/QZX/{OWN_OUTPUT}"], [f"plans/QZX/{OWN_OUTPUT} (rows)"], [f"plans/QZX/{OWN_OUTPUT}"]),
+    ([OWN_OUTPUT], [f"plans/QZX/{OWN_OUTPUT}"], [OWN_OUTPUT]),
+    (["{planwise_root}/new.md"], ["planwise/new.md"], ["{planwise_root}/new.md"]),
+    (["planwise/new.md (a)"], ["{project_root}/planwise/../planwise/new.md"], ["planwise/new.md (a)"]),
+    ([f"{INDEX}(helpers)"], [f"{INDEX}:10(helpers)", INDEX], [f"{INDEX}(helpers)"]),
+    (["app/(shop)"], ["app", "app/(cart)"], []),
+])
+def test_two_spellings_in_one_layer_are_not_disjoint(tmp_path, first, second, shared):
+    spec = make_spec()
+    spec["sprints"][0]["sessions"][0]["tasks"] = [_task(1, "ParseRows", "Sonnet", [], first),
+                                                  _task(2, "IndexRows", "Opus", [], second)]
+    files = sp.render_all(spec, TEMPLATES, project_root=tmp_path)[0]
+    text = next(t for rel, t in files.items() if rel.endswith("S01-01-Orchestration.md"))
+    row = next(ln for ln in text.split("\n") if ln.startswith("| L1 | {1, 2} |"))
+    cells = [c.strip() for c in row.strip("|").split("|")]
+    assert cells[2] == " / ".join(", ".join(f"`{o}`" for o in outs) for outs in (first, second))
+    assert cells[3] == (", ".join(f"`{s}`" for s in shared) or "∅")
+    assert ("NOT" in cells[4]) == bool(shared)
+
+
+def test_an_absolute_spelling_in_one_layer_is_not_disjoint(tmp_path):
+    spec = make_spec()
+    spec["sprints"][0]["sessions"][0]["tasks"] = [
+        _task(1, "ParseRows", "Sonnet", [], [(tmp_path / "planwise/new.md").as_posix()]),
+        _task(2, "IndexRows", "Opus", [], ["planwise/new.md"])]
+    files = sp.render_all(spec, TEMPLATES, project_root=tmp_path)[0]
+    text = next(t for rel, t in files.items() if rel.endswith("S01-01-Orchestration.md"))
+    assert "NOT disjoint" in next(ln for ln in text.split("\n") if ln.startswith("| L1 | {1, 2} |"))
 
 
 def test_role_expands_the_root_placeholders(tmp_path):

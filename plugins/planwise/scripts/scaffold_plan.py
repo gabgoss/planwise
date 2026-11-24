@@ -37,9 +37,9 @@ a sprint or session folder name, `Sprint-NN-<Name>` or `Session-NN-<Name>`. `fil
 Name part that would pass its cap on a PascalCase word boundary, and prints one NOTE line
 per cut. A cut Name also prints a NOTE for each spec value that still holds the old
 folder or file text, because the spec's own paths are not rewritten. `path_max` (default
-160) bounds the path of any generated file from the project root, which is the working
+160) bounds the path of any generated file from the working
 directory. Render refuses the whole plan and prints one PATH-CAP line per path over it,
-with the measured length. An --out folder outside the project root is measured inside the
+with the measured length. An --out folder outside the working directory is measured inside the
 plan folder only. The Consolidated Context part names a plan author writes by hand are not
 generated here and stay uncapped.
 
@@ -115,7 +115,13 @@ optional and takes the default shown. Any key not listed here is a lint error.
     `outputs`, or below a folder in `outputs`, reads EDIT when it exists under
     the project root and CREATE when it does not. A folder needs no trailing
     slash and need not exist. Every other row, a command row included, reads
-    READ. A CREATE cell also carries the plan-time estimate flag.
+    READ. A CREATE cell also carries the plan-time estimate flag. A trailing qualifier
+    on an output or a row, such as `(new)` or `:10`, is not part of the name. The project
+    root of these cells and of the path lint is the one the --config file names. Without
+    --config, or when it cannot be read, the root is the working directory.
+    The Sprint Plan's Write-Set rows derive their Role and size cells the same way, with each
+    row's own task. A row sized by the task's output share also carries the plan-time flag.
+    The Master Plan's Write-Sets rows and total line sum those Sprint Plan cells, each path once.
 
 An `optional_sections` entry is the heading text without `## ` and without its
 marker comment, for example "Out of Scope". Every OPTIONAL section, including
@@ -161,11 +167,14 @@ at depth 0, so an odd fence count cannot spread past its own section.
 """
 
 import argparse
+import contextlib
 import copy
+import io
 import json
 import os
 import re
 import sys
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -177,18 +186,31 @@ from markdown_parser import split_row_cells
 from read_limits import estimate_tokens
 from token_saver_scan import (
     _clean_file_cell,
+    config_project_root,
     content_class_for,
     substitute_roots,
     unresolved_reason,
 )
 from token_saver_writeback import (
     _QUALIFIER_RE,
+    _TOKEN_HEADERS,
     PLAN_TIME_FLAG,
     _fmt_k,
     _fmt_kib,
+    _names_no_path,
+    _write_set_keys,
+    joined_outputs,
+    keyed_write_set,
+    path_figures,
+    plain_path,
+    role_spellings,
+    root_path,
     surface_entries,
     surface_row,
     surface_total,
+    write_set_sums,
+    write_set_total,
+    writeset_figures,
 )
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
@@ -504,12 +526,20 @@ def dep_text(task, sep=", "):
     return sep.join(parts) or "-"
 
 
+def is_outputs_path(path):
+    """Whether a spec path is the session's own `Outputs` folder or a path below it, trailing qualifiers aside."""
+    text = plain_path(_clean_file_cell(path))
+    while m := _QUALIFIER_RE.search(text):
+        text = text[:m.start()].rstrip("/")
+    return f"{text}/".startswith("Outputs/")
+
+
 def write_paths(sprint):
     paths = []
     for s in sprint["sessions"]:
         for t in s["tasks"]:
             for o in t["outputs"]:
-                if not o.startswith("Outputs/") and o not in paths:
+                if not is_outputs_path(o) and o not in paths:
                     paths.append(o)
     return paths
 
@@ -623,26 +653,43 @@ def m_ordering(lines, i, env):
     return ([re.sub(r"`.*`", lambda _m: f"`{env.spec['ordering']}`", lines[i])], 1)
 
 
+def sized_row(header, cells):
+    """One Write-Set row in `header` order. Every token header gets the `~tokens` cell, an unknown one `n/a`."""
+    names = ("~tokens" if name in _TOKEN_HEADERS else name for name in header)
+    return f"| {' | '.join(cells.get(name, 'n/a') for name in names)} |"
+
+
 def m_writesets(lines, i, env):
+    """One row per sprint, sized by the write-back's own `write_set_sums`."""
+    header = table_header(lines, i)
     n = table_run(lines, i)
     consume(env, lines, i, n, "derived")
     rows = []
-    for s in env.spec["sprints"]:
-        cells = ", ".join(f"`{p}`" for p in write_paths(s)) or "none"
-        rows.append(f"| Sprint-{s['number']:02d} | {cells} |")
+    for s, paths in zip(env.spec["sprints"], env.write_sets):
+        count, kib, tokens = write_set_sums(paths)
+        text = ", ".join(f"`{p}`" for p in write_paths(s)).replace("|", "\\|")
+        cells = {"sprint": f"Sprint-{s['number']:02d}", "write-set": text or "none",
+                 "count": count, "kib": kib, "~tokens": tokens}
+        rows.append(sized_row(header, cells))
     return (rows, n)
 
 
+def m_writeset_total(lines, i, env):
+    consume(env, lines, i, 1, "derived")
+    return ([write_set_total(env.write_sets)], 1)
+
+
 def m_intersection(lines, i, env):
+    """One row per parallel pair: the files both sprints write, as the pair's first sprint spells them."""
     n = table_run(lines, i)
     consume(env, lines, i, n, "derived")
     pairs = env.spec.get("parallel_pairs") or []
     if not pairs:
         return (["| none declared | n/a - no parallel pair declared | serial order, no parallelism claimed |"], n)
-    by_num = {s["number"]: s for s in env.spec["sprints"]}
+    spellings = {s["number"]: names for s, names in zip(env.spec["sprints"], env.spellings)}
     rows = []
     for a, b in pairs:
-        shared = sorted(set(write_paths(by_num[a])) & set(write_paths(by_num[b])))
+        shared = sorted(path for key, path in spellings[a].items() if key in spellings[b])
         inter = ", ".join(f"`{p}`" for p in shared) or "∅"
         verdict = "✅ disjoint — parallel stands" if not shared else "❌ NOT disjoint — serialized"
         rows.append(f"| Sprint-{a:02d} ∥ Sprint-{b:02d} | {inter} | {verdict} |")
@@ -694,6 +741,7 @@ MASTER = [
     H(r"\| \d+ \| \{SprintName\}", m_sprint_rows),
     H(r"\*\*Declared ordering:\*\*", m_ordering),
     H(r"\| Sprint-\d+ \| `\{path/or/directory\}`", m_writesets),
+    H(r"\*\*Write-set total:\*\*", m_writeset_total),
     H(r"\| Sprint-\d+ ∥ Sprint-\d+ \|", m_intersection),
     H(r"\| \{Document or prior plan\}", m_rows("dependencies", ("dependency", "required_for", "status"))),
     H(r"\| D1 \| \{what was decided", m_rows("decisions", ("id", "decision", "rationale"))),
@@ -714,16 +762,43 @@ def s_session_rows(lines, i, env):
     return (rows, n)
 
 
-def s_writeset_rows(lines, i, env):
-    rows = []
+def sprint_write_set(env):
+    """(path, task id, role cell, KiB cell, ~Tokens cell) per written path and task of the sprint.
+
+    The sizes come from the write-back's own `writeset_figures`. The spec carries no output addend, so a task's output share is its estimate
+    minus its Required Context tokens, with a floor of 0. A row whose figure is
+    no file size and no Required Context figure carries the plan-time flag.
+    """
+    items, shares = [], {}
     for se in env.sprint["sessions"]:
         for t in se["tasks"]:
             tid = task_id(env.spec, env.sprint, se, t)
-            rows.extend(f"| `{o}` | {tid} |" for o in t["outputs"] if not o.startswith("Outputs/"))
-    if not rows:
-        return None
+            estimate, *reads = (Decimal(str(k)) for k in (t["estimate_k"], *(
+                r["tokens_k"] for r in t["required_context"])))
+            finite = all(k.is_finite() for k in (estimate, *reads))  # JSON admits Infinity and NaN
+            shares[tid] = max(estimate - sum(reads), Decimal(0)) * 1000 if finite else None
+            items.extend((o, tid, role_for(o, t, env.sprint, se, env.project_root))
+                         for o in t["outputs"] if not is_outputs_path(o))
+    # The plan folder is unknown here, so the sprint folder stands in for the plan root.
+    figures = writeset_figures([(o, tid) for o, tid, _role in items], env.task_texts, shares,
+                               env.project_root / sprint_dir(env.sprint), env.project_root)
+    return [(path, tid, role_cell(role, estimated=source not in ("cited", "measured")),
+             kib or "0.0", tokens or _fmt_k(0))
+            for (path, tid, role), (kib, tokens, source) in zip(items, figures)]
+
+
+def s_writeset_rows(lines, i, env):
+    """The Write-Set rows that `sprint_write_set` derived, or one `none` row."""
+    header = table_header(lines, i)
     n = table_run(lines, i)
     consume(env, lines, i, n, "derived")
+    rows = []
+    for path, tid, role, kib, tokens in env.write_set:
+        cells = {"path": "`{}`".format(path.replace("|", "\\|")), "task": tid, "role": role,
+                 "kib": kib, "~tokens": tokens}
+        rows.append(sized_row(header, cells))
+    if not rows:
+        rows.append(sized_row(header, {"path": "none", "kib": "0.0", "~tokens": _fmt_k(0)}))
     return (rows, n)
 
 
@@ -774,16 +849,28 @@ def o_layers(lines, i, env):
 
 
 def o_intersection(lines, i, env):
+    """One row per layer: the files two members write, as the first of them spells each."""
     n = table_run(lines, i)
     consume(env, lines, i, n, "derived")
     tasks = {t["number"]: t for t in env.session["tasks"]}
+    # The plan folder is unknown here, so the session folder stands in for the plan root.
+    folder = env.project_root / session_dir(env.sprint, env.session)
+    own = {task_filename(env.spec, env.sprint, env.session, t): folder for t in tasks.values()}
     rows = []
     for k, members in layers(env.session["tasks"]).items():
-        targets = [set(tasks[m]["outputs"]) for m in members]
-        shared = set()
-        for a in range(len(targets)):
-            for b in range(a + 1, len(targets)):
-                shared |= targets[a] & targets[b]
+        first, shared = {}, set()
+        paths = [(o, m) for m in members for o in tasks[m]["outputs"] if not _names_no_path(o)]
+        # `Outputs/` reads from the parent of the task file, whose name does not matter.
+        keys = [key for key, _ids in _write_set_keys([(o, "m") for o, _ in paths], {"m": (folder / "m", None)},
+                                                     own, folder, env.project_root)]
+        joined = joined_outputs(keys, own)
+        for m in members:
+            mine = {}
+            for key, (out, by) in zip(keys, paths):
+                if by == m:
+                    mine.setdefault(joined.get(key, key), out)
+            shared |= {first[key] for key in mine if key in first}
+            first = {**mine, **first}
         wt = " / ".join(", ".join(f"`{o}`" for o in tasks[m]["outputs"]) for m in members)
         verdict = ("✅ single member" if len(members) == 1 else
                    "✅ disjoint — parallel stands" if not shared else "❌ NOT disjoint — serialized")
@@ -948,28 +1035,10 @@ def role_key(path, sprint, session, root):
     folder. Any other path below `root`, on disk or not, is keyed by its path
     from `root`, so an absent file and its folder get one spelling.
     """
-    text = substitute_roots(_clean_file_cell(path), root.resolve())
-    text = re.sub(r"^(?:\./+)+", "", text.replace("\\", "/")).rstrip("/")
-    if f"{text}/".startswith("Outputs/"):
-        return f"{session_dir(sprint, session)}/{text}", True
-    if text:
-        try:
-            return (root / text).resolve().relative_to(root.resolve()).as_posix(), False
-        except (ValueError, OSError):  # outside the project root, or no valid path: the text is the key
-            pass
-    return text, False
-
-
-def role_spellings(key, root):
-    """`key`, then each shorter spelling without a trailing qualifier, up to one that exists."""
-    spellings = [key]
-    while not os.path.exists(root / spellings[-1]):
-        m = _QUALIFIER_RE.search(spellings[-1])
-        bare = spellings[-1][:m.start()].rstrip("/") if m else ""
-        if not bare:
-            break
-        spellings.append(bare)
-    return spellings
+    text = _clean_file_cell(path)
+    if is_outputs_path(path):
+        return f"{session_dir(sprint, session)}/{plain_path(substitute_roots(text, root.resolve()))}", True
+    return root_path(text, root), False
 
 
 def role_for(path, task, sprint, session, root):
@@ -978,7 +1047,8 @@ def role_for(path, task, sprint, session, root):
     A path matches an output when it, or a folder above it, is that output. A
     folder output needs no trailing slash and need not exist. The role comes from
     the path's own existence, not the folder's. A trailing qualifier, such as
-    `(helpers)` or `:10`, is not part of the name.
+    `(helpers)` or `:10`, is not part of the name. An output's trailing qualifier
+    is not part of its name either.
 
     The plan folder is unknown here, so a session `Outputs/` file counts as absent,
     and a path that ends in its session-relative text is the same file, whichever
@@ -994,16 +1064,16 @@ def role_for(path, task, sprint, session, root):
         if not out_key:
             continue
         # A folder above the session folder is one that every plan may hold, so its tail proves nothing.
-        if any(name == out_key or (out_in_session and name.endswith("/" + out_key))
-               or (row_in_session and name.startswith(own_dir) and out_key.endswith("/" + name))
-               for name in names):
+        if any(name == out_name or (out_in_session and name.endswith("/" + out_name))
+               or (row_in_session and name.startswith(own_dir) and out_name.endswith("/" + name))
+               for out_name in role_spellings(out_key, root) for name in names):
             in_session = row_in_session or out_in_session
             return "EDIT" if not in_session and os.path.exists(root / spellings[-1]) else "CREATE"
     return "READ"
 
 
-def role_cell(role):
-    return f"{role} {PLAN_TIME_FLAG}" if role == "CREATE" else role
+def role_cell(role, estimated=False):
+    return f"{role} {PLAN_TIME_FLAG}" if estimated or role == "CREATE" else role
 
 
 def row_role(row, env):
@@ -1012,11 +1082,16 @@ def row_role(row, env):
     return role_cell(role_for(row["path"], env.task, env.sprint, env.session, env.project_root))
 
 
-def role_column(lines, i):
-    """The index of the `Role` column of the table that holds line `i`, or None when it has none."""
+def table_header(lines, i):
+    """The lowered header cells of the table that holds line `i`."""
     while i > 0 and lines[i - 1].startswith("|"):
         i -= 1
-    header = [c.strip().lower() for c in split_row_cells(lines[i])]
+    return [c.strip().lower() for c in split_row_cells(lines[i])]
+
+
+def role_column(lines, i):
+    """The index of the `Role` column of the table that holds line `i`, or None when it has none."""
+    header = table_header(lines, i)
     return header.index("role") if "role" in header else None
 
 
@@ -1080,7 +1155,8 @@ def self_row(example_rows, env, role_at):
     prios = [int(r["priority"]) for r in env.task["required_context"]
              if str(r["priority"]).isdigit()]
     own = next((o for o in env.task["outputs"]
-                if role_key(o, env.sprint, env.session, env.project_root)[0].split("/")[-1] == env.self_name),
+                if any(name.split("/")[-1] == env.self_name for name in role_spellings(
+                    role_key(o, env.sprint, env.session, env.project_root)[0], env.project_root))),
                env.self_name)
     role = role_cell(role_for(own, env.task, env.sprint, env.session, env.project_root))
     size = env.self_bytes
@@ -1202,12 +1278,12 @@ def render_all(spec, templates_dir=DEFAULT_TEMPLATES, date=None, project_root=No
     res_forms = resolution_forms(bodies["task"])
     menv = env_for("master", spec)
     menv.vals["sum of all sessions"] = D(sum(len(s["sessions"]) for s in spec["sprints"]))
-    put(f"{a}-Master-Plan.md", render_doc(bodies["master"], menv, MASTER, spec.get("optional_sections", ())))
+    plan_files, write_sets, all_tasks = [], [], []
     for sp in spec["sprints"]:
         xx = f"{sp['number']:02d}"
         senv = env_for("sprint", sp, sprint=sp)
         senv.vals.update({"XX": M(xx), "Sprint Name": M(sp["name"]), "SprintName": M(sp["name"])})
-        put(sprint_plan_path(spec, sp), render_doc(bodies["sprint"], senv, SPRINT, sp.get("optional_sections", ())))
+        session_files, senv.task_texts = [], []
         for se in sp["sessions"]:
             sd, sid = session_dir(sp, se), session_id(spec, sp, se)
             common = {"XX": M(xx), "YY": M(f"{se['number']:02d}"), "SprintName": M(sp["name"]),
@@ -1253,11 +1329,29 @@ def render_all(spec, templates_dir=DEFAULT_TEMPLATES, date=None, project_root=No
                 return render_doc(bodies["orchestration"], oenv, ORCH, opt)
 
             # The surface reads the task texts, so the Orchestration renders last and is put first.
-            put(f"{sd}/{sid}-Orchestration.md", settle(render_orchestration))
-            put(f"{sd}/{sid}-Recovery.md", recovery)
-            for name, text in task_texts:
-                put(f"{sd}/{name}", text)
-            put(f"{sd}/Outputs/.gitkeep", "")
+            session_files.append((f"{sd}/{sid}-Orchestration.md", settle(render_orchestration)))
+            session_files.append((f"{sd}/{sid}-Recovery.md", recovery))
+            session_files.extend((f"{sd}/{name}", text) for name, text in task_texts)
+            session_files.append((f"{sd}/Outputs/.gitkeep", ""))
+            senv.task_texts.extend((root / sd / name, text) for name, text in task_texts)
+        # The Write-Set reads every task text of the sprint, so the Sprint Plan renders last and is put first.
+        senv.write_set = sprint_write_set(senv)
+        plan_files.append((sprint_plan_path(spec, sp),
+                           render_doc(bodies["sprint"], senv, SPRINT, sp.get("optional_sections", ()))))
+        plan_files.extend(session_files)
+        write_sets.append((root / sprint_dir(sp), [(p, tid, kib, tok) for p, tid, _, kib, tok in senv.write_set]))
+        all_tasks.extend(senv.task_texts)
+    # The Write-Sets table sums every Sprint Plan, so the Master Plan renders last and is put first.
+    # One stand-in plan root, so that a spelling has one key in every sprint.
+    keyed = [keyed_write_set(rows, all_tasks, write_sets[0][0], root) for _folder, rows in write_sets]
+    joined = joined_outputs([key for rows in keyed for key, _ in rows], {p.name: p.parent for p, _ in all_tasks})
+    keyed = [[(joined.get(key, key), row) for key, row in rows] for rows in keyed]
+    menv.write_sets = [path_figures(rows) or {} for rows in keyed]
+    # Per sprint, each path key with its first authored spelling.
+    menv.spellings = [{key: row[0] for key, row in reversed(rows)} for rows in keyed]
+    put(f"{a}-Master-Plan.md", render_doc(bodies["master"], menv, MASTER, spec.get("optional_sections", ())))
+    for rel, text in plan_files:
+        put(rel, text)
     return files, rec
 
 
@@ -1524,6 +1618,21 @@ def load_name_caps(config_path):
     return config_loader.get_plan_names_config(config), None
 
 
+def config_root(config_path):
+    """The project root a config file names, or None when there is no path or it cannot be read.
+
+    `load_name_caps` reads the same file and reports why it cannot be read, so this read prints nothing.
+    """
+    if not config_path:
+        return None
+    import config_loader
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            return config_project_root(config_loader.load_config(config_path=Path(config_path)))
+    except (Exception, SystemExit):  # noqa: BLE001
+        return None
+
+
 def _spec_strings(value, skip="name"):
     """Every string of a spec, leaving out the values of `skip` keys (the Name parts themselves)."""
     if isinstance(value, str):
@@ -1747,7 +1856,8 @@ def cmd_render(args):
     if err:
         print(f"REFUSED: {err}. Fix: pass a readable UTF-8 JSON spec.")
         return 2
-    errors = lint_spec(spec, args.templates)
+    root = config_root(args.config)
+    errors = lint_spec(spec, args.templates, root)
     if errors:
         for e in errors:
             print(f"LINT: {e}")
@@ -1769,7 +1879,7 @@ def cmd_render(args):
         print(f"REFUSED: {len(cap_errors)} name cap error(s). Fix: raise the cap in the config's plan_names block.")
         return 2
     try:
-        files, _rec = render_all(spec, args.templates, args.date)
+        files, _rec = render_all(spec, args.templates, args.date, root)
     except SPEC_VALUE_ERRORS as exc:  # defence in depth: lint_spec should reject any spec that fails here
         reason = " ".join(f"{type(exc).__name__}: {exc}".split())
         print(f"REFUSED: the render failed on a lint-clean spec ({reason}). Fix: correct the spec; "
@@ -1795,7 +1905,7 @@ def cmd_lint(args):
     if err:
         print(f"ERROR: {err}")
         return 2
-    errors = lint_spec(spec, args.templates)
+    errors = lint_spec(spec, args.templates, config_root(args.config))
     for e in errors:
         print(f"LINT: {e}")
     if not errors:
@@ -1851,11 +1961,13 @@ def main(argv=None):
     r.add_argument("--out", required=True)
     r.add_argument("--templates", default=str(DEFAULT_TEMPLATES))
     r.add_argument("--date", help="YYYY-MM-DD for every date placeholder (default: the spec's created)")
-    r.add_argument("--config", help="the project config whose plan_names block sets the name caps (default: the shipped caps)")
+    r.add_argument("--config", help="the project config: its plan_names block sets the name caps and its project is the root "
+                   "(default: the shipped caps and the working directory)")
     s = sub.add_parser("lint-spec", help="validate a spec")
     s.add_argument("--spec", required=True)
     s.add_argument("--templates", default=str(DEFAULT_TEMPLATES))
-    s.add_argument("--config", help="the project config whose plan_names block sets the name caps (default: the shipped caps)")
+    s.add_argument("--config", help="the project config: its plan_names block sets the name caps and its project is the root "
+                   "(default: the shipped caps and the working directory)")
     c = sub.add_parser("check-headings", help="report H2 headings outside the template set")
     c.add_argument("paths", nargs="+", metavar="PATH")
     c.add_argument("--templates", default=str(DEFAULT_TEMPLATES))
