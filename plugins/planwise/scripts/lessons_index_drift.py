@@ -212,10 +212,15 @@ def _check_lessons_drift(
     # on-disk index rows show, and regardless of shape, so a duplicate
     # planted before the second file's row was ever generated still
     # surfaces in every report mode, not only on `--write`.
+    scripts_dir = Path(__file__).resolve().parent.as_posix()
     for lesson_id, paths in duplicate_ids.items():
+        fix = (
+            f'. Fix: python "{scripts_dir}/reconcile_lessons.py" --renumber {format_id(lesson_id)}'
+            f" <next free id> --file {Path(str(paths[0])).name}"
+        )
         findings.append({
             "class": "duplicate-id", "id": format_id(lesson_id),
-            "detail": f"claimed by {', '.join(str(p) for p in paths)}",
+            "detail": f"claimed by {', '.join(str(p) for p in paths)}{fix}",
         })
 
     raw_content = read_text_preserving_newlines(index_path) if index_path.exists() else ""

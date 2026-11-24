@@ -138,13 +138,13 @@ Example: an index row reads `IN_PROGRESS` and its Master Plan reads `READY_TO_EX
 ### Backlog item body status — `reconcile_backlog.py --body-status`
 
 - Source of truth: each item file's frontmatter `status:`, the item's only status field. The audit reads item files under `{backlog_dir}/` and its `Archive/`, never an index. It runs only when `--body-status` is on the command line. Without the flag, `reconcile_backlog.py` runs the archival binding above, unchanged. Plain `--help` does not list the flag, so this binding and the handlers that cite it are its only documentation. `--body-status --help` describes the mode.
-- Invariant: an item file carries no `**Status:**` line in its header block. The header block is the run of lines after the first H1 (`# `) line that follows the frontmatter, up to the first line that is exactly `---` or starts with `## `. An older item writer can leave such a line under the title, and nothing keeps it in sync with frontmatter.
+- Invariant: an item file carries no `**Status:**` line in its header block. The header block starts at the first line after the frontmatter close. It runs past the first H1 (`# `) line and ends at the first later line that is exactly `---` or starts with `## `. Before the H1 only a `## ` heading ends the scan, so a status line above the H1 is drift. An older item writer can leave such a line under the title, and nothing keeps it in sync with frontmatter.
 - Fenced code never counts. A fenced line is never the H1, never closes the header block, and is never a hit. The scanner follows the CommonMark fence rules:
   - An opener is 0-3 spaces of indent, then a run of 3 or more backticks or 3 or more tildes.
   - A backtick opener's info string holds no backtick.
   - A closer uses the opener's character, with a run at least as long, followed only by whitespace.
   - Inside a fence only a closer is checked. An unterminated fence runs to the end of the file.
-- Drift: a header-block line that starts with `**Status:**` at column 0, whether or not it agrees with frontmatter. Row identifier: `{id}`. Each drift carries a `kind`. `disagrees` means the body value's first token differs from frontmatter `status:`. `redundant` means it agrees today. The comparison drops every `*` and backtick and any trailing `.,;:` from that token, and is case-insensitive. An empty body value is `disagrees`. Both kinds are drift, and both are stripped on consent.
+- Drift: a header-block line that starts with `**Status:**` at column 0, whether or not it agrees with frontmatter. Row identifier: `{id}`. Each drift carries a `kind`. `disagrees` means the body value's first token differs from frontmatter `status:`. `redundant` means it agrees today. The comparison drops every `*` and backtick and any trailing `.,;:` from that token, and is case-insensitive. The scanner compares the frontmatter value after it removes an inline comment, one layer of quotes and a block-scalar header (`>` or `|`). An empty body value is `disagrees`. Both kinds are drift, and both are stripped on consent.
 - A file with no such line reports nothing: absence is the goal state, not an anomaly. A quoted or indented status line, a mid-line mention, and a near-miss bold form such as `**Status flip:**` never match.
 - Anomalies cover five conditions, none ever stripped:
 
@@ -156,6 +156,7 @@ Example: an index row reads `IN_PROGRESS` and its Master Plan reads `READY_TO_EX
   | No H1 title, and a column-0 status line outside a fence before the first `## ` heading | `no H1 title, so the header block is undefined, but a column-0 status line precedes the first ## heading — never stripped` |
   | A header-block status line that still holds a carriage return (`\r`) mid-line once its own line ending is removed | `status line holds a bare carriage return (\r) mid-line, so the reported value is not the whole line — never stripped` |
 
+- A file reports one row per condition it meets. The unreadable-file row stands alone, and a file with no H1 title reports only the no-H1 row.
 - Banner: `planwise {command} — backlog item body-status drift audit`. The script's drift header is `Body status drift detected ({K} header-block status line(s) to strip):`.
 - Banner drift line: `  - {id} ({status}): {file} line {line} — body says {body_status} ({kind})`. An anomaly line is `  - {id} ({status}): {file} line {line} — {reason}`.
 - With nothing to report the script prints `No body status drift detected. No item file carries a header-block status line.` When it finds anomalies but no drift, its no-drift line is `No body status drift detected.`

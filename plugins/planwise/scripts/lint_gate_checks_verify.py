@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Lint checks that read one task file's gate text, registered into the linter.
 
+Checks 63 to 65 read other lines too: a checkbox criterion in any plan file, and
+a spec line in a task or Orchestration file.
+
 ``lint_verification_gates`` imports ``CHECKS`` from this module and extends its
 ``CHECK_REGISTRY`` with it. This module imports nothing from the linter: the
 linter runs as ``__main__`` when invoked as a script, so importing it here would
@@ -13,7 +16,9 @@ linter's ``make_finding`` writes. The severity strings equal the linter's
 Every check here is static: none runs a command. Checks 30, 31 and 35 to 38 are
 heuristic, because what counts as a gate anchor, a status gate, a documenting
 sentence or an extraction step is a judgment, so they report at WARNING and
-never decide a verdict alone.
+never decide a verdict alone. Checks 63 to 65 are heuristic in the same way,
+because each reads a line shape and cannot trace the claim through the real
+structure.
 """
 
 import re
@@ -107,6 +112,25 @@ _PREFIX_SHORT_FLAGS = "rRH"
 # An exclusion pattern anchored at the line start, at the colon that ends the
 # path (a leading or trailing colon), or past the ``:NN:`` prefix.
 _PREFIX_ANCHORED_RE = re.compile(r"^\^|^:|:$|:\[0-9\]|:\\d")
+
+# A checkbox criterion that pins a member count for a code symbol, and the
+# instruments that satisfy it on the same line. A subject that ends in a
+# lowercase file extension names a file, not a symbol, and is skipped.
+_COUNT_PIN_RE = re.compile(
+    r"(?i)^\s*[-*] \[ \][^\n]*`([^`#\n][^`\n]*)` (?:has|holds|lists|contains) \d+ "
+    r"(?:members|surfaces|rows|names|entries|items|elements)\b"
+)
+_COUNT_INSTRUMENT_RE = re.compile(r"""(?i)len\(|wc -[lc]\b|output_mode=['"]count['"]|\bmeasured\b""")
+_FILE_EXTENSION_RE = re.compile(r"\.[a-z0-9]{1,5}$")
+# A spec line over a two-sided diff: both outcome words in code spans.
+_TWO_SIDED_RE = re.compile(r"`changed`[^\n]*`added`|`added`[^\n]*`changed`")
+_REMOVED_CELL_RE = re.compile(r"(?i)\b(removed|deleted|disappear\w*)\b")
+# A task line that places a step before the first write, and the list of writes.
+_FIRST_WRITE_RE = re.compile(
+    r"(?i)\b(placed?|placing|sits?|inserted|insert|positioned|goes|lands?)\b[^\n]{0,60}"
+    r"\bbefore (the |their |its )?([\w.`-]+['’]s )?(first|any)\b[^\n]{0,30}\bwrites?\b"
+)
+_WRITES_IN_ORDER_RE = re.compile(r"(?i)writes in (execution )?order")
 
 
 def _finding(*, check, severity, file, line, command, message) -> dict:
@@ -608,6 +632,121 @@ def _check38_split_slice_as_parser(context) -> list:
     return findings
 
 
+def _plan_files(context):
+    """Yield ``(rel, path, lines)`` for each markdown file outside an ``Outputs``
+    folder, with carriage returns removed. A file under ``Outputs`` holds a
+    produced record, not a spec, so it is skipped."""
+    root = Path(context.plan_root)
+    for path in context.markdown_files():
+        try:
+            rel = path.relative_to(root).as_posix()
+        except ValueError:
+            rel = path.name
+        if "Outputs" in rel.split("/")[:-1]:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        yield rel, path, [raw.rstrip("\r") for raw in text.split("\n")]
+
+
+def _check63_count_pin_without_instrument(context) -> list:
+    """Check 63 -- a checkbox criterion pins a code symbol's member count and no
+    instrument sits on the line (measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md,
+    "A pinned count names the artifact and version it was read from"). The
+    input is every unfenced, non-WRONG line of a markdown file outside an
+    ``Outputs`` folder. The line is satisfied by ``len(``, ``wc -l``, a count
+    call or the word ``measured``. A subject that ends in a file extension is
+    skipped. Cannot see: a count outside a checkbox, a prose subject and a
+    reading of the wrong artifact. Heuristic, so WARNING.
+    """
+    findings = []
+    for rel, _path, lines in _plan_files(context):
+        for number, line in _unfenced(lines):
+            if "WRONG" in line:
+                continue
+            match = _COUNT_PIN_RE.search(line)
+            if match is None or _FILE_EXTENSION_RE.search(match.group(1)):
+                continue
+            if _COUNT_INSTRUMENT_RE.search(line):
+                continue
+            findings.append(_finding(
+                check=63, severity=SEVERITY_WARNING, file=rel, line=number,
+                command=line.strip(),
+                message=(
+                    f"This criterion pins a member count for `{match.group(1)}` and shows no "
+                    "instrument on the line. A count copied from a comment or from memory can "
+                    "differ from the real structure. Measure it with len(), wc or a count call. "
+                    "Write the artifact, the version and the date beside the number "
+                    "(measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md, "
+                    "\"A pinned count names the artifact and version it was read from\")"
+                ),
+            ))
+    return findings
+
+
+def _check64_two_sided_spec_without_removed_cell(context) -> list:
+    """Check 64 -- a spec line names ``changed`` and ``added`` and never the
+    removed cell. A diff over two sides has a third cell: the old side is
+    present and the new side is absent. The input is every unfenced, non-WRONG
+    line of a task file and of an Orchestration file outside an ``Outputs``
+    folder. The line is satisfied by ``removed``, ``deleted`` or ``disappear``.
+    Cannot see: other outcome words, a matrix written as a table and a spec
+    keyed on the container and not the value. Heuristic, so WARNING.
+    """
+    findings = []
+    for rel, path, lines in _plan_files(context):
+        if "orchestration" not in path.name.lower() and not _is_task_file(path):
+            continue
+        for number, line in _unfenced(lines):
+            if "WRONG" in line or _TWO_SIDED_RE.search(line) is None:
+                continue
+            if _REMOVED_CELL_RE.search(line):
+                continue
+            findings.append(_finding(
+                check=64, severity=SEVERITY_WARNING, file=rel, line=number,
+                command=line.strip(),
+                message=(
+                    "This spec line names `changed` and `added` and never the removed cell. "
+                    "A diff over two sides also has the case where the old side is present "
+                    "and the new side is absent. Code written from this line may emit nothing "
+                    "for an asset that disappeared. State what the code emits for that case, "
+                    "or state that it emits nothing"
+                ),
+            ))
+    return findings
+
+
+def _check65_first_write_placement_without_write_list(context) -> list:
+    """Check 65 -- a task line places a step before the first write, and the
+    file lists no writes in order. An earlier phase may already write files, so
+    a gate placed before "the first write" runs late. The input is every
+    unfenced, non-WRONG line of a task file. The satisfier is the words "writes
+    in order" anywhere in the file. It fires once for each such line. Cannot
+    see: whether the list is complete, a hand-off the author missed and an
+    unbound placeholder on a delegating route. Heuristic, so WARNING.
+    """
+    findings = []
+    for rel, lines in _task_files(context):
+        if _WRITES_IN_ORDER_RE.search("\n".join(lines)):
+            continue
+        for number, line in _unfenced(lines):
+            if "WRONG" in line or _FIRST_WRITE_RE.search(line) is None:
+                continue
+            findings.append(_finding(
+                check=65, severity=SEVERITY_WARNING, file=rel, line=number,
+                command=line.strip(),
+                message=(
+                    "This line places a step before the first write, and the file lists no "
+                    "writes in order. An earlier phase may already write files, so the step "
+                    "can run late. List every write in execution order, hand-offs included, "
+                    "under the words \"writes in order\""
+                ),
+            ))
+    return findings
+
+
 CHECKS = [
     _check30_gate_anchor_without_verified_marker,
     _check31_status_gate_names_no_artifact,
@@ -617,4 +756,7 @@ CHECKS = [
     _check36_digitless_identifier_class,
     _check37_exclusion_over_path_prefix,
     _check38_split_slice_as_parser,
+    _check63_count_pin_without_instrument,
+    _check64_two_sided_spec_without_removed_cell,
+    _check65_first_write_placement_without_write_list,
 ]

@@ -377,6 +377,8 @@ class TestDuplicateRowIdCli(_ParseLessonsFixtureBase):
         self.assertIn("Duplicate row ids in the index:", out)
         self.assertIn("LL-010", out)
         self.assertNotIn("LL-011", out)
+        # One id with two index rows: --renumber would move the only claimant.
+        self.assertNotIn("--renumber", out)
         parsed = parse_index(self.config)
         self.assertEqual([row.cells[1] for row in parsed.rows if row.id == 10],
                          ["Fixture lesson 10", "Fixture lesson 99"])
@@ -401,6 +403,21 @@ class TestDuplicateRowIdCli(_ParseLessonsFixtureBase):
         self.assertEqual(code, 1)
         self.assertEqual(out.strip(), "LL-011")
         self.assertIn("LL-010", err)
+
+    def test_two_files_claiming_one_id_name_the_renumber_fix(self):
+        self.write_lesson(5)
+        self.write_lesson(5, suffix="B")
+        self.write_legacy_index(_row(b"LL-005", 5))
+        fix = 'reconcile_lessons.py" --renumber LL-005 <next free id> --file LL-005-PROC-Fixture5'
+        code, out, _ = self._run_main()
+        self.assertEqual(code, 1)
+        self.assertIn("Duplicate lesson ids on disk:", out)
+        self.assertIn(fix, out)
+        # The same report reaches stderr under --next-id.
+        sys.argv = [*sys.argv, "--next-id"]
+        code, _out, err = self._run_main()
+        self.assertEqual(code, 1)
+        self.assertIn(fix, err)
 
     def test_unique_row_ids_exit_zero(self):
         # Positive control: the same fixture shape without the repeat.

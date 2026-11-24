@@ -124,7 +124,7 @@ Columns and slots the headings above do not show. The `### Computed Write-Target
 - [ ] **Git commit and push** — stage specific files (`git add` by name, never `git add .`), commit, push
 ```
 
-### Recovery — `templates/recovery.md` (190 lines)
+### Recovery — `templates/recovery.md` (206 lines)
 
 ```
 ## Step Completion Status
@@ -142,7 +142,7 @@ Columns and slots the headings above do not show. The `### Computed Write-Target
 ## Plan-Specific Sections <!-- OPTIONAL -->
 ```
 
-Formatting lines: `**Last Updated:**`, `**Current Step:** NOT STARTED`, `**Session Status:** NOT_STARTED`, and the Session Boundary Note lines `**Next Dispatch:** none`, `**Resume State:** incomplete`, `**Written At:** -`. One Step Completion Status row per task, each `PENDING`.
+Formatting lines: `**Last Updated:**`, `**Current Step:** NOT STARTED`, `**Session Status:** NOT_STARTED`, `**Orchestrator:** - (last write -)`, and the Session Boundary Note lines `**Next Dispatch:** none`, `**Resume State:** incomplete`, `**Written At:** -`. One Step Completion Status row per task, each `PENDING`.
 
 The template document also carries three sections after its fenced body. They describe status values and are never written into a Recovery file:
 

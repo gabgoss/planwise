@@ -57,6 +57,16 @@ def _pairs(findings):
 QUIET = ["ls notes.md   # expect notes.md"]
 
 
+def _lint_files(check, files):
+    """Write each ``{relative path: text}`` entry into a plan tree and lint it."""
+    with tempfile.TemporaryDirectory() as tmp:
+        for rel, text in files.items():
+            path = Path(tmp) / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8", newline="")
+        return [f for f in lint_plan(Path(tmp), execute=False) if f["check"] == check]
+
+
 class TestCheck30GateAnchorWithoutVerifiedMarker(unittest.TestCase):
     def test_bad_heading_anchor_gate_without_date(self):
         findings = _lint(30, ["grep -c '^## Results' report.md   # expect 1"])
@@ -318,6 +328,152 @@ class TestCheck38SplitSliceAsParser(unittest.TestCase):
         self.assertEqual(_lint(38, gate), [])
 
 
+# The fixture lines below are verbatim lines of real plan files, except where a
+# comment says CONSTRUCTED. The plan file each line came from is named in the
+# class docstring, and no fixture file name carries a plan id.
+COUNT_PIN_LINE = "- [ ] `SURFACE_NAMES` has 21 members and `declarations` sits directly after `plugin_types`"
+TWO_SIDED_LINE = (
+    "   - **Step 4b, after Step 4.** Read `relevance.py`: `candidates`, and the `dts` and `init` blocks it reads. "
+    "Add a block that reads `diff.get(\"declarations\")`. Emit one candidate per consumer in the `declarations` "
+    "entry of `consumers.json` in two cases: both sides are present and their `sha256` values differ "
+    "(change `changed`), or `new` is present and `old` is absent (change `added`). Use the row shape of the "
+    "`dts` and `init` blocks, key `sha256`, and evidence `old {sha8} -> new {sha8}`, with `n/a` for a missing "
+    "side. A diff with no `declarations` key, or with equal `sha256` values, emits nothing (D10: read with `.get`)."
+)
+TWO_SIDED_PASS_LINE = (
+    "- [ ] The twin has a top-level `init` with `added`, `removed`, `changed`, `unavailable`, `old`, `new`; "
+    "`plugins` shape differences are normalised away."
+)
+FIRST_WRITE_LINE = """3. **The preflight gate**, one short block per handler, placed immediately before the handler's first write: `plan.md` before Step 3 (folder creation); `run.md` at the start of Phase 1 before any Recovery write; `lessons.md` at the top of every mode that writes a lesson file (one shared "Index shape gate" subsection the modes point at, which may extend the existing Lessons-Index Write Convention); `backlog.md` replacing the Phase 1 `--check` STOP with the preflight (keep the STOP semantics, and replace the existing exit-2 sentence rather than adding beside it). The block: run `python "{plugin_root}/scripts/index_shape_preflight.py" --config "{planwise_root}/config.yaml"`; when `any_legacy` is true, one `AskUserQuestion`: "The {names} index is still hand-authored. Migrate it now (the upgrade backs up every file it rewrites, under `{planwise_root}/upgrade-backups/`) or stop?"; on migrate, run the upgrade handler's Step 2.4 command at the pinned version (`--upgrade-pair {plugin_version}-to-{plugin_version}`) and continue; on stop, STOP. Auto-Mode class: `critical` (never migrate unattended; report and stop). Each block is under 1 KiB."""
+
+
+def _doc(*lines, task=False):
+    """A plan file: a ``# Task:`` heading for a task file, else a plain heading."""
+    heading = "# Task: Fixture" if task else "# Notes"
+    return heading + "\n\n" + "\n".join(lines) + "\n"
+
+
+class TestCheck63CountPinWithoutInstrument(unittest.TestCase):
+    """The must-fail line is a criterion of a Sprint-Plan, task and Orchestration file of one real plan."""
+
+    def test_bad_count_pin_in_a_task_file(self):
+        findings = _lint_files(63, {"TASK-01-Surface.md": _doc(COUNT_PIN_LINE, task=True)})
+        self.assertEqual([(f["check"], f["severity"], f["line"]) for f in findings], [(63, "WARNING", 3)])
+        self.assertIn("`SURFACE_NAMES`", findings[0]["message"])
+        self.assertIn("A pinned count names the artifact and version it was read from", findings[0]["message"])
+
+    def test_bad_count_pin_in_a_sprint_plan_file(self):
+        findings = _lint_files(63, {"Sprint-Plan.md": _doc(COUNT_PIN_LINE)})
+        self.assertEqual(_pairs(findings), [(63, "WARNING")])
+
+    def test_bad_on_a_crlf_file(self):
+        text = _doc(COUNT_PIN_LINE).replace("\n", "\r\n")
+        self.assertEqual(len(_lint_files(63, {"Sprint-Plan.md": text})), 1)
+
+    # CONSTRUCTED: no real line holds an instrument beside a count pin, so the
+    # pass arm appends one to the real line.
+    def test_good_instrument_on_the_same_line(self):
+        line = COUNT_PIN_LINE + " (21 measured 2026-11-20 with len(SURFACE_NAMES) at base)"
+        self.assertEqual(_lint_files(63, {"Sprint-Plan.md": _doc(line)}), [])
+
+    def test_good_wc_instrument(self):
+        line = COUNT_PIN_LINE + " (`wc -l` of the listing)"
+        self.assertEqual(_lint_files(63, {"Sprint-Plan.md": _doc(line)}), [])
+
+    def test_good_subject_is_a_file(self):
+        line = "- [ ] `consumers.json` has 21 members"
+        self.assertEqual(_lint_files(63, {"Sprint-Plan.md": _doc(line)}), [])
+
+    def test_good_count_pin_inside_a_fenced_block(self):
+        text = _doc("```text", COUNT_PIN_LINE, "```")
+        self.assertEqual(_lint_files(63, {"Sprint-Plan.md": text}), [])
+
+    def test_good_line_labelled_wrong(self):
+        line = COUNT_PIN_LINE + "   # WRONG: the count came from a comment"
+        self.assertEqual(_lint_files(63, {"Sprint-Plan.md": _doc(line)}), [])
+
+    def test_good_file_under_an_outputs_folder(self):
+        self.assertEqual(_lint_files(63, {"Session-01/Outputs/Summary.md": _doc(COUNT_PIN_LINE)}), [])
+
+    def test_good_count_outside_a_checkbox(self):
+        line = "The tuple `SURFACE_NAMES` has 21 members."
+        self.assertEqual(_lint_files(63, {"Sprint-Plan.md": _doc(line)}), [])
+
+
+class TestCheck64TwoSidedSpecWithoutRemovedCell(unittest.TestCase):
+    """The must-fail line is a spec line of one real task file. The pass line is a criterion of another plan."""
+
+    def test_bad_changed_and_added_with_no_removed_cell(self):
+        findings = _lint_files(64, {"TASK-01-Diff.md": _doc(TWO_SIDED_LINE, task=True)})
+        self.assertEqual([(f["check"], f["severity"], f["line"]) for f in findings], [(64, "WARNING", 3)])
+
+    def test_bad_on_a_crlf_file(self):
+        text = _doc(TWO_SIDED_LINE, task=True).replace("\n", "\r\n")
+        self.assertEqual(len(_lint_files(64, {"TASK-01-Diff.md": text})), 1)
+
+    def test_bad_line_in_an_orchestration_file(self):
+        findings = _lint_files(64, {"S01-01-Orchestration.md": _doc(TWO_SIDED_LINE)})
+        self.assertEqual(_pairs(findings), [(64, "WARNING")])
+
+    def test_good_line_names_the_removed_cell(self):
+        self.assertEqual(_lint_files(64, {"TASK-01-Diff.md": _doc(TWO_SIDED_PASS_LINE, task=True)}), [])
+
+    def test_good_fenced_sample(self):
+        text = _doc("```markdown", TWO_SIDED_LINE, "```", task=True)
+        self.assertEqual(_lint_files(64, {"TASK-01-Diff.md": text}), [])
+
+    def test_good_line_labelled_wrong(self):
+        line = TWO_SIDED_LINE + " WRONG: no removed cell"
+        self.assertEqual(_lint_files(64, {"TASK-01-Diff.md": _doc(line, task=True)}), [])
+
+    def test_good_file_is_neither_a_task_nor_an_orchestration_file(self):
+        self.assertEqual(_lint_files(64, {"Sprint-Plan.md": _doc(TWO_SIDED_LINE)}), [])
+
+    def test_good_file_under_an_outputs_folder(self):
+        text = _doc(TWO_SIDED_LINE, task=True)
+        self.assertEqual(_lint_files(64, {"Session-01/Outputs/TASK-01-Diff.md": text}), [])
+
+
+class TestCheck65FirstWritePlacementWithoutWriteList(unittest.TestCase):
+    """The must-fail line is a step of one real task file."""
+
+    def test_bad_gate_before_the_first_write_with_no_write_list(self):
+        findings = _lint_files(65, {"TASK-01-Gate.md": _doc(FIRST_WRITE_LINE, task=True)})
+        self.assertEqual([(f["check"], f["severity"], f["line"]) for f in findings], [(65, "WARNING", 3)])
+        self.assertIn("writes in order", findings[0]["message"])
+
+    def test_bad_on_a_crlf_file(self):
+        text = _doc(FIRST_WRITE_LINE, task=True).replace("\n", "\r\n")
+        self.assertEqual(len(_lint_files(65, {"TASK-01-Gate.md": text})), 1)
+
+    def test_bad_fires_once_for_each_line(self):
+        text = _doc(FIRST_WRITE_LINE, "", FIRST_WRITE_LINE, task=True)
+        self.assertEqual(len(_lint_files(65, {"TASK-01-Gate.md": text})), 2)
+
+    # CONSTRUCTED: no real plan file holds the satisfier, so the pass arm adds
+    # one line to the real line.
+    def test_good_file_lists_writes_in_order(self):
+        order = "writes in order: Step 0.2 item 4 (Recovery), item 5 (Outputs/), then Step 4.3 (index)"
+        text = _doc(FIRST_WRITE_LINE, order, task=True)
+        self.assertEqual(_lint_files(65, {"TASK-01-Gate.md": text}), [])
+
+    def test_good_satisfier_may_sit_before_the_hit(self):
+        order = "Writes in execution order: Recovery, then Outputs."
+        text = _doc(order, FIRST_WRITE_LINE, task=True)
+        self.assertEqual(_lint_files(65, {"TASK-01-Gate.md": text}), [])
+
+    def test_good_fenced_sample(self):
+        text = _doc("```markdown", FIRST_WRITE_LINE, "```", task=True)
+        self.assertEqual(_lint_files(65, {"TASK-01-Gate.md": text}), [])
+
+    def test_good_line_labelled_wrong(self):
+        line = "WRONG: " + FIRST_WRITE_LINE
+        self.assertEqual(_lint_files(65, {"TASK-01-Gate.md": _doc(line, task=True)}), [])
+
+    def test_good_file_is_not_a_task_file(self):
+        self.assertEqual(_lint_files(65, {"Sprint-Plan.md": _doc(FIRST_WRITE_LINE)}), [])
+
+
 class TestRegistrationContract(unittest.TestCase):
     def test_every_check_is_registered_once(self):
         for check in verify_module.CHECKS:
@@ -325,7 +481,12 @@ class TestRegistrationContract(unittest.TestCase):
 
     def test_check_numbers(self):
         names = [check.__name__.split("_")[1] for check in verify_module.CHECKS]
-        self.assertEqual(names, ["check30", "check31", "check32", "check33", "check35", "check36", "check37", "check38"],
+        self.assertEqual(
+            names,
+            [
+                "check30", "check31", "check32", "check33", "check35", "check36", "check37", "check38",
+                "check63", "check64", "check65",
+            ],
         )
 
     def test_severity_constants_match_the_linter(self):

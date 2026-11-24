@@ -146,3 +146,85 @@ def test_writer_output_reads_back_through_the_real_reader(node_exe: str, tmp_pat
     assert record["kind"] == "bug"
     assert record["drafted_by"] == "model"
     assert record["status"] == "queued"
+
+
+# The blocked banner's helpers build two argvs and read one count. The real script answers both.
+BLOCKED_TS = PLUGIN / "hooks" / "feedback" / "blocked.ts"
+# The promoted-draft shape `promote` writes: no frontmatter, a body line and the provenance line.
+PROMOTED_PROVENANCE = "Drafted by Claude via planwise feedback drafting; reviewed and approved by the user before posting."
+BLOCKED_NODE_SCRIPT = """
+import { readFileSync } from 'node:fs'
+import { pathToFileURL } from 'node:url'
+const [blockedPath, mode, ...rest] = process.argv.slice(1)
+const blocked = await import(pathToFileURL(blockedPath).href)
+if (mode === 'argv') {
+  const [python, pluginRoot, feedbackDir] = rest
+  console.log(JSON.stringify({
+    list: blocked.blockedListArgv(python, pluginRoot, feedbackDir),
+    dismiss: blocked.dismissBlockedArgv(python, pluginRoot, feedbackDir),
+  }))
+} else {
+  console.log(JSON.stringify(blocked.parseBlockedCount(readFileSync(rest[0], 'utf8'))))
+}
+"""
+
+
+def _run_blocked_helper(node_exe: str, *args: str) -> dict | int | None:
+    """Runs the real `blocked.ts` under node and returns the one JSON line it prints."""
+    done = subprocess.run(
+        [node_exe, "--input-type=module", "-e", BLOCKED_NODE_SCRIPT, str(BLOCKED_TS), *args],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def _run_argv(argv: list[str]) -> subprocess.CompletedProcess:
+    """Runs a hook-built argv with this interpreter in place of the hook's python name."""
+    return subprocess.run([sys.executable, *argv[1:]], capture_output=True, text=True, encoding="utf-8", check=False)
+
+
+def _blocked_count(node_exe: str, argv: list[str], work: Path) -> int | None:
+    """The count the hook's own parser reads from the real `blocked-list --json` stdout."""
+    listed = _run_argv(argv)
+    assert listed.returncode == 0, listed.stderr
+    stdout_file = work / "blocked-list.json"
+    stdout_file.write_text(listed.stdout, encoding="utf-8", newline="\n")
+    return _run_blocked_helper(node_exe, "count", str(stdout_file))  # type: ignore[return-value]
+
+
+def test_hook_blocked_helpers_drive_the_real_blocked_script(node_exe: str, tmp_path: Path) -> None:
+    feedback = tmp_path / "feedback"
+    work = tmp_path / "work"
+    feedback.mkdir()
+    work.mkdir()
+    drafts = []
+    for name, line in (("2026-11-18-bug-first.md", "The first report names a private address."), ("2026-11-18-bug-second.md", "The second report names a private path.")):
+        draft = feedback / name
+        draft.write_bytes(f"### What happened\n\n{line}\n\n{PROMOTED_PROVENANCE}\n".encode())
+        marked = _run_reader("mark-blocked", "--draft", str(draft), "--class", "email", "--line", "3", "--route", "issue")
+        assert marked.returncode == 0, marked.stderr
+        drafts.append(draft)
+    before = {draft: draft.read_bytes() for draft in drafts}
+
+    argvs = _run_blocked_helper(node_exe, "argv", "python", PLUGIN.as_posix(), str(feedback))
+    assert isinstance(argvs, dict)
+    list_argv, dismiss_argv = argvs["list"], argvs["dismiss"]
+    assert _blocked_count(node_exe, list_argv, work) == 2
+
+    dismissed = _run_argv(dismiss_argv)
+    assert dismissed.returncode == 0, dismissed.stderr
+    for draft in drafts:
+        sidecar = draft.with_name(draft.name + ".blocked")
+        assert sidecar.read_text(encoding="utf-8").splitlines()[-1].startswith("dismissed: 20"), sidecar
+        assert draft.is_file() and draft.read_bytes() == before[draft], draft
+    assert sorted(entry.name for entry in feedback.iterdir()) == sorted(name for draft in drafts for name in (draft.name, draft.name + ".blocked"))
+    assert _blocked_count(node_exe, list_argv, work) == 0
+
+    # Known-bad arm: the argv BB-981 first pinned carries no directory, and the real script refuses it.
+    for argv in (list_argv, dismiss_argv):
+        assert argv[-2] == "--feedback-dir"
+        assert _run_argv(argv[:-2]).returncode == 1

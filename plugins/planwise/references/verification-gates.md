@@ -53,7 +53,7 @@ A citation written as `verification-gates.md §N` resolves in the file this map 
 | §4 Operational Rules for Smoke Reports (Check 015) | `gate-exit-verdict-and-smoke-reports.md` |
 | §5 Build-Clean ≠ Computation-Correct | `gate-runtime-boundary-evidence.md` |
 | §6 Build-Fresh ≠ Deploy-Fresh | `gate-runtime-boundary-evidence.md` |
-| §8 Diff-Scoped Gates Pin a Recorded Baseline, §8.1-§8.6 (Check 077) | `gate-diff-baseline-pinning.md` |
+| §8 Diff-Scoped Gates Pin a Recorded Baseline, §8.1-§8.9 (Check 077) | `gate-diff-baseline-pinning.md` |
 | §9 Empirical Verification Discipline | `measurement-discipline.md` §8 (relocated earlier) |
 | §10 The Instrument's Four Proof Obligations (Checks 087, 088) | `gate-instrument-proof-obligations.md` |
 | §11 Change-Detecting vs State-Detecting Gates, §11.1-§11.5 | `gate-change-vs-state-detecting.md` |

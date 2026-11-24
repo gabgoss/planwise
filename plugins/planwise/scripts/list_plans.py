@@ -154,12 +154,13 @@ def _build(args: argparse.Namespace) -> list[str]:
     if not index_path.is_file():
         return [f"{MARKER} Plans index not found at {index_path}"]
 
+    content = read_text_preserving_newlines(index_path)
     out: list[str] = []
     if not args.no_check:
-        out.extend(render_banner(reconcile_plans.detect_drift(config), index_path))
+        out.extend(render_banner(reconcile_plans.detect_drift(config, content=content), index_path))
         out.append("")
 
-    rows = reconcile_plans.parse_plans_index(read_text_preserving_newlines(index_path))
+    rows = reconcile_plans.parse_plans_index(content)
     if args.active:
         rows = filter_active(rows)
     if args.active and not rows:

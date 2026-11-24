@@ -20,7 +20,7 @@ SCRIPT = Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scri
 MARKET = "planwise-marketplace"
 GITHUB = {"source": "github", "repo": "example-owner/planwise"}
 FIELDS = {"verdict", "running", "installed", "clone", "latest", "pin", "marketplace", "scope",
-          "repo", "auto_update", "config_path", "pending", "opt_out"}
+          "repo", "auto_update", "config_path", "main_root", "pending", "opt_out"}
 
 
 # --- fixtures, in the shape of tests/test_install_check.py -------------------
@@ -356,6 +356,17 @@ def test_check_in_a_linked_worktree_reads_the_main_checkout_install(tmp_path, mo
     assert Path(in_worktree["config_path"]) == linked / "planwise" / "config.yaml"
 
 
+def test_main_root_names_the_main_checkout_from_a_linked_worktree(tmp_path, monkeypatch):
+    config = _home(tmp_path, clone_version="1.0.9")
+    running = _cache(config, "1.0.8")
+    main, linked = _linked_worktree(tmp_path, "1.0.8")
+    _install(config, [_entry("project", running, "1.0.8", main)])
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    # The hooks module keys the pending-upgrade marker by this value, so every worktree shares it.
+    assert Path(update_check.check(running, linked)["main_root"]) == main
+    assert update_check.check(running, main)["main_root"] is None
+
+
 def test_update_in_a_linked_worktree_runs_in_the_main_checkout(tmp_path, monkeypatch):
     config = _home(tmp_path, clone_version="1.0.9")
     running = _cache(config, "1.0.8")
@@ -370,6 +381,8 @@ def test_update_in_a_linked_worktree_runs_in_the_main_checkout(tmp_path, monkeyp
     assert calls[1][0] == ["claude", "plugin", "update", f"planwise@{MARKET}", "--scope", "project", "--json"]
     # The CLI updates the install recorded for its working directory: the main checkout.
     assert calls[1][1]["cwd"] == str(main)
+    # The report names the main checkout, so the card's marker lands under the shared key.
+    assert Path(report["main_root"]) == main
 
 
 def test_update_runs_in_a_folder_that_exists_when_the_record_spells_it_oddly(env, monkeypatch):

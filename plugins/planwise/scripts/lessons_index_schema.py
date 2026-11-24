@@ -68,7 +68,7 @@ HUB_STATUSES = frozenset({"documented", "orphaned"})
 
 # Fallback declared-status set when config.yaml carries no `lesson_statuses:`
 # key at all. `HUB_STATUSES` (a subset) stays the hub-routing rule either way.
-_DEFAULT_LESSON_STATUSES = ("documented", "orphaned", "promoted", "applied", "rule")
+_DEFAULT_LESSON_STATUSES = ("documented", "orphaned", "promoted", "applied", "rule", "superseded")
 
 
 def _resolve_valid_statuses(config: dict) -> frozenset:

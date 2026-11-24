@@ -142,7 +142,7 @@ blocks: [{parent}]
 
 The generator never edits an item. A person decides which side is right, because the prose may be the stale one. The fix for an inverted edge is to move N out of the item's `blocks:` and add the item's id to N's `blocks:`.
 
-The direction check reads only the `## Summary`, `## Problem`, `## Resolution`, `## Dependencies` and `## Related` sections. It reads the phrases "blocked by", "depends on", "lands after" and "waits for", followed within the same sentence by a `BB-` id. It skips a quoted line, a fenced block and an `**Evidence:**` paragraph. Each run prints how many item files it scanned.
+The direction check reads only the `## Summary`, `## Problem`, `## Resolution`, `## Dependencies` and `## Related` sections. It reads the phrases "blocked by", "depends on", "lands after", "waits for" and "waits on", followed within the same sentence by a `BB-` id. It skips a phrase whose object is the item itself, such as "waits for this item", because the linked item is then the one that waits. It skips a quoted line, a fenced block and an `**Evidence:**` paragraph. Each run prints how many item files it scanned.
 
 The generator also reports an item whose `title` names a file under `.claude/rules/planwise/`, such as `.claude/rules/planwise/name.md`. That folder holds the plugin's installed rules, and an upgrade replaces them, so the title names a destination that will not stay. The report behaves like an inverted edge: report modes exit 1, and `--write` reports it, then writes. A title that names only the folder raises nothing. Name the file the item actually produces instead.
 
@@ -332,6 +332,7 @@ With `--route`, the item vector also carries a `shape` block, computed by `compu
 - `needs_plan`: the frontmatter flag.
 - `resolution_steps`: the longest consecutively numbered run (`1.`, `2.`, `3.` …) of column-0 steps under `## Resolution`. A restarted or lazily numbered list counts only its longest run, so `1. 1. 1.` reads 1 and two 4-step lists read 4. Write the steps as one consecutively numbered list.
 - `has_verification`: whether `## Verification` holds a fenced command.
+- `user_run_verification`: whether a fenced line in `## Verification` starts with `# user-run:` (any case, any indent after the `#`). Only the user can run that step, so `backlog_loop.py --init` excludes the item with the reason `user-run verification`, and `--mode specific` drops it with a warning.
 - `open_questions`: one of `absent`, `empty`, `unanswered` or `answered`.
 - `shape_ok`: true when `refined` is true, `## Resolution` has at least one numbered step, `## Verification` exists with a fence, and `open_questions` is `absent` or `empty`.
 - `missing`: the absent parts, joined with `"; "` on the shape line (`shape gate: FAIL -- missing: ...`).

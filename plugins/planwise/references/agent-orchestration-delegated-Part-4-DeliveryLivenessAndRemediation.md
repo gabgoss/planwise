@@ -28,7 +28,7 @@ Both omissions are silent. An instruction the prompt omits never arrives, and te
 
 ### 1.29.1 Name the delivery channel, not just the payload format
 
-A spawn prompt that specifies a status block's *format* has not specified how the block reaches the orchestrator. §1.28 bounds what the block carries; this section binds how it arrives. When runners are spawned with a name, a plain-text final message does not reach the orchestrator inside its turn. It arrives only after the turn ends, in the result field of an idle notification (measured 2026-10-12 on Claude Code 2.1.296, one sample). A protocol that says "RETURN a status block" then means "write a status block nobody receives."
+A spawn prompt that specifies a status block's *format* has not specified how the block reaches the orchestrator. §1.28 bounds what the block carries; this section binds how it arrives. When runners are spawned with a name, a plain-text final message does not reach the orchestrator inside its turn. It arrives only after the turn ends, in the result field of an idle notification (measured 2026-10-12 on Claude Code 2.1.296, one sample). When the harness instead returns a subagent's final message to the orchestrator as its result (a hand-back), that message is the delivery, and a SendMessage call adds nothing (one field report on Claude Code 2.1.330, not measured). A protocol that says "RETURN a status block" then means "write a status block nobody receives."
 
 > [!constraint] Specify the mechanism, not only the shape
 > WRONG — the prompt gives the format and no channel:
@@ -38,11 +38,13 @@ A spawn prompt that specifies a status block's *format* has not specified how th
 > TASK_ID:       {task-id}
 > ...
 > ```
-> CORRECT — the prompt names the tool and the recipient:
+> CORRECT — the prompt names both channels and when each applies:
 > ```markdown
 > ## Status Block delivery (REQUIRED)
-> Deliver your status block by calling the SendMessage tool with to="main".
-> Plain-text output does NOT reach the orchestrator.
+> If your harness returns your final message to the orchestrator (a subagent
+> hand-back), make the status block that final message and do not also call SendMessage.
+> Otherwise deliver it by calling the SendMessage tool with to="main".
+> Plain-text output then does NOT reach the orchestrator.
 > TASK_STATUS:   COMPLETE | BLOCKED | PARTIAL
 > TASK_ID:       {task-id}
 > ...
@@ -152,7 +154,7 @@ A task-runner produces **no observable output between dispatch and its final sta
 
 **Two things that look like liveness signals are not.**
 
-1. **An agent listing may not show in-process subagents at all.** Measured with a dispatched task-runner actively writing files, the listing returned only peer interactive sessions and no subagent rows — and a *completed* runner from earlier in the same session was equally absent. A listing that cannot tell running from finished from never-existed supports no inference either way, so reading absence there as death is unsound.
+1. **An agent listing may not show in-process subagents at all.** Measured on CLI 2.1.239 with a dispatched task-runner actively writing files, the listing returned only peer interactive sessions and no subagent rows — and a *completed* runner from earlier in the same session was equally absent. A listing that cannot tell running from finished from never-existed supports no inference either way, so reading absence there as death is unsound.
 2. **An idle notification means "available", not "finished".** It is a signal about the runner's turn, not about its work, and it says nothing about sustained silence.
 
 **The check that settles it is the runner's own transcript.** It is cheap, available throughout the window, and discriminates directly. `scripts/runner_liveness.py` runs it:

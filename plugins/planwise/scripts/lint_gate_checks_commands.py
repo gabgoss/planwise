@@ -376,19 +376,19 @@ def _resolve_repo(repo_dir, plan_root: Path):
     return None
 
 
-def _inside_plan_repositories(repo: Path, plan_root: Path) -> bool:
-    """True when ``repo`` lies inside the work tree of a repository that holds
-    the plan root. Every such work tree is the plan root or a parent with a
-    ``.git`` entry, so a repository nested under the plan's project qualifies
-    and a directory anywhere else does not. Read from the file system, so no
-    git process runs to decide it."""
+def _inside_plan_repository(repo: Path, plan_root: Path) -> bool:
+    """True when ``repo`` lies inside the work tree of the repository that
+    holds the plan root. That work tree is the nearest of the plan root and
+    its parents that has a ``.git`` file or folder, so a repository nested
+    under it qualifies and a superproject above it, such as the main checkout
+    above a linked worktree, does not. Read from the file system, so no git
+    process runs to decide it."""
     plan_root = plan_root.resolve()
     repo = repo.resolve()
-    return any(
-        repo.is_relative_to(root)
-        for root in (plan_root, *plan_root.parents)
-        if (root / ".git").exists()
-    )
+    for root in (plan_root, *plan_root.parents):
+        if (root / ".git").exists():
+            return repo.is_relative_to(root)
+    return False
 
 
 def _git_tracks(repo: Path, path: str):
@@ -415,9 +415,9 @@ def _check18_diff_property_gate_over_untracked_path(context) -> list:
     gate prints zero whether or not the edit happened. In execute mode each
     path is checked with ``git ls-files --error-unmatch``: ERROR when git
     reports it untracked, UNCERTAIN when git could not be asked or the path
-    does not resolve. A ``-C`` directory outside the work trees of the
-    repositories that hold the plan root is UNCERTAIN, and git is not run
-    there. With execution off the tracking state is unknown, so the
+    does not resolve. A ``-C`` directory outside the work tree of the
+    nearest repository that holds the plan root is UNCERTAIN, and git is not
+    run there. With execution off the tracking state is unknown, so the
     gate is UNCERTAIN. A path that an earlier ``git add`` in the same file
     registers is exempt. A token that is not one literal path -- an expansion,
     a template slot, a glob, ``.`` or pathspec magic -- is not checked.
@@ -467,10 +467,10 @@ def _tracking_findings(context, command, repo_dir, paths) -> list:
                 f"The gate's repository directory {repo_dir!r} does not resolve from the "
                 "plan root or any parent, so the tracking state of its paths was not checked"
             ))]
-        if not _inside_plan_repositories(repo, plan_root):
+        if not _inside_plan_repository(repo, plan_root):
             return [make(SEVERITY_UNCERTAIN, (
                 f"The gate's repository directory {repo_dir!r} does not resolve inside the "
-                "plan's repositories, so git was not run there and the tracking state of "
+                "plan's repository, so git was not run there and the tracking state of "
                 "its paths was not checked"
             ))]
     findings = []

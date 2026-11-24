@@ -246,6 +246,7 @@ lesson_statuses:
   - applied
   - rule
   - orphaned
+  - superseded
 
 # `lesson_check_kinds` IS read at run time. It lists the kinds a lesson's
 # `enforced-by:` answer may name. references/lessons-schema.md defines the

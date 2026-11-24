@@ -18,7 +18,10 @@ export const OPTION_KEY = 'update_check'
 /** The `$.store` key of the release cache: `{ checkedAt, latest, etag }`. */
 export const CACHE_KEY = 'updateCheck'
 
-/** The `$.store` key of the pending-upgrade marker: `{ [projectRoot]: { target, writtenAt } }`. */
+/**
+ * The `$.store` key of the pending-upgrade marker: `{ [mainRoot]: { target, writtenAt } }`. The key
+ * is the main checkout's root, so a session in a linked worktree finds the marker its sibling wrote.
+ */
 export const PENDING_KEY = 'pendingUpgrade'
 
 /** The release cache is refreshed when it is older than this: 6 hours. */
@@ -53,6 +56,8 @@ export type CheckResult = {
   latest: string | null
   pin: string | null
   repo: string | null
+  /** The main checkout's root when the project root is a linked worktree, else `null`. */
+  mainRoot: string | null
 }
 
 export type ReleaseCache = { checkedAt: number; latest: string | null; etag: string | null }
@@ -67,6 +72,8 @@ export type Host = {
   now: () => Promise<number>
   pluginRoot: () => string
   projectRoot: () => Promise<string>
+  /** True when a file or folder exists at the path. */
+  exists: (path: string) => Promise<boolean>
   run: (argv: readonly string[], init: { timeoutMs: number }) => Promise<RunResult>
   fetch: (url: string, init: HttpInit) => Promise<HttpResponse>
   storeGet: (key: string) => Promise<unknown>
@@ -80,7 +87,7 @@ export type Host = {
 }
 
 /** The engine calls a card press makes. update-banner.tsx builds it over its own atoms. */
-export type PressHost = Omit<Host, 'after' | 'fetch' | 'redraw'> & {
+export type PressHost = Omit<Host, 'after' | 'fetch' | 'redraw' | 'exists'> & {
   readOffer: () => Promise<PlanwiseUpdateOffer | null>
   readBusy: () => Promise<boolean>
   setBusy: (value: boolean) => Promise<unknown>
@@ -96,6 +103,7 @@ export function hostOf($: EngineInterface): Host {
     now: () => $.clock.now(),
     pluginRoot: () => $.plugin.root,
     projectRoot: () => $.session.root(),
+    exists: (path: string) => $.fs.exists(path),
     run: (argv: readonly string[], init: { timeoutMs: number }) => $.process.run(argv, init),
     fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
     storeGet: (key: string) => $.store.get(key),
@@ -165,6 +173,7 @@ export const checkResultOf = (stdout: string): CheckResult | null => {
     latest: textOrNull(parsed['latest']),
     pin: textOrNull(parsed['pin']),
     repo: textOrNull(parsed['repo']),
+    mainRoot: textOrNull(parsed['main_root']),
   }
 }
 
@@ -207,6 +216,29 @@ export const pendingMapOf = (value: unknown): Record<string, PendingEntry> => {
  */
 export const markerIsStale = (entry: PendingEntry, running: string | null): boolean =>
   running !== null && compareVersions(entry.target, running) < 0
+
+/**
+ * Deletes every marker whose root no longer exists, and returns true when it deleted any. A removed
+ * worktree leaves its entry in the store for good, so each check drops the entries it can disprove.
+ * An existence check that rejects keeps its entry.
+ */
+const pruneGoneRoots = async (host: Pick<Host, 'exists' | 'uiLog'>, pending: Record<string, PendingEntry>): Promise<boolean> => {
+  let removed = false
+  for (const root of Object.keys(pending)) {
+    let present = true
+    try {
+      present = await host.exists(root)
+    } catch (err) {
+      debug(host, 'could not check whether ' + root + ' exists; keeping its marker: ' + errText(err))
+    }
+    if (!present) {
+      debug(host, 'dropping the upgrade marker of a root that is gone: ' + root)
+      delete pending[root]
+      removed = true
+    }
+  }
+  return removed
+}
 
 /** The card offer for a verdict, or `null` for a verdict that draws no card. */
 export const offerOf = (check: CheckResult): PlanwiseUpdateOffer | null => {
@@ -330,10 +362,13 @@ export async function checkNow(host: Host, options: PluginOptions): Promise<void
     }
   }
   const pending = pendingMapOf(await host.storeGet(PENDING_KEY))
-  let entry = pending[projectRoot] ?? null
+  // The marker is keyed by the main checkout, so a linked worktree shares it with its main checkout.
+  const key = slashed(check.mainRoot ?? projectRoot)
+  if (await pruneGoneRoots(host, pending)) await host.storeSet(PENDING_KEY, pending)
+  let entry = pending[key] ?? null
   if (entry !== null && markerIsStale(entry, check.running)) {
     debug(host, 'clearing a stale upgrade marker for ' + entry.target)
-    delete pending[projectRoot]
+    delete pending[key]
     await host.storeSet(PENDING_KEY, pending)
     entry = null
   }
@@ -342,7 +377,7 @@ export async function checkNow(host: Host, options: PluginOptions): Promise<void
     return
   }
   if (entry !== null && check.verdict === 'CURRENT') {
-    delete pending[projectRoot]
+    delete pending[key]
     await host.storeSet(PENDING_KEY, pending)
   }
   const offer = offerOf(check)
@@ -402,7 +437,7 @@ const pressPluginUpdate = async (host: PressHost, offer: PlanwiseUpdateOffer): P
   if (result.exitCode === 0 && outcome === 'UPDATED') {
     if (offer.latest !== null) {
       const pending = pendingMapOf(await host.storeGet(PENDING_KEY))
-      pending[projectRoot] = { target: offer.latest, writtenAt: await host.now() }
+      pending[slashed(textOrNull(parsed['main_root']) ?? projectRoot)] = { target: offer.latest, writtenAt: await host.now() }
       await host.storeSet(PENDING_KEY, pending)
     }
     await host.setOffer({ ...offer, verdict: 'RESTART', installed: offer.latest ?? offer.installed })

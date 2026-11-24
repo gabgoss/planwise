@@ -24,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 import generate_backlog_index as gbi
-import test_generate_backlog_index as tgb
+import generate_backlog_index_fixtures as tgb
 
 PLANTED_TITLE = "Extend .claude/rules/planwise/gate-control.md with a new section"
 BARE_FOLDER_TITLE = "Sweep index rows that still describe dead .claude/rules/planwise/ destinations"

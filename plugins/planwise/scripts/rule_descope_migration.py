@@ -40,6 +40,7 @@ except ImportError:
 
 try:
     from rule_divergence import (
+        _HISTORY_VERDICT_SOURCE,
         _classify_diverged,
         _destructively_removable,
         _extract_paths_value,
@@ -357,15 +358,26 @@ def migrate_installed_rules(
                     # clean notes field — non-empty notes means the primitive
                     # tolerated installed-only content (e.g. sub-noise-floor
                     # fragments), which is exactly what deletion must not destroy.
+                    # A body that matched an earlier shipped body (verdict source
+                    # shipped-history) is no structural subset, so each line below
+                    # names the history match instead of a stale subset.
+                    from_history = (
+                        getattr(verdict, "source", "") == _HISTORY_VERDICT_SOURCE)
                     if not paths_match and preserve_paths_edits:
                         # The paths-edit preserve opt-out covers the diverged path
                         # too: a stale body does not forfeit a paths: customization.
+                        body_kind = (
+                            "matched an earlier shipped body" if from_history
+                            else "is a stale subset")
                         report["preserved"].append(
-                            f"{filename}: kept (paths-customized; body is a stale subset "
+                            f"{filename}: kept (paths-customized; body {body_kind} "
                             "but the preserve opt-out covers paths: edits) — re-home or "
                             "re-scope to the code dirs it governs")
                     else:
-                        reason = "stale subset of the grown shipped reference"
+                        reason = (
+                            "matched an earlier shipped body of the reference"
+                            if from_history
+                            else "stale subset of the grown shipped reference")
                         if not paths_match:
                             reason += "; custom paths: dropped (opt-out disabled)"
                         if _record_disposition(
@@ -374,8 +386,12 @@ def migrate_installed_rules(
                             suffix = (
                                 " [INFO] custom paths: dropped (opt-out disabled)"
                                 if not paths_match else "")
+                            removed_kind = (
+                                "matched an earlier shipped body of the"
+                                if from_history
+                                else "stale subset of the grown shipped")
                             report["removed"].append(
-                                f"{filename}: removed — stale subset of the grown shipped "
+                                f"{filename}: removed — {removed_kind} "
                                 f"reference (now handler-loaded from references/){suffix}")
                         else:
                             report["skipped"].append(

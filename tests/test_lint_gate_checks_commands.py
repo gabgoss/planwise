@@ -117,7 +117,7 @@ class TestCheck18DiffPropertyOverUntrackedPath(unittest.TestCase):
 
 class TestCheck18RepositoryDirectoryScope(unittest.TestCase):
     """A ``-C`` directory is asked about only when it lies inside the work tree
-    of a repository that holds the plan root."""
+    of the nearest repository that holds the plan root."""
 
     GATE = "git -C {repo} diff --numstat -- f.txt   # expect 1"
 
@@ -149,7 +149,7 @@ class TestCheck18RepositoryDirectoryScope(unittest.TestCase):
                 findings = _findings_for(plan, 18, execute=True)
             self.assertEqual(self._ls_files_calls(run, elsewhere), [])
         self.assertEqual([(f["check"], f["severity"]) for f in findings], [(18, "UNCERTAIN")])
-        self.assertIn("does not resolve inside the plan's repositories", findings[0]["message"])
+        self.assertIn("does not resolve inside the plan's repository", findings[0]["message"])
 
     def test_nested_repository_inside_the_plan_repository_is_still_checked(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -163,6 +163,26 @@ class TestCheck18RepositoryDirectoryScope(unittest.TestCase):
             _write_task(plan, [self.GATE.format(repo="nested")])
             findings = _findings_for(plan, 18, execute=True)
         self.assertEqual([(f["check"], f["severity"]) for f in findings], [(18, "ERROR")])
+
+    def test_main_checkout_above_a_linked_worktree_plan_is_uncertain_without_git(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            main = Path(tmp) / "main"
+            main.mkdir()
+            _git(main, "init", "-q")
+            _git(
+                main, "-c", "user.name=t", "-c", "user.email=t@example.com",
+                "commit", "-q", "--allow-empty", "-m", "init",
+            )
+            worktree = main / ".claude" / "worktrees" / "w1"
+            _git(main, "worktree", "add", "-q", str(worktree), "-b", "w1")
+            (main / "f.txt").write_text("one\n", encoding="utf-8")
+            plan = worktree / "plan"
+            plan.mkdir()
+            _write_task(plan, [self.GATE.format(repo=main.as_posix())])
+            with mock.patch("subprocess.run", wraps=subprocess.run) as run:
+                findings = _findings_for(plan, 18, execute=True)
+            self.assertEqual(self._ls_files_calls(run, main), [])
+        self.assertEqual([(f["check"], f["severity"]) for f in findings], [(18, "UNCERTAIN")])
 
     def test_parent_relative_escape_is_uncertain(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -17,9 +17,10 @@ Two failure modes are covered.
 
 2. CONCURRENT CLAIMS -- two callers re-derive "current max" at the same
    instant, both compute the same next-free number, and both insert there.
-   `--claim` records the value in a small per-repository ledger, so a second
-   caller for the same (file, scheme, prefix) returns one above the first's
-   unconsumed claim instead of the same number.
+   `--claim` records the value in a small ledger at the main checkout's root,
+   shared by every linked worktree of the repository, so a second caller for
+   the same (file, scheme, prefix) returns one above the first's unconsumed
+   claim instead of the same number.
 
 A claim is self-invalidating: it is consumed, and ignored from then on, as
 soon as the live file's own maximum reaches it. Inserting the anchor is what
@@ -55,7 +56,10 @@ from pathlib import Path
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
+
+import install_check
 
 LEDGER_NAME = ".anchor-claims.json"
 
@@ -115,8 +119,18 @@ def repo_root_for(path: Path) -> Path:
     return resolved.parent
 
 
+def _main_root(target: Path) -> Path:
+    """The root of the main checkout that holds the target's repository.
+
+    A linked worktree is the same repository at another path, so it maps to the main
+    checkout. An ordinary checkout and a folder outside git map to their own root.
+    """
+    root = repo_root_for(target)
+    return Path(install_check.main_checkout_root(root) or root).resolve()
+
+
 def ledger_path_for(target: Path, override: Path | None) -> Path:
-    return override.resolve() if override else repo_root_for(target) / LEDGER_NAME
+    return override.resolve() if override else _main_root(target) / LEDGER_NAME
 
 
 def _read_ledger(ledger: Path) -> dict:
@@ -132,7 +146,11 @@ def _read_ledger(ledger: Path) -> dict:
 
 
 def _claim_key(target: Path, scheme: str, prefix: str) -> tuple[str, str, str]:
-    return (target.resolve().as_posix(), scheme, prefix)
+    # The file's path as mapped into the main checkout, so every linked worktree of one
+    # repository names the same file. Two repositories that share a `--ledger` override
+    # keep two keys, because their main roots differ.
+    mapped = _main_root(target) / target.resolve().relative_to(repo_root_for(target))
+    return (mapped.as_posix(), scheme, prefix)
 
 
 def _matching_claims(data: dict, key: tuple[str, str, str]) -> list[dict]:
@@ -325,8 +343,8 @@ def main():
         type=Path,
         default=None,
         help=(
-            f"Claims ledger path. Defaults to {LEDGER_NAME} at the target "
-            f"file's repository root."
+            f"Claims ledger path. Defaults to {LEDGER_NAME} at the root of the "
+            f"target file's main checkout, shared by every linked worktree."
         ),
     )
     parser.add_argument("--json", action="store_true", help="Emit the result as JSON.")

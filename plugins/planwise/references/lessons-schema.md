@@ -94,6 +94,7 @@ The value list is declared in `config.yaml` as `lesson_statuses:` (beside the ba
 | `applied` | Lesson applied to improve a process or pattern |
 | `rule` | Lesson promoted to a `.claude/` artifact |
 | `orphaned` | Content was fully captured into an owning item that has since closed without landing it, and no live item currently owns it. Work-surfacing: resurfaces ahead of `documented` in the next promotion pass. |
+| `superseded` | Replaced by a newer lesson that its `superseded-by:` key names. Routed to an Archive shard, never the hub. Only a `documented` or `orphaned` lesson takes it. A `promoted`, `applied` or `rule` lesson keeps its status. |
 
 `applied` and `rule` are the two terminal ("landed") statuses; they differ only in *what kind* of artifact absorbed the lesson, never in which pointer field records it — see Pointer Fields below, where `applied-as:` is the single artifact pointer for both.
 

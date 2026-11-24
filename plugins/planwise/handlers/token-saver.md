@@ -36,6 +36,8 @@ Resolve `config.yaml` by checking, in order:
 2. `*/config.yaml` one level down from project root
 3. If NOT found: announce, resolve `{plugin_root}` from this handler's location, invoke `init_project.py` with `--auto-from "token-saver"`, RE-RESOLVE, and fail loud if still missing.
 
+Resolution is exactly these two locations, checked from the invocation directory, and is never inferred from a path string. A `config.yaml` anywhere else belongs to another project and is never read.
+
 Extract from `config.yaml`:
 - `plugin_root` — the plugin installation path
 - `plugin_version` — currently-pinned plugin version (for the staleness check)

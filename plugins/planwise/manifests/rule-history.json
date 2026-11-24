@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_on": "2026-11-23",
+  "generated_on": "2026-11-24",
   "normalization": "read as utf-8-sig (BOM stripped), CRLF -> LF, paths: and consult-when: keys removed, sha256 hex (rule_divergence.rule_history_digest)",
   "purpose": "Every body each installed, de-scoped and style rule reference has ever shipped with. rule_divergence._classify_diverged returns SUBSET at exact confidence for an installed body matching any listed digest, so an unedited older rule is adopted without a transfer. Regenerate with tools/gen_rule_history.py after editing a listed reference; tests/test_rule_history.py enforces it.",
   "rules": {
@@ -29,6 +29,7 @@
       "10eca44a4c72109f5b560dca4cb350f58f73fdcf0f38c523a4afb4fd120f5d2c",
       "18f96bef169e12087ac911d960582356402e8f355185d6eaa2bbb4bcc46c798a",
       "18fbe81b505390539bf283314ee73f5c8aec21e7edde6c59d82ffb21d7075e79",
+      "2cc2166a69ba58c4835bccef40da0bea84466d3ceece6dcb0ae8114b1e8ea7c5",
       "311c1050184b2b4a05c06a05ec9cc985b02ea90ff0d437e358b4be344a18cd32",
       "46fa9bcadd54167f115dfbdb112e44dc34c37854e1b8af827900079cc8dd1033",
       "49479e4da0bb2be82162e70c0123906ab88fe75c511265b8840413c2f7cd0175",
@@ -239,6 +240,7 @@
       "d47a2856c7194b7bfa9f959a6fbf7b18bcb9fb23bcb79a03fda2eb810a16af12",
       "e0b5ea0571917e92f88f1f0eeabbc5b907599e9406a6061114e97a069f809080",
       "e2b6c8f7bb48b68746d48d7ee45868ba3ce1d86474971903c116002fad8e230d",
+      "e3d4ded0c6592f9915cc765d3028f70824dc208b710560fc2af4d2c3a581790e",
       "eace5868666828616903e4e38ad1c503d43443b2f2d4ba4eb1c2a982d3156dac",
       "eb63ffb73ebd8def56ee859c7b1ccf15ac6a62fb45c28569455b6a072937792d",
       "eee8a9a59d6e527b4b2174b178b9467107533082d5418db6f928c21a9f6c12c2",
@@ -379,6 +381,7 @@
       "bf34b0c0691c95e15ac073cb9b8376c1fb0377460a3f39f40cb99364c7e606ac",
       "cca317bded4f6a4bee9f47f03f6efa56053786e485b44ce1ab947e16d2d7cf4a",
       "d15c41a5632951d5735c7ea465145d6f1a433cc26075cda63448fc668609069b",
+      "ddeffe734264b5c331dcfbd7b9a05be4da484b6e5adaead58ebcf6e5ea8e38c4",
       "e24970e2ce300bbee3859cfa84d58cd2918ae7e2ffa3384a4eb16ac6c8d57fe5",
       "f0bfd0050ce3aa7d33ab95e1b802ecffbaf350c301744fa4bb420c459ddb10a0",
       "f5af5afeb9d352d997d70c085874918c887f8f41242139321e24f7349340e9ac"
@@ -400,6 +403,7 @@
       "afd297b32b5d09dfb0ddc0d1b598ddb4967fc4a02e7ca62948c2af1acc2a3147",
       "b29192fb28a89ed8297cefd2e1ade267defa50afd6097b7957fa3bfb419824fb",
       "dced44bd795bc7c83c21ec88f8816c9ef7975a9dde6184a4d5dbeb4df532a416",
+      "f1d3a6eba932e2057077533b893a7a8b695811fd38657ae6d475ecc7d3a1a504",
       "f672a04cd89aeecbd240af6ac4d060b250f7387c03637c40ae3d021629485811",
       "f9679844924eca2518bd31cf9e2c846663fdf9fbf23ef785a3d4dca2aa94e35b"
     ],

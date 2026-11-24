@@ -20,7 +20,7 @@ The custom agents (`structural-reviewer` and `plan-reviewer`) carry their own ch
 - Task files listed in Orchestration's Task Files table resolve to real files
 - `Outputs/` directory exists per session
 - Status fields present in Recovery and Orchestration files
-- Cross-reference links resolve (no dead paths)
+- Cross-reference links resolve, anchored links (`file.md#heading`) included (no dead paths, no dead anchors). Slug a heading by lowercasing it and dropping punctuation, then each whitespace character becomes its own dash. Never collapse a run of whitespace into one dash
 - [Meta-Plan] `Meta-{Abbrev}/` folder present
 - [Meta-Plan, past Discovery only] `Scaffold-{Abbrev}/` and `Exec-{Abbrev}/` folders present. Both are created by the scaffolding pass, so require them ONLY once the plan has advanced past Discovery. **The phase test is the presence of `Exec-{Abbrev}/`**: absent ⇒ the plan is at Discovery, carries `Meta-{Abbrev}/` alone, and is correct — report neither folder as missing. Do NOT use the `Meta-{Abbrev}/` Master Plan's `**Phase:**` field as the test: it records that Meta-Plan's own phase and keeps reading `1 of 3` after the execution plan exists
 - Declared-parallel (`∥`) sprint pairs have a computed write-set intersection with the result shown; no path shared between two `∥` sprints (Check S05)
@@ -45,6 +45,7 @@ The custom agents (`structural-reviewer` and `plan-reviewer`) carry their own ch
 - Session Summary's Consumption Record present with `measured|estimated` tags; orchestrator-window total kept distinct from summed dispatch budgets
 - Every `git diff` in a task's Verification Commands or Success Criteria is scoped to a recorded baseline and path-scoped with `--`, not a `grep` pipe (Check 077)
 - Recompute each task's `sum(Required Context ~Tokens) + output + working` and compare with the header's `Estimated Tokens`. Beyond the ±0.5K a rounded header implies, the gap MUST be closed by an addend carrying a value — never by a prose qualifier ("netted by the targeted-read discipline", "rounding offsets the working margin"), which reads as a justification while calculating nothing (Catalog row 120, ERROR). Flag any task file carrying two different derivations of the same total: they can disagree with each other and still land on the same number, so agreeing totals are not evidence either is right. This is arithmetic, not judgement — recompute it rather than reading the reconciliation comment. It sits *inside* Check 024's ±10% BLOCKER band, which is why gaps of 3–5% survive that gate
+- For every aggregate figure in the plan — a forecast, a budget row, a headline total — name the classes it summed and check the plan's own designs and task files for a class it omitted, including any class a task tells runners to exclude from a gate. Flag a figure whose sentence subject differs from the subject of the source it cites (`measure-aggregate-provenance.md` §10)
 
 ### Dependency Reviewer (Phase 2, LARGE/VERY LARGE)
 

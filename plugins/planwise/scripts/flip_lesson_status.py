@@ -80,7 +80,7 @@ from reconcile_common import (
     write_text_preserving_newlines,
 )
 
-VALID = ("documented", "promoted", "rule", "applied", "orphaned")
+VALID = ("documented", "promoted", "rule", "applied", "orphaned", "superseded")
 LANDED = ("rule", "applied")
 
 # Matches a frontmatter `status:` line and captures only the value WORD

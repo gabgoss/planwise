@@ -402,6 +402,9 @@ def print_offers(offers: list, project_root: Path, pair: str, user_settings_flag
     if not applicable:
         print("Accept all: (nothing applicable)")
         return
+    print("Decline: delete a declined offer's flags from the Accept all command, and for --prune delete only its "
+          "class from the comma list. A declined offer adds no flag and no skip value. When every offer is "
+          "declined, run nothing.")
     argv = ["python", "-B", (SCRIPTS / "upgrade_apply.py").as_posix(), "--project-root", project_root.as_posix()]
     if user_settings_flag:  # apply must resolve the same user-settings file the offers were built against
         argv += ["--user-settings", Path(user_settings_flag).as_posix()]

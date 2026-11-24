@@ -248,6 +248,12 @@ class TestAnomaliesNeverActedOn(_BacklogFixtureBase):
         result = detect_drift(self.config)
         self.assertEqual(result["drifts"], [])
         self.assertEqual(len(result["anomalies"]), 2)
+        # Each anomaly names the renumber fix for its own file.
+        for anomaly in result["anomalies"]:
+            self.assertIn(
+                f"--renumber 090 <next free id> --file {anomaly['file']}",
+                anomaly["reason"],
+            )
 
         moved, _ = self.run_reconcile_quietly()
         self.assertEqual(moved, 0)

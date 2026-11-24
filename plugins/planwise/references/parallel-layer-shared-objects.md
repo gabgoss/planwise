@@ -1,6 +1,6 @@
 ---
-description: Two tasks in one dispatch layer acting on an object neither of them writes — a next-free identifier namespace, or an entity's decomposition. Carries the eligibility question that replaces the output-path test, the spawn-prompt clause that defers the allocation and not merely the write, and the decomposition diff that makes a missing half visible. Consult while composing a parallel dispatch layer, before its spawn prompts are written.
-consult-when: Composing a parallel dispatch layer — the allocation namespace or entity decomposition two tasks share but neither writes
+description: Two tasks in one dispatch layer acting on an object neither of them writes — a next-free identifier namespace, or an entity's decomposition. Carries the eligibility question that replaces the output-path test, the spawn-prompt clause that defers the allocation and not merely the write, and the decomposition diff that makes a missing half visible. Also covers the shared objects that are not files: the key name one task emits and another reads, the scratch folder every runner writes, and a directory a sibling's test enumerates. Consult while composing a parallel dispatch layer, before its spawn prompts are written.
+consult-when: Composing a parallel dispatch layer — the allocation namespace, entity decomposition, emitted key names, shared scratch folder or directory listing that tasks share but none writes
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Parallel Layer — Shared Objects No Task Owns
@@ -16,6 +16,12 @@ Two neighbouring rules own machinery this file builds on and does not restate. [
 - [1. Parallel Eligibility Tests Allocation, Not Just Output Paths](#1-parallel-eligibility-tests-allocation-not-just-output-paths)
 - [2. A Deferral Must Name What Is Deferred — the Write, AND the Allocation](#2-a-deferral-must-name-what-is-deferred--the-write-and-the-allocation)
 - [3. Two Decompositions of One Entity Leave a Seam Nobody Owns](#3-two-decompositions-of-one-entity-leave-a-seam-nobody-owns)
+- [4. Between-Runner Properties — Shared Objects That Are Not Files](#4-between-runner-properties--shared-objects-that-are-not-files)
+  - [4.1 Pin the Emitting Key Name, Not Just the Value](#41-pin-the-emitting-key-name-not-just-the-value)
+  - [4.2 A Fallback That Substitutes a Knowingly-Degraded Input Is Worse Than a HALT](#42-a-fallback-that-substitutes-a-knowingly-degraded-input-is-worse-than-a-halt)
+  - [4.3 Namespace the Scratchpad by Task Id in the Spawn Prompt](#43-namespace-the-scratchpad-by-task-id-in-the-spawn-prompt)
+  - [4.4 A Test Asserting an Exact Directory Listing Depends on Everything in That Directory](#44-a-test-asserting-an-exact-directory-listing-depends-on-everything-in-that-directory)
+  - [4.5 Audit the Between-Runner Properties Before Dispatch](#45-audit-the-between-runner-properties-before-dispatch)
 
 ---
 
@@ -106,4 +112,111 @@ The opposite failure on the same lever — one writer whose declared `Output:` s
 
 ---
 
-*Cross-reference: [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) §1.6, §1.13 · [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) §1.24 (a structure contract needs a literal template) · [`agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md`](agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md) §1.31 (a shared precondition belongs to the orchestrator) · [`scaffolding-hygiene-Part-2-DerivationAndParallelism.md`](scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §17*
+## 4. Between-Runner Properties — Shared Objects That Are Not Files
+
+Sections 1 to 3 cover objects that a layer's members share and none of them writes: a counter and an entity's decomposition. Three more shared objects are not files. They are a key name that one runner emits and another reads, a working folder that every runner writes into, and a folder that a sibling's test lists. The write-set table shows none of the three. Each runner passes its own gate, because neither runner is wrong. The defect lives in the relationship between them.
+
+**Disjoint declared outputs do not make parallel runners isolated.** An isolation clause covers the files a task declares. The defect lands in what the clause leaves out. It often corrupts how a result was computed, and no deliverable shows it.
+
+### 4.1 Pin the Emitting Key Name, Not Just the Value
+
+A value that passes from one session to the next is an output-vocabulary contract between two runners. "Record the series base" and "read `{ABBREV}_SERIES_BASE`" are two different contracts. Neither runner breaks its own contract when the names differ.
+
+Inject the value as a literal first. Section 1.6 of `agent-orchestration-delegated.md` and the `Base commit:` line of the spawn-prompt skeleton in `templates/orchestration.md` carry that route. A lookup by key name is the fallback, for a value the orchestrator cannot resolve before dispatch.
+
+> [!constraint] Look up the key the emitter writes, and treat a miss as unresolved
+> A brief told a downstream session to adopt a series base from its predecessor's Recovery file. The brief's lookup used the key `{ABBREV}_SERIES_BASE`. The predecessor had written `{ABBREV}_S{NN}_BASE`. The lookup returned 0 hits, and the brief's fallback for 0 hits was "mint one here and say so". A 0 that means "named differently" looks the same as a 0 that means "never recorded". The fallback took the degrading reading. The closing identifier sweep would have covered 3 files instead of 7.
+>
+> WRONG — the consumer looks up a key that the emitter never agreed to use:
+> ```
+> Grep  pattern='{ABBREV}_SERIES_BASE'  path='.../{Abbrev}-S{NN}-{MM}-Recovery.md'
+> # 0 hits -> "the predecessor recorded none" -> mint a base from today's HEAD
+> ```
+> CORRECT — the consumer looks up the key the emitter writes, and a miss halts the task:
+> ```
+> Grep  pattern='{ABBREV}_S{NN}_BASE'  path='.../{Abbrev}-S{NN}-{MM}-Recovery.md'
+> # 1 hit carrying <sha> -> adopt it verbatim
+> # 0 hits -> HALT and report. Never substitute a locally derived value.
+> ```
+
+Prefer a lookup by the value's shape, such as a 40-digit hex string next to a labelled row. A stable role name that the Master Plan fixes also works. Both beat an identifier that each session mints for itself.
+
+### 4.2 A Fallback That Substitutes a Knowingly-Degraded Input Is Worse Than a HALT
+
+The lookup miss in section 4.1 was a stumble. The documented recovery turned it into a defect, because the recovery produced a plausible wrong value and did not stop. A HALT is loud and cheap, and it lands on someone who can resolve it. A degrading fallback is silent. It launders a lookup failure into a measurement, and the next gate reports a verdict on that measurement.
+
+> [!constraint] Trace a fallback's output to every gate scoped to it
+> When a brief writes a fallback branch for "the upstream value is absent", ask what the branch's output does to each gate that consumes it. If the answer is "narrows the gate", the branch must HALT instead.
+
+The degraded outcome did not fail a gate, which someone would have noticed. It produced an UNCERTAIN, a result that the plan's own criteria permitted and even described. The plan predicted the symptom and still shipped the brief that caused it.
+
+**A correct in-session save is not a reason to skip the capture.** It is evidence that the defect is systemic, not incidental. This defect recurred across consecutive sprints of one plan. The orchestrator handled it correctly both times and recorded it neither time.
+
+### 4.3 Namespace the Scratchpad by Task Id in the Spawn Prompt
+
+Section 1 lists scratch file names among the shared namespaces, and section 1.8 of `agent-orchestration-delegated.md` holds the `Scratch prefix:` constraint. This subsection adds the hazard, three practices and the wider scope.
+
+Runners create undeclared working files in a folder they all share. Examples are helper scripts, probes, intermediate dumps and hash manifests. Capable agents converge on the same obvious name for the same obvious job. **The better the runners, the more alike their file names.**
+
+The observed collision was harmless, and the hazard is not. Three runners had disjoint declared outputs, and two of them wrote `scratchpad/shingle_check.py`. One file overwrote the other after both checks had run, and a later task held the session's authoritative gate. Both facts were luck. A runner that calls a sibling's script gets a result computed by logic written for a different file, with different exclusions. The script runs, prints a number and raises no error. The runner has no way to know.
+
+> [!constraint] Scope the scratchpad in every parallel spawn prompt, with the task id as the namespace
+> WRONG — the spawn prompt scopes the declared outputs and says nothing about the shared folder:
+> ```
+> Files you may write: Sources/Part-2.md
+> # The runner also writes scratchpad/shingle_check.py. So does its sibling. The last write wins.
+> ```
+> CORRECT — the prompt carries the skeleton's scratch line, so the task id names every undeclared file:
+> ```
+> Files you may write: Sources/Part-2.md
+> Scratch prefix:   {task-id}-  (start every scratch file name with this prefix; never read a scratch file you did not write in this run)
+> Never write a generically-named helper; a sibling will pick the same name.
+> ```
+
+- **Keep the skeleton's `Scratch prefix:` line in every parallel spawn prompt.** One line removes the class. Never rely on runners to invent the convention. One runner in three did so in the observed case, and that rate produces intermittent failures that nobody can reproduce.
+- **Treat a collision report as a contract defect.** Both runners behaved well. They reported the collision, left the sibling's file intact and recreated their own under a safe name. The dispatch contract never told them that the folder was shared.
+- **Never let a shared-scratchpad result stand as a gate.** A self-check computed by a helper that a sibling may have overwritten is drafting feedback, not evidence. Put the authoritative check in a task that runs its own script over the full deliverable set.
+
+The rule covers every mutable working folder that concurrent agents share. Temp folders, cache folders and shared staging areas are examples.
+
+### 4.4 A Test Asserting an Exact Directory Listing Depends on Everything in That Directory
+
+Declared outputs can be disjoint in the ordinary sense, with different files and no overwrite, and the tasks still collide. The cause is a test that lists a folder which a sibling must add to. The write-set table does not show that coupling.
+
+In the observed case, task 6's brief required probe fixtures in a folder that task 5's suite enumerated. Task 6 did what its brief said. The suite went from 117 passed to 1 failed and 116 passed. The command-line tool was correct and the assertion was brittle. The collision was latent at plan time, because task 6's brief already named the fixture by path.
+
+> [!constraint] Derive the expected listing from the same glob the code under test uses
+> WRONG — a hardcoded constant pins the folder, so any legitimate addition fails the test:
+> ```python
+> def test_cli_recurses_over_a_directory_of_markdown():
+>     ...
+>     assert scanned == {f.name for f in ALL_FIXTURES}   # ALL_FIXTURES holds the six original fixtures
+> ```
+> CORRECT — the expectation comes from the glob, the equality stays, and a guard keeps the derived set from passing vacuously:
+> ```python
+> expected = {p.name for p in FIXTURE_DIR.rglob("*.md")}
+> assert scanned == expected
+> assert {f.name for f in ALL_FIXTURES} <= expected
+> ```
+
+- **Prefer a derived expectation to a hardcoded set for every assertion over a directory.** Both forms test the same property, and only the derived form survives a legitimate addition. Keep the equality, because complete recursion is worth asserting. Keep the guard too. An equality alone passes against an empty folder.
+- **Never make a constant with semantic meaning the consumer of a structural assertion.** In the observed case `ALL_FIXTURES` meant "the six original scoring fixtures", and other tests relied on that meaning. The fix left it intact and changed which test consumed it. Widening it would have destroyed a useful distinction.
+- **The runner that trips a sibling's gate reports and does not repair.** An independent verifier that edits the module it gates loses its independence, and it lacks the context for what the constants mean elsewhere. Route the report to the owning task's runner. That runner still holds the context.
+
+State the cause accurately when you report this class. In the observed case an earlier scope fix had moved one fixture's path, which looked like the cause and was not. The accurate cause decided whether that earlier fix was sound.
+
+### 4.5 Audit the Between-Runner Properties Before Dispatch
+
+> [!practice] Audit four non-file shared objects before dispatching a parallel layer
+> The write-set intersection check proves that the declared outputs are disjoint. It says nothing about four things that are not files:
+>
+> - **The key names** that each runner emits and consumes (sections 4.1 and 4.2).
+> - **The shared working directory** that every runner writes undeclared helpers into (section 4.3).
+> - **The directory listings** that any runner's tests enumerate (section 4.4).
+> - **Any fallback branch** whose degraded output feeds a later gate (section 4.2).
+>
+> Audit each of the four before dispatch. No write-set table shows them, and neither runner's own gate can see them afterwards.
+
+---
+
+*Cross-reference: [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) §1.6, §1.8, §1.13 · [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) §1.24 (a structure contract needs a literal template) · [`agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md`](agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md) §1.31 (a shared precondition belongs to the orchestrator) · [`scaffolding-hygiene-Part-2-DerivationAndParallelism.md`](scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §17*

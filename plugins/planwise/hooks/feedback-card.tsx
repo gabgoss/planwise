@@ -176,12 +176,13 @@ const turnOff = async (host: CardHost, configPath: string): Promise<void> => {
     return
   }
   await host.hide()
-  host.uiLog('draft feedback: feedback.drafts set to off in config.yaml; takes effect next session', 'transcript')
+  host.uiLog('draft feedback: feedback.drafts set to off in ' + configPath + '; takes effect next session', 'transcript')
 }
 
 /**
- * Button 0: dismiss the card. The second dismissal offers to turn drafting off, in the config the
- * session can still reach (liveConfigPath). A stale press does nothing.
+ * Button 0: dismiss the card. The second dismissal offers to turn drafting off. The turn-off writes
+ * the current root's config, or the draft's own config when that root holds none (liveConfigPath).
+ * A stale press does nothing.
  */
 const onDismiss = async (host: CardHost): Promise<void> => {
   const draft = await host.readLast()

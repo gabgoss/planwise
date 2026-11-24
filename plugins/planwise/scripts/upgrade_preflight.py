@@ -590,8 +590,9 @@ def render_next(branch: str, noop: bool, ctx: dict) -> list[str]:
                  f"one line `{COMPARATOR_LINE}`: count a file as failed when the writer printed \"ignoring cached "
                  "verdict\" or \"falling back to the inline primitive\", add `degraded` when returned is below "
                  "diverged, and omit the line when the comparator step did not run.")
-    lines.append(f"{step + 2}. Ask the user once with the offer list upgrade_run prints, then run upgrade_apply "
-                 "with the answers.")
+    lines.append(f"{step + 2}. Ask the user once with the offer list upgrade_run prints, then run "
+                 "the Accept all command with each declined offer's flags deleted, as its Decline line states. "
+                 "A declined offer adds no flag and no skip value. When every offer is declined, run nothing.")
     if verify:
         lines.append(f"{step + 3}. After the offer answers are applied, store the accepted verify commands. Run once, "
                      "with one --command for each chosen candidate (unattended: the high-confidence ones, as "

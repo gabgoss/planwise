@@ -86,7 +86,7 @@ FAN_OUT: S_src=<n> inline_estimate=<2n> limit=<practical_session_limit> -> fan-o
 **Above the threshold, fix the fan-out inputs here.** The agents copy these facts and never derive them, so the decomposition records them before Step 4:
 
 - Each sprint's `ei_sections` rows `§{n} | {Topic} | {task ids} | {Spec #N list}`. Number `{n}` from 1 to `{N}` in the order the sprint's tasks first use them.
-- Each sprint's `source_map` rows `Spec #{N} | {filename} | T{1,2,3} | {absolute path}`. `{N}` is that file's Global Source Map number when the plan uses global numbering, never a per-sprint count. Add its `deferred_targets` rows `{sprint id} | {sprint name}` for every other sprint.
+- Each sprint's `source_map` rows `Spec #{N} | {filename} | T{1,2,3} | {absolute path} | {scope}`. `{N}` is that file's Global Source Map number when the plan uses global numbering, never a per-sprint count. `{scope}` is `primary | reference`. Set `reference` when the part says `Scope: Cross-sprint reference` or the Global Source Map's Primary Sprint names another sprint. Set `primary` otherwise. Add its `deferred_targets` rows `{sprint id} | {sprint name}` for every other sprint.
 - Each sprint's `write_set` rows `Path | Task`, and the `cross_sprint_markers` rows `Path | Writers | Region | Disposition`. Step 5's write-set rules govern both.
 - The pass-level task-output `naming_scheme`, for example `task ordinal`.
 
@@ -262,7 +262,7 @@ When extracting from Meta-Plan Discovery outputs, scaffolding agent MUST consume
 - 80 – 95 % retention → warn
 - ≥ 95 % retention → pass
 
-Retention = `(sum of EI section tokens + Deferred/OOS log tokens) / (sum of Tier 1+2+3 source tokens)`.
+Retention = `(sum of EI section tokens + Deferred/OOS log tokens) / (sum of primary source tokens)`. The denominator sums the sprint's `primary` `source_map` rows. Reference-row tokens are reported, never graded.
 
 ## Scaffolding Step 5: Generate Plan Files
 

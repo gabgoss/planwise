@@ -200,7 +200,7 @@ The orchestrator classes each commit in `git log --format=%H {dispatch sha}..HEA
 > python -B "{plugin_root}/scripts/path_set_gate.py" {after list} {before list} {peer-owned list}   # expect exit 0
 > ```
 
-Before each dispatch the orchestrator runs the preflight set checks, each exiting 0 when clean and 1 with the difference listed: `python -B "{plugin_root}/scripts/dispatch_preflight.py" overlap --candidate {task file} --running {running task files, or none}` (Output paths shared with a running task; `none` is the empty set for this slot and for `--recoveries`, and the check then exits 0), `prereq --sprint-plan {Sprint Plan} --sprint-folder {sprint folder}` (enumerated prerequisites against the derived member set), `siblings --since {scaffold date} --recoveries {closed sibling Recovery files, or none} --edit-set {file naming the edit and sweep paths}` (sibling Files Modified that meet the edit set), and `decomposition --matrix {surface matrix} --output {consolidated output}` (matrix rows against output sections, both ways).
+Before each dispatch the orchestrator runs the preflight set checks, each exiting 0 when clean and 1 with the difference listed: `python -B "{plugin_root}/scripts/dispatch_preflight.py" overlap --candidate {task file} --running {running task files, or none}` (Output paths shared with a running task; `none` is the empty set for this slot and for `--recoveries`, and the check then exits 0), `prereq --sprint-plan {Sprint Plan} --sprint-folder {sprint folder}` (enumerated prerequisites against the derived member set), `siblings --since {scaffold date} --recoveries {closed sibling Recovery files, or none} --edit-set {file naming the edit and sweep paths}` (sibling Files Modified that meet the edit set), and `decomposition --matrix {surface matrix} --output {consolidated output}` (matrix rows against output sections, both ways). `upstream --candidate {task file} --plan-root {plan root}` resolves each Required Context `Outputs/` path against the live listing. On `drift` pass the live name in the spawn prompt and log it in Recovery. On `missing` HALT. On `ambiguous` report the hits and never pick one.
 
 ---
 
@@ -268,8 +268,10 @@ This task operates within:
   "{condition} → {permitted write, or STOP and escalate}"}
 
 ## Status Block delivery (REQUIRED)
-Deliver your status block by calling the SendMessage tool with to="main".
-Plain-text output does NOT reach the orchestrator.
+If your harness returns your final message to the orchestrator (a subagent
+hand-back), make the status block that final message and do not also call SendMessage.
+Otherwise deliver it by calling the SendMessage tool with to="main".
+Plain-text output then does NOT reach the orchestrator.
 {status-block schema — see the Status Block Return Contract section below}
 
 Return after writing the single expected output file. Do NOT proceed to task

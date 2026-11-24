@@ -2,9 +2,9 @@
 """Unit tests for the `--body-status` mode of reconcile_backlog.py.
 
 `reconcile_backlog.detect_body_status(config)` finds every legacy
-`**Status:**` line left in a backlog item's header block: the lines after
-the first H1 that follows the frontmatter, up to the first `---` or `## `
-line, never counting a fenced line. `reconcile_backlog.reconcile_body_status`
+`**Status:**` line left in a backlog item's header block: the lines from
+the first line after the frontmatter, past the first H1, up to the first
+later `---` or `## ` line, never counting a fenced line. `reconcile_backlog.reconcile_body_status`
 strips exactly that line, with its own terminator, on explicit `--write`.
 
 The value of the pass is where it refuses to match, so every fixture below
@@ -765,6 +765,108 @@ class TestAnomalies(_BodyStatusFixtureBase):
         self.assertEqual(len(result["anomalies"]), 1)
         self.assertEqual(result["anomalies"][0]["line"], 15)
         self.assertIn("no H1 title", result["anomalies"][0]["reason"])
+
+
+class TestEveryConditionReported(_BodyStatusFixtureBase):
+    """Tests 38-42: the pass reports every condition and reads the whole header.
+
+    Every fixture is F2's real bytes with one change, so its line numbers
+    follow F2's: the closing `---` is line 12, the H1 is line 14 and the
+    header status line is line 16.
+    """
+
+    CLOSE = b"route_dated: 2026-09-19\n---\n"
+
+    def _status_right_after_close(self, keep_original: bool) -> bytes:
+        """F2 with a status line directly after the frontmatter close."""
+        self.assertEqual(F2_BB240.count(self.CLOSE), 1)
+        base = F2_BB240 if keep_original else F2_BB240.replace(F2_LINE, b"", 1)
+        return base.replace(self.CLOSE, self.CLOSE + F2_LINE, 1)
+
+    def test_38_a_file_reports_one_row_per_condition_it_meets(self):
+        no_status = F2_BB240.replace(b"status: NOT_STARTED\n", b"", 1)
+        self.put("F2", no_status.replace(F2_LINE, F2_LINE + F2_LINE, 1))
+
+        result = self.detect()
+
+        self.assertEqual(result["drifts"], [])
+        self.assertEqual(len(result["anomalies"]), 2)
+        unreadable, doubled = result["anomalies"]
+        self.assertEqual((unreadable["status"], unreadable["line"]), ("?", 15))
+        self.assertIn("cannot be read", unreadable["reason"])
+        self.assertEqual(doubled["line"], 15)
+        self.assertIn("2 header-block status lines (lines 15, 16)", doubled["reason"])
+
+    def test_39_a_comment_only_frontmatter_status_cannot_be_read(self):
+        self.put("F2", F2_BB240.replace(b"status: NOT_STARTED\n", b"status:  # unknown\n", 1))
+
+        result = self.detect()
+
+        self.assertEqual(result["drifts"], [])
+        self.assertEqual(len(result["anomalies"]), 1)
+        self.assertIn("cannot be read", result["anomalies"][0]["reason"])
+
+    def test_40_frontmatter_status_is_normalized_before_comparison(self):
+        shapes = {
+            "inline comment": b"status: NOT_STARTED  # filed\n",
+            "quoted with comment": b'status: "NOT_STARTED"  # filed\n',
+            "folded block scalar": b"status: >\n  NOT_STARTED\n",
+            "literal block scalar, strip": b"status: |-\n  NOT_STARTED\n",
+        }
+        for name, line in shapes.items():
+            with self.subTest(shape=name):
+                self.put("F2", F2_BB240.replace(b"status: NOT_STARTED\n", line, 1))
+
+                result = self.detect()
+
+                self.assertEqual(result["anomalies"], [])
+                self.assertEqual(
+                    [(d["kind"], d["status"]) for d in result["drifts"]],
+                    [("redundant", "NOT_STARTED")],
+                )
+
+    def test_41_status_line_before_the_h1_is_drift_and_is_stripped(self):
+        data = self._status_right_after_close(keep_original=False)
+        path = self.put("F2", data)
+
+        result = self.detect()
+
+        self.assertEqual(result["anomalies"], [])
+        self.assertEqual(
+            [(d["kind"], d["line"]) for d in result["drifts"]], [("redundant", 13)]
+        )
+        stripped, _out = self.reconcile_quietly()
+        self.assertEqual(stripped, 1)
+        self.assertEqual(path.read_bytes(), F2_BB240.replace(F2_LINE, b"", 1))
+
+    def test_42_a_second_line_above_the_h1_is_an_anomaly_and_never_stripped(self):
+        data = self._status_right_after_close(keep_original=True)
+        path = self.put("F2", data)
+
+        result = self.detect()
+
+        self.assertEqual(result["drifts"], [])
+        self.assertEqual(len(result["anomalies"]), 1)
+        self.assertIn(
+            "2 header-block status lines (lines 13, 17)", result["anomalies"][0]["reason"]
+        )
+        stripped, _out = self.reconcile_quietly()
+        self.assertEqual((stripped, path.read_bytes()), (0, data))
+
+    def test_43_a_bare_cr_in_a_line_above_the_h1_is_an_anomaly(self):
+        data = self._status_right_after_close(keep_original=False).replace(
+            F2_LINE, b"**Status:** OPEN\rKeep this text\n", 1
+        )
+        path = self.put("F2", data)
+
+        result = self.detect()
+
+        self.assertEqual(result["drifts"], [])
+        self.assertEqual(len(result["anomalies"]), 1)
+        self.assertEqual(result["anomalies"][0]["line"], 13)
+        self.assertIn("carriage return", result["anomalies"][0]["reason"])
+        stripped, _out = self.reconcile_quietly()
+        self.assertEqual((stripped, path.read_bytes()), (0, data))
 
 
 class TestWrite(_BodyStatusFixtureBase):

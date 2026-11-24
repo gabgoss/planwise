@@ -1,6 +1,6 @@
 ---
-description: A `git diff` gate names a recorded tree state or it measures the whole working tree — record `$..._BASE` before the first edit behind an empty status over the write paths (§8.1), scope every gate to it (§8.2), path-scope with `-- <paths>` and never with an output filter (§8.3), record a series base once at the first sprint (§8.4), give a scope rule a positive test rather than a list of forbidden directories (§8.5), and treat a base as a statement about one moment that a commit inside the gate's paths invalidates (§8.6), covering a peer commit that moves HEAD under the close gates, pinning the session's own commit, a path re-check before a paid step, and a reading time on a peer-touched literal; Reviewer Check 077. This file is the definition site for `$..._BASE`.
-consult-when: Writing, reviewing or running any gate built on `git diff` — the definition site for `$..._BASE`, record it before the first edit (§8.1), scope every gate to it (§8.2), path-scope with `-- <paths>` (§8.3), a series base once (§8.4), a positive scope test (§8.5), a base is one moment (§8.6), a peer commit mid-session moves HEAD, pin the session's own commit, re-check paths before a paid or outward step, a reading time on a peer-touched literal, Check 077
+description: A `git diff` gate names a recorded tree state or it measures the whole working tree — record `$..._BASE` before the first edit behind an empty status over the write paths (§8.1), scope every gate to it (§8.2), path-scope with `-- <paths>` and never with an output filter (§8.3), record a series base once at the first sprint (§8.4), give a scope rule a positive test rather than a list of forbidden directories (§8.5), and treat a base as a statement about one moment that a commit inside the gate's paths invalidates (§8.6), covering a peer commit that moves HEAD under the close gates, pinning the session's own commit, a path re-check before a paid step, and a reading time on a peer-touched literal, then the input-set half of the same gate: a recorded base is carried and never re-minted (§8.7), a shared working tree shares one git index so HEAD is not a stable base (§8.8), and a `^\+` line is a line added to the diff, not content the change introduced (§8.9); Reviewer Check 077. This file is the definition site for `$..._BASE`.
+consult-when: Writing, reviewing or running any gate built on `git diff` — the definition site for `$..._BASE`, record it before the first edit (§8.1), scope every gate to it (§8.2), path-scope with `-- <paths>` (§8.3), a series base once (§8.4), a positive scope test (§8.5), a base is one moment (§8.6), a peer commit mid-session moves HEAD, pin the session's own commit, re-check paths before a paid or outward step, a reading time on a peer-touched literal, a base is a recorded value and is never re-minted (§8.7), a shared tree shares one git index (§8.8), a `^\+` line is not content the change introduced (§8.9), Check 077
 paths: {planwise_root}/{plans_dir}/**
 ---
 
@@ -19,6 +19,9 @@ paths: {planwise_root}/{plans_dir}/**
   - [8.4 A multi-sprint series records a series base once, at the first sprint](#84-a-multi-sprint-series-records-a-series-base-once-at-the-first-sprint)
   - [8.5 A scope rule gets a positive test, not a list of forbidden directories](#85-a-scope-rule-gets-a-positive-test-not-a-list-of-forbidden-directories)
   - [8.6 A Base Is a Statement About One Moment; Commits After It Inside the Gate's Paths Break Every Delta Gate](#86-a-base-is-a-statement-about-one-moment-commits-after-it-inside-the-gates-paths-break-every-delta-gate)
+  - [8.7 A base is a recorded value: recover it by carrying it, never by re-minting it](#87-a-base-is-a-recorded-value-recover-it-by-carrying-it-never-by-re-minting-it)
+  - [8.8 A shared working tree shares one git index, so HEAD is not a stable base](#88-a-shared-working-tree-shares-one-git-index-so-head-is-not-a-stable-base)
+  - [8.9 A `^\+` line is a line added to the diff, not content the change introduced](#89-a--line-is-a-line-added-to-the-diff-not-content-the-change-introduced)
 
 ---
 
@@ -125,7 +128,8 @@ Keep the plain diff for a tracked-only check such as "this file is unchanged". A
   4. On a multi-sprint plan, confirm a `{ABBREV}_SERIES_BASE` is recorded once at the first sprint and **adopted verbatim** by later sprints. A later sprint that re-derives it from its own HEAD → ERROR.
   5. Inspect any scope gate that enumerates forbidden directories rather than asserting the allowed set; the enumerating form permits every directory nobody listed → ERROR.
   6. Inspect each `git diff --name-only` scope, list or count gate for a `git ls-files --others` union over the same paths. A bare `--name-only` gate, with no earlier `git add` of the task's new files, returns empty for a task that creates a file → ERROR.
-- **Enforced by:** `scripts/lint_verification_gates.py` registers Check 21 (`scripts/lint_gate_checks_commands.py`) for steps 2(a), 2(b) and 6, and Check 29 (`scripts/lint_gate_checks_plan.py`) for steps 2(c) and 3. Check 21 exempts a gate when an earlier command in the same file runs `git add`. Step 3's order inside one file, step 4 and step 5 stay review steps.
+  7. Where the change relocates content (a split, a move, a rename), require the per-hit lookup `git show <pinned base>:<pre-move path>` as the evidence for every `^\+` hit, classed as relocated or genuinely new (§8.9). A rewrite of the moved lines to turn the gate green, or a blanket waiver because the change is "just a move" → ERROR.
+- **Enforced by:** `scripts/lint_verification_gates.py` registers Check 21 (`scripts/lint_gate_checks_commands.py`) for steps 2(a), 2(b) and 6, and Check 29 (`scripts/lint_gate_checks_plan.py`) for steps 2(c) and 3. Check 21 exempts a gate when an earlier command in the same file runs `git add`. Step 3's order inside one file, step 4, step 5 and step 7 stay review steps.
 - **Finding template:**
 ```
 [ERROR] Diff-scoped gate not baseline-pinned
@@ -256,6 +260,109 @@ A delta gate reads "the file gains 2 lines". An unrelated commit that already ad
 > ```
 > Grep  pattern='^{line}$'  path='<file>'  output_mode='count'   # expect 1
 > ```
+
+### 8.7 A base is a recorded value: recover it by carrying it, never by re-minting it
+
+A baseline has a recording moment. It is not a command that returns the same answer whenever it runs. The value is pinned once, before the first edit (§8.1), and every later gate carries that value. Recovering a lost base by running `rev-parse` again is the way this section's failure starts.
+
+> [!constraint] Three operands fail a diff gate, and the third fails silently in the passing direction
+> | Operand | Why it fails |
+> |---|---|
+> | `git diff` (no operand) | Reads the whole working tree — pre-existing dirt counts against the session (false FAIL), and added lines the session never wrote get attributed to it (false PASS) |
+> | `git diff HEAD` | `HEAD` moves with every commit the session makes; a mid-session commit erases all of the session's own earlier work from every later gate |
+> | `$BASE` re-derived after the first edit | The base already contains the change under test, so the gate is blind to precisely the thing it was written to check |
+>
+> The third is the worst, because the first two can at least fail loudly on a dirty tree, while this one **fails silently and always in the passing direction**.
+>
+> WRONG — recover an unreachable baseline by re-deriving it:
+> ```bash
+> BASE=$(git -C <repo> rev-parse HEAD)          # ← now includes task 01's edit
+> git -C <repo> diff $BASE -- <paths> | grep '^+' | grep '<pattern>'   # empty. Always.
+> ```
+> CORRECT — carry the recorded value forward, and never re-mint it:
+> ```bash
+> BASE=<recorded SHA>    # injected at dispatch from the recording task's Recovery entry
+> git -C <repo> diff $BASE -- <paths> | grep '^+' | grep '<pattern>'
+> ```
+
+**A gate that cannot fail is worse than a missing gate**, because downstream readers consume it as evidence. Prove that the gate discriminates before trusting an empty result. Run each pattern once against input that genuinely carries the form and once against clean input, and record both readings. An undifferentiated pair invalidates the empty result.
+
+The series corollary is one sentence. A sprint that re-mints `{ABBREV}_SERIES_BASE` after an earlier sprint has committed narrows the whole-series sweep to the remaining delta while every per-sprint gate stays green, so adopt an already-recorded series base verbatim and mint one only when none exists (§8.4).
+
+### 8.8 A shared working tree shares one git index, so HEAD is not a stable base
+
+Two sessions in one checkout share one git index. A `git add` or `git commit` in the other session sees this session's in-flight files exactly as it sees its own. A concurrent commit can sweep this session's uncommitted files into a commit, and every `HEAD`-relative gate then inspects a fraction of the real delta.
+
+> [!constraint] Pin the base once, diff against it everywhere, check the log, and commit by pathspec
+> WRONG — the shape every task-file Verification Command defaults to:
+> ```bash
+> git -C <repo> diff -- <file>  | grep -E '^\+' | grep -E '<pattern>'   # empty — over a third of the change
+> git -C <repo> status --porcelain                                      # "M file" — says nothing about a commit
+> git add -A && git commit -m "Commit"                                  # commits the OTHER session's files too
+> ```
+> CORRECT — pin the base once, diff against it everywhere, check the log, commit by pathspec:
+> ```bash
+> # Preflight (both repos): record the base and put it in Recovery / the spawn prompts
+> git -C <repo> rev-parse HEAD      # → the session base
+> git rev-parse HEAD
+>
+> # Every gate, every task: base-relative and path-scoped to THIS session's declared files
+> git -C <repo> diff <base> -- <declared files> | grep -E '^\+' | grep -E '<pattern>'
+> git -C <repo> diff --stat <base> -- <declared files>   # sanity: growth must match
+>
+> # When a runner reports a dirty tree: the commit is the invisible mutation
+> git -C <repo> log --format='%h %ci %s' -3 --stat
+>
+> # Undeclared files in the base-relative diff: classify, never touch
+> #   in the foreign commit's --stat list or the live foreign M set → out-of-session, not a finding
+> #   in neither list → a genuine finding
+>
+> # Closeout: stage own paths, commit ONLY own paths
+> git add <own paths>
+> git commit --only -m "…" -- <own paths>
+> git push
+> ```
+
+Three corollaries follow:
+
+1. **A flag that names the foreign files expires between dispatches.** Route the flag as a procedure: measure `status --porcelain` live, subtract the declared set, and classify the remainder. Give the current list as an example, never as the contract.
+2. **The runner's "Before" precondition cannot see this.** `git status --porcelain <file>` returning `M` reads as "my edit is present" whether `HEAD` moved or not. Only the orchestrator, which compares `diff --stat` growth against `wc -l` growth, holds both numbers.
+3. **Push state matters for a repo others install from.** `git status -sb` with no `[ahead]` after a foreign commit means the published branch already carries the snapshot. The session's own push repairs it, so a session that closes COMPLETE without pushing leaves the half-edit live.
+
+**The arithmetic tell.** A `diff --stat` that reports fewer insertions than the file's measured line growth is impossible unless `HEAD` moved. One measured instance read 80 insertions and 116 deletions for a file that grew from 184 to 436 lines. Re-based on the true session base, the delta was 267 insertions and 15 deletions.
+
+The close-time form of the same hazard is "A peer commit moves HEAD under the close gates" in §8.6.
+
+### 8.9 A `^\+` line is a line added to the diff, not content the change introduced
+
+A gate that filters `^\+` reads the set of lines the diff reports. That set equals the lines the change introduced only when no content arrived by another route. A file split breaks the equality: every relocated line is an added line. Three `^\+` gates once fired on 269 lines that had shipped weeks earlier. Both obvious responses were wrong, in opposite directions.
+
+> [!constraint] Test each hit against the pre-change revision and report the split
+> WRONG — two shapes, and each hides a genuine violation. The first makes the gate green by changing the content it fired on. The second waives the whole result because the change is "just a move":
+> ```
+> gate fires on N lines inside the moved block
+> → rewrite those lines
+> # The move is no longer byte-identical. The hash proof is now false, and a
+> # content change has been laundered through a commit described as a relocation.
+>
+> gate fires → "these are all from the split" → proceed
+> # Never checked. A genuine new violation in the same diff is now invisible,
+> # and so is a pre-existing one the move would have been the moment to catch.
+> ```
+> CORRECT — test each hit against the pre-change revision, and report the split:
+> ```
+> for each hit: git show <pinned-baseline>:<pre-move-path> | look for the exact line
+>   present  → relocated, not introduced. Out of scope; record it as such.
+>   absent   → genuinely new. Fix it before the change lands.
+> ```
+
+Three practices follow:
+
+1. **Pin the baseline revision before the move,** in the same session. After the move the old path may not exist and `HEAD` may have advanced. The lookup needs a revision you recorded, never one you infer afterward.
+2. **Report the classification, not just the pass.** "N hits, all proven pre-existing at `<sha>`" is evidence. "Gate clean" would be false, and "gate waived, it's a split" is not a result.
+3. **A relocation is a legitimate moment to notice a pre-existing defect and an illegitimate moment to fix it.** File the defect. Never fold the fix into a move whose correctness rests on the content being unchanged.
+
+The mirror-image hazard comes from the same place. A `^\+` gate cannot see an untracked file at all, so a split's new file needs `git add -N` before any diff gate runs. Without it the gate inspects zero bytes of the new file and returns a vacuous pass. [measurement-discipline.md](measurement-discipline.md) §8.7 governs that registration.
 
 ---
 

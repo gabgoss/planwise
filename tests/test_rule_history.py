@@ -144,6 +144,44 @@ class TestOlderShippedBodyIsAdopted(_HistoryFixture):
         self.assertNotEqual(verdict.source, "shipped-history")
 
 
+class TestDispositionReasonNamesTheVerdictSource(_HistoryFixture):
+    """The DISPOSITIONS.md row says why the shipped body was adopted. A history
+    match reads "matched an earlier shipped body". A structural subset keeps the
+    stale-subset text, so the history test below discriminates the source."""
+
+    def disposition_log(self) -> str:
+        log_path = (self.project_root / self.cfg.planwise_root / "upgrade-backups"
+                    / "1.0.0-to-1.1.0" / "DISPOSITIONS.md")
+        return log_path.read_text(encoding="utf-8")
+
+    def test_history_adoption_row_names_the_earlier_shipped_body(self):
+        self.enable_relocate()
+        self.write_shipped_rule(CURRENT_BODY)
+        self.write_installed_rule(OLD_BODY, CUSTOM_PATHS)
+        self.write_manifest(self.digest_of(OLD_BODY))
+
+        self.run_upgrade()
+
+        log = self.disposition_log()
+        self.assertIn("auto-adopted shipped", log)
+        self.assertIn("matched an earlier shipped body", log)
+        self.assertNotIn("stale subset", log)
+
+    def test_structural_subset_adoption_row_keeps_the_stale_subset_text(self):
+        """Direction control: no manifest entry, and a body that is a clean
+        structural subset of the shipped body, so the source is not history."""
+        self.enable_relocate()
+        self.write_shipped_rule(CURRENT_BODY)
+        installed = self.write_installed_rule("# Fixture Rule\n\n" + _NAMING, CUSTOM_PATHS)
+
+        _refreshed, _unchanged, _conflicts, _untracked, refreshed_subsets, _moved = self.run_upgrade()
+
+        self.assertIn(str(installed), refreshed_subsets, "the control must be a structural subset")
+        log = self.disposition_log()
+        self.assertIn("stale subset", log)
+        self.assertNotIn("matched an earlier shipped body", log)
+
+
 class TestClassifierFastPath(_HistoryFixture):
     def classify(self, body: str, paths_value: str = CUSTOM_PATHS, **kwargs):
         return rule_divergence._classify_diverged(

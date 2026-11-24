@@ -1,6 +1,6 @@
 ---
-description: A finding is scoped to the sample it was taken from, the project it was measured in, and the corpus that was searched — and the sentence that states it has to carry that boundary. Covers why one dispatch is an anecdote and how to sample without cherry-picking, why a hypothesis about a consuming project cannot be settled in the tool's own repository, why "the record does not capture X" is true only of the shelf that was swept, and the three sentence forms that keep the boundary attached. Consult when measuring model or harness behaviour, testing a hypothesis whose magnitude lives outside the tool, or accepting an evidence-gap statement. Also covers why a column that reads the same value before the first boundary measures the floor every session pays, and must be baselined before arms are compared on it. Also covers why a harness behaviour measured on one surface is a claim about that surface only. Also covers why a baseline figure carries the fixture it was measured on, so a prediction computed from it stays a prediction.
-consult-when: Measuring model or harness behaviour, testing a hypothesis whose magnitude lives in a consuming project, or accepting "the record does not capture X" — declare n per cell, classify the hypothesis, enumerate the record-keeping layers, write the boundary into the sentence, and baseline a column that reads the same before the first boundary because it measures the floor every session pays, and scope a negative to the invocation that produced it and read an under-run cost as a broken chain (§6), and scope a harness behaviour to the surface that measured it before shipping guidance (§7), and read the fixture behind a recorded figure before computing a prediction from it (§8)
+description: A finding is scoped to the sample it was taken from, the project it was measured in, and the corpus that was searched — and the sentence that states it has to carry that boundary. Covers why one dispatch is an anecdote and how to sample without cherry-picking, why a hypothesis about a consuming project cannot be settled in the tool's own repository, why "the record does not capture X" is true only of the shelf that was swept, and the three sentence forms that keep the boundary attached. Consult when measuring model or harness behaviour, testing a hypothesis whose magnitude lives outside the tool, or accepting an evidence-gap statement. Also covers why a column that reads the same value before the first boundary measures the floor every session pays, and must be baselined before arms are compared on it. Also covers why a harness behaviour measured on one surface is a claim about that surface only. Also covers why a baseline figure carries the fixture it was measured on, so a prediction computed from it stays a prediction. Also covers why a count is a reading until it names the invocation that produced it, the match key and the date the tree was read, so a bare stem, a sibling's name or a moved tree cannot set its corpus.
+consult-when: Measuring model or harness behaviour, testing a hypothesis whose magnitude lives in a consuming project, or accepting "the record does not capture X" — declare n per cell, classify the hypothesis, enumerate the record-keeping layers, write the boundary into the sentence, and baseline a column that reads the same before the first boundary because it measures the floor every session pays, and scope a negative to the invocation that produced it and read an under-run cost as a broken chain (§6), and scope a harness behaviour to the surface that measured it before shipping guidance (§7), and read the fixture behind a recorded figure before computing a prediction from it (§8), and state the invocation, the match key and the read date beside every count before citing it (§9)
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Measurement Scope and Sample — Write the Boundary Into the Sentence
@@ -25,6 +25,7 @@ A task that builds or operates the measurement harness itself reads [`harness-in
 - [6. A Negative Is Scoped to the Invocation That Produced It](#6-a-negative-is-scoped-to-the-invocation-that-produced-it)
 - [7. A Harness Behaviour Measured on One Surface Is a Claim About That Surface Only](#7-a-harness-behaviour-measured-on-one-surface-is-a-claim-about-that-surface-only)
 - [8. A Baseline Figure Carries the Fixture It Was Measured On](#8-a-baseline-figure-carries-the-fixture-it-was-measured-on)
+- [9. A Count Names Its Invocation, Its Match Key and the Tree It Read](#9-a-count-names-its-invocation-its-match-key-and-the-tree-it-read)
 
 ---
 
@@ -261,6 +262,130 @@ Three rules follow.
 3. **Treat a runner's surprising number as a test of the author's premise.** It is evidence about the brief, not only about the runner.
 
 **Applies to** any finding, brief or flag that computes an expected value from a recorded figure. It applies most where the arithmetic predicts a gate failure, because the prediction then authorizes a change to the gate.
+
+---
+
+## 9. A Count Names Its Invocation, Its Match Key and the Tree It Read
+
+Three counts were each accurate about what they measured and each was cited for a claim about something else. The first took its corpus from the invocation. The second took it from the names of sibling files. The third took it from a tree that had changed since the count was made.
+
+A bare number is not a measurement. What it counted depends on the invocation, on what else shares the name, and on when the tree was read. Any of the three can move without a commit.
+
+### 9.1 A Search on a Bare Filename Stem Finds Siblings, Not Only Citations
+
+Artifacts in this corpus are named after the concepts they govern. Sibling artifacts therefore extend a reference's stem: `foo.md` beside `foo-reviewer.md`, or `foo.md` beside `foo-Part-2-Whatever.md`. Every sibling is a false positive in a citation census. **Each one inflates the count in the direction that makes the census look thorough.**
+
+A backlog item recorded "60 occurrences across 20 files, of which 47 carry a section anchor". It built a per-destination map on that figure. A re-run at execution gave 59 for `scaffolding-hygiene\.md` and 62 for the bare stem `scaffolding-hygiene`. The recorded 60 matched neither.
+
+Three of the hits were an agent's name, `scaffolding-hygiene-reviewer`, which only begins with the reference's stem. Two real citations had arrived after the item was written. The recorded figure was `62 − 2`, so two errors of opposite sign cancelled and the total looked plausible.
+
+> [!constraint] Re-measure both ways, reconcile the difference, then classify
+> WRONG — take the recorded count as the inventory and work the map:
+> ```
+> item says: 60 occurrences, 20 files, review.md carries 4
+> → open review.md expecting 4 citation sites
+> → 3 of them are an agent's name; 2 real citations elsewhere are missing from the map
+> ```
+> CORRECT — re-measure both ways, reconcile the delta, then classify:
+> ```
+> Grep 'foo\.md'   → N_anchored     ← the citation corpus
+> Grep 'foo'       → N_bare         ← superset
+> N_bare - N_anchored = the name-sharing siblings — inspect each, do not assume noise
+> reconcile N_anchored against the item's recorded figure; explain every unit of drift
+> ```
+
+Two rules follow, and the second matters more.
+
+1. **Anchor the extension when you want citations.** `foo\.md` excludes `foo-reviewer` and `foo-Part-2-…` by construction. Run the bare stem too. Treat the difference between the two counts as a work list, because that difference is exactly the set of name-sharing siblings and some may need attention.
+2. **A census is a claim with a date, and it decays from both ends.** Hits vanish when prose is reworded. Hits appear when a sibling lands. Re-run the census at execution time and reconcile the delta against the recorded figure. Do not accept the new number. Reconciling 60 against 62 exposed the three phantom hits. Accepting 59 would have left the map's rows unexplained.
+
+The count was not the damage. **The destination map built on top of it was.** Three mapped citations did not exist and two real ones were absent. An executor working the map as an inventory would have hunted for three phantom sites and shipped two stale pointers.
+
+Verify the destinations mechanically, not by eye. For each citation, extract the section anchor that follows it and check the anchor against the part file that holds that section.
+
+### 9.2 State the Invocation Beside Every Reported Count, and Never Inherit One
+
+A runner reported its green gate as 564 passed. The orchestrator re-measured against the same commit, the same working tree and the same second, and got 723 passed. Neither reading was a lie.
+
+The mechanism has three parts, and each is true on its own:
+
+- `rootdir` sets where relative config values resolve, and it sets the root for node ids.
+- The path arguments set collection scope. With no path argument, pytest collects from the invocation directory.
+- `testpaths` is honoured only when the invocation directory is `rootdir`. In any other directory it sits inert.
+
+The invocation passed `--rootdir` and no path argument. It also ran from a directory that was not the root, so `testpaths = tests` never resolved. Collection fell back to scanning from the project root. The three rows of the table below show what that scan swept in.
+
+| Source | Tests | What it is |
+|---|---:|---|
+| `tests/` | 564 | the genuine suite |
+| `evals/` | 116 | a separate eval corpus, unrelated to the suite under test |
+| another session's in-flight files | 43 | **untracked helper scripts, written minutes earlier** |
+
+The third row is the reason for this section. The gate's denominator was set, in real time, by work unrelated to the change under test. No commit separated one reading from the next.
+
+An inflated count is the dangerous one, because it reads as better. A count of 723 looks like broader coverage than 564, and a reviewer comparing the two would reasonably prefer the larger. The number went up, nothing failed and the gate is green, so every instinct points the wrong way. The count also drifts silently. The same invocation returns a different denominator depending on what an unrelated session has on disk, and a re-run an hour later changes it again.
+
+The collection census separates the sources. It counts collected test ids by top-level folder:
+
+```bash
+python -m pytest -q --collect-only <...> | grep -oE '^[a-zA-Z_./-]+\.py' \
+  | sed 's|/.*||' | sort | uniq -c
+#   116 evals
+#    43 planwise      ← should never appear
+#   564 tests
+```
+
+Four rules follow.
+
+- **State the invocation beside every reported count.** A bare number is not a measurement.
+- **Treat a count above the expected one as a failure, not a bonus.** Investigate any increase that no commit explains.
+- **Never inherit a green-gate count across a hand-off.** An upstream signoff had pinned 680, which was 564 plus the 116 evals, captured before the concurrent session existed. Anyone re-running it later gets 723, "fails" against 680, and hunts a regression that never happened. Re-measure and re-state the invocation each time. An inherited count is a claim about a tree that has since moved.
+- **A runner's number can be right when yours is wrong.** Here the runner reported 564 and was correct. The orchestrator's independent re-measurement was the contaminated one. Independent verification is still good practice, but the resolution is to reconcile the two readings. Do not assume the larger, the later, or the orchestrator's.
+
+The durable gate is the one that asserts scope: zero collected node ids outside the intended tree. A pass count alone is satisfied by a run that collected the wrong tests.
+
+### 9.3 Re-Run Every Signoff Anchor at Closeout, and Investigate a Failure Before Judging the Anchor
+
+An earlier verification ran against a tree that no longer exists. A signoff anchor earns its place because it asks a different question, from a different vantage point, after all the work has landed. Re-running it is not ceremony.
+
+A signoff anchor expected three files to contain `feedback_dir` and returned 2. The tempting reading was that the anchor was too narrow. The criterion said the handler must "specify creating the directory", and by the letter the handler did.
+
+Opening the file showed the real defect. A hardcoded literal sat beside three placeholder siblings, so `init --feedback-dir Drafts` creates `Drafts/` while the banner claims `Feedback/`. The defect shipped to the user.
+
+```
+  ✓ {planwise_root}/{plans_dir}/
+  ✓ {planwise_root}/{backlog_dir}/
+  ✓ {planwise_root}/{lessons_dir}/
+  ✓ {planwise_root}/Feedback/          ← hardcoded literal, siblings are placeholders
+```
+
+The owning runner's reasoning had been sound when written. A later edit by another task falsified it. Three causes can fail an anchor, and each calls for a different response:
+
+| Cause | Response |
+|---|---|
+| The anchor asks the wrong question (a real instrument defect) | Fix the anchor, record why, and verify the substance by other means |
+| The anchor is right and the artifact is wrong | Fix the artifact — this is the anchor earning its keep |
+| The anchor is right and the artifact is right, but a *sibling task's* later edit invalidated an earlier correct decision | Fix the artifact; record that the original reasoning expired rather than being wrong |
+
+The third row is invisible to any per-task gate by construction. No task checks whether another task's later edit falsified its premises. Only a whole-session check run after everything lands can see it. [`verify-anchor-against-artifact.md`](verify-anchor-against-artifact.md) §1 covers the sibling rule that an anchor is measured against the artifact and never derived from the criterion it verifies.
+
+Four rules follow.
+
+1. Re-run every anchor at signoff, from the closing session, against the final tree.
+2. On a failure, open the file before judging the anchor. A "too narrow" anchor and a genuine defect look identical from the exit code alone.
+3. When the fix lies inside an existing write-set, re-dispatch the owning task with one corrective instruction. Do not edit its output from the orchestrator, because the ownership window still applies at closeout.
+4. Record the failure and its resolution in the signoff itself, not only the final pass. A signoff that shows "anchor 3 failed first, and here is what it caught" is stronger evidence of a real gate than five uneventful passes.
+
+Do not skip an anchor because the criterion "was already verified".
+
+### 9.4 Three Questions to Ask of Any Count Before Citing It
+
+> [!practice] Ask three questions of a count before it leaves your hands
+> 1. **What invocation produced this, and would a different one produce a different corpus?** (§9.2)
+> 2. **What else shares the name I matched on?** (§9.1)
+> 3. **When was the tree this counted read, and has a sibling written to it since?** (§9.3)
+>
+> A count that cannot answer all three is a reading, not evidence.
 
 ---
 

@@ -500,7 +500,7 @@ This procedure covers the writer's side. For reading a file that is already over
 - Write a size target in a brief, task file or plan in bytes. Or name the `measure_files.py` `--model` and the plugin version that produced each token figure.
 - A bare token figure carries the ratio that was current when it was written. The ratio changes between plugin versions, so a stale figure can sit above the ceiling while the gate reports OK. Read the ratio from the installed tool, never from prose.
 - Re-measure one landed artifact with the installed tool before the next dispatch. If the ratio differs from the one a target used, restate every token-denominated target.
-- Add a split index up front when a Part's estimate sits within 20% of the ceiling under the installed tool.
+- Add a split index up front when a Part's estimate sits within 20% of the ceiling under the installed tool. The index file keeps the declared name. It carries one line, `**Split index:** {sub-part file} ({sections it holds}); {sub-part file} ({sections it holds})`, that names each sub-part and the section titles or `§` range it holds. A writer who splits a file after its readers were scaffolded leaves this line. `/planwise run` checks it at READ, at pre-task setup and at closeout.
 
 > [!constraint] State the Target in Bytes, With the Tool Reading Beside It
 > WRONG — a bare token figure:

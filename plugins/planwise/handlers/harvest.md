@@ -28,7 +28,7 @@ Harvest is an unattended feedback context in any session, as `references/feedbac
 
 ## Config Gate (Auto-Init Fallback)
 
-1. Resolve config.yaml: a) `planwise/config.yaml`; b) `*/config.yaml` one level down from project root.
+1. Resolve config.yaml: a) `planwise/config.yaml`; b) `*/config.yaml` one level down from project root. Resolution is exactly these two locations, checked from the invocation directory, and is never inferred from a path string. A `config.yaml` anywhere else belongs to another project and is never read.
 2. If found → continue. Extract `plugin_root` and `project.planwise_root`. The lesson, categorisation, and backlog index locations each resolve via their own established config keys — the same keys the triage and lessons handlers already use — so no new keys are introduced here.
 3. If NOT found: announce, resolve `{plugin_root}` from handler location, invoke `init_project.py` with `--auto-from "harvest"`, RE-RESOLVE, fail loud if still missing.
 

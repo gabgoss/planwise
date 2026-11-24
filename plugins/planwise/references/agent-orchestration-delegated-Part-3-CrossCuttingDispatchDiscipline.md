@@ -1,11 +1,11 @@
 ---
-description: DELEGATED dispatch discipline, Part 3 of 4. This file holds §1.23–§1.28, the cross-cutting dispatch-prompt and orchestrator discipline, including pinning foreground execution and a long timeout for a long suite (§1.27.1), polling a background command's independent progress signal and halting after two stalled polls, or polling in the foreground for a run-end completion artifact (§1.27.2), and the status-block return contract (§1.28). Part 1 of 4 is agent-orchestration-delegated.md.
-consult-when: Writing any DELEGATED spawn prompt or checking the orchestrator's own conduct — triple-scoping a single-task dispatch, giving a structure contract a literal template, adjudicating a runner-surfaced decision, keeping verification read-only inside a runner's ownership window, pinning the interpreter, foreground execution and a long timeout for a long suite, and the status-block return contract
+description: DELEGATED dispatch discipline, Part 3 of 4. This file holds §1.23–§1.28, the cross-cutting dispatch-prompt and orchestrator discipline, including sizing a single-task brief for the turn cap at scaffold (§1.23.1), pinning foreground execution and a long timeout for a long suite (§1.27.1), polling a background command's independent progress signal and halting after two stalled polls, or polling in the foreground for a run-end completion artifact (§1.27.2), and the status-block return contract (§1.28). Part 1 of 4 is agent-orchestration-delegated.md.
+consult-when: Writing any DELEGATED spawn prompt or checking the orchestrator's own conduct — triple-scoping a single-task dispatch, sizing a single-task brief for the turn cap (§1.23.1), giving a structure contract a literal template, adjudicating a runner-surfaced decision, keeping verification read-only inside a runner's ownership window, pinning the interpreter, foreground execution and a long timeout for a long suite, and the status-block return contract
 ---
 
 # DELEGATED Dispatch Discipline — Part 3: Cross-Cutting Dispatch Discipline
 
-**Purpose:** Part 3 of the DELEGATED dispatch discipline. It covers the constraints that bind every spawn prompt and the orchestrator's own conduct, whatever the task: triple-scoping a single-task dispatch, giving a structure contract a literal template, adjudicating a decision a runner surfaces, keeping verification read-only inside a runner's ownership window, naming the interpreter and pinning foreground execution for a long suite (§1.27.1), and the status-block return contract.
+**Purpose:** Part 3 of the DELEGATED dispatch discipline. It covers the constraints that bind every spawn prompt and the orchestrator's own conduct, whatever the task: triple-scoping a single-task dispatch, sizing a single-task brief for the turn cap (§1.23.1), giving a structure contract a literal template, adjudicating a decision a runner surfaces, keeping verification read-only inside a runner's ownership window, naming the interpreter and pinning foreground execution for a long suite (§1.27.1), and the status-block return contract.
 
 Section numbers are continuous across all four parts. A section keeps its `§1.N` identifier wherever it lands, so an existing `§`-anchor still names exactly one section — only the filename that holds it changes.
 
@@ -62,6 +62,72 @@ Never open with a session-scoped identity (*"You are a task-runner in session {s
 > ```
 
 This is the over-run counterpart to §1.7's idle-mid-step wake-up. Both break the one-task-per-dispatch contract — one by doing too little, one by doing too much — and §1.17's diagnosis table covers only the first.
+
+### 1.23.1 Size a single-task brief for the turn cap at scaffold: price proof runs, count write deliverables, budget per-item gates
+
+The harness caps a delegated runner by turns, and every Read, Grep, Edit, script and test run is a turn. An estimate that prices reads, output and a working allowance can sit well inside the token window and still run out of turns. Three counts, made when the task is scaffolded, catch the three omissions that caused cap hits.
+
+#### Count 1. Price each proof run in the task estimate
+
+- Count each command the brief makes the runner execute once. Count each before/after test pair as two runs. Count each suite run, each battery and each per-file size projection.
+- Price each run at about 3-5K tokens with its output. Write the total as one addend on the Context subtotal: `+ ~{P}K (proof runs: {n} {kind} x ~{price}K, ...)`.
+- Above about 10 runs, split the proofs into their own task. Or name a write-by turn in the spawn prompt, per §1.17.5.
+- §1.17.5 counts per-unit mutation proofs: mutate, run, restore, verify. This count covers single runs. Both apply to one brief.
+- §1.12 gives the tool-call formula. Do not restate it in the brief.
+
+One session had two tasks that both used far more than their estimates. A handler-wiring task estimated at ~112K self-reported 294,384 tokens (2.6x). It stopped at the 50-turn limit after 87 tool uses. A sprint-close battery estimated at ~65K self-reported 175,819 tokens (2.7x) over 70 tool uses. The first brief required 4 cited commands run once on a scratch copy, a per-file size projection, a six-file pytest set before and after the edits, an affected-suite run and the identifier battery. The estimate priced none of them. The runner used its 50 turns after writing every deliverable, so the orchestrator accepted the task from disk with no status block.
+
+WRONG -- the estimate prices reads and authoring only:
+```
+~76K reads + ~14K output + ~22K working = ~112K     # 4 smokes, 2 test pairs, a suite, a battery unpriced
+```
+CORRECT -- the estimate counts the proof runs, in the template-compatible addend form:
+```
+**Context subtotal:** ~76K (reads) + ~14K (output) + ~22K (working) + ~42K (proof runs: 4 command smokes x ~4K, 3 test runs x ~4K, battery ~8K, projections ~6K) = **~154K total**
+```
+
+#### Count 2. Count the write deliverables on the Output line at scaffold
+
+- A turn budget in the spawn prompt orders the work and does not shrink it. The token estimate does not catch an oversized brief, because the cap counts turns.
+- A brief with more than about four write deliverables plus a suite gate does not fit a 50-turn cap, however the work is ordered.
+- Split it at scaffold along the deliverable seams. Make a census or sweep table its own task, which also gives a later delete a reviewed input. Make a module and its tests a second task. Make the switch, the deletions and the suite gate a third.
+- On a cap hit, measure the landed state per §1.17.6. Record the deliverable count beside the measured tool-use count, so the next scaffold can calibrate.
+
+One Opus brief estimated at ~85K asked for six deliverables. They were a 102-row blast-radius table from two sweeps, a new 500-line module with four subcommands, a writer switch and deletions in a 1,300-line script, a new test file with five test groups, dispositions applied to three existing test files, and a full-suite gate. The spawn prompt carried a turn budget: evidence by turn 12, the table by turn 15, then each file in one Write call. The runner stopped at the 50-turn limit after 105 tool uses and 258K tokens, with no status block. Every deliverable was on disk. Only ruff, the suite and the report were missing. An earlier task in the same sprint had stopped the same way the day before, at 83 tool uses.
+
+WRONG -- one brief, six deliverables, a turn budget to make it fit:
+```
+Task 1 (~85K): sweep table + module + switch/delete + new tests + 3 test-file dispositions + full suite
+runner: 105 tool uses -> 50-turn cap -> no report -> resume
+```
+CORRECT -- split at the scaffold by deliverable count:
+```
+Task 1a: blast-radius table (Sonnet)        -> reviewed input
+Task 1b: module + its tests (Opus)
+Task 1c: switch + deletions + dispositions + full suite (Opus), reads 1a's table
+```
+
+#### Count 3. A per-item native-tool gate over a list another task writes carries a call budget and a batch form
+
+- Write the budget and the batch form beside the gate: up to 20 items, one native call each. Above 20 items, use one reader over the file, plus the native tool on a named sample.
+- Read the upstream list size before dispatch. It costs one count.
+- Keep an independent sample in the native tool, so the batch reader is not the only instrument.
+- An author-pinned batch form is the pinned gate. A runner that swaps a per-item gate for its own reader on its own initiative reports the swap. Three runners making the same swap is a signal about the brief, not three separate shortcuts.
+
+A sweep step told the runner to count every conservation term with the native `Grep`, one call per term. The term lists did not exist at scaffold, because each compress task derived its own list from its file. They came back at 130, 52 and 76 terms, which is 258 calls against a turn cap of about 50. All three compress runners had already dropped the per-term `Grep` for one Python reader to fit their own budgets, and said so in their Outputs. The orchestrator caught the gap before dispatch and routed a spec delta. One reader does the bulk count, and the sweep's own three derived terms per file keep the native `Grep`.
+
+WRONG -- pin the per-item tool and leave the size open:
+```
+count every listed term with the native Grep (output_mode='count')
+# the list is written two tasks later; 258 terms -> 258 calls -> over the turn cap
+```
+CORRECT -- state the budget and the batch form beside the gate:
+```
+up to 20 terms: one native Grep each
+above 20: one reader over the file, and native Grep on a named sample
+```
+
+The figures here (about 4K tokens per run, four deliverables, 20 items) are observations from one harness, not fitted limits.
 
 ## 1.24 Structure Contracts Need a Literal Template, Not Prose
 

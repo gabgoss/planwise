@@ -23,9 +23,10 @@ const { onSessionStart, checkNow, pressUpdateNow, cardLines, buttonsOf, CACHE_KE
 const NOW = 1_700_000_000_000
 const ROOT = 'C:\\work\\proj'
 const SLASHED = 'C:/work/proj'
+const MAIN = 'C:/work/main'
 const COMMANDS = [{ name: 'planwise:planwise', source: 'skill', plugin: 'planwise' }]
 
-type Check = { verdict: string; running?: string | null; installed?: string | null; latest?: string | null; pin?: string | null; repo?: string | null }
+type Check = { verdict: string; running?: string | null; installed?: string | null; latest?: string | null; pin?: string | null; repo?: string | null; main_root?: string | null }
 type Resp = { status: number; ok: boolean; text: string; headers: Record<string, string> }
 
 const okList: Resp = {
@@ -43,6 +44,7 @@ const world = (
     fetch?: () => Promise<Resp>
     runCommand?: () => Promise<unknown>
     update?: { exitCode: number; stdout: string }
+    exists?: (path: string) => boolean
   } = {},
 ) => {
   const store = new Map<string, unknown>(Object.entries(opts.store ?? {}))
@@ -61,6 +63,7 @@ const world = (
     now: async () => NOW,
     pluginRoot: () => 'C:/plugins/planwise',
     projectRoot: async () => ROOT,
+    exists: async (p: string) => (opts.exists ?? ((q: string) => q === SLASHED || q === MAIN))(p),
     run: async (argv: readonly string[]) => {
       runs.push(argv)
       if (argv.includes('update')) return { exitCode: opts.update?.exitCode ?? 0, stdout: opts.update?.stdout ?? '', stderr: '' }
@@ -283,6 +286,38 @@ test('15b exit 3 without a readable NEEDS_CONFIRM result is a failed update and 
   await pressUpdateNow(w.host as never)
   assert.equal(w.offers.length, 0)
   assert.ok(w.logs.some((l) => l.to === 'transcript' && l.text.includes('plugin update failed (exit 3)')))
+})
+
+test('16 a pending entry whose root no longer exists is pruned on the next check', async () => {
+  const marker = { target: '1.0.8', writtenAt: 5 }
+  // PROJECT_BEHIND keeps this project's own entry (case 9), so the store shows only the prune.
+  const w = world({ store: { [PENDING_KEY]: { [SLASHED]: marker, 'C:/gone/wt': marker } }, check: () => ({ verdict: 'PROJECT_BEHIND', repo: null, pin: '1.0.5' }) })
+  await checkNow(w.host as never, { update_check: 'on' })
+  assert.deepEqual(w.store.get(PENDING_KEY), { [SLASHED]: marker })
+  assert.equal(w.storeSets.filter((s) => s.key === PENDING_KEY).length, 1)
+})
+
+test('17 a worktree session finds the marker stored under its main root and runs the upgrade', async () => {
+  const marker = { target: '1.0.8', writtenAt: 5 }
+  const w = world({
+    store: { [PENDING_KEY]: { [MAIN]: marker } },
+    check: () => ({ verdict: 'PROJECT_BEHIND', repo: null, pin: '1.0.5', main_root: MAIN }),
+  })
+  await checkNow(w.host as never, { update_check: 'on' })
+  assert.deepEqual(w.commands, [{ command: 'planwise:planwise', args: 'upgrade' }])
+  assert.equal(lastOffer(w), null)
+})
+
+test('18 a press from a worktree writes the marker under main_root', async () => {
+  const w = world({
+    update: { exitCode: 0, stdout: JSON.stringify({ result: 'UPDATED', main_root: MAIN }) + '\n' },
+    check: () => ({ verdict: 'CURRENT', repo: null }),
+  })
+  w.setOffer({ verdict: 'PLUGIN_BEHIND', running: '1.0.7', installed: '1.0.7', latest: '1.0.9', pin: null, confirmCommand: null, declaredCommand: null })
+  await pressUpdateNow(w.host as never)
+  const written = w.store.get(PENDING_KEY) as Record<string, { target: string }>
+  assert.equal(written[MAIN]?.target, '1.0.9')
+  assert.equal(written[SLASHED], undefined)
 })
 
 test('14 an unset update_check behaves as on: a stale cache fetches', async () => {

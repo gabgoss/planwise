@@ -95,6 +95,8 @@ The step cap is `ROUTE_B_MAX_STEPS` in `scripts/score_backlog.py`, which is 5. T
 
 A `QUESTIONS` return carries every open choice at once. Each question names at least two options and one recommendation with a one-sentence reason. Recommend the coherent option per §2 step 4. Ask only what the fact sheet and the repository cannot answer. A fact this agent can measure is never a question.
 
+A removal rests on an absence claim when it deletes a code path, an option or a file because the sheet says the feature it serves is absent. Never make such a removal the recommended option or the chosen approach unless the sheet line records every spelling searched and a positive control, per `agents/backlog-preflight.md` section 2.6. When the sheet line lacks either, run the missing searches yourself and record them in `APPROACH`. When the source cannot be searched from here, such as a CLI only the user can run, the removal stays a non-recommended option, and the question names the unproven absence.
+
 Landing a lesson is not a resolution step. When the item came from a lesson promotion, `/planwise harvest` stage 4 and `/planwise lessons curate` own the landing. Do not write a success criterion that defers to a "harvest closeout", because no such step exists.
 
 ## 4. WRITE

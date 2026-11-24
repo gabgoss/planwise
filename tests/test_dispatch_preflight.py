@@ -1,4 +1,4 @@
-"""Tests for scripts/dispatch_preflight.py: the four preflight set checks."""
+"""Tests for scripts/dispatch_preflight.py: the five preflight set checks."""
 
 import sys
 from pathlib import Path
@@ -239,3 +239,120 @@ def test_decomposition_repaired_is_empty_both_ways(tmp_path, capsys):
     assert dp.main(_decomp_args(tmp_path, out_text)) == 0
     out = capsys.readouterr().out
     assert "decomposition rows: 2" in out and "output sections: 2" in out
+
+
+# --- upstream ---------------------------------------------------------------
+
+# One Required Context row of a real sprint sweep task, with its plan abbreviation replaced.
+UPSTREAM_ROW = (
+    "| 1 | the four session sweep Outputs (`Outputs/ABC-S04-01-10-CodeRowLedgerAndSessionSweep.md`, "
+    "`Outputs/ABC-S04-02-09-DecisionRecordAndSweep.md`, `Outputs/ABC-S04-03-05-SessionSweep.md`, "
+    "`Outputs/ABC-S04-04-05-SessionSweep.md`, each in its session folder) "
+    "— their gate sections; the decision record is the second Output's first half "
+    "| 20.4 (ceiling: the Outputs do not exist at authoring) | ~8.0K | the session readings |"
+)
+LIVE_FOUR = (
+    "s1/Outputs/ABC-S04-01-10-CodeRowLedgerAndSessionSweep.md",
+    "s2/Outputs/ABC-S04-02-09-DecisionRecord.md",
+    "s3/Outputs/ABC-S04-03-05-SessionSweep.md",
+    "s4/Outputs/ABC-S04-04-05-SessionSweep.md",
+)
+
+
+def _upstream_args(tmp_path, live_files, row=UPSTREAM_ROW, after=""):
+    """Build a plan folder holding ``live_files`` and one task file; return the CLI argument list."""
+    root = tmp_path / "plan"
+    for rel in live_files:
+        _w(root / rel, "# produced\n")
+    task = _w(
+        root / "s5" / "ABC-S04-05-06-Sonnet-Sweep.md",
+        "# Task\n\n## Required Context\n\n| Priority | File | KiB | ~Tokens | Purpose |\n"
+        f"|---|---|--:|--:|---|\n{row}\n\n## Objective\n\n{after}\n",
+    )
+    return ["upstream", "--candidate", str(task), "--plan-root", str(root)]
+
+
+def test_upstream_drift_names_the_live_file(tmp_path, capsys):
+    assert dp.main(_upstream_args(tmp_path, LIVE_FOUR)) == 1
+    out = capsys.readouterr().out
+    assert out.splitlines()[0] == "required-context output paths: 4"
+    assert out.count("resolved: ") == 3
+    assert (
+        "drift: Outputs/ABC-S04-02-09-DecisionRecordAndSweep.md -> s2/Outputs/ABC-S04-02-09-DecisionRecord.md" in out
+    )
+
+
+def test_upstream_live_name_is_resolved(tmp_path, capsys):
+    row = UPSTREAM_ROW.replace("DecisionRecordAndSweep", "DecisionRecord")
+    assert dp.main(_upstream_args(tmp_path, LIVE_FOUR, row=row)) == 0
+    out = capsys.readouterr().out
+    assert "required-context output paths: 4" in out and out.count("resolved: ") == 4
+    assert "drift" not in out and "missing" not in out
+
+
+def test_upstream_absent_producer_is_missing(tmp_path, capsys):
+    live = [p for p in LIVE_FOUR if "02-09" not in p]
+    assert dp.main(_upstream_args(tmp_path, live)) == 1
+    out = capsys.readouterr().out
+    assert "missing: Outputs/ABC-S04-02-09-DecisionRecordAndSweep.md" in out
+    assert "drift" not in out
+
+
+def test_upstream_two_hits_are_ambiguous_and_never_picked(tmp_path, capsys):
+    live = [*LIVE_FOUR, "s6/Outputs/ABC-S04-02-09-DecisionRecordDraft.md"]
+    assert dp.main(_upstream_args(tmp_path, live)) == 1
+    out = capsys.readouterr().out
+    line = next(ln for ln in out.splitlines() if ln.startswith("ambiguous: "))
+    assert "s2/Outputs/ABC-S04-02-09-DecisionRecord.md" in line
+    assert "s6/Outputs/ABC-S04-02-09-DecisionRecordDraft.md" in line
+    assert "drift" not in out
+
+
+def test_upstream_zero_paths_is_clean(tmp_path, capsys):
+    row = "| 1 | `../Sprint-Signoff.md` | 24.9 | ~9.8K | the anchors to run |"
+    assert dp.main(_upstream_args(tmp_path, LIVE_FOUR, row=row)) == 0
+    assert "required-context output paths: 0" in capsys.readouterr().out
+
+
+def test_upstream_name_with_no_task_id_and_no_file_is_unresolved(tmp_path, capsys):
+    row = "| 1 | `Outputs/notes.md` | 1 | ~1K | notes |"
+    assert dp.main(_upstream_args(tmp_path, LIVE_FOUR, row=row)) == 1
+    assert "unresolved: Outputs/notes.md" in capsys.readouterr().out
+
+
+def test_upstream_path_beside_the_task_file_is_resolved(tmp_path, capsys):
+    row = "| 1 | `Outputs/ABC-S04-05-01-Local.md` | 1 | ~1K | local |"
+    live = [*LIVE_FOUR, "s5/Outputs/ABC-S04-05-01-Local.md", "s6/Outputs/ABC-S04-05-01-Local.md"]
+    assert dp.main(_upstream_args(tmp_path, live, row=row)) == 0
+    assert "resolved: Outputs/ABC-S04-05-01-Local.md" in capsys.readouterr().out
+
+
+def test_upstream_same_basename_in_two_folders_is_ambiguous(tmp_path, capsys):
+    row = "| 1 | `Outputs/notes.md` | 1 | ~1K | notes |"
+    live = [*LIVE_FOUR, "s6/Outputs/notes.md", "s7/Outputs/notes.md"]
+    assert dp.main(_upstream_args(tmp_path, live, row=row)) == 1
+    assert "ambiguous: Outputs/notes.md -> s6/Outputs/notes.md, s7/Outputs/notes.md" in capsys.readouterr().out
+
+
+def test_upstream_reads_only_the_required_context_section(tmp_path, capsys):
+    row = "| 1 | `../Sprint-Signoff.md` | 24.9 | ~9.8K | the anchors to run |"
+    after = "Write `Outputs/ABC-S04-09-09-Elsewhere.md` and see `Outputs/ABC-S04-*-Glob.md`."
+    assert dp.main(_upstream_args(tmp_path, LIVE_FOUR, row=row, after=after)) == 0
+    assert "required-context output paths: 0" in capsys.readouterr().out
+
+
+def test_upstream_glob_and_placeholder_spans_name_no_one_file(tmp_path, capsys):
+    row = "| 1 | `Outputs/ABC-S04-*-Sweep.md`, `Outputs/{ABBREV}-S01-01-01-X.md` | 1 | ~1K | globs |"
+    assert dp.main(_upstream_args(tmp_path, LIVE_FOUR, row=row)) == 0
+    assert "required-context output paths: 0" in capsys.readouterr().out
+
+
+def test_upstream_unreadable_input_is_exit_two(tmp_path, capsys):
+    args = _upstream_args(tmp_path, LIVE_FOUR)
+    missing = ["upstream", "--candidate", str(tmp_path / "none.md"), "--plan-root", args[4]]
+    assert dp.main(missing) == 2
+    no_root = ["upstream", "--candidate", args[2], "--plan-root", str(tmp_path / "no-such-folder")]
+    assert dp.main(no_root) == 2
+    bare = _w(tmp_path / "bare.md", "# Task\n\n## Objective\n\n`Outputs/ABC-S04-02-09-X.md`\n")
+    assert dp.main(["upstream", "--candidate", str(bare), "--plan-root", args[4]]) == 2
+    assert "no Required Context section" in capsys.readouterr().out

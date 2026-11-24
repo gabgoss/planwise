@@ -185,10 +185,15 @@ def _scan_integrity_findings(result) -> list:
     Shared by the index and companion `--write` refusals and the companion
     `--check` report."""
     findings = []
+    scripts_dir = Path(__file__).resolve().parent.as_posix()
     for lesson_id, paths in result.duplicate_ids.items():
+        fix = (
+            f'. Fix: python "{scripts_dir}/reconcile_lessons.py" --renumber {format_id(lesson_id)}'
+            f" <next free id> --file {Path(str(paths[0])).name}"
+        )
         findings.append({
             "class": "duplicate-id", "id": format_id(lesson_id),
-            "detail": f"claimed by {', '.join(str(p) for p in paths)}",
+            "detail": f"claimed by {', '.join(str(p) for p in paths)}{fix}",
         })
     for mismatch in result.id_mismatches:
         findings.append({

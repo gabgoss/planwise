@@ -576,6 +576,7 @@ class WriteResult:
     budget, or `None` when the render is within it. The caller prints it.
     `warnings` is the render's warnings plus the `over-budget` entry, derived
     once from the same measurement as `budget_warning`.
+    `disk` is the index text the write read before writing, `""` when no file existed.
     """
 
     exit_code: int
@@ -586,6 +587,7 @@ class WriteResult:
     drop_listing: str | None = None
     budget_warning: str | None = None
     warnings: tuple = ()
+    disk: str = ""
 
 
 def index_matches_render(disk: str, render: PlansRender) -> bool:
@@ -593,8 +595,13 @@ def index_matches_render(disk: str, render: PlansRender) -> bool:
     return _mask(disk.replace("\r\n", "\n")) == _mask(render.text)
 
 
-def write_plans_index(config: dict, *, replace_legacy: bool = False) -> WriteResult:
-    """Write the index from a fresh render. Prints nothing and raises nothing on a refusal.
+def write_plans_index(
+    config: dict, *, replace_legacy: bool = False, render: PlansRender | None = None
+) -> WriteResult:
+    """Write the index from a render. Prints nothing and raises nothing on a refusal.
+
+    A caller that already holds a render of this tree passes it as `render`, so
+    the tree is walked once. With no `render`, the write renders a fresh one.
 
     Refuses, and writes nothing, when the file on disk is hand-authored and
     `replace_legacy` is false, or when it is non-empty and neither hand-authored
@@ -606,7 +613,7 @@ def write_plans_index(config: dict, *, replace_legacy: bool = False) -> WriteRes
     not change the exit code.
     """
     index_path = plans_index_path(config)
-    render = render_plans_index(config)
+    render = render if render is not None else render_plans_index(config)
     plans_dir = Path(config["_plans_dir"])
     disk = read_text_preserving_newlines(index_path) if index_path.is_file() else ""
     shape = detect_index_shape(disk)
@@ -615,20 +622,22 @@ def write_plans_index(config: dict, *, replace_legacy: bool = False) -> WriteRes
             f"Error: {index_path} is a hand-authored plans index. Run /planwise upgrade to migrate it first, "
             "or pass --replace-legacy to overwrite it and drop its hand-written content. Nothing was written."
         )
-        return WriteResult(2, False, refusal, render, shape)
+        return WriteResult(2, False, refusal, render, shape, disk=disk)
     if shape == "empty" and disk.strip():
         refusal = (
             f"Error: {index_path} is neither a hand-authored nor a generated plans index, so it may hold "
             "content this write would destroy. Nothing was written. Inspect it with "
             "`migrate_plans_index.py --report`, then move it aside or migrate it."
         )
-        return WriteResult(2, False, refusal, render, shape)
+        return WriteResult(2, False, refusal, render, shape, disk=disk)
     ending = detect_line_ending(plans_dir, plans_dir, _index_naming(index_path))
     _atomic_write_files({index_path: render.text.replace("\n", ending)}, [])
     listing = _drop_listing(disk) if shape == "legacy" else None
     warnings = _with_budget_warning(render)
     warning = _budget_warning(config, render) if render.tokens > HUB_TOKEN_BUDGET else None
-    return WriteResult(1 if render.anomalies else 0, True, None, render, shape, listing, warning, tuple(warnings))
+    return WriteResult(
+        1 if render.anomalies else 0, True, None, render, shape, listing, warning, tuple(warnings), disk
+    )
 
 
 def _budget_warning(config: dict, render: PlansRender) -> str:

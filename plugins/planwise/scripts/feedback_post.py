@@ -601,10 +601,7 @@ def _comment_draft_name(number: int, promoted: Path) -> str:
 
 def _was_posted(promoted: Path) -> bool:
     """Whether a `.posted` sidecar records a post of this promoted file, or of a comment draft made from it."""
-    if _marker_path(promoted).exists():
-        return True
-    pattern = re.compile(r"\d{4}-\d{2}-\d{2}-comment-\d+-" + re.escape(promoted.stem) + r"\.md\.posted")
-    return any(pattern.fullmatch(entry.name) for entry in promoted.parent.iterdir())
+    return feedback_drafts.was_posted(promoted)
 
 
 def _resolve_draft(directory: Path, draft_id: str) -> "tuple[feedback_drafts.Draft | None, Path | None, str]":

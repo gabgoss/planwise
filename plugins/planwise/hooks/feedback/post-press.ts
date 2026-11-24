@@ -63,23 +63,24 @@ export type LiveConfigHost = {
 /**
  * The config path the card's turn-off answer writes to. The card stores the path when the draft
  * is written, and the file can go away later: a session that leaves a git worktree keeps its
- * card, and the worktree may then be removed. The stored path wins while its file exists.
- * Otherwise the session's current root gives the path, or an empty string when it holds none or
- * cannot be searched. An existence check that throws keeps the stored path. The Post press does
- * not use this: it lets the post script report a missing config (see pressPost).
+ * card, and the worktree may then be removed. The session's current root wins, so the turn-off
+ * writes the config of the folder the session is in. A root that holds none, or cannot be
+ * searched, falls back to the stored path while its file exists. An existence check that throws
+ * keeps the stored path. A stored path that is empty or gone gives an empty string. The Post
+ * press does not use this: it lets the post script report a missing config (see pressPost).
  */
 export const liveConfigPath = async (host: LiveConfigHost, stored: string): Promise<string> => {
-  let present = false
+  let current = ''
   try {
-    present = stored !== '' && (await host.exists(stored))
+    current = await host.currentConfig()
+  } catch {
+    current = ''
+  }
+  if (current !== '') return current
+  try {
+    return stored !== '' && (await host.exists(stored)) ? stored : ''
   } catch {
     return stored
-  }
-  if (present) return stored
-  try {
-    return await host.currentConfig()
-  } catch {
-    return ''
   }
 }
 

@@ -579,7 +579,7 @@ Governs whether a DELEGATED task-runner launches in foreground or background. Th
 
 - Record the mode in a Recovery Change Log row at launch.
 - Never describe the launch mode in the spawn prompt. The prompt cannot know it, and a wrong claim misroutes the runner.
-- Keep `SendMessage` to the main session as the one return channel. It works in both modes, and [Part 4](agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md) §1.29.1 binds it.
+- Name both return channels in the spawn prompt: the harness hand-back when the runtime offers one, and `SendMessage` to the main session otherwise. [Part 4](agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md) §1.29.1 binds the wording.
 - Gate on disk before reading the status block: the Output headings, the Recovery rows, and `git status` on the write-set.
 
 A runner that backgrounds its own long command stalls too; see the foreground-suite subsection in Part 3 (§1.27.1).

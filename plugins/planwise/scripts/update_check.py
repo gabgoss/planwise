@@ -156,6 +156,18 @@ def read_pin(project_root) -> "tuple[str | None, str | None]":
         return None, None
 
 
+def main_root_of(project_root) -> "str | None":
+    """The main checkout's copy of the project folder when `project_root` sits in a git linked
+    worktree, as a forward-slash path. None for an ordinary checkout or on any failure. The
+    TypeScript module keys the pending-upgrade marker by it, so every worktree of one project
+    shares one marker."""
+    try:
+        main = install_check.main_checkout_root(project_root)
+        return None if main is None else Path(main).as_posix()
+    except Exception:  # noqa: BLE001 - a banner check must never fail on a path
+        return None
+
+
 def is_cache_copy(running_root) -> bool:
     """True when the running root sits in a marketplace cache, not a `--plugin-dir` tree."""
     parts = install_check.norm(running_root).split("/")
@@ -203,6 +215,7 @@ def check(running_root, project_root, latest=None, data_dir=None) -> dict:
         "repo": repo_of(record),
         "auto_update": auto_update_of(record),
         "config_path": config_path,
+        "main_root": main_root_of(project_root),
         "pending": None,
         "opt_out": None,
     }
@@ -277,7 +290,8 @@ def update(running_root, project_root, data_dir=None) -> "tuple[int, dict]":
         key = f"{install_check.PLUGIN_NAME}@{marketplace}"
         entry = install_check.applicable_entry(installed_map.get(key) or [], project_root)
     report = {"result": FAILED, "command": None, "retry": None, "marketplace": marketplace,
-              "scope": (entry or {}).get("scope"), "argv": None, "refresh": None, "detail": ""}
+              "scope": (entry or {}).get("scope"), "argv": None, "refresh": None, "detail": "",
+              "main_root": main_root_of(project_root)}
     if entry is None or not report["scope"]:
         report["detail"] = "no planwise marketplace install applies to this project"
         return EXIT_FAILED, report

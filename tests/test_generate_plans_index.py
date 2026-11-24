@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 import config_loader
 import generate_plans_index as gpi
 import read_limits
+import reconcile_common
 from generate_backlog_index import _measure
 
 LEGACY_INDEX = (
@@ -508,6 +509,24 @@ class TestWrite:
 
     def test_write_plans_index_within_budget_carries_no_warning(self, two_plans):
         assert gpi.write_plans_index(load(two_plans)).budget_warning is None
+
+    def test_write_plans_index_uses_a_given_render_and_returns_the_pre_write_text(self, two_plans, monkeypatch):
+        config = load(two_plans)
+        assert gpi.write_plans_index(config).disk == ""  # no index file yet, so nothing was read
+
+        write_master_plan(two_plans, "Alpha", "ALP", status="IN_PROGRESS")
+        before = reconcile_common.read_text_preserving_newlines(index_of(two_plans))
+        render = gpi.render_plans_index(config)
+
+        def render_must_not_run(*_args, **_kwargs):
+            raise AssertionError("write_plans_index rendered again although it was given a render")
+
+        monkeypatch.setattr(gpi, "render_plans_index", render_must_not_run)
+        result = gpi.write_plans_index(config, render=render)
+
+        assert (result.written, result.refusal) == (True, None)
+        assert result.disk == before
+        assert index_of(two_plans).read_text(encoding="utf-8") != before
 
     def test_index_matches_render_masks_the_generated_line_and_reads_crlf(self, two_plans):
         config = load(two_plans)

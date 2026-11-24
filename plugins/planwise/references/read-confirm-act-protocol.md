@@ -284,7 +284,7 @@ A numeric flag about a live artifact (a line count, a byte count, a row count) e
 > | {n} | {source-task-id} | {task-id, or "session" when the consumer is unclear} | {observation} | {recommended action} | {pending, or ✅ ROUTED {YYYY-MM-DD} into {task file}} |
 > ```
 
-A closeout appends one new `### From` block per source session, so each source keeps its own H3 line and its own date.
+A closeout appends one new `### From` block per source session, so each source keeps its own H3 line and its own date. `scripts/closeout_session.py` renders this block at closeout and adds only the rows a block lacks.
 
 #### Shared-File Flags Must Be Reciprocal
 

@@ -56,37 +56,12 @@ import generate_backlog_index as gbi
 import migrate_backlog_support as sup
 import read_limits
 import score_backlog
+from generate_backlog_index_fixtures import (
+    _PURE_BACKLOG_DIR,
+    _GeneratorFixtureBase,
+    _make_item,
+)
 from markdown_parser import split_row_cells, split_row_raw
-
-CONFIG_YAML_FIXTURE = """project:
-  name: "GeneratorFixtureProject"
-  backlog_dir: "Backlog"
-  index_files:
-    backlog: "00-Index-Backlog.md"
-"""
-
-# A backlog_dir for the pure in-memory rendering tests below, which never
-# touch a filesystem -- split_items_to_budget/render_table_body only need a
-# Path to compute a relative File-cell link, never to read or write.
-_PURE_BACKLOG_DIR = Path("Backlog")
-
-
-def _make_item(item_id, *, blocks=None, title="Fixture item", priority="Medium",
-                status="NOT_STARTED", abbrev="BUG", created="2026-01-01", score="10"):
-    """Build an already-scanned item dict, matching what scan_backlog would
-    have produced, for tests that exercise rendering/sharding directly."""
-    id_str = f"{item_id:03d}"
-    return {
-        "id": id_str,
-        "title": title,
-        "priority": priority,
-        "status": status,
-        "abbrev": abbrev,
-        "created": created,
-        "blocks": blocks or [],
-        "score": score,
-        "_path": _PURE_BACKLOG_DIR / f"BB-{id_str}-01-{abbrev}-Fixture.md",
-    }
 
 
 def _one_shard_shards_section():
@@ -158,65 +133,6 @@ def _hub_splitting_items(row_count=200, blocks_per_row=500):
     """
     blocks = ["990"] * blocks_per_row
     return [_make_item(i, status="NOT_STARTED", blocks=blocks) for i in range(1, row_count + 1)]
-
-
-class _GeneratorFixtureBase(unittest.TestCase):
-    """Builds an isolated temp planwise tree: config.yaml + Backlog/ +
-    Backlog/Archive/, so the generator's CLI runs against a hermetic copy
-    instead of the live project's backlog.
-    """
-
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp(prefix="generate_backlog_index_test_"))
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-
-        self.planwise_dir = self.tmp / "planwise"
-        self.backlog_dir = self.planwise_dir / "Backlog"
-        self.archive_dir = self.backlog_dir / "Archive"
-        self.backlog_dir.mkdir(parents=True, exist_ok=True)
-        self.archive_dir.mkdir(parents=True, exist_ok=True)
-
-        self.config_path = self.planwise_dir / "config.yaml"
-        self.config_path.write_text(CONFIG_YAML_FIXTURE, encoding="utf-8")
-
-        saved_argv = sys.argv
-        self.addCleanup(lambda: setattr(sys, "argv", saved_argv))
-
-    def write_item(self, item_id, *, title="Fixture item", priority="Medium",
-                   status="NOT_STARTED", abbrev="BUG", created="2026-01-01",
-                   blocks=None, archived=False, filename=None,
-                   extra_frontmatter="", body=""):
-        """Write one synthetic item file with valid frontmatter. `body` is appended
-        after the title line, for a test that needs section prose."""
-        blocks = blocks or []
-        blocks_yaml = "[]" if not blocks else "[" + ", ".join(blocks) + "]"
-        content = (
-            "---\n"
-            f"id: {item_id}\n"
-            f"title: {title}\n"
-            f"priority: {priority}\n"
-            f"status: {status}\n"
-            f"abbrev: {abbrev}\n"
-            f"created: {created}\n"
-            f"blocks: {blocks_yaml}\n"
-            f"{extra_frontmatter}"
-            "---\n\n"
-            f"# {title}\n"
-            f"{body}"
-        )
-        target_dir = self.archive_dir if archived else self.backlog_dir
-        name = filename or f"BB-{item_id}-01-{abbrev}-Fixture.md"
-        path = target_dir / name
-        path.write_text(content, encoding="utf-8")
-        return path
-
-    def run_main(self, *extra_args):
-        """Invoke main() against the fixture config, capturing stdout/stderr."""
-        sys.argv = ["test_generate_backlog_index", "--config", str(self.config_path), *extra_args]
-        out, err = StringIO(), StringIO()
-        with redirect_stdout(out), redirect_stderr(err):
-            code = gbi.main()
-        return code, out.getvalue(), err.getvalue()
 
 
 class TestColumnPositionContract(unittest.TestCase):
@@ -767,6 +683,38 @@ class TestInvertedBlocksEdge(_GeneratorFixtureBase):
         self.assertIn("inverted blocks edge -- 704", err)
         self.assertIn("inverted blocks edge -- 704", out)
 
+    def test_a_related_line_whose_object_is_this_item_is_not_flagged(self):
+        self.write_item(
+            "101", title="Parent", blocks=["102", "103"],
+            body=(
+                "\n## Related\n\n"
+                "- [BB-102-01-X.md](BB-102-01-X.md) - sub-item 2; waits for this item (same file edit as BB-103)\n"
+            ),
+        )
+        self.write_item("102", title="Sub-item two")
+        self.write_item("103", title="Sub-item three")
+        self.run_main("--write")
+
+        code, out, err = self.run_main("--check")
+
+        self.assertEqual(code, 0)
+        self.assertNotIn("inverted blocks edge", err)
+        self.assertIn("0 inverted edge(s)", out)
+
+    def test_waits_on_is_a_waiting_phrase(self):
+        self.write_item("703", title="Prerequisite")
+        self.write_item("704", title="Dependent", blocks=["703"], body="\n## Summary\n\nIt waits on BB-703.\n")
+
+        code, _out, err = self.run_main("--dry-run")
+
+        self.assertEqual(code, 1)
+        self.assertIn("inverted blocks edge -- 704", err)
+
+    def test_a_phrase_whose_object_is_this_item_lends_no_id(self):
+        ids = gbi.extract_waiting_ids("## Summary\n\nBB-051 is blocked by this item; BB-052 also reads it.\n")
+
+        self.assertEqual(ids, [])
+
 
 class TestScannerSkipsOwnGeneratedArtifacts(_GeneratorFixtureBase):
     """`is_generated_index_file` must be invisible to the scanner (so a
@@ -1172,6 +1120,8 @@ class TestDuplicateItemIdRefusedAtScan(_GeneratorFixtureBase):
         self.assertIn("003", err)
         self.assertIn(str(self.path_a), err)
         self.assertIn(str(self.path_b), err)
+        # The report names the renumber fix and its --file option.
+        self.assertIn('reconcile_backlog.py" --renumber 003 <next free id> --file ', err)
 
     def test_write_refuses_and_writes_no_hub(self):
         code, _out, err = self.run_main("--write")

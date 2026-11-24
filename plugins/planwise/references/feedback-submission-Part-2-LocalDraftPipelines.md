@@ -1,5 +1,5 @@
 ---
-description: Feedback submission engine, Part 2 — the three local pipelines on the feedback draft directory (sweeping posted drafts to an archive, reporting each draft's status, and reviewing model drafts). Split out of feedback-submission.md when that file neared the Read-tool token gate.
+description: Feedback submission engine, Part 2 — the three local pipelines on the feedback draft directory (sweeping posted drafts to an archive, reporting each draft's status, and reviewing model drafts). Split out of feedback-submission.md when that file neared the Read-tool token gate. Part 2 of 3. Part 1 of 3 is feedback-submission.md.
 consult-when: Sweeping posted feedback drafts to an archive, reporting each draft's status, or reviewing model-written drafts — the three local pipelines on the feedback draft directory
 ---
 

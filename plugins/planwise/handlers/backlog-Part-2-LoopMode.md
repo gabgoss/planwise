@@ -46,6 +46,7 @@ python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yam
 | Selectable, marked `needs_plan: true` in its frontmatter | No, listed as excluded | `marked for a planning session` |
 | Selectable, still carrying a legacy `## Loop Decision Needed` section | No, listed as excluded | `decision pending` |
 | Selectable, with the scoped-rule verdict `placement` | No, listed as excluded | `placement` |
+| Selectable, with a `# user-run:` line inside its `## Verification` fence | No, listed as excluded | `user-run verification` |
 | Selectable, with an unanswered question under `## Open Questions` | No, listed as excluded | `open questions unanswered` |
 | Blocked by an open dependency, and every open blocker is queued in this run | Yes, behind its blockers, with the disposition its own state gives | none. `--mode specific` adds a `note:` line when a blocker was named after it |
 | Blocked by an open dependency, and a blocker is not queued in this run | No | `blocked by <ids> (open)` in `--mode specific`. The other modes print no line |
@@ -59,7 +60,7 @@ Refining is opt-in. `--init --refine-max N` (default 0) queues up to N unrefined
 
 An open question is unanswered while its `Answer:` line is empty. It is answered once an `Answer:` line with text follows its `### Q` heading.
 
-An item is excluded with the first reason that holds, in this order: `marked for a planning session`, `decision pending`, `placement`, then the others. A `decision pending` exclusion adds one hint line: fold the legacy sections with `backlog_questions.py --fold`, then answer each question. These checks only read the item.
+An item is excluded with the first reason that holds, in this order: `marked for a planning session`, `decision pending`, `placement`, `user-run verification`, then the others. A `decision pending` exclusion adds one hint line: fold the legacy sections with `backlog_questions.py --fold`, then answer each question. These checks only read the item.
 
 `--init --dry-run` prints the same report and writes no run file.
 
@@ -162,6 +163,7 @@ Q1, Q2, Q3 and the HALT question are the only questions in loop mode. Every othe
 | Phase 5 gates pass | Mark `COMPLETE` |
 | Phase 5 a gate fails | Documented skip. Revert nothing. The changes stay in the working tree, and the evidence names the failing gate and the changed files |
 | Phase 5 a `build_commands.verify` command fails | Fix it once. Route A returns the command's output to the same fix-agent. Route B fixes it in the main session. A second failure is a documented skip whose evidence names the command |
+| Phase 5 `/code-review` findings | Fix each confirmed finding, re-run the item's verification, then close. A failing verification is a documented skip whose evidence names the finding and the failing command |
 | Phase 7 follow-up candidates | File none. Print each candidate in the iteration summary |
 | Phase 8 lessons | Auto-capture (see § Phase 8 in loop mode) |
 | A feedback draft or post | Ask nothing. With `feedback.enabled: true`, post behind `prepare-post` through the engine's unattended post path. Otherwise keep the draft. A block or a failure keeps the draft and the iteration continues |
