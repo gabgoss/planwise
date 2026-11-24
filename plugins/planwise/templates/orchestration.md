@@ -109,7 +109,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 
 ## Session Surface <!-- CONDITIONAL — absent in a plan built before this block -->
 
-Every file this session's tasks name, priced once. This is not the orchestrator's read list.
+This block lists the session's plan files and the files its tasks' Required Context rows name, each priced once. This is not the orchestrator's read list.
 
 | Path | Role | KiB | ~Tokens | Cited By |
 |------|------|----:|--------:|----------|

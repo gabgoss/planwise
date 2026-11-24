@@ -326,10 +326,10 @@ def test_role_reads_from_outputs_and_the_disk(tmp_path):
                 "`src/other.py`": "READ", "`Outputs/QZX-parse.md`": CREATE_CELL, "`Outputs/QZX-peer.md`": "READ",
                 f"`{full_report}`": CREATE_CELL, "`src/orchard/`": "READ", "`src/made/`": "READ", self_cell: "READ"}
     assert _roles(spec, root) == expected
-    # Windows and `./` spellings, an existing and an absent directory, and a span of an output.
+    # Windows and `./` spellings, an existing and an absent directory, a file below one, a span of an output.
     task["outputs"] = [".\\src\\orchard\\ledger.py", "docs/orchard-guide.md", "./src/orchard", ".\\src\\made"]
     expected.update({"`src/orchard/ledger.py`": "EDIT", span: "EDIT", "`src/orchard/`": "EDIT",
-                     "`src/made/`": CREATE_CELL, f"`{absent}`": "READ", "`Outputs/QZX-parse.md`": "READ",
+                     "`src/made/`": CREATE_CELL, f"`{absent}`": CREATE_CELL, "`Outputs/QZX-parse.md`": "READ",
                      f"`{full_report}`": "READ"})
     assert _roles(spec, root) == expected
     # The file's own name in `outputs` is the one case where the self row is not READ.
@@ -345,6 +345,56 @@ def test_a_session_output_is_one_file_in_either_spelling(tmp_path):
         _t0(spec)["outputs"] = [output]
         roles = _roles(spec, root)
         assert (roles[f"`{path}`"], roles["`Outputs/QZX-peer.md`"]) == (CREATE_CELL, "READ"), output
+
+
+@pytest.mark.parametrize("output", ["src/orchard/", "src/orchard", "./src/orchard", ".\\src\\orchard\\",
+                                    "{project_root}/src/orchard/"])
+def test_a_file_below_an_output_folder_takes_its_role_from_its_own_existence(tmp_path, output):
+    root = _project(tmp_path)
+    present = ("src/orchard/deep/rows.py", "src/orchard2/ledger.py", "docs/src/orchard/ledger.py")
+    for rel in present:
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text("rows = []\n", encoding="utf-8")
+    expected = {"src/orchard/ledger.py": "EDIT", "src/orchard/deep/rows.py": "EDIT", "src/orchard/": "EDIT",
+                "src/orchard/new.py": CREATE_CELL, "src/orchard/made/deep/new.py": CREATE_CELL,
+                "src/orchard2/ledger.py": "READ", "src/orchard2/new.py": "READ",
+                "docs/src/orchard/ledger.py": "READ", "src/": "READ"}
+    # The spec's own row names the first path.
+    spec = _spec_with_rows(*(_path_row(i, p) for i, p in enumerate(list(expected)[1:], 3)))
+    _t0(spec)["outputs"] = [output]
+    roles = _roles(spec, root)
+    assert {p: roles[f"`{p}`"] for p in expected} == expected
+
+
+FULL_OUTPUTS = f"plans/QZX/{SESSION_REL}/Outputs"
+
+
+@pytest.mark.parametrize("output,path,expected", [
+    ("src/made/", "src/made/a.py", "CREATE"),
+    ("src/made", "src/made/a.py", "CREATE"),
+    ("src/made", "src/made2/a.py", "READ"),
+    ("src/orchard/ledger", "src/orchard/ledger.py", "READ"),
+    ("src/orchard", "src/orchard/ledger.py (helpers)", "EDIT"),
+    ("src/orchard", "src/orchard/new.py (helpers)", "CREATE"),
+    ("Outputs/", "Outputs/QZX-parse.md", "CREATE"),
+    ("Outputs", f"{FULL_OUTPUTS}/QZX-parse.md", "CREATE"),
+    (FULL_OUTPUTS, "Outputs/QZX-parse.md", "CREATE"),
+    ("Outputs/rows/", f"{FULL_OUTPUTS}/rows/QZX-parse.md", "CREATE"),
+    ("Outputs/rows/", "Outputs/rows2/QZX-parse.md", "READ"),
+    (f"plans/QZX/{SESSION_REL}/", "Outputs/QZX-parse.md", "CREATE"),
+    (f"plans/QZX/{SESSION_REL}/", f"{FULL_OUTPUTS}/QZX-parse.md", "CREATE"),
+    ("plans/ABC/Sprint-01-LedgerCore", "Outputs/QZX-parse.md", "READ"),
+    ("src/orchard", "src/orchard/ledger.py:10 (helpers)", "EDIT"),
+    ("src/orchard/ledger.py", "src/orchard/ledger.py (helpers)", "EDIT"),
+    ("src/orchard/ledger.py", "src/orchard/ledger.py:10-20", "EDIT"),
+    ("src/orchard/new.py", "src/orchard/new.py:10 (helpers)", "CREATE"),
+    ("docs/orchard-guide.md", "docs/orchard-guide.md (old)", "READ"),  # a file of that name exists
+    ("(helpers)", "(helpers)", "CREATE"),
+])
+def test_a_folder_match_starts_at_a_path_component_boundary(tmp_path, output, path, expected):
+    sprint, root = make_spec()["sprints"][0], _project(tmp_path)
+    (root / "docs/orchard-guide.md (old)").write_text("An old rule.\n", encoding="utf-8")
+    assert sp.role_for(path, {"outputs": [output]}, sprint, sprint["sessions"][0], root) == expected
 
 
 def test_role_expands_the_root_placeholders(tmp_path):
