@@ -196,6 +196,8 @@ Step 5 repeats for every sprint; Steps 6-7 repeat for every session of every spr
 
 **A session that stops for the user's answer keeps `"User-Action Gate"` in its Orchestration and Recovery `optional_sections`.** This holds for any plan, not only a Discovery plan. The render drops the heading when the list omits it, so a gate that is not named in the list never reaches the files. The gate is never an H3 under Plan-Specific Sections. The Orchestration table lists one row per gate with the task it blocks, and the Recovery table tracks each gate by the same id.
 
+**A sprint whose task must reproduce a reference value keeps `"Positive-Control Ledger"` in its Sprint Plan `optional_sections`. A session with a plan-time finding that the orchestrator must act on before dispatch keeps `"Scaffold Findings"` in its Orchestration `optional_sections`.** The render drops each heading that the list omits. Neither section is an H3 under Plan-Specific Sections.
+
 On the default path, `build` has run this check as `gate=headings`. After the fallback writes, run `python -B "{plugin_root}/scripts/scaffold_plan.py" check-headings {plans_dir}/{PlanName}`. Exit 1 lists each stray H2. Move each one under the catch-all as an H3 before Step 9.
 
 Then run `python -B "{plugin_root}/scripts/scaffold_plan.py" check-scope-line {plans_dir}/{PlanName}`. The command counts the `Execute ONLY` clause in every DELEGATED Orchestration. Each file must hold it exactly once. Exit 1 lists each file with a count of 0 or 2. On the default path, restore the template's HARD CONSTRAINTS sentence in the bodies file and rebuild. On the fallback path, restore it in each listed file with a whole-file `Write`. Run the check again before Step 9.
