@@ -27,8 +27,13 @@ const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/
 const wasPosted = (promoted: string, names: readonly string[]): boolean => {
   if (names.includes(promoted + '.posted')) return true
   const stem = promoted.replace(/\.md$/, '')
-  const comment = new RegExp('^\\d{4}-\\d{2}-\\d{2}-comment-\\d+-' + escapeRegExp(stem) + '\\.md\\.posted$')
-  return names.some((name) => comment.test(name))
+  // The older comment draft name puts a date and the issue number in front of the whole stem.
+  const older = new RegExp('^\\d{4}-\\d{2}-\\d{2}-comment-\\d+-' + escapeRegExp(stem) + '\\.md\\.posted$')
+  if (names.some((name) => older.test(name))) return true
+  // The current name keeps the stem's own date and puts the issue number after it.
+  if (!/^\d{4}-\d{2}-\d{2}-./.test(stem)) return false
+  const current = new RegExp('^' + escapeRegExp(stem.slice(0, 10)) + '-comment-\\d+-' + escapeRegExp(stem.slice(11)) + '\\.md\\.posted$')
+  return names.some((name) => current.test(name))
 }
 
 /**

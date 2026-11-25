@@ -198,7 +198,7 @@ test('press: a stored config in a removed worktree posts with the current root c
   assert.deepEqual(f.currentCalls, [MAIN_CONFIG])
   assert.equal(f.runs.length, 2)
   assert.equal(f.runs[0]?.argv[5], WORKTREE_CONFIG)
-  assert.deepEqual(f.runs[1]?.argv, [PYTHON_CANDIDATES[0], '-B', ROOT + '/scripts/feedback_post.py', 'post', '--config', MAIN_CONFIG, '--draft-id', 'draft-wt'])
+  assert.deepEqual(f.runs[1]?.argv, [PYTHON_CANDIDATES[0], '-B', ROOT + '/scripts/feedback_post.py', 'post', '--config', MAIN_CONFIG, '--draft-id', 'draft-wt', '--consent', 'card'])
   assert.deepEqual(f.logs, [SWITCH_LOG, { text: 'posted: https://example.test/2', to: 'transcript' }])
   assert.deepEqual(f.cleared, ['draft-wt'])
   assert.equal(f.fallbacks.length, 0)
@@ -380,9 +380,9 @@ test('press: a null draft does nothing', async () => {
 test('press: the post call carries the exact argv and a 120000 ms timeout', async () => {
   const f = fake([ok(EXIT_POSTED)])
   await pressPost(f.host, draft)
-  assert.deepEqual(f.runs[0]?.argv, [PYTHON_CANDIDATES[0], '-B', ROOT + '/scripts/feedback_post.py', 'post', '--config', '/proj/planwise.yaml', '--draft-id', 'draft-1'])
+  assert.deepEqual(f.runs[0]?.argv, [PYTHON_CANDIDATES[0], '-B', ROOT + '/scripts/feedback_post.py', 'post', '--config', '/proj/planwise.yaml', '--draft-id', 'draft-1', '--consent', 'card'])
   assert.deepEqual(f.runs[0]?.init, { timeoutMs: 120000 })
-  assert.deepEqual(postArgv('python', ROOT, draft), ['python', '-B', ROOT + '/scripts/feedback_post.py', 'post', '--config', '/proj/planwise.yaml', '--draft-id', 'draft-1'])
+  assert.deepEqual(postArgv('python', ROOT, draft), ['python', '-B', ROOT + '/scripts/feedback_post.py', 'post', '--config', '/proj/planwise.yaml', '--draft-id', 'draft-1', '--consent', 'card'])
 })
 
 test('press: posting turns on before the run and off after it, on every path', async () => {

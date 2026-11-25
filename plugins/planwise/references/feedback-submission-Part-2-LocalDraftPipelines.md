@@ -185,6 +185,9 @@ Followed, when `{archive_dir}` exists, by one line: `{N} archived draft(s) in {a
 (not listed).` The archive is not walked or queried — bounding the output is the point of
 archiving.
 
+A comment post marks two files: the issue draft and the comment draft made from it. Both rows
+show `comment` and the same issue. The two rows record one post.
+
 ### Unmarked Drafts
 
 An unmarked draft is reported, in its own group headed `Not known to have been posted
@@ -206,6 +209,23 @@ was either never posted, or was filed by hand outside this tool. Post it with
 **Model drafts are not unmarked drafts.** Queued and expired model drafts get their own group,
 headed `Model drafts, not yet reviewed ({n})`, with `—` in every cell after Draft. `--status`
 reads each one's `status:` frontmatter directly. The group ends with `Review them with /planwise feedback --drafts.`
+
+### Blocked Drafts
+
+A draft that the privacy check of an unattended post blocked gets its own group, headed
+`Blocked by the privacy check ({n})`. `--status` reads the group from one local call:
+
+```
+python -B "{plugin_root}/scripts/feedback_drafts.py" blocked-list --config "{planwise_root}/config.yaml"
+```
+
+Each printed row names the draft, its state, the class, the line number, the route and the
+date. `--status` prints the rows as they are. A row never holds the matched text. When the
+call prints `no blocked drafts`, leave the group out.
+
+The group ends with one line: `Fix the named line and post the draft again, or clear the
+record with feedback_drafts.py dismiss-blocked.` The call is local, so every Degradation
+branch still prints this group.
 
 ### Degradation
 
@@ -345,11 +365,14 @@ that **Post** publishes the shown body with no further question. Three options:
 1. When posting is still off, run `enable-posting --config "{planwise_root}/config.yaml"` and
    print its one line. On exit 1, print its stderr line and stop.
 2. Run one call:
-   `python -B "{plugin_root}/scripts/feedback_post.py" post --config "{planwise_root}/config.yaml" --draft-id {draft_id}`.
+   `python -B "{plugin_root}/scripts/feedback_post.py" post --config "{planwise_root}/config.yaml" --draft-id {draft_id} --consent review`.
+   `--consent review` keeps the provenance line that says a person reviewed the text. The
+   question showed the body, so the line is true on this route.
 3. The driver runs the post checks itself, on the exact file it posts. It reads the posting
    state, finds `gh` and checks its sign-in, runs the duplicate scan and picks the route by
    Unattended Routing in [Part 1](feedback-submission.md#unattended-routing), and runs
-   `prepare-post` before it posts. The route makes no other call for these checks.
+   `prepare-post` before it posts. On a privacy block it also writes the blocked record. The
+   route makes no other call for these checks.
 4. The **Post** answer is the consent, so gate 5 is not asked. Route on the driver's exit code.
    Exit 0 posted: print its last stdout line. Exit 3 kept the draft and posted nothing: print
    its last stdout line. Exit 4 means posting is off: print
@@ -398,9 +421,9 @@ On the `--post` and `--drafts` routes, the per-draft question is the consent for
    `{title}` and `{kind}` come from the model draft's frontmatter.
 4. The **Review and post** answer is the consent, so gate 5 is not asked. The duplicate-scan
    outcome picks the route with no question, by the rules of Unattended Routing in
-   [Part 1](feedback-submission.md#unattended-routing): a ranked candidate takes a comment on
-   the top-ranked issue, and a clear or incomplete scan takes a new issue. A failed post leaves
-   the promoted draft on disk, as On Any Gate Failure or Post Failure (Part 3) specifies.
+   [Part 1](feedback-submission.md#unattended-routing). Part 1 is the one statement of those
+   rules, and this step restates none of them. A failed post leaves the promoted draft on
+   disk, as On Any Gate Failure or Post Failure (Part 3) specifies.
 
 ### Auto Mode
 

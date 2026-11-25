@@ -118,9 +118,9 @@ card route runs when that block is present with no `PLANWISE_FEEDBACK_FALLBACK:`
    `--drafts`. Show the body verbatim from the block, and offer **Post**, **Discard** and
    **Keep** (pre-selected). The question says that Post publishes the shown body with no
    further question.
-5. On Post, run one `feedback_post.py post` call. On Discard, run one `feedback_drafts.py discard`
-   call. On Keep, run nothing. The Per-Draft Action section of Part 2 holds the commands and
-   the exit codes.
+5. On Post, run one `feedback_post.py post` call with `--consent review`. On Discard, run one
+   `feedback_drafts.py discard` call. On Keep, run nothing. The Per-Draft Action section of
+   Part 2 holds the commands and the exit codes.
 
 An absent block, a block with the fallback line, and `--drafts --all` take the engine route of
 Step 4. Every other mode ignores the block.
@@ -162,7 +162,10 @@ shortcut, or duplicate any part of any of them — it supplies inputs and report
 - **post-draft** — print exactly what the engine's route returned: the posted URL, the not-found line, or the non-interactive line.
 
 On a successful post the engine also marks the draft posted — a sidecar file beside the
-draft, on the issue path and the comment path alike, recording the date and the URL. This
+draft, on the issue path and the comment path alike, recording the date and the URL. A comment
+goes only to an issue that a live read shows as open and not yet taken in. Every other match
+takes a new issue that names it, as Comment Target in `references/feedback-submission.md`
+defines. This
 handler never writes that marker itself and never reports an outcome the engine did not
 return. A draft whose post did not succeed simply stays unmarked. Nothing in the post path
 ever removes or moves a draft or its marker; the only command that relocates one is

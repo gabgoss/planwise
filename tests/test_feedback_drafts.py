@@ -1356,6 +1356,23 @@ def test_blocked_list_counts_a_comment_route_post_as_posted(fdir, capsys):
     assert [row.split("\t")[1] for row in out_all.splitlines()] == ["posted"]
 
 
+def test_was_posted_reads_both_comment_draft_names(fdir, capsys):
+    import feedback_post
+
+    _, current = blocked_promoted(fdir, capsys, "n1", "current")
+    _, older = blocked_promoted(fdir, capsys, "o1", "older")
+    _, other = blocked_promoted(fdir, capsys, "x1", "other")
+    # The current name keeps the promoted file's date and puts the issue number after it.
+    name = feedback_post._comment_draft_name(42, current)
+    assert name == f"{current.stem[:10]}-comment-42-{current.stem[11:]}.md"
+    (fdir / (name + ".posted")).write_text("posted: 2026-11-19\nurl: u\nroute: comment\n", encoding="utf-8")
+    # A post made before the rename put a date and the issue number in front of the whole stem.
+    (fdir / f"2026-11-20-comment-42-{older.stem}.md.posted").write_text("posted: 2026-11-20\nurl: u\nroute: comment\n", encoding="utf-8")
+    assert fd.was_posted(current) is True and fd.was_posted(older) is True
+    # Neither sidecar belongs to the third draft.
+    assert fd.was_posted(other) is False
+
+
 def test_sweep_list_names_a_blocked_sidecar_and_reports_an_orphan_one(fdir, capsys):
     _, posted = blocked_promoted(fdir, capsys, "p1", "posted")
     (fdir / (posted.name + ".posted")).write_text("posted: 2026-11-19\nurl: https://example.test/issues/9\nroute: issue\n", encoding="utf-8")
