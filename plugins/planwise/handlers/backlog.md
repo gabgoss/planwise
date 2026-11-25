@@ -330,7 +330,7 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
 - Option 2: Alternative route
 - Option 3: Skip this item
 
-**In loop mode:** ask nothing. Take the recommended route when it is A or B. A Route C result is a documented skip (Part 2 § Documented skip) that also writes the marker: `--mark --outcome SKIPPED --needs-plan` with a `--decision` text that starts `LOOP: re-assessed to Route C`. Before the Route A or B dispatch, run `backlog_loop.py --mark --phase acting --run {run-id} --id {item_id}`. Every other decision point follows Part 2 § No questions after setup. A refined item never reaches the default Route C branch; a `needs_plan` item is skipped per the marker rule.
+**In loop mode:** ask nothing. Take the recommended route when it is A or B. An item that `--next` reported with disposition `plan` and that still routes to C follows Part 2 § Route C in a loop run. Any other Route C result is a documented skip (Part 2 § Documented skip) that also writes the marker: `--mark --outcome SKIPPED --needs-plan` with a `--decision` text that starts `LOOP: re-assessed to Route C`. Before the Route A or B dispatch, run `backlog_loop.py --mark --phase acting --run {run-id} --id {item_id}`. Every other decision point follows Part 2 § No questions after setup. A refined item never reaches the default Route C branch; a `needs_plan` item is skipped per the marker rule.
 
 ### Route A: Direct Fix (fix-agent delegation)
 
@@ -384,6 +384,8 @@ NOT_STARTED`; log `Auto Mode: marked for a planning session; skipping (no plan i
 authored unattended)`; regenerate the index; continue to Phase 7. No planner is
 dispatched. A later interactive run, or a planning hand-off that reads the marker,
 authors the plan.
+
+**Loop run:** when `--next` reported disposition `plan`, follow Part 2 § Route C in a loop run instead of the Auto Mode and interactive flows.
 
 **Interactive flow (Auto Mode not active):**
 

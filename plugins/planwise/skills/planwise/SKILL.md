@@ -90,6 +90,7 @@ Available subcommands:
   init                         Initialize project structure
   plan [name]                  Create a new plan
   plan --scaffold [abbrev]     Scaffold from Discovery phase
+  plan --plan-mode [name]      Design in plan mode first; the hooks module answers the plan dialogs
   review [plan-path]           Review plan before execution
   run [@orchestration-file] [--resume]  Execute a planned session
                                --resume skips the start approval on a proven mid-session resume
