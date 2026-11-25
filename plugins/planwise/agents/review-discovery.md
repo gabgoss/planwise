@@ -94,9 +94,13 @@ python -B "{plugin_root}/scripts/estimate_reconcile.py" check "{plan_path}"
 It compares each declared token figure with the figure it must equal, at
 every level: the task header against its context subtotal, each orchestration
 cell and total, each Sprint Plan session row, details row and header. It also
-compares a task's own `KiB` row with the task file's bytes (`task-self`). Each
+compares a task's own `KiB` row with the task file's bytes (`task-self`), and
+the derived cells of the Session Surface (`surface-*`), the Sprint Plan
+Write-Set (`writeset-*`) and the Master Plan Write-Sets (`master-*`). Each
 output line names its level first. It prints one `MISMATCH` line per pair that
-differs by more than 10% (3% for `task-self`), one `UNREAD` line per figure it could not parse, and
+differs by more than 10% (3% for `task-self`). Any difference prints at the exact
+levels `surface-rows`, `surface-files`, `master-count` and `master-files`. It also
+prints one `UNREAD` line per figure it could not parse, and
 a last line `estimates: sessions={n} mismatches={n} unread={n}`.
 
 Exit 0 means no mismatch. Exit 1 means at least one `MISMATCH` line, and it is

@@ -9,11 +9,19 @@ parsers, so the two never disagree about what a cell holds.
 
 Command (run with `python -B`):
 
-    check PATH
+    check PATH [--config FILE]
         PATH is one plan folder, normally `Exec-{Abbrev}/`, or the plan's own
         folder for a standard pass. Every `*-Orchestration.md` under PATH (outside
         `Outputs/`) defines one session: its folder holds the session's task files,
         and the one `*-Sprint-Plan.md` in the folder above is the session's Sprint Plan.
+        --config names the config file that gives the project root, which the paths in
+        a table resolve against. Without it, the write-back's own config search runs:
+        it walks up from the working directory, and when it finds no config there, it
+        walks up from the folder of its own script. Its notes on stderr name the config
+        it found. The working directory is the root when both walks find none.
+
+A caller in the same process runs `reconcile(path, project_root)` and reads the lines,
+the counts and the exit code from the `Report` it returns.
 
 Pairs compared, per session:
 
@@ -41,6 +49,48 @@ and once per Sprint Plan:
 
     sprint-header         `**Estimated Tokens:**` against the sum of the `## Sessions` rows
 
+The levels below read the cells that the build and the write-back derive. Each one is
+silent when its table, heading or line is absent, as in a plan built before that cell
+existed. `exact` means no drift is allowed. The other limits are 10%. No level reads a
+`Role` cell or a size of the Orchestration or Recovery file. A Write-Set row that no
+task cites is not compared, but a cell of it with no figure is an UNREAD line. A total
+line whose table is absent or lacks the columns is an UNREAD line.
+
+Per Orchestration with a `## Session Surface` table:
+
+    surface-tokens        each path's `~Tokens` cell against the highest Required Context
+                          cell of the task rows that carry the row's spelling, or against
+                          zero when no such row has a figure
+    surface-kib           the `KiB` cell against the `KiB` cell of that citing row
+    surface-rows          the paths of the rows against the paths the task files name,
+                          exact. A path's spelling changes when its file lands on disk or
+                          is removed. The rows of one file are the ones the write-back
+                          writes now, or the ones it wrote in the file's other state. An
+                          extra row reads `declared 1 expected 0` on its own line, and a
+                          missing one `declared 0 expected 1` on the header
+    surface-total         the total line's figure against the sum of the `~Tokens` cells
+    surface-files         the total line's file count against the number of rows, exact
+
+Per Sprint Plan with a sized `## Write-Set` table:
+
+    writeset-tokens       the `~Tokens` cell of each path a task cites against the
+                          highest citing cell of the sprint's task files
+    writeset-kib          the `KiB` cell against the `KiB` cell of that citing row
+
+Per Master Plan with a sized `### Write-Sets` table or a `**Write-set total:**` line:
+
+    master-count          each row's `Count` against the distinct paths of the sprint's
+                          Write-Set, exact
+    master-sizes          each row's `KiB` and `~Tokens` against the sum over those paths,
+                          each at its highest figure
+    master-total          the total line's figure against the sum over the distinct paths
+                          of all sprints, each at its highest figure
+    master-files          the total line's path count against those paths, exact
+
+The write-back changes no cell of a sprint that has no sized Write-Set or has a row with
+no figure, and then it leaves the total line too. These cells are not compared, and one
+UNREAD line per such sprint says so.
+
 Output, one line per pair whose drift is above 10% of the expected figure, then
 one line per figure that could not be read, then one total line that is always last:
 
@@ -49,38 +99,65 @@ one line per figure that could not be read, then one total line that is always l
     estimates: sessions=<n> mismatches=<m> unread=<u>
 
 <file> is the path relative to PATH with forward slashes. A drift at or under 10%
-is rounding and prints nothing. The `task-self` level has its own limit of 3%. For
-that level the line reads `declared <a> KiB expected <b> KiB (<pct>%)`. An UNREAD
-line names a figure the script could not
+is rounding and prints nothing, except at an exact level, which has no limit. The
+`task-self` level has its own limit of 3%. A `KiB` cell prints as
+`declared <a> KiB expected <b> KiB (<pct>%)`, and an exact level prints plain numbers.
+An UNREAD line names a figure the script could not
 parse, such as a `~?K` placeholder or a missing row, and does not change the exit code.
 
 Exit codes: 0 clean, or every drift at or under 10%. 1 one or more MISMATCH lines.
 2 a usage error, PATH missing or not a folder, or a plan file unreadable or not
-UTF-8 (`ERROR: cannot read plan file <path>`).
+UTF-8 (`ERROR: cannot read plan file <path>`), or a config file that cannot be read,
+whether `--config` names it or the search found it, or any other error that stops the
+check (`ERROR: <type>: <message>`). The search passes over a file it cannot open or
+decode, so only a found file that does not parse stops the check.
 """
 
 import argparse
+import contextlib
+import io
 import re
 import sys
 from decimal import Decimal
 from pathlib import Path
+from typing import NamedTuple
 
 sys.dont_write_bytecode = True  # a direct run must not grow scripts/__pycache__
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import config_loader
 import scaffold_plan as sp
+from token_saver_scan import config_project_root
 from token_saver_writeback import (
     _K_TERM_RE,
+    _KIB_CELL_RE,
+    _MASTER_LABEL,
+    _SURFACE_LABEL,
     _TOKEN_HEADERS,
+    _WRITE_SET_COLUMNS,
+    _Buffers,
     _cells,
     _col,
+    _fmt_k,
     _fmt_kib,
+    _identity,
+    _is_orchestration,
     _parse_token_cell,
     _required_context_table,
     _section_bounds,
     _split_eol,
+    _sprint_plan_rows,
+    _surface_key,
+    _surface_tasks,
     _table_rows,
     _token_tables,
+    _write_set_table,
+    keyed_write_set,
+    path_figures,
+    surface_entries,
+    write_set_sums,
+    write_set_total,
+    writeset_figures,
 )
 
 THRESHOLD_PCT = Decimal(10)
@@ -92,10 +169,22 @@ HEADER_RE = re.compile(r"^\*\*Estimated Tokens:\*\*")
 TOTAL_RE = re.compile(r"^\*\*Total Estimated:\*\*")
 SUBTOTAL_LABEL = "**Context subtotal:**"
 TASK_ID_RE = re.compile(r"^\*\*Task ID:\*\*(.*)")
+OVER_RE = re.compile(r"\bover (\d[\d,]*)\b")
+FOUND_CONFIG_RE = re.compile(r"found config at (.+)")
+# A root that holds no file: nothing exists below a file, and the depth outlasts any `../`.
+NO_FILES = Path(__file__).resolve().joinpath(*["-"] * 24)
 
 
 class PlanReadError(Exception):
     """A plan file could not be read or decoded."""
+
+
+def error_text(exc):
+    """One line that names an error. A `PlanReadError` is its own message."""
+    if isinstance(exc, PlanReadError):
+        return str(exc)
+    first = next(iter(str(exc).splitlines()), "")
+    return f"{type(exc).__name__}: {first}" if first else type(exc).__name__
 
 
 def _k(tokens):
@@ -110,9 +199,40 @@ def _figure_after(line, start=0):
     return Decimal(m.group(1).replace(",", "")) * 1000 if m else None
 
 
+def _kib(size):
+    """1.50 -> `1.50 KiB`, the figure as its cell prints it."""
+    return f"{size:f} KiB"
+
+
+def _kib_figure(cell):
+    """The figure of a `KiB` cell, or None."""
+    m = KIB_CELL_RE.match(cell.replace("`", "").replace("**", "").strip())
+    return Decimal(m.group(1).replace(",", "")) if m else None
+
+
+def _over_count(line):
+    """The count of an `over N files` or `over N distinct paths` line, or None."""
+    m = OVER_RE.search(line)
+    return Decimal(m.group(1).replace(",", "")) if m else None
+
+
+def _context_cells(tasks):
+    """(task path, File cell) of each Required Context row that `surface_entries` reads."""
+    for path, text in tasks:
+        lines = text.split("\n")
+        table = _required_context_table(lines)
+        head, header = table or (0, [])
+        file_at = next((i for i, c in enumerate(header) if c.startswith("file")), None)
+        for r in _table_rows(lines, head) if file_at is not None else ():
+            cells = _cells(_split_eol(lines[r])[0], len(header))
+            if file_at < len(cells):
+                yield path, cells[file_at]
+
+
 class Checker:
-    def __init__(self, root):
+    def __init__(self, root, project_root):
         self.root = root
+        self.project_root = project_root
         self.mismatches = []
         self.unread = []
         self._cache = {}
@@ -131,17 +251,21 @@ class Checker:
         except ValueError:
             return path.as_posix()
 
-    def compare(self, level, path, idx, declared, expected):
+    def compare(self, level, path, idx, declared, expected, show=_k, limit=THRESHOLD_PCT):
         if declared == expected:
             return
         if expected == 0:
             pct = Decimal(100)
         else:
             pct = abs(declared - expected) / expected * 100
-        if pct > THRESHOLD_PCT:
+        if pct > limit:
             self.mismatches.append(
-                f"MISMATCH {level} {self.rel(path)}:{idx + 1} declared {_k(declared)} "
-                f"expected {_k(expected)} ({pct.quantize(Decimal('0.1'))}%)")
+                f"MISMATCH {level} {self.rel(path)}:{idx + 1} declared {show(declared)} "
+                f"expected {show(expected)} ({pct.quantize(Decimal('0.1'))}%)")
+
+    def exact(self, level, path, idx, declared, expected):
+        """Compare two counts with no drift allowed."""
+        self.compare(level, path, idx, Decimal(declared), Decimal(expected), str, Decimal(0))
 
     def miss(self, level, path, reason, idx=None):
         where = self.rel(path) + (f":{idx + 1}" if idx is not None else "")
@@ -208,12 +332,11 @@ class Checker:
             if len(cells) != len(header) or not self._names_file(cells[file_col], path):
                 continue
             found = True
-            m = KIB_CELL_RE.match(cells[kib_col].replace("`", "").replace("**", "").strip())
-            if m is None:
+            declared = _kib_figure(cells[kib_col])
+            if declared is None:
                 self.miss("task-self", path, "no figure in the KiB cell of the row that names "
                           "this task file", r)
                 continue
-            declared = Decimal(m.group(1).replace(",", ""))
             drift = abs(declared * 1024 - size)
             pct = Decimal(100) if size == 0 else drift / size * 100
             allowed = max(Decimal(0), drift - SELF_ROUNDING_BYTES)
@@ -366,6 +489,251 @@ class Checker:
         self.task_table(path, (start, stop), headers, "sprint-details-cell",
                         "sprint-details-total", total_required=False)
 
+    # -- derived cells -------------------------------------------------------
+    def derived(self, level, path, check):
+        """Run one derived check. A figure it cannot derive is an UNREAD line."""
+        try:
+            check(path)
+        except PlanReadError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - one odd cell never stops the other levels
+            self.miss(level, path, f"not derived ({error_text(exc)})")
+
+    def folder_tasks(self, folder):
+        """(path, text) of each task file in a session folder, read as the write-back reads it."""
+        try:
+            return [t for t in _surface_tasks(_Buffers(), folder) if not _is_orchestration(t[0])]
+        except OSError as exc:
+            raise PlanReadError(f"cannot read plan file in {self.rel(folder)}: {exc}") from exc
+
+    def sprint_tasks(self, sprint_dir):
+        return [t for folder in sorted(sprint_dir.iterdir()) if folder.is_dir()
+                for t in self.folder_tasks(folder)]
+
+    def sized(self, level, path, idx, cells, tok_at, kib_at, tokens, kib):
+        """Compare one row's `~Tokens` and `KiB` cells with the citing cells `tokens` and `kib`."""
+        for name, at, read, expected, show in (("tokens", tok_at, _parse_token_cell, tokens, _k),
+                                               ("kib", kib_at, _kib_figure, kib, _kib)):
+            declared = read(cells[at])
+            if declared is None:
+                self.miss(f"{level}-{name}", path, f"no figure in {cells[at].strip()!r}", idx)
+            elif expected is not None and read(expected) is None:
+                self.miss(f"{level}-{name}", path, f"its citing row has no figure in {expected!r}", idx)
+            elif expected is not None:
+                self.compare(f"{level}-{name}", path, idx, declared, read(expected), show)
+
+    def total_line(self, levels, path, idx, label, total, count):
+        """Compare a derived total line's figure and count. A None expectation is not compared."""
+        line = self.text_lines(path)[idx]
+        declared = _figure_after(line, len(label))
+        if declared is None:
+            self.miss(levels[0], path, f"no figure on the {label} line", idx)
+        elif total is not None:
+            self.compare(levels[0], path, idx, declared, total)
+        declared = _over_count(line)
+        if declared is None:
+            self.miss(levels[1], path, f"no count on the {label} line", idx)
+        elif count is not None:
+            self.exact(levels[1], path, idx, declared, count)
+
+    def text_lines(self, path):
+        """The lines of a file that no other level reads, so a stray byte in it is no error."""
+        if path not in self._cache:
+            try:
+                text = path.read_bytes().decode("utf-8", errors="replace")
+            except OSError as exc:
+                raise PlanReadError(f"cannot read plan file {self.rel(path)}: {exc}") from exc
+            self._cache[path] = text.replace("\r\n", "\n").split("\n")
+        return self._cache[path]
+
+    def surface_rows(self, orch, tasks, plan_files):
+        """Per named file, the row sets a correct table may hold, as {row path: surface entry}.
+
+        The first set is what the producer writes now. The second is what it wrote before the
+        file landed. An absent file may have been there at the write, so the sets after those
+        hold its one key as a path from each folder the producer looks in. A file of two or more
+        keys gets no such set: its single landed row would hide the other rows' deletion.
+        """
+        session_dir, root = orch.parent, self.project_root
+        plan_dir = session_dir.parent.parent
+        away_dir = NO_FILES / session_dir.parent.name / session_dir.name
+        states = []
+        for folder, plan_at, root_at in ((session_dir, plan_dir, root), (away_dir, NO_FILES, NO_FILES)):
+            placed = [(folder / path.name, text) for path, text in tasks]
+            own = dict.fromkeys([*plan_files, *(p.name for p, _ in placed)], folder)
+            entries = {e["path"]: e for e in surface_entries(
+                placed, [(name, None, None) for name in plan_files], plan_at, root_at)}
+            keys = [_surface_key(cell, path, own, plan_at, root_at)
+                    for path, cell in _context_cells(placed)]
+            states.append((own, entries, [*own, *keys]))
+        (own, now, keys_now), (_own, before, keys_before) = states
+        files = {}
+        for key, earlier in zip(keys_now, keys_before):
+            if key is not None:
+                sets = files.setdefault(_identity(key, own, root), ({}, {}))
+                sets[0][key] = now[key]
+                if earlier is not None:
+                    sets[1][earlier] = before[earlier]
+        folders = [session_dir, plan_dir, *(p for p in plan_dir.parents if root in p.parents)]
+        out = []
+        for identity, (present, earlier) in files.items():
+            options = [present, earlier]
+            if len(present) == 1 and identity not in own and not (root / identity).is_file():
+                ((key, entry),) = present.items()
+                options += [{path: entry} for path in (
+                    identity, *(_identity((at / key).as_posix(), own, root) for at in folders))]
+            out.append(options)
+        return out
+
+    def surface(self, orch):
+        lines = self.lines(orch)
+        bounds = _section_bounds(lines, "Session Surface")
+        if bounds is None:
+            return
+        total_at = next((i for i in range(*bounds) if lines[i].startswith(_SURFACE_LABEL)), None)
+        table = _write_set_table(lines, bounds, [("path",), ("kib",), _TOKEN_HEADERS])
+        if table is None:
+            if total_at is not None:
+                self.miss("surface-total", orch, "no table with Path, KiB and ~Tokens columns", total_at)
+            return
+        head, (path_at, kib_at, tok_at), width = table
+        rows = {r: _cells(_split_eol(lines[r])[0], width) for r in _table_rows(lines, head)}
+        names = {r: cells[path_at].replace("`", "").strip() for r, cells in rows.items()
+                 if len(cells) == width}
+        plan_files = [orch.name, orch.name.replace("Orchestration", "Recovery")]
+        expected = {}
+        for options in self.surface_rows(orch, self.folder_tasks(orch.parent), plan_files):
+            held = [set(names.values()) & set(option) for option in options]
+            # The set that the rows match best. A tie goes to the first.
+            best = min(range(len(options)), key=lambda i: (-len(held[i]), len(options[i]) - len(held[i])))
+            for key, entry in options[best].items():  # two files of one landed row: the higher figure
+                if key not in expected or (entry["tokens"] or 0) > (expected[key]["tokens"] or 0):
+                    expected[key] = entry
+        values, seen = [], {}
+        for r, cells in rows.items():
+            if r not in names:
+                self.miss("surface-rows", orch, "cell count differs from the header", r)
+                values.append(None)
+                continue
+            name = names[r]
+            seen[name] = seen.get(name, 0) + 1
+            entry = expected.get(name)
+            if entry is None:
+                self.exact("surface-rows", orch, r, 1, 0)
+            elif seen[name] > 1:
+                self.exact("surface-rows", orch, r, seen[name], 1)
+            values.append(_parse_token_cell(cells[tok_at]))
+            sized = entry is not None and name not in plan_files
+            self.sized("surface", orch, r, cells, tok_at, kib_at,
+                       _fmt_k(entry["tokens"] or 0) if sized else None, entry["kib"] if sized else None)
+        if len(names) == len(rows):  # an unreadable row may be the missing one
+            for _ in set(expected) - set(seen):
+                self.exact("surface-rows", orch, head, 0, 1)
+        if total_at is not None:
+            self.total_line(("surface-total", "surface-files"), orch, total_at, _SURFACE_LABEL,
+                            None if None in values else sum(values, Decimal(0)), len(rows))
+
+    def writeset(self, plan):
+        lines = self.lines(plan)
+        table = _write_set_table(lines, _section_bounds(lines, "Write-Set"), _WRITE_SET_COLUMNS)
+        if table is None:
+            return
+        head, (path_at, task_at, kib_at, tok_at), width = table
+        rows = []
+        for r in _table_rows(lines, head):
+            cells = _cells(_split_eol(lines[r])[0], width)
+            if len(cells) == width:
+                rows.append((r, cells))
+            else:
+                self.miss("writeset-tokens", plan, "cell count differs from the header", r)
+        figures = writeset_figures([(c[path_at], c[task_at]) for _, c in rows],
+                                   self.sprint_tasks(plan.parent), {}, plan.parent.parent,
+                                   self.project_root)
+        for (r, cells), (kib, tokens, source) in zip(rows, figures):
+            if source == "no path":
+                continue
+            cited = source == "cited"
+            self.sized("writeset", plan, r, cells, tok_at, kib_at,
+                       tokens if cited else None, kib if cited else None)
+            cell = cells[kib_at].strip()
+            if _kib_figure(cell) is not None and _KIB_CELL_RE.match(cell) is None:
+                self.miss("writeset-kib", plan, f"no figure in {cell!r} that the sum reads", r)
+
+    def master(self, master):
+        lines = self.text_lines(master)
+        start = next((i for i, ln in enumerate(lines) if re.match(r"^###\s+Write-Sets\b", ln)), None)
+        if start is None:
+            return
+        stop = next((j for j in range(start + 1, len(lines)) if re.match(r"^#{1,3}\s", lines[j])),
+                    len(lines))
+        table = _write_set_table(lines, (start, stop),
+                                 [("sprint",), ("count",), ("kib",), _TOKEN_HEADERS])
+        total_at = next((i for i in range(start, stop) if lines[i].startswith(_MASTER_LABEL)), None)
+        if table is None and total_at is None:
+            return
+        plan_dir = master.parent
+        at = start if total_at is None else total_at
+        if len(list(plan_dir.glob("*-Master-Plan.md"))) != 1:
+            self.miss("master-sizes", master, "not compared: the folder holds more than one Master Plan", at)
+            return
+        folders, tasks = {}, []
+        for folder in sorted(p for p in plan_dir.iterdir() if p.is_dir()):
+            m = re.match(r"Sprint-(\d+)(?:-|$)", folder.name)
+            if m is not None:
+                folders.setdefault(int(m.group(1)), []).append(folder)
+                tasks.extend(self.sprint_tasks(folder))
+        paths, no_kib = {}, set()  # a sprint whose figures the write-back cannot sum has no paths
+        for number, same in folders.items():
+            rows = _sprint_plan_rows(_Buffers(), same[0]) if len(same) == 1 else None
+            keyed = keyed_write_set(rows or [], tasks, plan_dir, self.project_root)
+            paths[number] = None if rows is None else path_figures(keyed)
+            if any(_KIB_CELL_RE.match(row[2].strip()) is None for _, row in keyed):
+                no_kib.add(number)  # the sum would count an unreadable cell as zero
+        head, columns, width = table or (0, [], 0)
+        row_of = {}
+        for r in _table_rows(lines, head) if table else ():
+            cells = _cells(_split_eol(lines[r])[0], width)
+            if len(cells) != width:
+                self.miss("master-count", master, "cell count differs from the header", r)
+                continue
+            sprint_at, count_at, kib_at, tok_at = columns
+            m = re.match(r"Sprint-(\d+)(?!\w)", cells[sprint_at].replace("`", "").replace("*", "").strip())
+            if m is None:
+                self.miss("master-sizes", master, f"no sprint in {cells[sprint_at].strip()!r}", r)
+                continue
+            number = int(m.group(1))
+            row_of.setdefault(number, r)
+            known = paths.setdefault(number, None)
+            if known is None:
+                continue
+            declared = cells[count_at].replace("`", "").replace("*", "").strip()
+            if declared.isdecimal():
+                self.exact("master-count", master, r, declared, len(known))
+            else:
+                self.miss("master-count", master, f"no figure in {declared!r}", r)
+            if number in no_kib:
+                self.miss("master-sizes", master, "KiB not compared: a Write-Set row of the sprint "
+                          "has no KiB figure", r)
+            _count, kib, tokens = write_set_sums(known)
+            for cell_at, read, expected, show in ((kib_at, _kib_figure, kib, _kib),
+                                                  (tok_at, _parse_token_cell, tokens, _k)):
+                value = read(cells[cell_at])
+                if value is None:
+                    self.miss("master-sizes", master, f"no figure in {cells[cell_at].strip()!r}", r)
+                elif cell_at != kib_at or number not in no_kib:
+                    self.compare("master-sizes", master, r, value, read(expected), show)
+        for number in sorted(n for n, known in paths.items() if known is None):
+            self.miss("master-sizes", master, f"Sprint-{number:02d} and the total line are not compared: "
+                      "no sized Write-Set with a figure in every row", row_of.get(number, at))
+        if total_at is not None:
+            summed = list(paths.values())
+            if not summed:
+                self.miss("master-total", master, "not compared: no sprint folder beside the Master Plan", at)
+            whole = bool(summed) and None not in summed
+            self.total_line(("master-total", "master-files"), master, total_at, _MASTER_LABEL,
+                            _figure_after(write_set_total(summed)) if whole else None,
+                            len(set().union(*summed)) if whole else None)
+
     # -- the walk ------------------------------------------------------------
     def run(self):
         files = sp.collect_plan_files([self.root])
@@ -394,25 +762,88 @@ class Checker:
             self.sprint_session(plans[0], session_id, orch_total, headers)
         for plan in sorted(sprint_plans):
             self.sprint_header(plan)
+        for orch in orchestrations:
+            self.derived("surface-rows", orch, self.surface)
+        for plan in sorted(sprint_plans):
+            self.derived("writeset-tokens", plan, self.writeset)
+        for master in (f for f in files if sp.file_kind(str(f)) == "master"):
+            self.derived("master-sizes", master, self.master)
         return len(orchestrations)
 
 
-def cmd_check(args):
-    root = Path(args.path).resolve()
+class Report(NamedTuple):
+    """What one check of a plan folder found."""
+
+    sessions: int
+    mismatches: list
+    unread: list
+
+    @property
+    def summary(self):
+        return (f"estimates: sessions={self.sessions} mismatches={len(self.mismatches)} "
+                f"unread={len(self.unread)}")
+
+    @property
+    def lines(self):
+        """Every output line of the command, in order."""
+        return [*self.mismatches, *self.unread, self.summary]
+
+    @property
+    def exit_code(self):
+        return 1 if self.mismatches else 0
+
+
+def reconcile(path, project_root=None):
+    """Check one plan folder in process and return its `Report`. It prints and writes nothing.
+
+    `project_root` is the root that `config_project_root` gives for the project's config.
+    Without it, the working directory is the root. Raises `PlanReadError` for a `path` that
+    is no folder and for a plan file that cannot be read.
+    """
+    root = Path(path).resolve()
     if not root.is_dir():
-        print(f"ERROR: not a folder: {args.path}")
-        return 2
-    checker = Checker(root)
+        raise PlanReadError(f"not a folder: {path}")
+    checker = Checker(root, Path(project_root or Path.cwd()).resolve())
+    sessions = checker.run()
+    return Report(sessions, checker.mismatches, checker.unread)
+
+
+def _searched_root():
+    """The root of the config that the write-back's own search finds, or None when it finds none.
+
+    The search's notes print on stderr, because they name the config it found. A found
+    config that does not parse stops the write-back, and here it raises a `PlanReadError`.
+    """
+    notes = io.StringIO()
     try:
-        sessions = checker.run()
-    except PlanReadError as exc:
-        print(f"ERROR: {exc}")
+        with contextlib.redirect_stderr(notes):
+            root = config_project_root(config_loader.load_config())
+    except SystemExit:  # no config found
+        return None
+    except Exception as exc:
+        sys.stderr.write(notes.getvalue())
+        found = FOUND_CONFIG_RE.search(notes.getvalue())
+        name = found.group(1) if found else "that the search found"
+        raise PlanReadError(f"cannot read config file {name}: {error_text(exc)}") from exc
+    sys.stderr.write(notes.getvalue())
+    return root
+
+
+def cmd_check(args):
+    try:
+        if args.config:
+            project_root = sp.config_root(args.config)  # `config_project_root` of the loaded config
+            if project_root is None:
+                raise PlanReadError(f"cannot read config file {args.config}")
+        else:
+            project_root = _searched_root()
+        report = reconcile(args.path, project_root)
+    except Exception as exc:  # noqa: BLE001 - exit 1 means a mismatch, so a crash never returns it
+        print(f"ERROR: {error_text(exc)}")
         return 2
-    for line in checker.mismatches + checker.unread:
+    for line in report.lines:
         print(line)
-    print(f"estimates: sessions={sessions} mismatches={len(checker.mismatches)} "
-          f"unread={len(checker.unread)}")
-    return 1 if checker.mismatches else 0
+    return report.exit_code
 
 
 def main(argv=None):
@@ -421,6 +852,9 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("check", help="check one plan folder")
     c.add_argument("path", metavar="PATH")
+    c.add_argument("--config", metavar="FILE",
+                   help="config file that gives the project root (else the search up from the working "
+                        "directory, then up from the script's folder, else the working directory)")
     args = ap.parse_args(argv)
     return cmd_check(args)
 
