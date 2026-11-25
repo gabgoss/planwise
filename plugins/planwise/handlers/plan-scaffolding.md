@@ -358,7 +358,7 @@ See `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §13.4 f
 >
 > On the inline path this applies to ALL file-generation agent prompts during scaffolding: sprint plans, orchestrations, task files.
 >
-> When a file keeps an OPTIONAL section, name it in its template position too. For an Orchestration that is `## Pre-Known Cross-Task Coordination Flags` after `## Task Files`, `## User-Action Gate` after `## Post-Session Checklist`, and `## Plan-Specific Sections` as the last H2, which holds unanticipated sections as H3s.
+> When a file keeps an OPTIONAL section, name it in its template position too. For an Orchestration that is `## Pre-Known Cross-Task Coordination Flags` after `## Task Files`, `## Scaffold Findings` after `## Pre-Known Cross-Task Coordination Flags`, `## User-Action Gate` after `## Post-Session Checklist`, and `## Plan-Specific Sections` as the last H2, which holds unanticipated sections as H3s. For a Sprint Plan that is `## Positive-Control Ledger` after `## Consumes`. `## Scaffold Findings` and `## Positive-Control Ledger` replace the ad-hoc H3s that scaffolders used to add.
 
 ## Scaffolding Step 6: Validation
 

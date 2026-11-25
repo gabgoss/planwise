@@ -111,6 +111,8 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 
 This block lists the session's plan files and the files its tasks' Required Context rows name, each priced once. This is not the orchestrator's read list.
 
+The size cells of a file a task cites copy the Required Context row that the task's `**Measured:**` footer pins. See `references/session-context-budget.md` for the conversion rates.
+
 | Path | Role | KiB | ~Tokens | Cited By |
 |------|------|----:|--------:|----------|
 | `{path}` | {Role} | {K} | ~{X}K | {Cited By} |
@@ -279,6 +281,21 @@ This task operates within:
 - **Decision branches:** {one entry per branch of the task's decision rule:
   "{condition} → {permitted write, or STOP and escalate}"}
 
+## Operational Ceiling Notice
+Filler line, delete it from the prompt: at dispatch, keep this block only when this task trips a `references/agent-orchestration-delegated.md` §1.11 threshold: more than 25 file edits, more than 30 HTTP probes, more than 100K expected context, an estimate above about 80K tokens, or more than about eight verification commands. Otherwise omit the whole block. `{T}` is the `references/agent-orchestration-delegated.md` §1.12 estimate `(edits × 2) + reads + verification commands + overhead`. The block is void in DIRECT mode, where no runner is spawned.
+This task approaches operational ceilings:
+- **Edit ceiling:** ~{N} file edits expected (ceiling: 25 per dispatch)
+- **Context ceiling:** ~{X}K expected context load
+- **Turn ceiling:** ~{T} tool calls expected; harness limit {maxTurns} turns (for example 50 for task-runner)
+Turn economy:
+- Batch independent shell commands into one call.
+- Run each pinned gate command exactly as pinned. Batching combines pinned commands and never replaces one with your own script or regex. Report a gate you could not run as pinned as not run, with the reason.
+- Edit each notebook with one script, not one call per cell.
+- Read a large file with Grep or offset/limit, not in full pages.
+- Before a heavy step, a live execution or a run-once step, write the checkpoint. Sequential mode: set the task's Recovery row IN_PROGRESS and add a Change Log row naming the remaining steps. Parallel mode: write the pre-step evidence file only and do not touch Recovery (`references/agent-orchestration-delegated.md` §1.13).
+If you reach a ceiling before completing all steps, STOP, write a partial output file documenting
+what was completed and what remains, then signal completion via your final response.
+
 ## Status Block delivery (REQUIRED)
 If your harness returns your final message to the orchestrator (a subagent
 hand-back), make the status block that final message and do not also call SendMessage.
@@ -296,9 +313,8 @@ finding. An Output path alone is not a finding list.
 
 Where a Verification Command in the task file holds the literal `{plugin_root}`, substitute the `Plugin root:` value above. Never copy a plugin path out of the task file. Where a gate holds `{census:<name>}`, substitute that name's value from the `Census:` line above.
 
-<!-- Add when the task trips the §1.12 trigger: the §1.11 Operational Ceiling Notice
-     with its turn-ceiling line, plus the write-by turn for a transcript-reading or
-     proof-loop task (Part 2 §1.17.5).
+<!-- Add for a transcript-reading or proof-loop task (Part 2 §1.17.5):
+     the write-by turn.
      Add when the project declares an isolated environment (§1.27): an
      ENVIRONMENT DISCIPLINE block naming interpreter/linter/runner paths in the
      platform-matched form, plus a first-spawn interpreter diagnostic on the
@@ -347,7 +363,10 @@ A harness `completed` status means the agent stopped with no live children. It i
 - [ ] Read every KEY_FINDINGS and ISSUES line against every success criterion. Recompute TASK_STATUS from the criteria and the contract the task cites, in both directions. On a mismatch, log both values in Recovery and act on the recomputed status (`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.16.7)
 - [ ] Settle every ISSUES line that names an unverified claim inside the task's Output files before acceptance (`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17.4)
 - [ ] If a runner reported a defective gate: the defect is reproduced from the runner's verbatim output, and the same command shape is swept across the undispatched briefs before the next dispatch (§1.16.6)
-- [ ] Once every member of a parallel layer has returned, run `python -B "{plugin_root}/scripts/batch_gate.py" labels {the layer's output files}`: exit 0 means one section-label set, exit 1 lists the labels per file. When the layer's task files carry `**Required headings:**`, run `python -B "{plugin_root}/scripts/batch_gate.py" labels --expect {task file} {output file}` once per member instead: exit 0 means each output carries its own task's required headings, exit 1 lists the dropped ones, and an extra heading is ignored. Where the outputs must cover a required id list, run `python -B "{plugin_root}/scripts/batch_gate.py" items --ids {file of one id per line} {output files}`: each required id has exactly one owner, a first-cell table row or a heading in one file, and a repeat mention in the owning file is not a duplicate. Exit 1 prints the `MISSING` and `DUPLICATE` ids
+- [ ] Once every member of a layer has returned, run each form below that applies. The slots take file paths only. Skip a form that does not apply to the layer. At scaffold time, delete this item only when no form applies to any layer. It is void in DIRECT mode. Exit 2 means the gate did not run: record it as not run, never as a pass.
+  1. For a layer of two or more members, run `python -B "{plugin_root}/scripts/batch_gate.py" labels {the layer's output files}`: exit 0 means one section-label set, exit 1 lists the labels per file. One file exits 2 with "need at least 2 files to compare".
+  2. When the layer's task files carry `**Required headings:**`, run `python -B "{plugin_root}/scripts/batch_gate.py" labels --expect {task file} {output file}` once per member at any layer size, in place of form 1: exit 0 means each output carries its own task's required headings, exit 1 lists the dropped ones, and an extra heading is ignored.
+  3. When the outputs must cover a required id list, run `python -B "{plugin_root}/scripts/batch_gate.py" items --ids {file of one id per line} {output files}` at any layer size: each required id has exactly one owner, a first-cell table row or a heading in one file, and a repeat mention in the owning file is not a duplicate. Exit 1 prints the `MISSING` and `DUPLICATE` ids
 - [ ] Once every member of a layer has returned, run `{test-cmd}` over the whole suite or in the project's affected-tests form. Do this before the next layer dispatches. That run reaches the repo-wide guard tests that scan the layer's write directories. On a failure, resume the SAME runner that wrote the file, and dispatch nothing until the run passes (`references/agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md` §1.31.2)
 - [ ] If a status block is lost or disputed, run `python -B "{plugin_root}/scripts/extract_status_block.py" --pattern '{field regex}' {agent-*.jsonl transcript}`: exit 0 prints the last status-block match, exit 1 means no line matched
 - [ ] Run `python -B "{plugin_root}/scripts/outputs_coverage.py" named --side producer --outputs {this session's Outputs folder} --tasks {downstream consumer task files} --terminal {Outputs no later session consumes}` and `python -B "{plugin_root}/scripts/outputs_coverage.py" named --side receiver --outputs {upstream session's Outputs folder} --tasks {this session's task files}`: the producer run exits 0 when a Required Context row names every listed file that is not terminal, and exits 1 with the unnamed files otherwise. The receiver run always exits 0 and its `unnamed:` list is the finding to read, because it checks the upstream Outputs against this session's task files and is advisory. Exit 2 means the gate did not run. Each file after `--terminal` is an Output that no later session consumes, and it prints as `terminal:` instead of `unnamed:`. Drop `--terminal` when every Output has a consumer, and name only files that are in the listing, because a name absent from it exits 2. When no consumer task file exists yet, skip the producer run and record it as not applicable in Recovery; never pass this session's own task files to `--side producer`. `count` with `--outputs {this session's Outputs folder} --tasks {downstream consumer task files}` exits 1 when a count claim differs from the file count
@@ -357,6 +376,8 @@ A harness `completed` status means the agent stopped with no live children. It i
 Read the last paragraph of the returned message for forward-looking verbs — `will`, `next I will`, `the following step will`, `planned to` (§1.10). A hit means the runner intends to continue and has gone idle. Send a resume message quoting its own last line; do **not** mark the task COMPLETE.
 
 **On any miss in Steps 1–3, resume the SAME agent, then re-run these checks before accepting.**
+
+Before you dispatch a follow-up fix to work that passed Steps 1–3, rank it per `references/agent-orchestration-delegated.md` §1.9. A Tier 1 doc fix goes inline in the resume message. A Tier 2 single-file fix goes as a targeted dispatch. A Tier 3 multi-file refactor goes as a new session. A miss in Steps 1–3 resumes the SAME agent, whatever its tier. This line is void in DIRECT mode, where no task is dispatched.
 
 ---
 
@@ -409,6 +430,18 @@ See `agents/task-runner.md` §5.B for the runnable schema.
 | Flag # | Source Task | Consuming Task | Observation | Recommended Action | Routed |
 |--------|-------------|----------------|-------------|--------------------|--------|
 | {n} | {source-task-id} | {task-id, or "session" when the consumer is unclear} | {observation} | {recommended action} | {pending, or ✅ ROUTED {YYYY-MM-DD} into {task file}} |
+
+---
+
+## Scaffold Findings <!-- OPTIONAL — include when the scaffold pass found something the orchestrator must act on before dispatch -->
+
+List each finding from the scaffold pass that the orchestrator must act on before it dispatches.
+
+**Recorded:** {YYYY-MM-DD}
+
+| # | Finding | Evidence | Affects | Action for the Orchestrator |
+|---|---------|----------|---------|-----------------------------|
+| {n} | {what the scaffold pass found} | {the command or file line that shows it} | {task id or file} | {what to do before dispatch} |
 
 ---
 

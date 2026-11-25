@@ -53,7 +53,7 @@ The orchestrator fixes the decomposition, every task id, every Output path, `wri
 
 Copy these headings byte for byte, in this order, with their markers. Each list was taken from the live template; the line count beside it shows when the template last moved. A heading marked OPTIONAL or CONDITIONAL is kept only when its condition holds, and then in this position. A file never gains a `##` H2 that its list does not hold.
 
-### Sprint Plan — `templates/sprint-plan.md` (259 lines)
+### Sprint Plan — `templates/sprint-plan.md` (273 lines)
 
 ```
 ## Sprint Objective <!-- REQUIRED -->
@@ -67,14 +67,15 @@ Copy these headings byte for byte, in this order, with their markers. Each list 
 ### Session 01: {SessionName} ({ABBREV}-S{XX}-01)
 ## Cross-Sprint File Touches <!-- OPTIONAL — include when this sprint edits a file ANY other sprint of the same plan also edits, ordered or not -->
 ## Consumes <!-- REQUIRED when Prerequisites or any task's Depends On names an earlier sprint (cross-sprint:) -->
+## Positive-Control Ledger <!-- OPTIONAL -->
 ## Carried-Forward Coordination Flags <!-- OPTIONAL -->
 ## Change Log
 ## Plan-Specific Sections <!-- OPTIONAL -->
 ```
 
-Formatting lines: `**Sprint ID:** {ABBREV}-S{XX}`, `**Status:** PLANNED`, `**Estimated Tokens:** ~{XX}K total across all sessions` (equal to the sum of the Sessions table), and `**Total: {N} deliverables**` under the Deliverables table, counted from its rows. The Deliverables table header is `| # | Deliverable | Class | Producer | Description |`, and each row's `Producer` cell names one task id, one Post-Session Checklist step, or `n/a` for a `verified-absent` row. Repeat the `### Session {NN}:` H3 once per session.
+Formatting lines: `**Sprint ID:** {ABBREV}-S{XX}`, `**Status:** PLANNED`, `**Estimated Tokens:** ~{XX}K total across all sessions` (equal to the sum of the Sessions table), and `**Total: {N} deliverables**` under the Deliverables table, counted from its rows. The Deliverables table header is `| # | Deliverable | Class | Producer | Description |`, and each row's `Producer` cell names one task id, one Post-Session Checklist step, or `n/a` for a `verified-absent` row. Repeat the `### Session {NN}:` H3 once per session. The OPTIONAL `## Positive-Control Ledger` sits after `## Consumes`.
 
-### Orchestration — `templates/orchestration.md` (385 lines)
+### Orchestration — `templates/orchestration.md` (485 lines)
 
 ```
 ## Session Objective <!-- REQUIRED -->
@@ -97,20 +98,22 @@ Formatting lines: `**Sprint ID:** {ABBREV}-S{XX}`, `**Status:** PLANNED`, `**Est
 ## Status Block Return Contract <!-- REQUIRED -->
 ## Task Files <!-- REQUIRED -->
 ## Pre-Known Cross-Task Coordination Flags <!-- OPTIONAL -->
+## Scaffold Findings <!-- OPTIONAL -->
 ## Post-Session Checklist <!-- REQUIRED -->
 ## User-Action Gate <!-- OPTIONAL — a session that stops for the user's answer -->
 ## Plan-Specific Sections <!-- OPTIONAL -->
 ```
 
-The Spawn-Prompt Skeleton's fenced block holds three `##` lines. They are body text of that fence, never file headings, and stay inside it verbatim:
+The Spawn-Prompt Skeleton's fenced block holds four `##` lines. They are body text of that fence, never file headings, and stay inside it verbatim. The orchestrator omits the `## Operational Ceiling Notice` block at dispatch, and the scaffolder never does:
 
 ```
 ## HARD CONSTRAINTS (non-negotiable)
 ## SCOPE BOUNDARY
+## Operational Ceiling Notice
 ## Status Block delivery (REQUIRED)
 ```
 
-Formatting lines: `**Mode:** {DIRECT | DELEGATED}` as the first line of `## Execution Strategy`, followed by `**Reason:**`. `**Total Estimated:** ~{XX}K tokens` directly after the Session Task List table, equal to that table's sum and to the session's row in the Sprint Plan Sessions table. `**Declared layers:**` opens `## Dispatch Layers`. The three OPTIONAL positions: `## Pre-Known Cross-Task Coordination Flags` sits after `## Task Files`, `## User-Action Gate` sits after `## Post-Session Checklist`, and `## Plan-Specific Sections` is the last H2.
+Formatting lines: `**Mode:** {DIRECT | DELEGATED}` as the first line of `## Execution Strategy`, followed by `**Reason:**`. `**Total Estimated:** ~{XX}K tokens` directly after the Session Task List table, equal to that table's sum and to the session's row in the Sprint Plan Sessions table. `**Declared layers:**` opens `## Dispatch Layers`. The four OPTIONAL positions: `## Pre-Known Cross-Task Coordination Flags` sits after `## Task Files`, `## Scaffold Findings` sits after `## Pre-Known Cross-Task Coordination Flags`, `## User-Action Gate` sits after `## Post-Session Checklist`, and `## Plan-Specific Sections` is the last H2.
 
 Columns and slots the headings above do not show. The `### Computed Write-Target Intersection` table carries an `Allocates from` column. The flag table under `## Pre-Known Cross-Task Coordination Flags` carries a `Routed` column, `pending` until the stamp `✅ ROUTED {YYYY-MM-DD} into {task file}` replaces it. The skeleton's `## HARD CONSTRAINTS` holds a `Permitted per Execution Step` line and a deferral line that says `no number assigned`. Its `## SCOPE BOUNDARY` holds a `Decision branches` line. A `Resume clause` with `Findings to fix:` closes the fence. `## Session Start Census` and Step 2 of the checklist carry the `{plugin_root}` caller lines of `dispatch_preflight.py`, `batch_gate.py`, `extract_status_block.py` and `outputs_coverage.py`.
 
@@ -216,7 +219,7 @@ The scaffolding rules each file obeys:
 - **Write-Set.** The Sprint Plan's `## Write-Set` table holds one `| Path | Task | Role | KiB | ~Tokens |` row per `write_set` row, and only the paths the sprint edits. Never add a path. Keep each rendered `Role` cell. The write-back fills the `KiB` and `~Tokens` cells, so write no size by hand. A sprint with no write path keeps its one `none` row with `n/a`, `0.0` and `~0.0K`. Keep the rendered Session Surface block of each Orchestration too. The write-back replaces its rows and its total line.
 - **Cross-sprint markers.** Copy each `cross_sprint_markers` row into the Sprint Plan's `## Cross-Sprint File Touches` section. Write its Step-1 prerequisite gate into the first task that writes the file, which is the first task id in the file's Write-Set row. Number the gate as Execution Step `1.`. The lint rule `cross-sprint-touch` reads only the first line that begins `1.` under `## Execution Steps`, so a gate held in the `### Cross-Sprint Prerequisite Grep Gate` H3 or in a code fence fails it. That step names `Grep`, the prior sprint's marker and a HALT when the marker is missing. When the row's Ordering cell says the pair is unordered, write the gate into the first writing task of both sprints. Add one line to the `## Cross-Sprint File Touches` section that reads `MUST NOT run concurrently` and names the file. Delete the section when no row involves this sprint.
 - **Guardrails.** Fill one `## Guardrails` row per safety promise in the Master Plan Decisions, the Risk Mitigation rows and the Execution Input. Name the implementing step and the failing gate from this sprint's own task files. Write the `None` line when the sprint has no promise. Never delete the heading.
-- **Unanticipated sections.** A section no template heading covers goes under `## Plan-Specific Sections` as an `###` H3. Never add a new `##` H2.
+- **Unanticipated sections.** A reference value that a port or recomputation must reproduce goes under `## Positive-Control Ledger` in the Sprint Plan. A scaffold-time finding for the orchestrator goes under `## Scaffold Findings` in the Orchestration. Add each in its template position when the render omitted it. A section no template heading covers goes under `## Plan-Specific Sections` as an `###` H3. Never add any other new `##` H2.
 - **Output folders.** Every session folder keeps `Outputs/.gitkeep`. Never delete it.
 - **Verification Commands.** Populate every task file's Verification Commands with runnable commands. Each command names its owner, runner or orchestrator, and carries its `# pre-edit:` annotation. A diff-derived command is scoped to the recorded base and to the task's own paths. Write `<!-- NEEDS-COMMAND -->` for a command type that does not apply. Never leave a `{cmd_after_N}` placeholder.
 - **Lessons.** Cite each Step 1 lesson hit in the Required Context or the Verification Commands of the task that touches its artifact class.

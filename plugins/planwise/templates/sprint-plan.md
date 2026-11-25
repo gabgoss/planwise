@@ -225,6 +225,20 @@ When this sprint consumes nothing from an earlier sprint, delete the section ent
 
 ---
 
+## Positive-Control Ledger <!-- OPTIONAL — include when a task must reproduce a reference value (a port, a migration, a recomputation) -->
+
+List each reference value that a port or recomputation must reproduce, with the tolerance and the command that reproduces it.
+
+| Name | Reference Value | Tolerance | Reproduced By | Source | Consuming Task |
+|------|-----------------|-----------|---------------|--------|----------------|
+| `{ControlName}` | {the value the original produced} | {exact, or the allowed difference} | `{command that prints the recomputed value}` | {where the reference value was read} | {Abbrev}-S{XX}-{YY}-{##} |
+
+A consuming task's gate cites the row by Name.
+
+When this sprint reproduces no reference value, delete the section entirely rather than leaving an empty table.
+
+---
+
 ## Carried-Forward Coordination Flags <!-- OPTIONAL -->
 
 <!-- Include when an earlier session routed a coordination flag to a session of this sprint

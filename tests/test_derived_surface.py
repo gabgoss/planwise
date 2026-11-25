@@ -24,6 +24,7 @@ import scaffold_plan as sp
 import token_saver_scan as tss
 import token_saver_writeback as tsw
 from test_plan_build import Build, bodies_set
+from test_scaffold_deviations import check as deviation_check
 
 TEMPLATES = sp.DEFAULT_TEMPLATES
 SPRINT = "Sprint-01-LedgerCore"
@@ -249,6 +250,42 @@ def test_the_lead_names_what_the_block_lists(tmp_path):
     for text in (tree.files[ORCH], tree.text(ORCH)):
         assert "src/orchard/unread.py" not in _rows(text)
         assert PARSE in _rows(text)  # the control: an output a row names is listed
+
+
+def test_the_block_cites_the_rates_and_the_pin_of_its_cells(tmp_path, capsys):
+    tree = Tree(tmp_path)
+    lead = _block(tree.files[ORCH]).split("\n|", 1)[0]
+    cited = [ln for ln in lead.split("\n") if "references/session-context-budget.md" in ln]
+    assert len(cited) == 1 and "**Measured:**" in cited[0]
+    assert "B/tok" not in _block(tree.files[ORCH])
+
+    def findings():
+        capsys.readouterr()
+        er.main(["check", str(tree.plan)])
+        rolled = capsys.readouterr().out.splitlines()
+        assert rolled[-1].startswith("estimates: sessions=2 ")  # the control: the check read both sessions
+        graded = deviation_check(tree.plan)[1]
+        assert graded[-1].startswith("deviations: ")
+        return rolled + graded
+
+    # Old shape: the same Orchestration without the line takes the write-back and no new finding.
+    new = old = None
+    for shape in ("new", "old"):
+        (tmp_path / shape).mkdir()
+        tree = Tree(tmp_path / shape)
+        if shape == "old":
+            text = tree.text(ORCH)
+            tree.set(ORCH, text.replace(cited[0] + "\n\n", "", 1))
+            assert len(tree.text(ORCH)) < len(text)
+        report = tree.write_back(TASK_1, TASK_2, OTHER_TASK)
+        assert report["unreadable"] == []
+        assert not [r for r in report["left"] if "Orchestration" in r["file"]]
+        _assert_total(tree.text(ORCH))
+        lines = [ln.replace(f"/{shape}/", "/") for ln in findings()]
+        new, old = (lines, old) if shape == "new" else (new, lines)
+    assert old == new
+    tree.set(ORCH, tree.text(ORCH).replace("## Session Objective", "## Session Goal", 1))
+    assert any("Session Objective" in ln for ln in findings())  # the control: the gate reads it
 
 
 def test_an_old_shape_task_table_feeds_the_block_as_read(tree):
