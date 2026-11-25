@@ -10,6 +10,8 @@ This file is Part 2 of `handlers/backlog.md`. Read it when loop mode is active o
 
 Without the module the marker line prints and nothing else happens; continue by hand with `/planwise backlog --loop-resume <run-id>`.
 
+The module also answers the plan-mode dialogs of a loop iteration it re-entered, only when the next queued item has disposition `plan`. See § Route C in a loop run.
+
 The loop runs only in the interactive REPL. A non-interactive run ends after its first item.
 
 A loop session is an unattended feedback context, as `references/feedback-submission.md` gate 2 defines it. A feedback draft or post in a loop session asks no question. With `feedback.enabled: true`, a report posts behind the privacy gate `prepare-post`, through the engine's unattended post path.
@@ -41,7 +43,8 @@ python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yam
 | Selectable, `refined: false`, or refined with a failing shape gate, inside the refine cap or named by `--mode specific` | Yes, disposition `refine` | none |
 | Selectable, with every question under `## Open Questions` answered, whatever the refine cap | Yes, disposition `refine` | none |
 | Selectable, provisional route A or B, `refined: true` or past the refine cap | Yes, disposition `run` | none |
-| Selectable, `refined: false`, route C by the conservative default (`LARGE_SCOPE` false), past the refine cap | No, listed as excluded | `needs refine` |
+| Selectable, `refined: false`, route C by the conservative default (`LARGE_SCOPE` false), past the refine cap, and `--init` ran without `--plan-exit` | No, listed as excluded | `needs refine` |
+| Selectable, route C with `LARGE_SCOPE` false, past the refine cap, and `--init` ran with `--plan-exit` | Yes, disposition `plan` | none |
 | Selectable, route C by a strong signal (`LARGE_SCOPE` true), or `refined: true` with a passing shape gate and route C | No, listed as excluded | `plans deferred in loop mode` |
 | Selectable, marked `needs_plan: true` in its frontmatter | No, listed as excluded | `marked for a planning session` |
 | Selectable, still carrying a legacy `## Loop Decision Needed` section | No, listed as excluded | `decision pending` |
@@ -52,7 +55,7 @@ python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yam
 | Blocked by an open dependency, and a blocker is not queued in this run | No | `blocked by <ids> (open)` in `--mode specific`. The other modes print no line |
 | Held (`BLOCKED`) or closed | No | held: `on hold (status BLOCKED)`. Closed: not selectable |
 
-Queue order is highest score first, then item id. Mode `specific` keeps the user's order and drops an ineligible id with a warning line. In every mode a blocker moves ahead of the item that waits for it, and every other item keeps its place. Mode `n` takes the first N of that order. It takes an item together with its blockers, or it passes the item over.
+Queue order is highest score first, then item id, and an unblocked `plan` item comes after every other item. Mode `specific` keeps the user's order and drops an ineligible id with a warning line. In every mode a blocker moves ahead of the item that waits for it, and every other item keeps its place. Mode `n` takes the first N of that order. It takes an item together with its blockers, or it passes the item over.
 
 A queued item that waits for a blocker runs only when every blocker is closed at its turn. Otherwise `--next` skips it with the note `blocker-open`, records the open blockers, and leaves the item untouched for a later run. An unrefined blocker ends its turn as `refined; review before run`, so the items behind it wait for the next run. An item that runs behind its blocker works on the blocker's changes in the same working tree, before anyone reviewed them. Items in a `blocks:` cycle are never queued.
 
@@ -82,7 +85,7 @@ Each session handles exactly one item. The numbered steps run in order.
 
    5a. When `--next` reported disposition `refine`, run § Refine step before Phase 3. An item with disposition `run` skips it. A refine result of `REFINED` ends the iteration there, and a later run queues the item as `run`.
 6. Phase 3 RESOLVE. Re-run `score_backlog.py --route --id {item-id}` and note any divergence from `route_at_init` in `Reason:`.
-7. Phase 4 ACT. Ask nothing. Take the recommended route when it is A or B. A Route C result is a documented skip (see § No questions after setup). Run `--mark --phase acting --run {run-id} --id {item-id}` before the Route A or B dispatch.
+7. Phase 4 ACT. Ask nothing. Take the recommended route when it is A or B. A Route C result is a documented skip (see § No questions after setup), except for an item with disposition `plan`, which follows § Route C in a loop run. Run `--mark --phase acting --run {run-id} --id {item-id}` before the Route A or B dispatch.
 8. Phase 5 VERIFY. Run `--mark --phase verifying --run {run-id} --id {item-id}` before the gates. Ask nothing. After the gates, run the `build_commands.verify` list (§ Verification is in scope). Apply the Phase 5 default in § No questions after setup.
 9. Phase 6 CLOSE. Map the outcome and run `--mark --outcome`:
 
@@ -91,7 +94,7 @@ Each session handles exactly one item. The numbered steps run in order.
    | Every gate passed, or task list done | `COMPLETE`, with no `--resolution-file`; a worked item is never an unattended close |
    | Every acceptance criterion already met (Phase 3 step 5) | `COMPLETE`, with `--resolution-file` (§ Unattended close); Phases 4 and 5 are skipped for the item |
    | A decision is needed, or a gate failed | `SKIPPED`, with `--decision` |
-   | Route C re-assessed in Phase 4 | `SKIPPED`, with `--needs-plan` and `--decision` |
+   | Route C re-assessed in Phase 4, for an item without disposition `plan` | `SKIPPED`, with `--needs-plan` and `--decision` |
    | Halted item skipped at the HALT question | `SKIPPED`, with `--note halted-mid-item` |
    | Refine step returned `QUESTIONS` (§ Refine step) | `SKIPPED`, with `--note "open questions"` |
    | Refine step returned `REFINED` | `SKIPPED`, with `--note "refined; review before run"`; the design waits in the item for the user to read |
@@ -144,6 +147,44 @@ A refine skip uses `--note`, never `--decision`. The `QUESTIONS` skip needs no `
 
 ---
 
+## Route C in a loop run
+
+**Purpose:** Design and implement a small Route C item inside the loop, with no plan dialog left for a person. Starting a loop run is the approval. The user approves every such plan when they answer Yes to Q1, and no later question or per-item flag exists.
+
+Run this section only when all four conditions hold:
+
+1. `--next` reported disposition `plan`.
+2. Phase 3 still routes the item to C with `LARGE_SCOPE` false. An A or B result takes that route instead.
+3. The session's tool list holds `mcp__planwise__build_plan` or `mcp__planwise__draft_feedback`.
+4. This iteration was entered with `--loop-resume`. The first iteration of a fresh run is never armed.
+
+When condition 3 or 4 fails, run `--mark --outcome SKIPPED --note "plan route not armed"`, regenerate the index and continue to Phase 7. The item is left as it was and stays eligible for a later run. When condition 2 fails because `LARGE_SCOPE` is true, take the documented skip with `--needs-plan`.
+
+The handler cannot see whether a re-entry was armed. When it was not, the dialog renders and the loop waits for you.
+
+Steps:
+
+1. Run `--mark --phase acting`, then summarize the item's context.
+2. Call `EnterPlanMode`. The hooks module answers its consent dialog.
+3. Explore and design with foreground agents only. Write the plan-mode plan file. Do not end the turn: a finished turn disarms the module.
+4. Call `ExitPlanMode`. The module answers it, and the session lands in `acceptEdits`.
+5. Implement the plan in this session, as Route B does. Then run Phase 5 with the loop's defaults.
+6. If a dialog is declined, or either call returns an error, take the documented skip with `--needs-plan`.
+
+Limits:
+
+- **Early access.** The hooks surface may change between Claude Code releases without notice. If it does, the plan dialog renders and waits for a person.
+- **Few measurements.** Each behavior rests on single runs. Entering plan mode this way is the less measured half.
+- **Managed installs.** Where an organization manages Claude Code, these hooks may not run in a plugin a person installs. The dialog then renders.
+- **Only approver.** Inside a loop run the module is the only approver, and its answer replaces yours. It answers only in an iteration it re-entered itself whose next queued item has disposition `plan`, read from the run file at the marker. A missing or unreadable run file means it answers nothing. If that item is skipped for an open blocker or another reason, the item taken instead in the same turn is still covered. It also answers the next message after `/planwise plan --plan-mode`, but only when that message starts within 5 minutes. Any message sent in that time is covered, whatever it says. It never answers for a subagent.
+- **Off your machine.** In a cloud or SSH session the mode change does not stand. The session leaves plan mode without landing in `acceptEdits`.
+
+A session left in `acceptEdits` stays there after the iteration. The module does not restore an earlier mode. A loop started in a mode that asks less often than `acceptEdits`, such as `auto` or `bypassPermissions`, asks more often after the first planned item.
+
+A resume you type by hand is not armed until the module next re-enters the loop. A Route C item in that first iteration shows the dialog, and you answer it.
+
+---
+
 ## No questions after setup
 
 Q1, Q2, Q3 and the HALT question are the only questions in loop mode. Every other decision point either takes the default in the table below or becomes a documented skip. The handler still takes every action it can. It stops asking and acts.
@@ -158,7 +199,7 @@ Q1, Q2, Q3 and the HALT question are the only questions in loop mode. Every othe
 | Phase 3 conditional check resolves to close | Documented skip. The evidence is the item's `Conditional:` lines. Never an unattended close: a resolved conditional is not a met criterion |
 | Refine step returns `QUESTIONS` | Written into `## Open Questions`; skip with the short note; no `--decision` |
 | Refine step returns `REFINED` | Skip with the note `refined; review before run`; no `--decision`. The user reads `## Resolution` or the item's diff before a later run executes it |
-| Phase 4 route | Take the recommended route when it is A or B. A Route C result is a documented skip that also writes `needs_plan: true` (`--needs-plan`) |
+| Phase 4 route | Take the recommended route when it is A or B. A `plan` item that still routes to C follows § Route C in a loop run. Any other Route C result is a documented skip that also writes `needs_plan: true` (`--needs-plan`) |
 | Route A fix-agent returns `BLOCKED` | Documented skip. The evidence is the agent's blocker |
 | Phase 5 gates pass | Mark `COMPLETE` |
 | Phase 5 a gate fails | Documented skip. Revert nothing. The changes stay in the working tree, and the evidence names the failing gate and the changed files |
@@ -272,7 +313,7 @@ Ask each question in its own call, and ask the next only after the previous one 
 
 <!-- AUTO-MODE: convenience -->
 <!-- Default: per references/auto-mode-policy.md § Inference Defaults, row "Loop opt-in (backlog.md Phase 2 Q1)". -->
-**Q1.** Use `AskUserQuestion`: "Loop through the backlog this run? Each session triages one item, then the plugin's hooks module compacts and re-enters `/planwise backlog`. Looping needs the plugin's hooks module; without it this run ends after the first item and you can continue by hand."
+**Q1.** Use `AskUserQuestion`: "Loop through the backlog this run? Each session triages one item, then the plugin's hooks module compacts and re-enters `/planwise backlog`. Looping needs the plugin's hooks module; without it this run ends after the first item and you can continue by hand. With it, starting the loop also approves the in-session plans of Route C items with no large-scope signal: they are designed in plan mode and implemented without a plan dialog."
 - Option 1: No, single session (default)
 - Option 2: Yes, loop
 
@@ -291,10 +332,10 @@ If the answer is No, run the normal Phase 2 and skip this file.
 Then run `--init` with the answers:
 
 ```bash
-python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yaml --init --mode {all|specific|n} [--n {N}] [--items {004,009}] [--no-check] [--refine-max {N}]
+python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yaml --init --mode {all|specific|n} [--n {N}] [--items {004,009}] [--no-check] [--refine-max {N}] [--plan-exit]
 ```
 
-Pass the Phase 1 filters (`--priority`, `--abbrev`, `--status`) through. Pass `--no-check` when the run was started with it. Pass `--refine-max {N}` when the run was started with it, so the cap in § Eligibility is the one the user typed. Print the init report to the user: the queue with each score and provisional route, then the excluded list with reasons.
+Pass the Phase 1 filters (`--priority`, `--abbrev`, `--status`) through. Pass `--no-check` when the run was started with it. Pass `--refine-max {N}` when the run was started with it, so the cap in § Eligibility is the one the user typed. Pass `--plan-exit` only when the session's tool list holds `mcp__planwise__build_plan` or `mcp__planwise__draft_feedback`, which the hooks module registers. When neither is listed, or you are unsure, leave the flag out. Print the init report to the user: the queue with each score and provisional route, then the excluded list with reasons.
 
 ---
 

@@ -138,6 +138,22 @@ This status is the **execution gate**. The `/planwise run` command checks this b
 
 Before gathering information, check the user's prompt for **Discovery Mode** and **Scaffolding Mode** indicators. Check Discovery first — it is upstream of Scaffolding.
 
+#### Plan-Mode Design Pass (`--plan-mode`)
+
+| Indicator | Action |
+|-----------|--------|
+| `--plan-mode` flag, and the mode detection below, phrases and implicit indicators included, resolves to Standard, in an interactive session with Auto Mode not active | Run the two-turn flow below |
+| `--plan-mode` flag in any other case | Print `--plan-mode ignored: it needs an interactive Standard plan`, then continue |
+
+The flag runs ahead of mode detection only to be noticed. Turn 1 first finishes the rest of Step 0's mode detection. It runs the flow only when the result is Standard. Any other mode prints the ignored line and continues.
+
+Passing the flag approves this one plan-mode plan: the plugin's hooks module answers both plan dialogs. Without the module the dialogs render and you answer them. Whatever message comes next within 5 minutes is covered, so send nothing else. The limits are in `handlers/backlog-Part-2-LoopMode.md` § Route C in a loop run.
+
+1. **Turn 1.** Print `Send any message within 5 minutes to start the plan-mode design pass.` Then end the turn on this exact line, unfenced, with nothing after it: `PLANWISE PLAN-MODE: command=plan policy=auto`
+2. **Turn 2.** Call `EnterPlanMode`. Explore and design with foreground agents. Write the plan-mode plan file. Call `ExitPlanMode`, then continue with Steps 1-9 and the plan file as the approved approach. Keep all of this in one turn.
+
+When the previous answer ended on that line, this is turn 2.
+
 #### Discovery Mode (Meta-Plan Creation)
 
 **Explicit indicators** (go directly to Discovery mode):

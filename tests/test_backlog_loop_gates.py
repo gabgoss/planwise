@@ -21,6 +21,7 @@ Run with:  python -m pytest tests/test_backlog_loop_gates.py -q
 
 import contextlib
 import io
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -592,6 +593,191 @@ class TestRouteDefault(_GatesFixtureBase):
         record = self.read_run(payload)["items"]["001"]
         self.assertEqual(record["route_at_init"], "A")
         self.assertIsNone(record["route"])
+
+
+class TestPlanExitFlag(_GatesFixtureBase):
+    """`--init --plan-exit` queues an unrefined Route C item with no large-scope signal as `plan`."""
+
+    def edit_hub_row_010(self, **swap: str) -> None:
+        """Rewrite item 010's hub row: priority (`High`) and/or the Blocks cell (`[001]`)."""
+        hub = self.backlog_dir / "00-Index-Backlog.md"
+        text = hub.read_bytes().decode("utf-8")
+        pattern = re.compile(r"\| 010 \| Default C \| \w+ \| NOT_STARTED \| INFRA \| 2026-10-01 \| [^|]*\| 0 \|")
+        self.assertEqual(len(pattern.findall(text)), 1)
+        row = f"| 010 | Default C | {swap.get('priority', 'Low')} | NOT_STARTED | INFRA | 2026-10-01 | {swap.get('blocks', '')} | 0 |"
+        hub.write_bytes(pattern.sub(row, text).encode("utf-8"))
+
+    def only_010_eligible(self) -> None:
+        """Every other open item is marked for a planning session, so only 010 can queue."""
+        for item_id in ("001", "002", "003", "005", "006", "007", "008"):
+            self.write_item(item_id, "NOT_STARTED", "needs_plan")
+
+    def dispositions(self, payload: dict) -> dict:
+        return {q["id"]: q["disposition"] for q in payload["queue"]}
+
+    def test_flag_queues_default_c_last_as_plan_and_keeps_large_scope_excluded(self):
+        payload = self.init("--mode", "all", "--plan-exit")
+
+        self.assertEqual([q["id"] for q in payload["queue"]], ["001", "002", "006", "007", "010"])
+        self.assertEqual(
+            self.dispositions(payload),
+            {"001": "run", "002": "run", "006": "run", "007": "run", "010": "plan"},
+        )
+        self.assertEqual(payload["queue"][-1]["route_at_init"], "C")
+        reasons = {e["id"]: (e["reason"], e["large_scope"]) for e in payload["excluded"]}
+        self.assertEqual(reasons["003"], ("plans deferred in loop mode", True))
+        self.assertNotIn("010", reasons)
+        self.assertEqual(self.read_run(payload)["queue_meta"]["010"]["disposition_at_init"], "plan")
+
+        # Sub-case: a `plan` item that outscores every other item still never leads the queue.
+        self.edit_hub_row_010(priority="High")
+        payload = self.init("--mode", "all", "--plan-exit")
+        self.assertEqual([q["id"] for q in payload["queue"]][-1], "010")
+        self.assertNotEqual(payload["queue"][0]["disposition"], "plan")
+
+        # Sub-case: a `plan` item that blocks a `run` item still precedes it, and is not first.
+        self.edit_hub_row_010(blocks="[006]")
+        payload = self.init("--mode", "all", "--plan-exit")
+        order = [q["id"] for q in payload["queue"]]
+        self.assertLess(order.index("010"), order.index("006"))
+        self.assertEqual(order[0], "001")
+        self.assertEqual(
+            {q["id"]: q.get("blocked_by") for q in payload["queue"]}["006"], ["010"],
+        )
+
+    def test_plan_blocker_precedes_the_run_item_that_waits_for_it(self):
+        # 010 blocks 001, the top-scored run item. The blocker rule outranks the
+        # `plan`-last sort, so 010 queues ahead of 001 and leads the queue.
+        self.edit_hub_row_010(blocks="[001]")
+
+        payload = self.init("--mode", "all", "--plan-exit")
+        order = [q["id"] for q in payload["queue"]]
+        self.assertLess(order.index("010"), order.index("001"))
+        self.assertEqual(order[:2], ["010", "001"])
+        self.assertEqual({q["id"]: q.get("blocked_by") for q in payload["queue"]}["001"], ["010"])
+
+        # --mode n takes a waiting item only when its blocker fits in the cap. The `plan`
+        # sort puts 010 last, so N=1 leaves 001 out, and a cap that reaches 010 keeps both.
+        payload = self.init("--mode", "n", "--n", "1", "--plan-exit")
+        self.assertEqual([q["id"] for q in payload["queue"]], ["002"])
+        payload = self.init("--mode", "n", "--n", "5", "--plan-exit")
+        order = [q["id"] for q in payload["queue"]]
+        self.assertLess(order.index("010"), order.index("001"))
+        self.assertEqual(self.dispositions(payload)["010"], "plan")
+
+    def first_plan_warnings(self, payload: dict) -> list[str]:
+        return [w for w in payload["warnings"] if "is first in the queue" in w]
+
+    def test_init_warns_when_a_plan_item_is_first_because_every_item_is_plan(self):
+        self.only_010_eligible()
+
+        payload = self.init("--mode", "all", "--plan-exit")
+
+        self.assertEqual(self.dispositions(payload), {"010": "plan"})
+        self.assertEqual(
+            self.first_plan_warnings(payload),
+            ["plan item 010 is first in the queue: the first iteration is not armed, so the loop skips it"],
+        )
+        code, text, _dry = self.loop("--init", "--mode", "all", "--plan-exit", "--dry-run")
+        self.assertEqual(code, 0)
+        self.assertIn("plan item 010 is first in the queue", text)
+
+    def test_init_warns_when_a_plan_item_blocks_the_first_run_item(self):
+        self.edit_hub_row_010(blocks="[001]")
+
+        payload = self.init("--mode", "all", "--plan-exit")
+
+        self.assertEqual([q["id"] for q in payload["queue"]][:2], ["010", "001"])
+        self.assertEqual(len(self.first_plan_warnings(payload)), 1)
+        self.assertIn("plan item 010 is first", self.first_plan_warnings(payload)[0])
+
+    def test_init_does_not_warn_when_a_run_item_leads(self):
+        payload = self.init("--mode", "all", "--plan-exit")
+
+        self.assertEqual(payload["queue"][0]["disposition"], "run")
+        self.assertEqual(self.first_plan_warnings(payload), [])
+
+    def test_init_does_not_warn_without_the_flag(self):
+        self.edit_hub_row_010(blocks="[001]")
+
+        payload = self.init("--mode", "all")
+
+        self.assertNotIn("plan", {q["disposition"] for q in payload["queue"]})
+        self.assertEqual(self.first_plan_warnings(payload), [])
+
+    def test_flag_absent_keeps_the_queue_and_the_reasons(self):
+        # Control: without --plan-exit the queue and every reason are today's.
+        payload = self.init("--mode", "all")
+
+        self.assertEqual([q["id"] for q in payload["queue"]], ["001", "002", "006", "007"])
+        self.assertEqual({q["disposition"] for q in payload["queue"]}, {"run"})
+        reasons = {e["id"]: (e["reason"], e["large_scope"]) for e in payload["excluded"]}
+        self.assertEqual(reasons["003"], ("plans deferred in loop mode", True))
+        self.assertEqual(reasons["010"], ("needs refine", False))
+        self.assertEqual(reasons["009"][0], "marked for a planning session")
+        self.assertNotIn("plan", {q["disposition"] for q in payload["queue"]})
+
+        # The same call as a dry run, and with --refine-max, also ignores 010 as `plan`.
+        code, _text, dry = self.loop("--init", "--mode", "all", "--dry-run")
+        self.assertEqual(code, 0)
+        self.assertEqual([q["id"] for q in dry["queue"]], ["001", "002", "006", "007"])
+        refined = self.init("--mode", "all", "--refine-max", "5")
+        self.assertNotIn("plan", {q["disposition"] for q in refined["queue"]})
+
+    def test_flag_leaves_every_other_exclusion_in_place(self):
+        without = self.init("--mode", "all")
+        flagged = self.init("--mode", "all", "--plan-exit")
+
+        def kept(payload: dict) -> dict:
+            return {e["id"]: e for e in payload["excluded"] if e["id"] != "010"}
+
+        # 003 (large scope), 008 (open questions), 009 (needs_plan) and 005 (waits for a held item)
+        # keep the same entries with and without the flag. 010 is the only change.
+        self.assertEqual(kept(flagged), kept(without))
+        self.assertEqual({e["id"] for e in flagged["excluded"]} | {"010"}, {e["id"] for e in without["excluded"]})
+        reasons = {e["id"]: e["reason"] for e in flagged["excluded"]}
+        self.assertEqual(reasons["009"], "marked for a planning session")
+        self.assertIn("008", reasons)
+        for item_id, disposition in self.dispositions(flagged).items():
+            if item_id != "010":
+                self.assertEqual(disposition, "run", item_id)
+        # unmeasured: a placement verdict needs a scoped-rules fixture this base does not carry.
+
+    def test_next_reports_plan_and_mark_records_route_c(self):
+        self.only_010_eligible()
+        payload = self.init("--mode", "all", "--plan-exit")
+        run_id = payload["run"]
+        # When `plan` is the only queued item, the script queues it first: it holds no guard.
+        self.assertEqual(self.dispositions(payload), {"010": "plan"})
+
+        code, text, popped = self.loop("--next", "--run", run_id)
+
+        self.assertEqual((code, popped["next"], popped["disposition"]), (0, "010", "plan"))
+        self.assertEqual(popped["route_at_init"], "C")
+        self.assertIn("plan); 0 remaining", text)
+        self.write_item("010", "IN_PROGRESS", "default_c")
+        code, _text, _marked = self.loop("--mark", "--run", run_id, "--id", "010", "--outcome", "COMPLETE")
+        self.assertEqual(code, 0)
+        record = self.read_run(payload)["items"]["010"]
+        self.assertEqual((record["route_at_init"], record["route"], record["outcome"]), ("C", "C", "COMPLETE"))
+
+        # --status and the dry run read the new value without error.
+        code, text, _status = self.loop("--status", "--run", run_id)
+        self.assertEqual(code, 0, text)
+        code, text, dry = self.loop("--init", "--mode", "all", "--plan-exit", "--dry-run")
+        self.assertEqual(code, 0)
+        self.assertEqual(dry["queue"][0]["disposition"], "plan")
+        self.assertIn("plan  Default C", text)
+
+    def test_next_with_plan_exit_is_a_usage_error_and_writes_nothing(self):
+        payload = self.init("--mode", "all")
+        before = self.run_path(payload).read_bytes()
+
+        code, _text, error = self.loop("--next", "--run", payload["run"], "--plan-exit")
+
+        self.assertEqual(code, 1)
+        self.assertEqual(error["error"], "--plan-exit applies to --init only")
+        self.assertEqual(self.run_path(payload).read_bytes(), before)
 
 
 if __name__ == "__main__":

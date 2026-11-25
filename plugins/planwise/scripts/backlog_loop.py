@@ -591,6 +591,9 @@ def cmd_init(args, config: dict) -> int:
             if signals["route"] in ("A", "B"):
                 eligible.append((item, signals, "run"))
                 continue
+            if args.plan_exit and signals["route"] == "C" and not signals["large_scope"]:
+                eligible.append((item, signals, "plan"))
+                continue
             # Past the cap, an unrefined Route C item keeps its old exclusion:
             # a strong scope signal defers it to a planning session, and the
             # conservative default branch means it needs refining first.
@@ -621,6 +624,9 @@ def cmd_init(args, config: dict) -> int:
                     return True
             if signals["route"] in ("A", "B"):
                 pair_of[key] = (item, signals, "run")
+                return True
+            if args.plan_exit and signals["route"] == "C" and not signals["large_scope"]:
+                pair_of[key] = (item, signals, "plan")
                 return True
             reason = EXCLUDED_REASON if signals["large_scope"] else NEEDS_REFINE_REASON
         excluded.append(excluded_entry(item, signals, reason))
@@ -682,12 +688,22 @@ def cmd_init(args, config: dict) -> int:
             warnings.append(DECISION_PENDING_HINT)
     else:
         # Score order, with each candidate at the place its own score gives it.
-        ranked = sorted([*eligible, *((item, None, "") for item in candidates.values())], key=by_score)
+        # The sort puts `plan` items after run items, so a `plan` item leads only when
+        # nothing else queues before it or it blocks the first item. The warning below covers that.
+        ranked = sorted(
+            [*eligible, *((item, None, "") for item in candidates.values())],
+            key=lambda pair: (pair[2] == "plan", *by_score(pair)),
+        )
         base = [normalize_id(pair[0]["id"]) for pair in ranked]
         queue_keys, _left_out = order_with_blockers(
             base, blocked_by, accept, limit=args.n if args.mode == "n" else None
         )
     queue_pairs = [pair_of[key] for key in queue_keys]
+    if args.plan_exit and queue_pairs and queue_pairs[0][2] == "plan":
+        warnings.append(
+            f"plan item {queue_pairs[0][0]['id']} is first in the queue: "
+            "the first iteration is not armed, so the loop skips it"
+        )
     # In --mode specific the hint rides in the warnings; otherwise it follows the report.
     pending_hint = (
         args.mode != "specific" and any(entry["reason"] == DECISION_PENDING_REASON for entry in excluded)
@@ -1380,6 +1396,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="With --mark --refined DECOMPOSE: comma-separated ids of the sub-items filed.",
     )
     parser.add_argument(
+        "--plan-exit", action="store_true", dest="plan_exit",
+        help="With --init: queue an unrefined Route C item with no large-scope signal as "
+             "disposition `plan`. Pass it only when the hooks module is loaded.",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true", dest="dry_run",
         help="With --init: print the queue and the exclusions; write no run file.",
     )
@@ -1410,6 +1431,8 @@ def main(argv: list[str] | None = None) -> int:
             )
         if args.dry_run and actions[0] != "init":
             raise LoopExit(EXIT_USAGE, "--dry-run applies to --init only")
+        if args.plan_exit and not args.init:
+            raise LoopExit(EXIT_USAGE, "--plan-exit applies to --init only")
         try:
             config = load_config(Path(__file__), config_path=args.config)
         except FileNotFoundError as exc:
