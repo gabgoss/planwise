@@ -686,6 +686,7 @@ def test_a_whole_plan_in_the_old_shape_prints_no_new_level(tmp_path, capsys, mon
         path.write_bytes(text.encode("utf-8"))
     tsw.write_estimates([plan / ds.READ_PATH / "QZX-S01-01-01-Sonnet-Probe.md"], plan, tmp_path)
     (plan / ds.MASTER).write_bytes(ds.OLD_MASTER.encode("utf-8") + b"\xff\n")  # no level reads this file
+    (tmp_path / ".git").mkdir()  # the config search stops here, below other tests' folders
     monkeypatch.chdir(tmp_path)
     code, lines = _check(plan, capsys)
     assert (code, lines) == (0, ["estimates: sessions=1 mismatches=0 unread=0"])
@@ -695,6 +696,7 @@ def test_a_whole_plan_in_the_old_shape_prints_no_new_level(tmp_path, capsys, mon
 def test_reconcile_returns_what_the_command_prints(priced, capsys, monkeypatch):
     _set_row_cell(priced, *SIZED_CASES["surface-kib"], _scaled(2))
     _set_row_cell(priced, *SIZED_CASES["surface-tokens"], lambda _c: "~?")
+    (priced.root / ".git").mkdir()  # the config search stops here, below other tests' folders
     before = priced.snapshot()
     report = er.reconcile(priced.plan, priced.root)
     assert capsys.readouterr().out == ""
