@@ -134,6 +134,15 @@ def test_declined_task_tools_offer_applies_cleanly(tmp_path, capsys):
     assert refused.value.code == 2
 
 
+def test_task_tools_offer_is_recommended(tmp_path):
+    """The to-do tools are the point of the offer, so its default is add."""
+    box = ucp.upgraded(tmp_path)
+    ucp.drop_env_key(settings(box), TODO)
+    offers = upgrade_run.build_offers(box.resolve(), ucp.config_path(box), PAIR, None, "")
+    found = next(o for o in offers if o["id"] == "task-tools:add")
+    assert found["default"] == "add" and found["text"].startswith("recommended:"), found
+
+
 def test_no_flags_prints_nothing_to_apply(tmp_path, capsys):
     code, out = apply(capsys, ucp.upgraded(tmp_path))
     assert code == 0 and out.strip() == "Nothing to apply."

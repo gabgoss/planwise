@@ -354,8 +354,9 @@ def build_offers(project_root: Path, config_path: Path, pair: str, user_settings
             offers.append({"id": "thrifty-sonic:add", "default": "add", "apply": ["--thrifty-sonic", "add"],
                            "text": text})
     if project_scope and found["task_tools"] == "absent":
-        offers.append({"id": "task-tools:add", "default": "skip", "apply": ["--task-tools", "add"],
-                       "text": "CLAUDE_CODE_ENABLE_TODO_TOOLS is not set"})
+        offers.append({"id": "task-tools:add", "default": "add", "apply": ["--task-tools", "add"],
+                       "text": "recommended: CLAUDE_CODE_ENABLE_TODO_TOOLS is not set, so newer models get no "
+                               "to-do list (Ctrl+T) and /planwise run cannot show its progress there"})
     for row in transfer_review.review_transfers(cfg, exclude_pair=pair):
         if row["status"] == "now-upstream" and not transfer_check(cfg, row["path"])[0]:
             offers.append({"id": f"transfer-delete:{row['path']}", "default": "skip",
