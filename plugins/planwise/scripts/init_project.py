@@ -487,11 +487,15 @@ def _write_settings_json(path: Path, settings: dict, original: bytes | None) -> 
     path.write_bytes(bom + body.encode("utf-8"))
 
 
+SUBAGENT_CACHE_KEY = "subagentPromptCacheTtl"  # a top-level settings key, not an env var
+SUBAGENT_CACHE_VALUE = "1h"
+
+
 def configure_settings(cfg: InitConfig) -> tuple[str | None, str | None, str | None]:
     """Apply all settings.json mutations in a single read-write cycle.
 
     Configures the Agent Teams env var, the Task checklist tools env var,
-    and plugin read permissions. A file whose merged content equals what it
+    the subagent cache lifetime (opt-in) and plugin read permissions. A file whose merged content equals what it
     already holds is not rewritten.
     Returns (settings_path, plugin_dir, status). status is "added" (no file
     before), "updated" or "unchanged". All three are None when the file holds
@@ -517,6 +521,12 @@ def configure_settings(cfg: InitConfig) -> tuple[str | None, str | None, str | N
     # Fable 5/Mythos 5 and newer since Claude Code 2.1.233 unless a project
     # opts in.
     env["CLAUDE_CODE_ENABLE_TODO_TOOLS"] = "1"
+
+    # Subagent prompt cache lifetime: Claude Code gives a subagent five minutes by
+    # default. Opt-in, because a 1-hour cache write is billed at a higher rate.
+    # A value the file already holds is the user's choice and stays.
+    if cfg.subagent_cache_1h:
+        settings.setdefault(SUBAGENT_CACHE_KEY, SUBAGENT_CACHE_VALUE)
 
     # Plugin permissions
     # Grant the version-agnostic plugin-family root (cfg.plugin_root.parent) rather
@@ -828,6 +838,9 @@ def main():
     parser.add_argument("--feedback-enabled", action=argparse.BooleanOptionalAction, default=None,
                         help="fresh init or --upgrade: --feedback-enabled sets feedback.enabled: true, "
                              "--no-feedback-enabled sets it to false; with neither, the template value stays")
+    parser.add_argument("--subagent-cache-1h", action="store_true",
+                        help="fresh init: set subagentPromptCacheTtl to 1h in the install scope's settings "
+                             "file, unless that file already sets it")
     parser.add_argument("--no-calibrate", action="store_true",
                         help="With --upgrade: skip the Token Saver recalibration the "
                              "upgrade runs when Token Saver is on.")
@@ -978,6 +991,12 @@ def main():
             parser.error(f"--feedback-drafts and --feedback-enabled apply only to a fresh init "
                          f"or --upgrade, not with {_other[0]}")
 
+    # Same reason: only a fresh init writes settings, so no other mode may drop the answer.
+    if args.subagent_cache_1h and (args.upgrade or args.migrate or args.doctor or args.list_diverged
+                                   or args.review_transfers or args.prune_stale
+                                   or args.prune_upgrade_leftovers or args.hash_installed):
+        parser.error("--subagent-cache-1h applies only to a fresh init")
+
     if args.hash_installed:
         # The upgrade handler interpolates an absolute path here once per verdict
         # entry, so a typo'd or moved path must surface as a one-line error, not a
@@ -1016,6 +1035,7 @@ def main():
         feedback_drafts=args.feedback_drafts,
         feedback_enabled=args.feedback_enabled,
         no_calibrate=args.no_calibrate,
+        subagent_cache_1h=args.subagent_cache_1h,
     )
 
     if args.prune_stale:
@@ -1247,6 +1267,10 @@ def main():
         print(f"  {settings_status}: Agent Teams + Task tools ({settings_path})")
         if plugin_dir:
             print(f"  + additionalDirectories: {plugin_dir}")
+        if cfg.subagent_cache_1h:
+            value = json.loads(Path(settings_path).read_text(encoding="utf-8-sig"))[SUBAGENT_CACHE_KEY]
+            kept = "" if value == SUBAGENT_CACHE_VALUE else ", an existing value, kept"
+            print(f"  {SUBAGENT_CACHE_KEY}: {value}{kept}")
     else:
         print("Settings: skipped (see warning above)")
         skipped.append(SkippedArtifact(

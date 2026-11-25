@@ -226,7 +226,9 @@ Two rules follow, and a handler must satisfy both:
 | Upgrade leftover prune question (upgrade-Part-3 Step 4.3, and doctor-Part-2 Stage 14b) | Skip every class. Deleting files is never inferred, and each class is asked on its own. Nothing under an unconfirmed class is touched. |
 | Settings grant normalization question (upgrade-Part-3 Step 4.4) | Report only. Print the report and the target value, and change no settings file. Rewriting `additionalDirectories` changes the user's file-access grants. |
 | GitHub CLI install question (upgrade-Part-3 Step 4.5) | No. Install nothing. An unattended run never invokes a package manager. |
-| Task-tools env var question (upgrade-Part-3 Step 4.6) | Report only. Print the report and change no settings file. An unattended run never rewrites `env`. |
+| Task-tools env var question (upgrade-Part-3 Step 4.6) | Add the key when it is absent. Adding it removes nothing and sets the value the init writer sets for every new project. Any value already present stays. |
+| Subagent cache lifetime question (upgrade-Part-4 Step 4.8) | Report only. Change no settings file. A 1-hour cache write is billed at a higher rate, so only an explicit yes adds the key. |
+| Subagent cache lifetime question (init.md Step 1, and every `--auto-from` init) | Pass no `--subagent-cache-1h` flag, for the same billing reason. The inference is logged. |
 | Thrifty-sonic env var question (upgrade-Part-3 Step 4.7) | Add the key for a file classed `missing`. Report only for a file classed `wrong value` or `invalid JSON`. Adding an absent key to `env` removes nothing and sets the value the init writer sets for every new project. Replacing a value the user set is not additive, so it needs a yes. |
 | Feedback directory creation question (doctor-Part-2 Stage 17b) | Skip. Leave the directory absent and repeat the Stage 17 remedy line. |
 

@@ -292,6 +292,35 @@ def task_tools_state(cfg) -> str:
     return "absent"
 
 
+SUBAGENT_CACHE_KEY = "subagentPromptCacheTtl"  # a top-level settings key, the one init_project writes
+SUBAGENT_CACHE_ENV = "CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL"  # outranks the key, so it counts as a choice
+
+
+def subagent_cache_target(cfg, user_settings: Path) -> Path:
+    """The settings file of the install scope: the one place the offer writes."""
+    claude = cfg.project_root / ".claude"
+    return {"user": user_settings, "local": claude / "settings.local.json"}.get(
+        cfg.install_scope, claude / "settings.json")
+
+
+def subagent_cache_state(cfg, user_settings: Path) -> str:
+    """`set` when any settings file already chooses a subagent cache lifetime, whatever the value, else `absent`.
+
+    `invalid JSON` when the target file does not parse, so the offer is never made for a file the apply step
+    would leave alone.
+    """
+    claude = cfg.project_root / ".claude"
+    for path in (claude / "settings.json", claude / "settings.local.json", user_settings):
+        data, _klass = _settings_json(path)
+        if not isinstance(data, dict):
+            continue
+        env = data.get("env")
+        if SUBAGENT_CACHE_KEY in data or (isinstance(env, dict) and SUBAGENT_CACHE_ENV in env):
+            return "set"
+    klass = _settings_json(subagent_cache_target(cfg, user_settings))[1]
+    return klass if klass == "invalid JSON" else "absent"
+
+
 def gh_state() -> str:
     """ok, unauthenticated, absent or timed-out, from the plugin's single `gh` probe."""
     import doctor_probes
@@ -311,6 +340,7 @@ def offers(cfg, user_settings: Path) -> dict:
         "grants": doctor_cli._sweep_settings_grants(cfg),
         "gh": gh_state(),
         "task_tools": task_tools_state(cfg),
+        "subagent_cache": subagent_cache_state(cfg, user_settings),
         "thrifty": {
             "project": thrifty_class(cfg.project_root / ".claude" / "settings.json"),
             "user": thrifty_class(user_settings),
@@ -319,7 +349,11 @@ def offers(cfg, user_settings: Path) -> dict:
 
 
 def offers_pending(found: dict, scope: str) -> str:
-    """The first pending offer as a reason, or ''."""
+    """The first pending offer as a reason, or ''.
+
+    The subagent-cache offer is left out on purpose: a No leaves no key behind, so counting it would keep every
+    later up-to-date run from being a no-op. A run that does anything else still lists it.
+    """
     if scope == "project" and found["grants"]:
         return f"{len(found['grants'])} settings grant(s) need normalizing"
     bad = [k for k, v in found["thrifty"].items() if v != "ok"]
@@ -664,6 +698,7 @@ def render_card(ctx: dict, rows: list, questions: list, transfers: list, found: 
     grant_text = "none" if not grants else f"{len(grants)} ({', '.join(sorted({g['klass'] for g in grants}))})"
     thrifty = found["thrifty"]
     lines.append(f"Offers: grants={grant_text}; gh={found['gh']}; task-tools={found['task_tools']}; "
+                 f"subagent-cache={found['subagent_cache']}; "
                  f"thrifty-sonic={{project:{thrifty['project']}, user:{thrifty['user']}}}")
     if artifacts:
         lines.append("Recovery artifacts: " + " ".join(f"{klass} {str(path).replace(chr(92), '/')} ({count})"

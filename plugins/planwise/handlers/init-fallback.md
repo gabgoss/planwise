@@ -131,6 +131,8 @@ Enable Agent Teams and the Task checklist tools (`TaskCreate`/`TaskUpdate`/`Task
 
 **Important:** Preserve all existing settings in the file. Only add/update the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` and `CLAUDE_CODE_ENABLE_TODO_TOOLS` keys within the `env` object.
 
+When `{subagent_cache}` is `yes` and the same file has no top-level `subagentPromptCacheTtl` key, also add `"subagentPromptCacheTtl": "1h"` at the top level, beside `env` and not inside it. Keep an existing value.
+
 Then repeat the read-merge-write for `"CLAUDE_CODE_THRIFTY_SONIC": "false"` on BOTH `.claude/settings.json` and `~/.claude/settings.json`, whatever `{install_scope}` is. This variable is a session-behavior toggle meant to apply everywhere, so it is not scoped to one install. Treat each file independently: if one does not parse as JSON, warn, leave it untouched, and still write the other. Never write it to `.claude/settings.local.json`.
 
 ---

@@ -134,6 +134,102 @@ def test_declined_task_tools_offer_applies_cleanly(tmp_path, capsys):
     assert refused.value.code == 2
 
 
+CACHE = "subagentPromptCacheTtl"
+
+
+def offer(box, offer_id, user=None):
+    built = upgrade_run.build_offers(box.resolve(), ucp.config_path(box), PAIR, user, "")
+    return next((o for o in built if o["id"] == offer_id), None)
+
+
+def test_task_tools_offer_is_recommended(tmp_path):
+    """The to-do tools are the point of the offer, so its default is add."""
+    box = ucp.upgraded(tmp_path)
+    ucp.drop_env_key(settings(box), TODO)
+    found = offer(box, "task-tools:add")
+    assert found["default"] == "add" and found["text"].startswith("recommended:"), found
+
+
+def test_subagent_cache_offer_adds_the_key_and_then_stops(tmp_path, capsys):
+    box = ucp.upgraded(tmp_path)
+    before = json.loads(settings(box).read_text(encoding="utf-8-sig"))
+    assert CACHE not in before
+    found = offer(box, "subagent-cache:add")
+    assert found["default"].startswith("add") and found["apply"] == ["--subagent-cache", "add"], found
+    code, out = apply(capsys, box, *found["apply"])
+    assert code == 0, out
+    # only the one top-level key changed, and it is not an env var
+    assert json.loads(settings(box).read_text(encoding="utf-8-sig")) == {**before, CACHE: "1h"}
+    assert offer(box, "subagent-cache:add") is None
+
+
+@pytest.mark.parametrize("change", [
+    lambda d: d.update({CACHE: "5m"}),
+    lambda d: d.setdefault("env", {}).update(CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL="5m"),
+], ids=["key", "env"])
+def test_subagent_cache_keeps_a_chosen_lifetime(tmp_path, capsys, change):
+    box = ucp.upgraded(tmp_path)
+    ucp.edit_json(settings(box), change)
+    before = settings(box).read_bytes()
+    assert offer(box, "subagent-cache:add") is None
+    code, out = apply(capsys, box, "--subagent-cache", "add")
+    assert code == 0 and "already set, kept" in out, out
+    assert settings(box).read_bytes() == before
+
+
+def test_subagent_cache_reads_the_user_file_too(tmp_path):
+    box = ucp.upgraded(tmp_path)
+    assert offer(box, "subagent-cache:add")
+    ucp.edit_json(home_settings(), lambda d: d.update({CACHE: "1h"}))
+    assert offer(box, "subagent-cache:add") is None
+
+
+@pytest.mark.parametrize("scope", ["user", "local"])
+def test_subagent_cache_follows_the_install_scope(tmp_path, capsys, scope):
+    box = ucp.upgraded(tmp_path)
+    ucp.edit_config(box, r'^  install_scope: "project"', f'  install_scope: "{scope}"')
+    flag = tmp_path / "user" / ".claude" / "settings.json"
+    flag.parent.mkdir(parents=True)
+    flag.write_bytes(b'{"KEEP": "1"}\n')
+    project_before = settings(box).read_bytes()
+    code, out = apply(capsys, box, "--subagent-cache", "add", "--user-settings", str(flag))
+    assert code == 0, out
+    local = settings(box, "settings.local.json")
+    if scope == "user":
+        assert json.loads(flag.read_text(encoding="utf-8")) == {"KEEP": "1", CACHE: "1h"}
+        assert not local.exists()
+    else:
+        assert json.loads(local.read_text(encoding="utf-8"))[CACHE] == "1h"
+        assert flag.read_bytes() == b'{"KEEP": "1"}\n'
+    assert settings(box).read_bytes() == project_before
+
+
+def test_subagent_cache_leaves_invalid_json_alone(tmp_path, capsys):
+    box = ucp.upgraded(tmp_path)
+    settings(box).write_text("{ not json", encoding="utf-8")
+    assert offer(box, "subagent-cache:add") is None
+    code, out = apply(capsys, box, "--subagent-cache", "add")
+    assert code == 0 and "does not parse" in out, out
+    assert settings(box).read_text(encoding="utf-8") == "{ not json"
+
+
+def test_init_writes_the_subagent_cache_only_with_the_flag(tmp_path):
+    for name, extra, want in (("off", (), None), ("on", ("--subagent-cache-1h",), "1h")):
+        root = tmp_path / name
+        root.mkdir()
+        ucp.run_init(root, "--no-calibrate", *extra)
+        assert json.loads(settings(root).read_text(encoding="utf-8")).get(CACHE) == want, name
+    # a value the file already holds is kept, and the output says so
+    root = tmp_path / "kept"
+    (root / ".claude").mkdir(parents=True)
+    settings(root).write_text(json.dumps({CACHE: "5m"}), encoding="utf-8")
+    out = ucp.run_init(root, "--no-calibrate", "--subagent-cache-1h")
+    assert json.loads(settings(root).read_text(encoding="utf-8"))[CACHE] == "5m"
+    assert f"{CACHE}: 5m, an existing value, kept" in out
+    with pytest.raises(RuntimeError, match="exited 2"):
+        ucp.run_init(root, "--upgrade", "--subagent-cache-1h")
+
+
 def test_no_flags_prints_nothing_to_apply(tmp_path, capsys):
     code, out = apply(capsys, ucp.upgraded(tmp_path))
     assert code == 0 and out.strip() == "Nothing to apply."

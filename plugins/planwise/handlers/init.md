@@ -81,12 +81,13 @@ claude plugin install planwise@{marketplace_name} --scope {scope}
 ### Step 1 — Gather project information
 
 <!-- AUTO-MODE: convenience -->
-<!-- All 10 sub-questions are convenience. Defaults: project_name = cwd basename (strip suffix);
+<!-- All 11 sub-questions are convenience. Defaults: project_name = cwd basename (strip suffix);
      install_scope = project; planwise_root = planwise; plans_dir = Plans;
      backlog_dir = Backlog; lessons_dir = LessonsLearned; plan_tier = pro;
-     token_saver = yes (recommended); questions 9 and 10 per references/auto-mode-policy.md
-     § Inference Defaults ("Feedback drafts level" and "Feedback drafts posting opt-in",
-     init.md Step 1 rows): ask nothing, pass neither flag, log the inference. -->
+     token_saver = yes (recommended); questions 9, 10 and 11 per references/auto-mode-policy.md
+     § Inference Defaults ("Feedback drafts level", "Feedback drafts posting opt-in" and
+     "Subagent cache lifetime question", init.md Step 1 rows): ask nothing, pass none of
+     their flags, log the inference. -->
 Use `AskUserQuestion` to collect:
 
 1. **Project name** — The name of this project (e.g., "MyApp", "DataPipeline")
@@ -105,7 +106,11 @@ Use `AskUserQuestion` to collect:
 
     > "Enable upstream posting (`feedback.enabled: true`)? Posting needs `gh` installed and authenticated. An interactive run shows you each issue body and asks first. Auto Mode, backlog loop and harvest runs post without asking, once a privacy check passes. Options: "Yes (Recommended)" — set feedback.enabled: true | "No" — keep drafts local and set feedback.enabled: false"
 
-`AskUserQuestion` takes at most four questions per call, so split the ten questions across calls.
+11. **Subagent cache lifetime** (`subagentPromptCacheTtl`) — ask exactly this text:
+
+    > "Keep subagent prompt caches for 1 hour instead of 5 minutes? planwise runs many subagents, and one that pauses for more than five minutes pays to write its whole prompt again. The setting goes in your install scope's settings file and applies to every subagent there. A 1-hour cache write costs more than a 5-minute one. Options: "Yes (Recommended)" — add subagentPromptCacheTtl: 1h | "No" — keep Claude Code's default"
+
+`AskUserQuestion` takes at most four questions per call, so split the eleven questions across calls.
 
 Store responses as:
 - `{project_name}` — from question 1
@@ -118,6 +123,7 @@ Store responses as:
 - `{token_saver}` — from question 8 (use `yes` if blank; must be one of: `yes`, `no`). When `yes`, pass `--token-saver` to `init_project.py` (Step 2 / Step 5) so the generated `config.yaml` sets `context.token_saver: true`.
 - `{feedback_drafts}` — from question 9 (`notify`, `quiet` or `off`; leave it unset if blank). When set, pass `--feedback-drafts {feedback_drafts}` to `init_project.py`.
 - `{feedback_enabled}` — from question 10 (`yes` or `no`; use `yes` if blank). A blank answer counts as `yes`, because the question recommends Yes. When `yes`, pass `--feedback-enabled`. When `no`, pass `--no-feedback-enabled`, so the config writes the value false.
+- `{subagent_cache}` — from question 11 (`yes` or `no`; use `yes` if blank, because the question recommends Yes). When `yes`, pass `--subagent-cache-1h`. When `no`, pass no flag. A lifetime the settings file already sets is kept.
 
 ---
 
@@ -127,13 +133,13 @@ Try running the Python init script first. It handles directory creation, seed fi
 
 **Resolve `{plugin_root}`:** For first-time init, use the root that Step 0 verified as `OK`, or the copy the user chose to keep at Step 0. Either one is the plugin base directory that SKILL.md provides. For re-init, read `plugin_root` from the existing `config.yaml`.
 
-Run the script (append `--token-saver` and `--feedback-drafts` only as Step 1 recorded them, and always end with `{feedback_enabled_flag}`, which is `--feedback-enabled` or `--no-feedback-enabled`):
+Run the script (append `--token-saver`, `--feedback-drafts` and `--subagent-cache-1h` only as Step 1 recorded them, and always end with `{feedback_enabled_flag}`, which is `--feedback-enabled` or `--no-feedback-enabled`):
 
 ```bash
-python "{plugin_root}/scripts/init_project.py" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}" --plan-tier "{plan_tier}" --token-saver --feedback-drafts "{feedback_drafts}" {feedback_enabled_flag}
+python "{plugin_root}/scripts/init_project.py" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}" --plan-tier "{plan_tier}" --token-saver --feedback-drafts "{feedback_drafts}" --subagent-cache-1h {feedback_enabled_flag}
 ```
 
-Omit the `--token-saver` flag when `{token_saver}` is `no` — the generated config then sets `context.token_saver: false`. Omit `--feedback-drafts` when `{feedback_drafts}` is unset. Always pass one of the two enabled flags: `{feedback_enabled_flag}` is `--feedback-enabled` for `yes` and `--no-feedback-enabled` for `no`. With no feedback flag at all the generated config keeps the template values, `feedback.drafts: notify` and `feedback.enabled: true`. The script writes the answers through the same splice writer `/planwise upgrade` uses and prints one `Feedback keys:` line with the values it read back.
+Omit the `--token-saver` flag when `{token_saver}` is `no` — the generated config then sets `context.token_saver: false`. Omit `--feedback-drafts` when `{feedback_drafts}` is unset. Omit `--subagent-cache-1h` when `{subagent_cache}` is `no`. Always pass one of the two enabled flags: `{feedback_enabled_flag}` is `--feedback-enabled` for `yes` and `--no-feedback-enabled` for `no`. With no feedback flag at all the generated config keeps the template values, `feedback.drafts: notify` and `feedback.enabled: true`. The script writes the answers through the same splice writer `/planwise upgrade` uses and prints one `Feedback keys:` line with the values it read back.
 
 If `python` is not found, try `python3`.
 
@@ -380,6 +386,9 @@ Token Saver:
 
 Agent Teams:
   ✓ CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 → {settings_file}   (added / updated / unchanged, as the script reports; an unchanged file is not rewritten)
+
+Subagent cache lifetime:
+  ✓ subagentPromptCacheTtl: 1h → {settings_file}   (only when question 11 was yes; relay the script's line, which says when an existing value was kept)
 
 Session env var (user + project settings):
   ✓ CLAUDE_CODE_THRIFTY_SONIC=false → ~/.claude/settings.json and {project_root}/.claude/settings.json   (per file: added / corrected / unchanged / skipped — invalid JSON)

@@ -516,7 +516,7 @@ Opus 4.8, Sonnet 5, Fable 5, Mythos 5 and newer models, and /planwise run falls
 back to Recovery-only tracking (Track A).
 ```
 
-The **report always renders**, regardless of consent. The **write happens only on explicit interactive approval**: `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->`) — "Add `CLAUDE_CODE_ENABLE_TODO_TOOLS: "1"` to {settings_path}'s env block?" — the inferred default is the "Task-tools env var question" row of `references/auto-mode-policy.md` § Inference Defaults. On confirm, merge the key into the existing `env` object — preserve every other key, never overwrite an unrelated env var — write, then read the file back to confirm the write landed, and note that a **new session** is required for the tools to appear (the current session's tool list is fixed at startup). On decline, or when no interactive answer is available, print the report and leave every settings file untouched.
+The **report always renders**, regardless of consent. **Recommend turning it on.** `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->`) — "Turn on the to-do list tools by adding `CLAUDE_CODE_ENABLE_TODO_TOOLS: "1"` to {settings_path}'s env block? Yes (Recommended) / No". List Yes first. The inferred default is the "Task-tools env var question" row of `references/auto-mode-policy.md` § Inference Defaults, which adds an absent key. On Yes or that default, merge the key into the existing `env` object — preserve every other key, never overwrite an unrelated env var — write, then read the file back to confirm the write landed, and note that a **new session** is required for the tools to appear (the current session's tool list is fixed at startup). On decline, print the report and leave every settings file untouched.
 
 > [!practice] Why this offer runs at upgrade time and not only at init
 > `scripts/init_project.py::configure_settings()` writes `CLAUDE_CODE_ENABLE_TODO_TOOLS` unconditionally for every new project, same as Agent Teams. But every install that predates that write has already run its `init` and will never run it again, so an init-only placement leaves those consumers permanently dependent on noticing `handlers/doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md` Stage 18's advisory and hand-editing their settings file. This step reaches that population — the same reasoning Step 4.5 already states for the GitHub CLI offer.
@@ -542,6 +542,10 @@ The **write happens only on approval**: `AskUserQuestion` (`<!-- AUTO-MODE: conv
 
 > [!practice] Why this offer runs at upgrade time and not only at init
 > `scripts/init_project.py::configure_thrifty_sonic()` writes the variable to both files for every new project. Every install that predates that write has already run its `init` and never will again, so an init-only placement leaves those consumers unprovisioned. Steps 4.5 and 4.6 state the same reasoning for their offers. The read-only drift report is `handlers/doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md` Stage 15b, and its remedy points back to this step.
+
+---
+
+Next, run [Step 4.8 — Subagent cache lifetime offer](upgrade-Part-4-PostRunReportsAndBackfills.md#step-48--subagent-cache-lifetime-offer), which Part 4 holds.
 
 ---
 

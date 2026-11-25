@@ -619,6 +619,19 @@ artifacts:
     missing_key_behavior: warn_loud
     upgrade_behavior: preserve
 
+  - id: subagent_cache_ttl
+    on_disk: "{settings_file}: subagentPromptCacheTtl"
+    config_keys:
+      - "project.install_scope"
+    producer: "configure_settings()"
+    consumers:
+      - "every subagent run under that settings file"
+    missing_key_behavior: warn_loud
+    upgrade_behavior: preserve
+    notes: >
+      Opt-in: written only on a Yes to the init question or to the /planwise
+      upgrade Step 4.8 offer. A value the user already set is kept.
+
   - id: thrifty_sonic_env
     on_disk: ".claude/settings.json and ~/.claude/settings.json: env.CLAUDE_CODE_THRIFTY_SONIC"
     config_keys:

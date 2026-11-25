@@ -381,6 +381,7 @@ class InitConfig:
     feedback_drafts: str | None = None
     feedback_enabled: bool | None = None  # True writes true, False writes false, None keeps the file's value
     no_calibrate: bool = False
+    subagent_cache_1h: bool = False  # True adds the subagent cache setting when the file does not set one
 
     @property
     def context_window(self) -> int:
