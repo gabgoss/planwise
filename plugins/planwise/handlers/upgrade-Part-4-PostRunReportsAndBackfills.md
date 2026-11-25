@@ -1,6 +1,6 @@
 # Handler: /planwise upgrade — Part 4: Post-Run Reports and Backfills
 
-**Part 4 of [upgrade.md](upgrade.md).** Part 1 carries the Config Gate and Steps 1-2.4 of the Workflow, and is the file `/planwise upgrade` dispatches to. This part carries Step 2.5 (Refresh Token Saver calibration) through Step 2.8 (Feedback keys backfill and banner), the reports and backfills that follow the Step 2.4 script run. Read it after Step 2.4. It also holds Step 4.8 (Subagent cache lifetime offer), which runs after Part 3. [`upgrade-Part-3-BannerAndConflictResolution.md`](upgrade-Part-3-BannerAndConflictResolution.md) (Part 3) carries Step 3 and Step 4, and [`upgrade-Part-2-RecoveryAndReference.md`](upgrade-Part-2-RecoveryAndReference.md) (Part 2) carries the scenario table and the recovery procedures. Split at this section boundary so each part stays within one Read-tool page.
+**Part 4 of [upgrade.md](upgrade.md).** Part 1 carries the Config Gate and Steps 1-2.4 of the Workflow, and is the file `/planwise upgrade` dispatches to. This part carries Step 2.5 (Refresh Token Saver calibration) through Step 2.8 (Feedback keys backfill and banner), the reports and backfills that follow the Step 2.4 script run. Read it after Step 2.4. [`upgrade-Part-3-BannerAndConflictResolution.md`](upgrade-Part-3-BannerAndConflictResolution.md) (Part 3) carries Step 3 and Step 4, and [`upgrade-Part-2-RecoveryAndReference.md`](upgrade-Part-2-RecoveryAndReference.md) (Part 2) carries the scenario table and the recovery procedures. Split at this section boundary so each part stays within one Read-tool page.
 
 ## Table of Contents
 
@@ -8,7 +8,6 @@
 - [Step 2.6 — Lessons scaffolding backfill (PyYAML-missing fallback)](#step-26--lessons-scaffolding-backfill-pyyaml-missing-fallback)
 - [Step 2.7 — Working folders: move, backfill and creation](#step-27--working-folders-move-backfill-and-creation)
 - [Step 2.8 — Feedback keys backfill and banner](#step-28--feedback-keys-backfill-and-banner)
-- [Step 4.8 — Subagent cache lifetime offer](#step-48--subagent-cache-lifetime-offer)
 
 ---
 
@@ -102,16 +101,6 @@ Implemented inside Step 2.4's script invocation, not as a separate handler-side 
 - **A flag always writes its value.** `--feedback-enabled` writes `feedback.enabled: true`, and `--no-feedback-enabled` writes `feedback.enabled: false`. With neither flag, the key stays as it is.
 
 The banner prints once, when the key was absent or the block missing before the run, because the key exists after it. Pass the `Feedback drafting:` entry through verbatim.
-
----
-
-### Step 4.8 — Subagent cache lifetime offer
-
-Run this step last, after Part 3 Step 4.7. Claude Code gives a subagent's prompt cache a five-minute lifetime, even on a subscription. planwise runs many subagents. One that waits more than five minutes between its own turns, for example on a test suite, pays to write its whole prompt again. The top-level settings key `subagentPromptCacheTtl: "1h"` keeps that cache for an hour. It needs Claude Code 2.1.242 or later.
-
-Read the project's `.claude/settings.json`, its `.claude/settings.local.json` and the user `settings.json`. If any of them holds `subagentPromptCacheTtl`, or `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` in its `env` block, report "Subagent cache lifetime: already chosen." and skip the offer, whatever the value. Otherwise report that the key is absent. The write target is the settings file of the install scope: `.claude/settings.json` for `project`, `.claude/settings.local.json` for `local`, the user `settings.json` for `user`. When that file does not parse, report it and change nothing.
-
-The **report always renders**. The **write happens only on approval**: `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->`) — "Keep subagent prompt caches for 1 hour instead of 5 minutes, by adding `subagentPromptCacheTtl: "1h"` to {settings_path}? It applies to every subagent under that file, not only planwise's. A 1-hour cache write costs more than a 5-minute one, so it pays off when subagents pause for more than five minutes. Yes (Recommended) / No". List Yes first. The inferred default is the "Subagent cache lifetime question" row of `references/auto-mode-policy.md` § Inference Defaults. On Yes, add the key, preserve every other key, and read the file back. On No, change nothing. The next version upgrade asks again.
 
 ---
 

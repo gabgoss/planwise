@@ -2,8 +2,8 @@
 """Apply the confirmed upgrade offers in one call.
 
 CLI: python -B upgrade_apply.py --project-root P [--prune safe-to-discard,inert] [--grants normalize]
-     [--task-tools add] [--subagent-cache add] [--thrifty-sonic add]
-     [--transfer-delete PATH --pair FROM-to-TO] [--prune-stale] [--flip-status PATH=STATUS ...] [--user-settings PATH]
+     [--task-tools add] [--thrifty-sonic add] [--transfer-delete PATH --pair FROM-to-TO]
+     [--prune-stale] [--flip-status PATH=STATUS ...] [--user-settings PATH]
 
 Exit codes: 0 done, 1 a write failed its read-back, 2 a guard refused. Each apply flag is one offer the
 person confirmed. Before the first write of any flag, every planned settings write is checked against
@@ -75,8 +75,6 @@ def planned_settings_writes(ctx: Ctx, args) -> list[Path]:
         planned += sorted({Path(f["settings_path"]) for f in doctor_cli._sweep_settings_grants(ctx.cfg)})
     if args.task_tools and ctx.scope == "project":
         planned.append(ctx.project_settings())
-    if args.subagent_cache:
-        planned.append(pre.subagent_cache_target(ctx.cfg, ctx.user_path))
     if args.thrifty_sonic:
         planned += [ctx.project_settings(), ctx.user_path]
     return planned
@@ -158,24 +156,6 @@ def apply_task_tools(ctx: Ctx) -> int:
         print("task-tools: already applied")
         return 0
     return merge_env(ctx.project_settings(), TODO_KEY, "1", ctx, "task-tools")
-
-
-def apply_subagent_cache(ctx: Ctx) -> int:
-    """Add the key to the install scope's settings file. A lifetime any settings file already sets is kept."""
-    state = pre.subagent_cache_state(ctx.cfg, ctx.user_path)
-    path = pre.subagent_cache_target(ctx.cfg, ctx.user_path)
-    if state == "set":
-        print("subagent-cache: already set, kept")
-        return 0
-    data, error = load_settings(path)
-    if data is None:
-        print(f"subagent-cache: {path} does not parse ({error}); not applied")
-        return 0
-    data[pre.SUBAGENT_CACHE_KEY] = "1h"
-    code = write_settings(path, data, ctx)
-    if code == 0:
-        print(f"subagent-cache: set {pre.SUBAGENT_CACHE_KEY} to 1h in {path}")
-    return code
 
 
 def apply_thrifty(ctx: Ctx) -> int:
@@ -389,7 +369,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--prune", default=None)
     parser.add_argument("--grants", choices=["normalize"], default=None)
     parser.add_argument("--task-tools", choices=["add"], default=None)
-    parser.add_argument("--subagent-cache", choices=["add"], default=None)
     parser.add_argument("--thrifty-sonic", choices=["add"], default=None)
     parser.add_argument("--transfer-delete", action="append", default=[])
     parser.add_argument("--prune-stale", action="store_true")
@@ -410,7 +389,7 @@ def main(argv=None) -> int:
         print(f"error: {'--transfer-delete' if args.transfer_delete else '--prune safe-to-discard'} "
               "needs --pair FROM-to-TO")
         return 2
-    wanted = [args.prune, args.grants, args.task_tools, args.subagent_cache, args.thrifty_sonic, args.transfer_delete,
+    wanted = [args.prune, args.grants, args.task_tools, args.thrifty_sonic, args.transfer_delete,
               args.prune_stale, args.flip_status]
     if not any(wanted):
         print("Nothing to apply.")
@@ -439,8 +418,6 @@ def main(argv=None) -> int:
         code = max(code, apply_grants(ctx))
     if args.task_tools:
         code = max(code, apply_task_tools(ctx))
-    if args.subagent_cache:
-        code = max(code, apply_subagent_cache(ctx))
     if args.thrifty_sonic:
         code = max(code, apply_thrifty(ctx))
     if args.transfer_delete:

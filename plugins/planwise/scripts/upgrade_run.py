@@ -357,15 +357,6 @@ def build_offers(project_root: Path, config_path: Path, pair: str, user_settings
         offers.append({"id": "task-tools:add", "default": "add", "apply": ["--task-tools", "add"],
                        "text": "recommended: CLAUDE_CODE_ENABLE_TODO_TOOLS is not set, so newer models get no "
                                "to-do list (Ctrl+T) and /planwise run cannot show its progress there"})
-    if found["subagent_cache"] == "absent":
-        target = pre.subagent_cache_target(cfg, user_settings)
-        text = (f"recommended: subagentPromptCacheTtl is not set, so a subagent's prompt cache lasts 5 minutes "
-                f"and planwise runs many subagents; sets 1h in {target.as_posix()} for every subagent there; "
-                "1h cache writes cost more than 5m writes")
-        refusal = settings_target_refusal(target, project_root, user_settings)
-        offers.append({"id": "subagent-cache:add", "default": "skip" if refusal else "add (unattended: skip)",
-                       "apply": None if refusal else ["--subagent-cache", "add"],
-                       "text": f"{text}; not applicable ({refusal})" if refusal else text})
     for row in transfer_review.review_transfers(cfg, exclude_pair=pair):
         if row["status"] == "now-upstream" and not transfer_check(cfg, row["path"])[0]:
             offers.append({"id": f"transfer-delete:{row['path']}", "default": "skip",

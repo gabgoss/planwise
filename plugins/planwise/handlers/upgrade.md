@@ -11,7 +11,7 @@ This handler spans **four files**, split by topic because the combined text exce
 | 1 (this file) | `upgrade.md` | Config Gate, Card path, Steps 1-2.4 | The card path and its hand-backs, drift detection, Token Saver mode offer, comparator fan-out, verdict write, the upgrade script invocation |
 | 2 | [`upgrade-Part-2-RecoveryAndReference.md`](upgrade-Part-2-RecoveryAndReference.md) | Conflict Resolution Reference, Auto-Init Fallback, Mid-Upgrade Failure, Config Recovery | The scenario table Part 3's Step 4 dispositions point back to, and recovery procedures for a run — or the Config Gate — that cannot complete |
 | 3 | [`upgrade-Part-3-BannerAndConflictResolution.md`](upgrade-Part-3-BannerAndConflictResolution.md) | Steps 3-4.7 | Banner rendering, conflict resolution (relocation, upstream issue, per-class cleanup), settings-grant/GitHub-CLI/task-tools/thrifty-sonic post-upgrade offers |
-| 4 | [`upgrade-Part-4-PostRunReportsAndBackfills.md`](upgrade-Part-4-PostRunReportsAndBackfills.md) | Steps 2.5-2.8, 4.8 | The Token Saver calibration report, the lessons scaffolding backfill fallback, the working-folder move and the feedback keys backfill and banner. Read after Step 2.4. Also the subagent cache offer (Step 4.8), run after Part 3 |
+| 4 | [`upgrade-Part-4-PostRunReportsAndBackfills.md`](upgrade-Part-4-PostRunReportsAndBackfills.md) | Steps 2.5-2.8 | The Token Saver calibration report, the lessons scaffolding backfill fallback, the working-folder move and the feedback keys backfill and banner. Read after Step 2.4 |
 
 `/planwise upgrade` dispatches to this file; it reads Part 4 after Step 2.4 for the post-run reports and backfills, Part 3 for the banner and conflict-resolution steps, and Part 2 when the Config Gate branches to Auto-Init Fallback or a Part 3 step needs the scenario table.
 
@@ -28,7 +28,7 @@ This handler spans **four files**, split by topic because the combined text exce
   - [Step 2.3 — Write `verdicts.json`](#step-23--write-verdictsjson)
   - [Step 2.3b — Ask the migration questions](#step-23b--ask-the-migration-questions)
   - [Step 2.4 — Invoke the upgrade script](#step-24--invoke-the-upgrade-script)
-- [Part 4 — Post-Run Reports and Backfills](#part-4--post-run-reports-and-backfills) — pointer to the separate file [upgrade-Part-4-PostRunReportsAndBackfills.md](upgrade-Part-4-PostRunReportsAndBackfills.md) (Step 2.5 — Refresh Token Saver calibration; Step 2.6 — Lessons scaffolding backfill (PyYAML-missing fallback); Step 2.7 — Working folders: move, backfill and creation; Step 2.8 — Feedback keys backfill and banner; Step 4.8 — Subagent cache lifetime offer)
+- [Part 4 — Post-Run Reports and Backfills](#part-4--post-run-reports-and-backfills) — pointer to the separate file [upgrade-Part-4-PostRunReportsAndBackfills.md](upgrade-Part-4-PostRunReportsAndBackfills.md) (Step 2.5 — Refresh Token Saver calibration; Step 2.6 — Lessons scaffolding backfill (PyYAML-missing fallback); Step 2.7 — Working folders: move, backfill and creation; Step 2.8 — Feedback keys backfill and banner)
 - [Part 3 — Banner Rendering and Conflict Resolution](#part-3--banner-rendering-and-conflict-resolution) — pointer to the separate file [upgrade-Part-3-BannerAndConflictResolution.md](upgrade-Part-3-BannerAndConflictResolution.md) (Step 3 — Render the banner; Step 4 — Resolve conflicts; Step 4.1 — Assisted relocation, cases A–C (case C reviews earlier version pairs' transfer files); Step 4.2 — Opt-in upstream GitHub issue; Step 4.3 — Interactive per-class cleanup offer; Step 4.4 — Settings-grant normalization offer; Step 4.5 — GitHub CLI availability offer; Step 4.6 — Task-tools env var offer; Step 4.7 — Thrifty-sonic env var offer)
 - [Part 2 — Conflict Resolution Reference and Recovery](#part-2--conflict-resolution-reference-and-recovery) — pointer to the separate file [upgrade-Part-2-RecoveryAndReference.md](upgrade-Part-2-RecoveryAndReference.md) (Conflict Resolution Reference, Auto-Init Fallback, Mid-Upgrade Failure, Config Recovery)
 
@@ -74,7 +74,7 @@ The skill's `!` line runs the upgrade preflight before you see the skill. It pri
 5. **Verdicts.** Paste each comparator's JSON entry whole, and add `installed_sha256` copied from the card's `shas:` line. Never compute the digest yourself. Pass the merged verdicts by heredoc in the run command, as NEXT shows. When the harness refuses the heredoc, `Write` the same JSON to a file and run the same command with `--verdicts-file {path}` in place of `--verdicts-stdin`.
 6. **Migration questions.** When the card holds migration questions, ask them in the merged `AskUserQuestion` the card names. Merge the chosen options' answer objects as the NEXT block states, and pass them with `--answers-json`. The stdin document then holds `{"verdicts": [...], "answers": {...}}`. This wraps Step 2.3b, the way item 4 wraps the Step 2.2 fan-out. A project with a hand-authored index reaches this path. An unanswered question adds nothing, and the writer refuses only that family.
 7. **Comparator line.** When the comparator step ran, print the `Comparator verdicts: {returned}/{diverged} (...)` line yourself, as the Step 3 banner in Part 3 defines it. The script cannot see the fan-out. The card's NEXT block states the count rule.
-8. **Offers.** Report the chat summary the run prints. Ask the user one question with the offer list the run prints, as NEXT states, then run the one apply command with the answers. Build it from the run's `Accept all:` line by deleting each declined offer's flags (for `--prune`, only its class). A declined offer adds no flag and no skip value. When every offer is declined, run nothing. The offer ids are `transfer-delete:{path}` (Part 3 Step 4.1 case C), `prune:{class}` for `safe-to-discard` or `inert` and `prune-stale` (Part 3 Step 4.3), `task-tools:add` (Part 3 Step 4.6), `subagent-cache:add` (Part 4 Step 4.8), and `flip-status:{directory}={guess}` (the plans status flip in Part 3 Step 3). The apply command carries `--pair {pair}` whenever an accepted offer is `transfer-delete:` or `prune:safe-to-discard`, and the safe-to-discard sweep excludes this run's own pair.
+8. **Offers.** Report the chat summary the run prints. Ask the user one question with the offer list the run prints, as NEXT states, then run the one apply command with the answers. Build it from the run's `Accept all:` line by deleting each declined offer's flags (for `--prune`, only its class). A declined offer adds no flag and no skip value. When every offer is declined, run nothing. The offer ids are `transfer-delete:{path}` (Part 3 Step 4.1 case C), `prune:{class}` for `safe-to-discard` or `inert` and `prune-stale` (Part 3 Step 4.3), and `flip-status:{directory}={guess}` (the plans status flip in Part 3 Step 3). The apply command carries `--pair {pair}` whenever an accepted offer is `transfer-delete:` or `prune:safe-to-discard`, and the safe-to-discard sweep excludes this run's own pair.
 9. **Hand back to the numbered Steps** in these cases:
    - **A fallback line, in either shape.** With no `config.yaml`, the preflight prints one `PLANWISE_UPGRADE_FALLBACK: config.yaml not found at …` line and no markers. When the preflight raised, the router prints the `PLANWISE_UPGRADE_FALLBACK:` line plus `<!-- planwise:upgrade:end -->`. Either way, start at the Config Gate and run the numbered Steps.
    - **A downgrade.** NEXT asks the Step 1 downgrade question. Read Step 1 for it.
@@ -97,7 +97,7 @@ The card maps onto the numbered Steps as follows:
 | `flip-status:` offers | Wraps the plans status flip in Part 3 Step 3 |
 | Earlier-pair transfers and `transfer-delete:` offers | Wraps Part 3 Step 4.1 case C |
 | Recovery artifacts, `prune:` and `prune-stale` offers | Wraps Part 3 Step 4.3 |
-| `Offers:` line (grants, gh, task-tools, subagent-cache, thrifty-sonic) | Reports the state Part 3 Steps 4.4-4.7 and Part 4 Step 4.8 read |
+| `Offers:` line (grants, gh, task-tools, thrifty-sonic) | Reports the state Part 3 Steps 4.4-4.7 read |
 
 ---
 
@@ -398,7 +398,6 @@ Step 2.5 (Refresh Token Saver calibration) through Step 2.8 (Feedback keys backf
 - [Step 2.6 — Lessons scaffolding backfill (PyYAML-missing fallback)](upgrade-Part-4-PostRunReportsAndBackfills.md#step-26--lessons-scaffolding-backfill-pyyaml-missing-fallback)
 - [Step 2.7 — Working folders: move, backfill and creation](upgrade-Part-4-PostRunReportsAndBackfills.md#step-27--working-folders-move-backfill-and-creation)
 - [Step 2.8 — Feedback keys backfill and banner](upgrade-Part-4-PostRunReportsAndBackfills.md#step-28--feedback-keys-backfill-and-banner)
-- [Step 4.8 — Subagent cache lifetime offer](upgrade-Part-4-PostRunReportsAndBackfills.md#step-48--subagent-cache-lifetime-offer), run after Part 3
 
 ---
 

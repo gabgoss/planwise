@@ -545,8 +545,4 @@ The **write happens only on approval**: `AskUserQuestion` (`<!-- AUTO-MODE: conv
 
 ---
 
-Next, run [Step 4.8 — Subagent cache lifetime offer](upgrade-Part-4-PostRunReportsAndBackfills.md#step-48--subagent-cache-lifetime-offer), which Part 4 holds.
-
----
-
 *Cross-reference: [upgrade.md](upgrade.md) (Part 1 — Config Gate and Steps 1-2.4), [upgrade-Part-2-RecoveryAndReference.md](upgrade-Part-2-RecoveryAndReference.md) (Part 2 — Conflict Resolution Reference and Recovery), [init.md](init.md), [references/feedback-submission.md](../references/feedback-submission.md), [references/do-the-hard-things.md](../references/do-the-hard-things.md).*
