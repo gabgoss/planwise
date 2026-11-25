@@ -969,7 +969,8 @@ def _run_doctor(cfg: "InitConfig", verbose: bool = False) -> int:
     both always-on and read-only. Then runs Stage 26, the lesson resolution
     keys advisory (run_lesson_keys_stage()) — always-on, read-only, and never
     a change to the exit status. Then runs Stage 27, the backlog item shape
-    advisory (run_item_shape_stage()) under the same rules. Always exits
+    advisory (run_item_shape_stage()), and Stage 28, the estimate drift
+    advisory (run_estimate_drift_stage()), under the same rules. Always exits
     0 (diagnostic, not a gate).
 
     Runs the plugin version-state gate FIRST (always-on, independent of Token
@@ -1294,6 +1295,18 @@ def _run_doctor(cfg: "InitConfig", verbose: bool = False) -> int:
         run_item_shape_stage(cfg)
     except Exception as exc:  # noqa: BLE001 -- the item-shape stage must never change doctor's exit status
         print(f"Backlog item shape: the check failed: {exc}")
+
+    # Stage 28: estimate drift — read-only, advisory. Reports each declared token figure of
+    # the active plans that disagrees with the figure it is meant to equal.
+    print()
+    print("planwise doctor — estimate drift")
+    print()
+    try:
+        from doctor_estimate_drift_stage import run_estimate_drift_stage
+
+        run_estimate_drift_stage(cfg)
+    except Exception as exc:  # noqa: BLE001 -- the estimate-drift stage must never change doctor's exit status
+        print(f"Estimate drift: the check failed: {exc}")
     return 0
 
 

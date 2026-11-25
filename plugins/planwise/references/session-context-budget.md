@@ -378,6 +378,17 @@ Sprint Plan header Estimated Tokens
 | Task internal | Context subtotal = Task header `Estimated Tokens` | After writing each task file |
 | Session total | Sum of task `Est. Tokens` = Orchestration `Total Estimated` | After writing orchestration |
 | Sprint total | Sum of session `Est. Tokens` = Sprint Plan header `Estimated Tokens` | After writing sprint plan |
+| `surface-tokens` | `~Tokens` = highest citing task row | After the build |
+| `surface-kib` | `KiB` = that row's `KiB` | After the build |
+| `surface-rows` | Paths = paths the tasks cite, exact | After the build |
+| `surface-total` | Total = sum of `~Tokens` cells | After the build |
+| `surface-files` | File count = rows, exact | After the build |
+| `writeset-tokens` | Cited path's `~Tokens` = highest citing row of the sprint | After the build |
+| `writeset-kib` | `KiB` = that row's `KiB` | After the build |
+| `master-count` | `Count` = distinct Write-Set paths, exact | After the build |
+| `master-sizes` | `KiB`, `~Tokens` = sums over those paths | After the build |
+| `master-total` | Total = sum over distinct paths, all sprints | After the build |
+| `master-files` | Path count = those paths, exact | After the build |
 
 **Enforcement:** The `/planwise plan` handler's Step 8c computes estimates bottom-up. Its Step 9b (Post-Pass Harmonization) runs `estimate_reconcile.py check` over the scaffold. The `/planwise review` handler runs the same checker through the review discovery pass, and Reviewer Check 132 reads the result. Reviewer Check 024 covers both task levels: the Required Context row sum and the task-internal total. Template comments in orchestration, sprint plan, and task file templates remind the planner to verify.
 
@@ -397,8 +408,8 @@ Fix: Reconcile per references/session-context-budget.md Token Estimate Reconcili
 #### Reviewer Check 132 — Session and Sprint Token-Estimate Rollup Gate
 
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
-- **What:** Each session total and sprint total equals the figures it rolls up from, within 10%. The pairs are the session and sprint rows of the reconciliation table above: orchestration task-list cells against task headers, the orchestration `Total Estimated` against its cells, the Sprint Plan session row against the orchestration total, and the Sprint Plan header against its session rows.
-- **Detection:** Read the review discovery fact sheet's Estimate Reconciliation section. It holds the verbatim output of `estimate_reconcile.py check` and its exit code. The script already drops any drift at or under 10%.
+- **What:** Each session total and sprint total equals the figures it rolls up from, within 10%. The pairs are the session and sprint rows of the reconciliation table above: orchestration task-list cells against task headers, the orchestration `Total Estimated` against its cells, the Sprint Plan session row against the orchestration total, and the Sprint Plan header against its session rows. The derived pairs are the `surface-*` (Session Surface), `writeset-*` (Sprint Plan Write-Set) and `master-*` (Master Plan Write-Sets) rows. A pair whose cell is absent is silent.
+- **Detection:** Read the review discovery fact sheet's Estimate Reconciliation section. It holds the verbatim output of `estimate_reconcile.py check` and its exit code. The script drops any drift at or under 10%, except at `surface-rows`, `surface-files`, `master-count` and `master-files`, which are exact.
   - Each `MISMATCH` line whose level is not `task`, `task-reads` or `task-self` → one BLOCKER. Check 024 owns the three task levels, so skip those lines here.
   - Any `UNREAD` lines → one WARNING that lists them. An `UNREAD` line does not change the exit code, so exit 0 can still carry one.
   - A `sessions=0` total line → not applicable, no finding.
