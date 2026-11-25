@@ -103,8 +103,27 @@ test('live a draft posted through the comment route is gone', async () => {
     const promoted = promote(dir)
     const name = py(['-c', 'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); import feedback_post; print(feedback_post._comment_draft_name(1, Path(sys.argv[2])))', SCRIPTS, promoted])
     assert.match(name, /-comment-1-.*\.md$/)
+    // The comment draft keeps the promoted file's date, so the date is in the name once.
+    assert.equal(name, promoted.slice(0, 10) + '-comment-1-' + promoted.slice(11))
     writeMarker(join(dir, name))
     assert.equal(isLive(dir), false)
+  })
+})
+
+test('live a draft posted through the comment route under the older comment draft name is gone', async () => {
+  await withDraft((dir) => {
+    const promoted = promote(dir)
+    // A post made before the rename put a date and the issue number in front of the whole promoted name.
+    writeMarker(join(dir, '2026-11-20-comment-1-' + promoted))
+    assert.equal(isLive(dir), false)
+  })
+})
+
+test('live a comment sidecar made from another draft leaves this draft live', async () => {
+  await withDraft((dir) => {
+    const promoted = promote(dir)
+    writeMarker(join(dir, promoted.slice(0, 10) + '-comment-1-bug-some-other-draft.md'))
+    assert.equal(isLive(dir), true)
   })
 })
 

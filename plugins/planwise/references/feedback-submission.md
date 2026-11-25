@@ -38,6 +38,7 @@ reporting or offer text, which this file does not own.
   - [The Enable Offer (gate 1, absent and disabled state)](#the-enable-offer-gate-1-absent-and-disabled-state)
   - [Resolving `gh`](#resolving-gh)
 - [Step 4.5 — Duplicate Scan (Non-Fatal)](#step-45--duplicate-scan-non-fatal)
+  - [Comment Target](#comment-target)
   - [Unattended Routing](#unattended-routing)
 - [Draft-First, Then Post](#draft-first-then-post)
   - [The Unattended Post Path](#the-unattended-post-path)
@@ -107,6 +108,9 @@ ALL gates below MUST pass, in this order, before a post is attempted:
 5. **Explicit `AskUserQuestion`** — one call, three outcomes. It shows the duplicate-scan
    result (caveat line, then the ranked candidate table if any), then the rendered body
    **verbatim**, then offers: **post as a new issue**, **comment on #{NN}**, or **cancel**.
+   `#{NN}` is the scan's comment target, as [Comment Target](#comment-target) defines it. With
+   no comment target, the comment option is not offered. When the scan has a related issue, the
+   rendered body starts with the related line, so the user reads it before consent.
    The user approves the exact text that will be published, not a summary of it. Gate 5 is
    the consent site of the manual `/planwise feedback` route and of every other consumer listed
    at the top of this file. The comment outcome rides this same call and MUST NOT be
@@ -262,7 +266,7 @@ One search, repeated once per key:
 | `--json` | Exactly these five fields. Do not add fields without first confirming they exist on the installed `gh` — an unknown field name makes the whole call exit non-zero, converting a working scan into a degradation row. |
 | `{query}` | One search key, already safety-filtered, always double-quoted. |
 | `in:title,body` | Keeps the match off labels and comment threads, where a shared word produces noise. |
-| Permitted surface | Read-only. `"{gh_path}" issue view {NN} -R {feedback.repo} --json number,title,state,url` is the only other invocation this step may make, and only to validate a user-named issue number at gate 5. No other `gh` subcommand is permitted here. |
+| Permitted surface | Read-only. This step may make two other invocations. `"{gh_path}" issue view {NN} -R {feedback.repo} --json number,title,state,url` validates a user-named issue number at gate 5. `"{gh_path}" issue view {NN} -R {feedback.repo} --json number,state,labels` is the live read of [Comment Target](#comment-target). No other `gh` subcommand is permitted here. |
 
 When the body cites no identifier and every title query returns nothing, one unkeyed recency
 listing runs in their place:
@@ -318,6 +322,51 @@ identifier is never pushed off the presented list by candidates matched only on 
 whatever their totals; and a candidate whose only matches are title terms (`best_key_score` 1) never
 outranks one whose `best_key_score` is ≥ 3.
 
+The ranking decides what the table shows. It does not decide where a comment goes. A closed
+issue stays in the table because the reporter wants to see it, and it never takes a comment.
+
+### Comment Target
+
+A comment reaches a maintainer only on an issue that is still open and not yet taken in. A
+comment on a closed issue, or on an issue its maintainers already imported, is not read as a
+new report. So the scan names at most one **comment target**, and every route that posts a
+comment uses it.
+
+The engine reads the ranked candidates in order. A candidate is the comment target only when
+all three conditions hold:
+
+1. Its `best_key_score` is 3 or more. A match on title words alone never takes a comment.
+2. A live read confirms that the issue is open.
+3. The same reply carries none of the tracker's lifecycle labels: `intake`, `resolved` and
+   `wontfix`.
+
+The live read is one call for each candidate:
+
+```
+"{gh_path}" issue view {NN} -R {feedback.repo} --json number,state,labels
+```
+
+The first candidate that meets all three conditions is the target. Three rules bound the search:
+
+- A candidate that the scan already lists as closed gets no live read.
+- At most 3 candidates get a live read.
+- A read that fails, times out or returns no state counts as not confirmed.
+
+With no target, the report goes as a new issue. The first passed-over candidate with a
+`best_key_score` of 3 or more is the **related issue**. The new issue names it in its first
+line, followed by one blank line:
+
+```
+Possibly related to #{NN} ({open|closed}).
+```
+
+The state is the live state when the read returned one, and the scan's state otherwise. A
+candidate matched on title words alone is never the related issue.
+
+`scripts/feedback_post.py scan` runs the live reads itself. In text mode its last line is
+`Comment target: #{NN}` or `Comment target: none`, printed when the scan ranked a candidate.
+With `--json` it reports the same result as `comment_target` and `related`.
+
 ### When the scan cannot complete
 
 **The scan never blocks.** It is a step, not a gate — the "ALL gates below MUST pass" rule governs
@@ -352,12 +401,13 @@ is asked. The engine applies these rules in order and stops at the first that ma
 1. **Self-duplicate.** The merge step found this same draft already posted by an interrupted
    earlier run. Nothing is posted. The engine prints the self-duplicate line, keeps the draft and
    exits 0.
-2. **Ranked candidate.** At least one candidate cleared the threshold, including on an incomplete
-   scan. The report goes as a comment on the top-ranked issue, the rank-1 row of the presented
-   table, through the comment route under
-   [The Unattended Post Path](#the-unattended-post-path). The posted marker records
-   `route: comment`.
-3. **CLEAR.** The report goes as a new issue through the issue route. A weak clear counts as CLEAR,
+2. **Comment target.** The scan names a comment target, as [Comment Target](#comment-target)
+   defines it, including on an incomplete scan. The report goes as a comment on that issue
+   through the comment route under [The Unattended Post Path](#the-unattended-post-path). The
+   posted marker records `route: comment`.
+3. **No comment target.** The scan is CLEAR, or every candidate is closed, already taken in,
+   not confirmed, or matched on title words alone. The report goes as a new issue through the
+   issue route. It names the related issue when the scan has one. A weak clear counts as CLEAR,
    because its listed issues are recent issues, not matches.
 4. **UNKNOWN.** The scan did not complete. The report goes as a new issue through the issue route.
 
@@ -384,7 +434,9 @@ the comment draft path resolve under it:
   the Issue Forms chooser, so without this flag the issue posts with no label at all,
   silently losing the categorization a web-filed report gets for free.
 - Issue draft path: `{planwise_root}/{feedback_dir}/{YYYY-MM-DD}-{kind}-{slug}.md`.
-- Comment draft path: `{planwise_root}/{feedback_dir}/{YYYY-MM-DD}-comment-{NN}-{draft stem}.md`.
+- Comment draft path: `{planwise_root}/{feedback_dir}/{YYYY-MM-DD}-comment-{NN}-{kind}-{slug}.md`.
+  It is the issue draft's own file name with `comment-{NN}-` put after its date, so the date
+  appears once and a retry on a later day writes the same file.
 - Draft-first buys three things: approved text and posted text are byte-identical — on the
   comment path, the posted body is the approved body plus the single lead-in line the
   consent prompt states in advance; a failed post leaves a recoverable artifact; the
@@ -403,13 +455,22 @@ No `--label` — comments carry none. Both drafts stay on disk afterwards, on su
 failure alike.
 
 **Resolving `{NN}` — no second prompt.** The target is read out of the answer gate 5 has
-already returned: the first `#[0-9]+` token in it if there is one, otherwise the rank-1
-candidate that the option's own label named. If neither is available, treat the answer as
+already returned: the first `#[0-9]+` token in it if there is one, otherwise the comment
+target that the option's own label named. If neither is available, treat the answer as
 cancel and print `No issue number supplied — nothing was posted.` Validate the resolved
 target read-only with `"{gh_path}" issue view {NN} -R {feedback.repo} --json number,title,state,url`;
 a non-zero exit or an empty result posts nothing and prints
 `Could not resolve issue #{NN} in {feedback.repo} — nothing was posted.` No further question
 is asked at any step — this post pipeline has exactly one consent site.
+
+**A user-named issue takes the same test.** The option's label names the comment target, which
+already passed the live read. A number the user typed has not. Run the live read of
+[Comment Target](#comment-target) on it. When the reply does not show an open issue free of
+the lifecycle labels, post no comment. Post the report as a new issue whose first line is the
+related line for `#{NN}`, and print
+`#{NN} cannot take a comment (closed or already taken in) — filed as a new issue that names it.`
+The comment option's description states this rule and the related line, so the route was shown
+before consent.
 
 ### The Unattended Post Path
 
@@ -428,33 +489,37 @@ file's bytes and prints one line:
 | Exit | Output | Route action |
 |---|---|---|
 | 0 | `clean` | Post the file |
-| 3 | `blocked: <class> at line <n>` | Keep the draft, run `mark-blocked` (below), post nothing more, print one line, exit 0 |
+| 3 | `blocked: <class> at line <n>` | Keep the draft, record the block (below), post nothing more, print one line, exit 0 |
 | 1 or 2 | none on stdout | The gate could not run: keep the draft, print one line, exit 0 |
 
-**The issue route** (CLEAR, UNKNOWN). Scan `{draft_path}`, then post it only when the scan
-printed `clean`. The scan gate 2 ran on `{draft_path}` is this scan when nothing wrote the file
-since:
+**The issue route** (no comment target, or UNKNOWN). When the scan has a related issue, first
+write the related line of [Comment Target](#comment-target) as the first line of
+`{draft_path}`. Replace a related line that an earlier run left, so a retry keeps one line.
+Then scan `{draft_path}`, and post it only when the scan printed `clean`. The scan gate 2 ran on
+`{draft_path}` is this scan when nothing wrote the file since:
 
 ```
 python -B "{plugin_root}/scripts/feedback_drafts.py" prepare-post --config "{planwise_root}/config.yaml" --draft "{draft_path}"
 "{gh_path}" issue create -R {feedback.repo} --title "{title}" --body-file "{draft_path}" --label {label}
 ```
 
-**The comment route** (a ranked candidate). Write `{comment_draft_path}` first. It holds the
-draft body plus the one lead-in line of the comment variant (Part 3, Issue Body Spec). Then scan
-that file, and post that file only when the scan prints `clean`. `{NN}` is the top-ranked
-candidate's number:
+**The comment route** (a comment target). Write `{comment_draft_path}` first. It holds the
+draft body plus the one lead-in line of the comment variant (Part 3, Issue Body Spec). It
+carries no related line. Then scan that file, and post that file only when the scan prints
+`clean`. `{NN}` is the comment target's number:
 
 ```
 python -B "{plugin_root}/scripts/feedback_drafts.py" prepare-post --config "{planwise_root}/config.yaml" --draft "{comment_draft_path}"
 "{gh_path}" issue comment -R {feedback.repo} {NN} --body-file "{comment_draft_path}"
 ```
 
-A block on the comment body keeps both drafts, posts nothing, runs `mark-blocked` with `--route comment` and exits 0.
+A block on the comment body keeps both drafts, posts nothing, records the block with the route `comment` and exits 0.
 
 **The blocked record.** When `prepare-post` exits 3 on either route, record the block before the
-fallback line prints. The sidecar goes beside the kept promoted draft, `{draft_path}`, for both
-routes. `{class}` and `{n}` are the two values the `blocked:` line printed, and `{route}` is `issue` or `comment`:
+fallback line prints. `scripts/feedback_post.py post` writes the record itself. A route that runs
+`prepare-post` by hand runs the command below. The sidecar goes beside the kept promoted draft,
+`{draft_path}`, for both routes. `{class}` and `{n}` are the two values the `blocked:` line
+printed, and `{route}` is `issue` or `comment`:
 
 ```
 python -B "{plugin_root}/scripts/feedback_drafts.py" mark-blocked --draft "{draft_path}" --class {class} --line {n} --route {route}
@@ -528,6 +593,11 @@ sits outside the draft body entirely, so the scan-annotation truncation never re
 drafts stay on disk exactly as before — the marker is an addition beside one, never a
 replacement, a move, or an edit of it. A marker is written on each successful post, so a
 draft posted more than once carries the most recent post.
+
+**The comment path marks both drafts.** One comment post writes the same three lines beside
+`{comment_draft_path}` and beside `{draft_path}`. The issue draft then reads as posted to
+`--status` and to `--sweep`, and it is not offered for posting again. The two markers record
+one post.
 
 **No new consent site.** No question is asked here. Writing the marker is post-success
 bookkeeping into a file the consumer already owns, in the directory this engine already

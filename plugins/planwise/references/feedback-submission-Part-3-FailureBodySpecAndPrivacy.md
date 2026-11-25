@@ -167,6 +167,30 @@ lead-in's exact wording appears in the consent prompt's option description, so e
 that will be published was shown before consent. The comment carries no draft path — that
 is a consumer-local absolute path, which the Privacy Contract forbids attaching.
 
+**Related-issue variant.** When the scan has a related issue, as Comment Target in
+[Part 1](feedback-submission.md#comment-target) defines it, the new-issue body starts with one
+line and one blank line:
+
+```markdown
+Possibly related to #{NN} ({open|closed}).
+
+{the body, verbatim}
+```
+
+The line is the only difference. It names an issue that matched and could not take a comment.
+A comment body never carries it.
+
+**Provenance line.** A body made from a model draft ends with one sentence that says how the
+post was approved. `scripts/feedback_post.py post` picks it from `--consent`:
+
+| `--consent` | Caller | Last sentence of the body |
+|---|---|---|
+| `none` (default) | An unattended context | `Drafted by Claude via planwise feedback drafting; filed unattended from a model-written draft, and no person reviewed it before posting.` |
+| `card` | A press on the review card's Post button | `Drafted by Claude via planwise feedback drafting; the user chose to post it from the review card.` |
+| `review` | A typed `--post` or `--drafts` answer, after the question showed the body | `Drafted by Claude via planwise feedback drafting; reviewed and approved by the user before posting.` |
+
+A body never says that a person reviewed it unless a person saw the body first.
+
 ---
 
 ## Privacy Contract — Default-Closed
@@ -225,9 +249,8 @@ Every placeholder used in the three parts of this engine, for the four call site
 | `{OS/shell, auto-detected}` | The OS and shell the assistant already observes from its own runtime environment. |
 | `{user-supplied}` | Free text the user types or confirms; never auto-filled. |
 | `{NN}` | The target issue number for a comment outcome — digits only, no `#`. Rendered `#{NN}` in prose. |
-| `{comment_draft_path}` | `{planwise_root}/{feedback_dir}/{YYYY-MM-DD}-comment-{NN}-{draft stem}.md`. |
-| `{draft stem}` | The file name of `{draft_path}` without `.md`. It ties a comment draft to the one draft it was made from, so two drafts that share a title never share a comment draft. |
-| `{posted_marker_path}` | The posted-marker sidecar: the draft's own path with `.posted` appended — `{draft_path}.posted` on the issue path, `{comment_draft_path}.posted` on the comment path. |
+| `{comment_draft_path}` | `{planwise_root}/{feedback_dir}/{YYYY-MM-DD}-comment-{NN}-{kind}-{slug}.md`: the file name of `{draft_path}` with `comment-{NN}-` put after its date. The name ties a comment draft to the one draft it was made from, so two drafts that share a title never share a comment draft. |
+| `{posted_marker_path}` | The posted-marker sidecar: the draft's own path with `.posted` appended — `{draft_path}.posted` on the issue path, and both `{comment_draft_path}.posted` and `{draft_path}.posted` on the comment path. |
 | `{posted_date}` | The date the post succeeded. Distinct from the `{YYYY-MM-DD}` in the draft's filename, which is the date the draft was written. |
 | `{post_url}` | The URL `gh` prints on a successful post — the issue's URL after `gh issue create`, the comment's own anchor URL (which carries its parent issue's number) after `gh issue comment`. |
 | `{query}` | One duplicate-scan search key, already restricted to `^[A-Za-z0-9._/:+#-]{3,60}$` and always double-quoted on the command line. |

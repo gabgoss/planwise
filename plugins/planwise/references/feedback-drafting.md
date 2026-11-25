@@ -183,7 +183,7 @@ An unattended context is Auto Mode, a /planwise backlog loop session, or /planwi
   planwise: a feedback draft was posted to {url}
   ```
   `{url}` is the issue URL or the comment URL that `gh` printed.
-- With `feedback.drafts: notify`, a draft that the privacy gate blocks prints the post path's block line instead of the saved-draft line. The line names the class and the line number, never the matched text. The post path has already recorded the block in a `.blocked` sidecar by then:
+- With `feedback.drafts: notify`, a draft that the privacy gate blocks prints the post path's block line instead of the saved-draft line. The line names the class and the line number, never the matched text. The post path records the block in a `.blocked` sidecar before the line prints, and `/planwise feedback --status` lists it:
   ```
   Feedback draft kept, not posted: the privacy check blocked it ({class} at line {n}). Draft: {draft_path}
   ```

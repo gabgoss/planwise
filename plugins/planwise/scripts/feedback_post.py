@@ -9,9 +9,9 @@ that file.
 
 | Command | Behaviour | Exit |
 |---|---|---|
-| `scan --config C --draft PATH [--title T] [--json]` | Resolves `gh`, builds the search keys of Step 4.5 from the draft's title and body, runs one `gh issue list` per key, merges and ranks the rows, and prints the result. Writes nothing | 0 the scan ran, whatever it found; 1 the config or draft cannot be read; 2 argparse usage error |
+| `scan --config C --draft PATH [--title T] [--json]` | Resolves `gh`, builds the search keys of Step 4.5 from the draft's title and body, runs one `gh issue list` per key, merges and ranks the rows, reads the live state of up to 3 comment candidates with `gh issue view`, and prints the result with the comment target. Writes nothing | 0 the scan ran, whatever it found; 1 the config or draft cannot be read; 2 argparse usage error |
 | `card --config C [--draft-id ID] [--all]` | Lists the queued model drafts (id, kind, title, age), prints the posting state line, then each queued draft's body under a header line. `--draft-id` narrows it to one queued draft; `--all` also lists the other drafts without bodies. Expiry is computed in memory with the shared predicate, so an expired draft is left as it is on disk. Writes nothing and runs no `gh` | 0 printed; 1 the config or feedback directory cannot be read; 2 no queued draft has that id, or an argparse usage error |
-| `post --config C --draft-id ID` | The unattended post path: gate 1, then the queued model draft is promoted (a promoted draft with no `.posted` sidecar is retried as it is), then gates 3 and 4, the scan, Unattended Routing, `prepare_post` on the exact file the route posts, one `gh issue create` or `gh issue comment`, and the `.posted` sidecar. Prints one result line | 0 posted; 3 the draft was kept and nothing was posted, or a timed-out post may have happened; 4 posting is off; 1 the config cannot be read or the promote failed; 2 no queued draft has that id, or an argparse usage error |
+| `post --config C --draft-id ID [--consent {none,card,review}]` | The unattended post path: gate 1, then the queued model draft is promoted (a promoted draft with no `.posted` sidecar is retried as it is), then gates 3 and 4, the scan, Unattended Routing, `prepare_post` on the exact file the route posts, one `gh issue create` or `gh issue comment`, and the `.posted` sidecar. A comment goes only to an issue that a live `gh issue view` reads as open and free of the labels `intake`, `resolved` and `wontfix`; every other match takes a new issue that names it. `--consent` picks the provenance sentence the posted body ends with. A privacy block on the body writes a `.blocked` sidecar beside the promoted draft. Prints one result line | 0 posted; 3 the draft was kept and nothing was posted, or a timed-out post may have happened; 4 posting is off; 1 the config cannot be read or the promote failed; 2 no queued draft has that id, or an argparse usage error |
 
 Exit 0 and exit 3 are both definite results, and the parent flow continues on either. A post whose outcome
 is uncertain never exits 1 or 2.
@@ -58,6 +58,14 @@ JSON_FIELDS = "number,title,state,createdAt,url"
 SHOW_MAX = 5
 THRESHOLD = 3
 SELF_DUPLICATE_MINUTES = 10
+# A comment goes only to a candidate matched on an identifier key, never on title words alone.
+COMMENT_MIN_KEY_SCORE = 3
+# At most this many candidates get a live `gh issue view` before the route falls back to a new issue.
+CONFIRM_MAX = 3
+VIEW_FIELDS = "number,state,labels"
+# The tracker's lifecycle labels. An issue that carries one was already taken in or closed out by its
+# maintainers, so a comment on it would not be read as a new report.
+LIFECYCLE_LABELS = frozenset({"intake", "resolved", "wontfix"})
 
 KNOWN_LOCATIONS = {
     "win32": (
@@ -558,7 +566,11 @@ def cmd_scan(args: argparse.Namespace) -> int:
         return 1
     if args.title is not None:
         title = args.title
-    report = run_scan(resolve_gh(), repo, title, body)
+    gh = resolve_gh()
+    report = run_scan(gh, repo, title, body)
+    route, target, related = pick_route(report, gh["argv"] if gh else None, repo)
+    report["comment_target"] = target if route == "comment" else None
+    report["related"] = related
     if args.json:
         print(json.dumps(report, indent=2))
         return 0
@@ -570,6 +582,8 @@ def cmd_scan(args: argparse.Namespace) -> int:
         print(f"#{entry['number']}\t{entry.get('state', '')}\t{entry.get('title', '')}\t{entry.get('url', '')}")
     if report["further"]:
         print(f"… and {report['further']} further lower-ranked matches (not shown).")
+    if report["ranked"] and report["outcome"] in ("FOUND", "INCOMPLETE"):
+        print(f"Comment target: #{report['comment_target']}" if report["comment_target"] is not None else "Comment target: none")
     return 0
 
 
@@ -582,6 +596,11 @@ COMMENT_LEAD_IN = ("Filed with `/planwise feedback` as a comment rather than a n
                    "subject as this thread. **{title}**")
 UNATTENDED_PROVENANCE = ("Drafted by Claude via planwise feedback drafting; filed unattended from a model-written draft, "
                          "and no person reviewed it before posting.")
+CARD_PROVENANCE = "Drafted by Claude via planwise feedback drafting; the user chose to post it from the review card."
+# The provenance sentence each `--consent` value leaves at the end of the posted body.
+PROVENANCE_BY_CONSENT = {"none": UNATTENDED_PROVENANCE, "card": CARD_PROVENANCE, "review": feedback_drafts.PROVENANCE_LINE}
+# The first line of a new issue whose scan matched an issue that could not take a comment.
+_RELATED_RE = re.compile(r"\APossibly related to #\d+(?: \((?:open|closed)\))?\.\r?\n(?:\r?\n)?")
 
 
 def _kept(reason: str, path: Path) -> int:
@@ -595,8 +614,16 @@ def _marker_path(posted: Path) -> Path:
 
 
 def _comment_draft_name(number: int, promoted: Path) -> str:
-    """`{date}-comment-{NN}-{promoted stem}.md`. The promoted stem is unique to its source draft, unlike the title slug."""
-    return f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}-comment-{number}-{promoted.stem}.md"
+    """`{draft date}-comment-{NN}-{kind}-{slug}.md`, built from the promoted stem `{draft date}-{kind}-{slug}`.
+
+    The promoted stem is unique to its source draft, unlike the title slug, so the name is too. The
+    date is the promoted file's own, so a retry on a later day writes the same file. A stem with no
+    leading date keeps the older form, with today's date in front of the whole stem.
+    """
+    stem = promoted.stem
+    if re.match(r"\d{4}-\d{2}-\d{2}-.", stem):
+        return f"{stem[:10]}-comment-{number}-{stem[11:]}.md"
+    return f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}-comment-{number}-{stem}.md"
 
 
 def _was_posted(promoted: Path) -> bool:
@@ -626,12 +653,49 @@ def _resolve_draft(directory: Path, draft_id: str) -> "tuple[feedback_drafts.Dra
     return draft, None, ""
 
 
-def _mark_unattended(promoted: Path) -> None:
-    """Replace the promote step's provenance sentence, which says a person approved the text, with the unattended one."""
+def _mark_provenance(promoted: Path, consent: str) -> None:
+    """Make the promoted file end with the provenance sentence that matches how this post was approved.
+
+    The promote step writes the sentence that says a person reviewed and approved the text. That is
+    true only for `review`. `card` and `none` replace it, and a retry under another consent value
+    replaces the sentence an earlier run left.
+    """
+    wanted = PROVENANCE_BY_CONSENT[consent]
     text = feedback_drafts._read(promoted)
-    new_text = text.replace(feedback_drafts.PROVENANCE_LINE, UNATTENDED_PROVENANCE)
+    new_text = text
+    for sentence in PROVENANCE_BY_CONSENT.values():
+        if sentence != wanted:
+            new_text = new_text.replace(sentence, wanted)
     if new_text != text:
         feedback_drafts._write(promoted, new_text)
+
+
+def related_line(related: dict) -> str:
+    """`Possibly related to #{NN} ({open|closed}).`, with no state when the state is neither."""
+    state = str(related.get("state") or "").lower()
+    suffix = f" ({state})" if state in ("open", "closed") else ""
+    return f"Possibly related to #{related['number']}{suffix}."
+
+
+def _set_related_line(path: Path, related: "dict | None") -> None:
+    """Make the file start with the related line for `related`, or with none. Replaces a line an earlier run left."""
+    text = feedback_drafts._read(path)
+    body = _RELATED_RE.sub("", text, count=1)
+    new_text = related_line(related) + "\n\n" + body if related else body
+    if new_text != text:
+        feedback_drafts._write(path, new_text)
+
+
+def _record_block(promoted: Path, found: str, line: int, route: str) -> None:
+    """Record a privacy block in the `.blocked` sidecar beside the promoted draft. A failure here is not reported."""
+    if not isinstance(line, int) or line < 1:
+        return
+    args = argparse.Namespace(draft=str(promoted), block_class=found, line=line, route=route)
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        try:
+            feedback_drafts.cmd_mark_blocked(args)
+        except OSError:
+            pass
 
 
 def _promote(config: Path, draft_id: str) -> "tuple[Path | None, str]":
@@ -654,13 +718,77 @@ def _auth_ok(gh: "list[str]") -> bool:
     return result.returncode == 0
 
 
-def pick_route(report: dict) -> "tuple[str, int | None]":
-    """Unattended Routing, first match wins: self-duplicate, a ranked candidate (comment), else a new issue."""
+def confirm_issue(gh: "list[str]", repo: str, number: int) -> "dict | None":
+    """Read one issue's live state and label names with `gh issue view`.
+
+    Returns `{"state": "OPEN" or "CLOSED", "labels": [lower-case names]}`. Returns None when the call
+    fails, times out, or prints a reply without a state and a label list. Read-only.
+    """
+    argv = [*gh, "issue", "view", str(number), "-R", repo, "--json", VIEW_FIELDS]
+    try:
+        result = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", timeout=QUERY_TIMEOUT, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        data = json.loads(result.stdout or "")
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("state"), str) or not isinstance(data.get("labels"), list):
+        return None
+    names = [str(label.get("name", "")).lower() for label in data["labels"] if isinstance(label, dict)]
+    return {"state": data["state"].upper(), "labels": names}
+
+
+def comment_allowed(view: "dict | None") -> bool:
+    """True only for a confirmed open issue that carries no lifecycle label."""
+    return view is not None and view["state"] == "OPEN" and not LIFECYCLE_LABELS.intersection(view["labels"])
+
+
+def choose_target(gh: "list[str] | None", repo: str, report: dict) -> "tuple[int | None, dict | None]":
+    """Return (comment target, related issue) for a scan result.
+
+    The ranked candidates are read in order. One matched only on title words is passed over. A
+    candidate the scan lists as open gets a live read, for at most CONFIRM_MAX candidates, and the
+    first one `comment_allowed` accepts is the target. With no target, the related issue is the first
+    identifier-matched candidate, as `{"number", "state"}`: the new issue names it.
+    """
+    if gh is None or report.get("outcome") not in ("FOUND", "INCOMPLETE"):
+        return None, None
+    related = None
+    confirmed = 0
+    for entry in report.get("ranked") or []:
+        number = entry.get("number")
+        if not isinstance(number, int) or isinstance(number, bool):
+            continue
+        if (entry.get("best_key_score") or 0) < COMMENT_MIN_KEY_SCORE:
+            continue
+        state = str(entry.get("state") or "").upper()
+        if state == "OPEN" and confirmed < CONFIRM_MAX:
+            confirmed += 1
+            view = confirm_issue(gh, repo, number)
+            if comment_allowed(view):
+                return number, None
+            if view is not None:
+                state = view["state"]
+        if related is None:
+            related = {"number": number, "state": state}
+    return None, related
+
+
+def pick_route(report: dict, gh: "list[str] | None" = None, repo: str = "") -> "tuple[str, int | None, dict | None]":
+    """Unattended Routing, first match wins: self-duplicate, a confirmed comment target, else a new issue.
+
+    Returns (route, issue number, related issue). The number is the self-duplicate or the comment
+    target. The related issue is set only on the issue route.
+    """
     if report.get("self_duplicate") is not None:
-        return "self-duplicate", report["self_duplicate"]
-    if report.get("outcome") in ("FOUND", "INCOMPLETE") and report.get("ranked"):
-        return "comment", report["ranked"][0]["number"]
-    return "issue", None
+        return "self-duplicate", report["self_duplicate"], None
+    target, related = choose_target(gh, repo, report)
+    if target is not None:
+        return "comment", target, None
+    return "issue", None, related
 
 
 def _post_url(stdout: str) -> str:
@@ -715,9 +843,9 @@ def cmd_post(args: argparse.Namespace) -> int:
         if promoted is None:
             print(f"feedback_post: the draft could not be promoted: {error}", file=sys.stderr)
             return EXIT_FAILED
-    # This path has no reviewer, so the posted text must not say a person approved it.
+    # The posted text says how this post was approved: unattended, from the card, or after a review.
     try:
-        _mark_unattended(promoted)
+        _mark_provenance(promoted, args.consent)
     except OSError:
         return _kept("the draft file could not be updated", promoted)
 
@@ -728,18 +856,20 @@ def cmd_post(args: argparse.Namespace) -> int:
     if not _auth_ok(gh["argv"]):
         return _kept("gh is not signed in", promoted)
 
-    # Step 4.5 and Unattended Routing.
+    # Step 4.5 and Unattended Routing. The scan reads the body without a related line an earlier run left.
     _title, body = read_draft(promoted)
-    report = run_scan(gh, repo, title, body)
-    route, number = pick_route(report)
+    report = run_scan(gh, repo, title, _RELATED_RE.sub("", body.lstrip("\r\n"), count=1))
+    route, number, related = pick_route(report, gh["argv"], repo)
     if route == "self-duplicate":
         print(report["notice"])
         return EXIT_KEPT
+    # The issue route names a matched issue that could not take a comment. The comment route carries no such line.
+    try:
+        _set_related_line(promoted, related)
+    except OSError:
+        return _kept("the draft file could not be updated", promoted)
     posted = promoted
-    if route == "comment":
-        # The number comes from gh's JSON; anything but an integer keeps the draft rather than guessing a target.
-        if not isinstance(number, int):
-            return _kept("the top-ranked issue has no usable number", promoted)
+    if route == "comment" and number is not None:
         posted = promoted.with_name(_comment_draft_name(number, promoted))
         try:
             feedback_drafts._write(posted, COMMENT_LEAD_IN.format(title=title) + "\n\n" + feedback_drafts._read(promoted))
@@ -752,6 +882,8 @@ def cmd_post(args: argparse.Namespace) -> int:
     except feedback_drafts._CONFIG_ERRORS:
         return _kept("the privacy check could not run", posted)
     if verdict != "clean":
+        # The record goes beside the promoted draft on both routes, before the kept line prints.
+        _record_block(promoted, found, line, route)
         return _kept(f"the privacy check blocked it ({found} at line {line})", posted)
     # The issue route sends the title outside the body file, so the same rules scan it too.
     if route == "issue":
@@ -778,11 +910,17 @@ def cmd_post(args: argparse.Namespace) -> int:
     # The post succeeded. Nothing from here on may turn it into a failure exit.
     url = _post_url(result.stdout)
     where = f"as a comment on #{number}" if route == "comment" else "as a new issue"
-    print(f"Feedback posted to {repo} {where}: {url or '(gh printed no URL)'}")
-    try:
-        write_posted_marker(posted, url, route)
-    except OSError:
-        print(f"The draft could not be marked posted: the .posted marker could not be written at {_marker_path(posted).resolve()}")
+    note = ""
+    if related is not None:
+        state = str(related.get("state") or "").lower()
+        note = f" (related to #{related['number']}" + (f", which is {state})" if state in ("open", "closed") else ")")
+    print(f"Feedback posted to {repo} {where}: {url or '(gh printed no URL)'}{note}")
+    # A comment-route post marks the comment draft and the promoted draft, so both read as posted.
+    for marked in ([posted, promoted] if route == "comment" else [posted]):
+        try:
+            write_posted_marker(marked, url, route)
+        except OSError:
+            print(f"The draft could not be marked posted: the .posted marker could not be written at {_marker_path(marked).resolve()}")
     return EXIT_POSTED
 
 
@@ -874,6 +1012,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_post = sub.add_parser("post", help="post one queued model draft with no question: the unattended post path")
     p_post.add_argument("--config", required=True, help="path to config.yaml")
     p_post.add_argument("--draft-id", required=True, help="the draft_id of a queued model draft")
+    p_post.add_argument("--consent", choices=sorted(PROVENANCE_BY_CONSENT), default="none",
+                        help="how the post was approved: none (unattended), card (the review card's Post press) or review (a person read the body and chose to post)")
     p_post.set_defaults(func=cmd_post)
     p_card = sub.add_parser("card", help="list the queued drafts, the posting state and each queued body; local-only, read-only")
     p_card.add_argument("--config", required=True, help="path to config.yaml")

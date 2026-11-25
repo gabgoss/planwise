@@ -51,7 +51,7 @@ without running a subprocess. `list`, `count_queued`, `is_expired` and `was_post
 | Function | Returns |
 |---|---|
 | `is_expired(draft, now)` | True when the draft was created more than `EXPIRY_DAYS` before `now`. The commands above use this same predicate |
-| `was_posted(path)` | True when `{path}.posted` exists, or when a `{date}-comment-{NN}-{stem}.md.posted` sidecar sits beside `path`. `feedback_post.py` and `blocked-list` use this same predicate. Writes nothing |
+| `was_posted(path)` | True when `{path}.posted` exists, or when the sidecar of a comment draft made from `path` sits beside it, under the current name `{draft date}-comment-{NN}-{kind}-{slug}.md.posted` or the older `{date}-comment-{NN}-{stem}.md.posted`. `feedback_post.py` and `blocked-list` use this same predicate. Writes nothing |
 | `count_queued(directory)` | The number of drafts `list` would show as `queued`. Writes nothing |
 | `count_blocked(directory)` | The number of drafts `blocked-list` would show without `--all`: blocked, not dismissed, not `was_posted`. Writes nothing |
 """
@@ -1086,12 +1086,17 @@ def _blocked_fields(sidecar: Path) -> "dict[str, str]":
 def was_posted(path: Path) -> bool:
     """Whether a `.posted` sidecar records a post of this promoted file, or of a comment draft made from it.
 
-    A comment-route post writes its sidecar on the `{date}-comment-{NN}-{stem}.md` file, not on `path`.
-    Read-only.
+    A comment-route post writes a sidecar on the comment draft as well as on `path`. The comment draft
+    is `{draft date}-comment-{NN}-{kind}-{slug}.md`. An older post named it
+    `{date}-comment-{NN}-{stem}.md` and marked only that file, so both names count. Read-only.
     """
     if path.with_name(path.name + ".posted").exists():
         return True
-    pattern = re.compile(r"\d{4}-\d{2}-\d{2}-comment-\d+-" + re.escape(path.stem) + r"\.md\.posted")
+    stem = path.stem
+    forms = [r"\d{4}-\d{2}-\d{2}-comment-\d+-" + re.escape(stem)]
+    if re.match(r"\d{4}-\d{2}-\d{2}-.", stem):
+        forms.append(re.escape(stem[:10]) + r"-comment-\d+-" + re.escape(stem[11:]))
+    pattern = re.compile("(?:" + "|".join(forms) + r")\.md\.posted")
     return any(pattern.fullmatch(entry.name) for entry in path.parent.iterdir())
 
 

@@ -360,9 +360,23 @@ def post_setup(tmp_path: Path, title: str = "List skips a queued draft", body: s
     return config, draft
 
 
-def post(config: Path, env: dict, draft_id: str = DRAFT_ID) -> "subprocess.CompletedProcess":
-    argv = [sys.executable, "-B", str(SCRIPT), "post", "--config", str(config), "--draft-id", draft_id]
+def post(config: Path, env: dict, draft_id: str = DRAFT_ID, *extra: str) -> "subprocess.CompletedProcess":
+    argv = [sys.executable, "-B", str(SCRIPT), "post", "--config", str(config), "--draft-id", draft_id, *extra]
     return subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", env=env, cwd=config.parent, timeout=120, check=False)
+
+
+def match_scenario(tmp_path: Path, rows: list, views: "dict | None" = None, match: str = "feedback_drafts.py in:") -> str:
+    """A scenario file whose rows answer one search key, with an optional `views` map for `issue view`."""
+    data: dict = {"responses": [{"match": match, "rows": rows}]}
+    if views is not None:
+        data["views"] = views
+    scenario = tmp_path / "rows.json"
+    scenario.write_text(json.dumps(data), encoding="utf-8")
+    return str(scenario)
+
+
+def view_calls(log: Path) -> "list[list[str]]":
+    return [argv for argv in read_calls(log) if argv[:2] == ["issue", "view"]]
 
 
 def promoted_files(tmp_path: Path) -> "list[Path]":
@@ -424,15 +438,130 @@ def test_a_ranked_candidate_is_answered_with_a_comment(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout == f"Feedback posted to {REPO} as a comment on #42: {COMMENT_URL}\n"
     assert posts(log) == (0, 1)
-    [comment_draft] = (tmp_path / "Feedback" / "Feedback-Drafts").glob("*-comment-42-*-bug-list-skips-a-queued-draft.md")
+    # The live read ran once, before the post, with the three fields the route reads.
+    assert view_calls(log) == [["issue", "view", "42", "-R", REPO, "--json", "number,state,labels"]]
+    [promoted] = promoted_files(tmp_path)
+    # The comment draft keeps the promoted file's own date, so the date appears once in its name.
+    [comment_draft] = (tmp_path / "Feedback" / "Feedback-Drafts").glob("*-comment-42-*.md")
+    assert comment_draft.name == promoted.name[:10] + "-comment-42-bug-list-skips-a-queued-draft.md"
     [comment] = [argv for argv in read_calls(log) if argv[:2] == ["issue", "comment"]]
     assert comment == ["issue", "comment", "-R", REPO, "42", "--body-file", str(comment_draft)]
     text = comment_draft.read_text(encoding="utf-8")
-    [promoted] = promoted_files(tmp_path)
     assert text == ("Filed with `/planwise feedback` as a comment rather than a new issue — this looked like the same "
                     "subject as this thread. **List skips a queued draft**\n\n" + promoted.read_text(encoding="utf-8"))
-    assert marker(comment_draft) == {"posted": time.strftime("%Y-%m-%d", time.gmtime()), "url": COMMENT_URL, "route": "comment"}
-    assert not promoted.with_name(promoted.name + ".posted").exists()
+    expected = {"posted": time.strftime("%Y-%m-%d", time.gmtime()), "url": COMMENT_URL, "route": "comment"}
+    # Both files are marked, so the promoted draft no longer reads as never posted.
+    assert marker(comment_draft) == expected and marker(promoted) == expected
+
+
+OPEN_42 = {"number": 42, "title": "Queue listing", "state": "OPEN", "url": "u42", "age_days": 200}
+CLOSED_42 = {**OPEN_42, "state": "CLOSED", "labels": ["bug", "resolved"]}
+
+
+@pytest.mark.parametrize("rows,views,state,views_made", [
+    # Closed and resolved in the scan: no live read is needed to refuse it.
+    ([CLOSED_42], None, "closed", 0),
+    # Open, but its maintainers already took it in.
+    ([{**OPEN_42, "labels": ["bug", "intake"]}], None, "open", 1),
+    ([{**OPEN_42, "labels": ["wontfix"]}], None, "open", 1),
+    # Open in the scan and closed by the time of the live read.
+    ([OPEN_42], {"42": {"state": "CLOSED", "labels": ["resolved"]}}, "closed", 1),
+    # The live read failed, so the issue is not confirmed open.
+    ([OPEN_42], {"42": None}, "open", 1),
+], ids=["closed-resolved", "open-intake", "open-wontfix", "closed-since-the-scan", "view-failed"])
+def test_a_match_that_cannot_take_a_comment_gets_a_new_issue_that_names_it(tmp_path, rows, views, state, views_made):
+    config, _draft = post_setup(tmp_path)
+    env, log = url_env(tmp_path, scenario=match_scenario(tmp_path, rows, views))
+    result = post(config, env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == f"Feedback posted to {REPO} as a new issue: {ISSUE_URL} (related to #42, which is {state})\n"
+    assert posts(log) == (1, 0)
+    assert len(view_calls(log)) == views_made
+    [promoted] = promoted_files(tmp_path)
+    assert promoted.read_text(encoding="utf-8").startswith(f"Possibly related to #42 ({state}).\n\n### What happened\n")
+    assert marker(promoted)["route"] == "issue"
+    assert not list((tmp_path / "Feedback" / "Feedback-Drafts").glob("*-comment-*"))
+
+
+def test_a_label_outside_the_lifecycle_set_does_not_stop_a_comment(tmp_path):
+    config, _draft = post_setup(tmp_path)
+    env, log = url_env(tmp_path, scenario=match_scenario(tmp_path, [{**OPEN_42, "labels": ["bug", "enhancement"]}]))
+    result = post(config, env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == f"Feedback posted to {REPO} as a comment on #42: {COMMENT_URL}\n"
+    assert posts(log) == (0, 1)
+
+
+def test_the_first_candidate_that_can_take_a_comment_is_the_target(tmp_path):
+    # #41 is newer, so it ranks first, and it is closed. #42 is open and clean.
+    rows = [{"number": 41, "title": "Queue listing broke", "state": "CLOSED", "url": "u41", "age_days": 3, "labels": ["resolved"]}, OPEN_42]
+    config, _draft = post_setup(tmp_path)
+    env, log = url_env(tmp_path, scenario=match_scenario(tmp_path, rows))
+    result = post(config, env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == f"Feedback posted to {REPO} as a comment on #42: {COMMENT_URL}\n"
+    assert posts(log) == (0, 1)
+    assert [argv[2] for argv in view_calls(log)] == ["42"]
+    [promoted] = promoted_files(tmp_path)
+    assert not promoted.read_text(encoding="utf-8").startswith("Possibly related")
+
+
+def test_a_match_on_title_words_alone_never_takes_a_comment(tmp_path):
+    # An open, clean, recent issue matched only by the title query: 1 for the key plus 2 for its age clears
+    # the ranking threshold, and it still gets no comment and no related line.
+    rows = [{"number": 50, "title": "List skips queued things", "state": "OPEN", "url": "u50", "age_days": 3}]
+    config, _draft = post_setup(tmp_path)
+    env, log = url_env(tmp_path, scenario=match_scenario(tmp_path, rows, match="List skips queued in:"))
+    result = post(config, env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == f"Feedback posted to {REPO} as a new issue: {ISSUE_URL}\n"
+    assert posts(log) == (1, 0) and view_calls(log) == []
+    [promoted] = promoted_files(tmp_path)
+    assert promoted.read_text(encoding="utf-8").startswith("### What happened\n")
+
+
+def test_a_retry_keeps_one_related_line(tmp_path):
+    config, _draft = post_setup(tmp_path)
+    env, log = url_env(tmp_path, scenario=match_scenario(tmp_path, [CLOSED_42]), FAKE_GH_EXIT="1", FAKE_GH_MATCH="issue create")
+    assert post(config, env).returncode == 3
+    del env["FAKE_GH_EXIT"], env["FAKE_GH_MATCH"]
+    retry = post(config, env)
+    assert retry.returncode == 0, retry.stdout + retry.stderr
+    [promoted] = promoted_files(tmp_path)
+    assert promoted.read_text(encoding="utf-8").count("Possibly related to #42") == 1
+    assert posts(log) == (2, 0)
+
+
+@pytest.mark.parametrize("row,target,related", [
+    (OPEN_42, 42, None),
+    (CLOSED_42, None, {"number": 42, "state": "CLOSED"}),
+], ids=["open", "closed"])
+def test_scan_reports_the_comment_target(tmp_path, row, target, related):
+    title, body, _keys, _title_query = FILE_NAME
+    env, log = gh_env(tmp_path, scenario=match_scenario(tmp_path, [row]))
+    _code, report, _elapsed = scan(tmp_path, title, body, env)
+    assert (report["comment_target"], report["related"]) == (target, related)
+    assert posts(log) == (0, 0)
+    argv = [sys.executable, "-B", str(SCRIPT), "scan", "--config", str(write_config(tmp_path)),
+            "--draft", str(write_draft(tmp_path, title, body))]
+    text = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", env=env, cwd=tmp_path, timeout=120, check=False)
+    assert text.stdout.splitlines()[-1] == ("Comment target: #42" if target else "Comment target: none")
+
+
+@pytest.mark.parametrize("consent,sentence", [
+    ((), fp.UNATTENDED_PROVENANCE),
+    (("--consent", "none"), fp.UNATTENDED_PROVENANCE),
+    (("--consent", "card"), fp.CARD_PROVENANCE),
+    (("--consent", "review"), fp.feedback_drafts.PROVENANCE_LINE),
+], ids=["default", "none", "card", "review"])
+def test_the_consent_value_picks_the_provenance_sentence(tmp_path, consent, sentence):
+    config, _draft = post_setup(tmp_path)
+    env, _log = url_env(tmp_path)
+    assert post(config, env, DRAFT_ID, *consent).returncode == 0
+    [promoted] = promoted_files(tmp_path)
+    text = promoted.read_text(encoding="utf-8")
+    assert text.rstrip("\n").endswith(sentence)
+    assert sum(text.count(line) for line in fp.PROVENANCE_BY_CONSENT.values()) == 1
 
 
 def test_a_self_duplicate_posts_nothing(tmp_path):
@@ -466,6 +595,14 @@ def test_a_privacy_block_posts_nothing(tmp_path, ranked):
     assert line.startswith(prefix) and line.endswith(f"). Draft: {posted.resolve()}"), line
     assert "someone@example.com" not in result.stdout
     assert posted.is_file() and not list((tmp_path / "Feedback" / "Feedback-Drafts").glob("*.posted"))
+    # The block is recorded beside the promoted draft on both routes, and the record holds no draft text.
+    [promoted] = promoted_files(tmp_path)
+    [sidecar] = (tmp_path / "Feedback" / "Feedback-Drafts").glob("*.blocked")
+    assert sidecar.name == promoted.name + ".blocked"
+    fields = dict(row.split(": ", 1) for row in sidecar.read_text(encoding="utf-8").splitlines())
+    assert (fields["class"], fields["route"]) == ("email", "comment" if ranked else "issue")
+    assert line == f"{prefix}{fields['line']}). Draft: {posted.resolve()}"
+    assert fp.feedback_drafts.count_blocked(tmp_path / "Feedback" / "Feedback-Drafts") == 1
 
 
 def test_a_failed_post_keeps_the_draft_unmarked(tmp_path):
@@ -659,7 +796,7 @@ def test_a_comment_draft_that_cannot_be_written_keeps_the_draft(tmp_path):
     scenario.write_text(json.dumps({"responses": [{"match": "feedback_drafts.py in:", "rows": [
         {"number": 42, "title": "Queue listing", "state": "OPEN", "url": "u42", "age_days": 200}]}]}), encoding="utf-8")
     config, _draft = post_setup(tmp_path)
-    (tmp_path / "Feedback" / "Feedback-Drafts" / today_name("comment-42-" + today_name("bug-list-skips-a-queued-draft.md"))).mkdir()
+    (tmp_path / "Feedback" / "Feedback-Drafts" / today_name("comment-42-bug-list-skips-a-queued-draft.md")).mkdir()
     env, log = url_env(tmp_path, scenario=str(scenario))
     result = post(config, env)
     assert result.returncode == 3

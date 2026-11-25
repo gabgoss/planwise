@@ -98,7 +98,10 @@ const lastLine = (text: string, fallback: string): string => {
  */
 const isTimeout = (err: unknown): boolean => /time(d)?[\s-]?out/i.test(errText(err))
 
-/** The post script's argv for one interpreter name. */
+/**
+ * The post script's argv for one interpreter name. `--consent card` makes the posted text say the
+ * user chose to post from the review card, in place of the unattended sentence.
+ */
 export const postArgv = (python: string, pluginRoot: string, draft: PressDraft): string[] => [
   python,
   '-B',
@@ -108,6 +111,8 @@ export const postArgv = (python: string, pluginRoot: string, draft: PressDraft):
   draft.configPath,
   '--draft-id',
   draft.draftId,
+  '--consent',
+  'card',
 ]
 
 /**
