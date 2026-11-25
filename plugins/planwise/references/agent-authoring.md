@@ -111,6 +111,7 @@ The plugin pins `effort:` on the agents it measured, on agents assigned by role 
 | `backlog-preflight` | `medium` (pinned) | assigned by role class (execution → medium, judgment → high), not separately measured; re-measure per the clause below |
 | `backlog-planner` | `high` (pinned) | assigned by role class (execution → medium, judgment → high), not separately measured; re-measure per the clause below |
 | `backlog-author` | `medium` (pinned) | assigned by role class (execution → medium, judgment → high), not separately measured; re-measure per the clause below |
+| `backlog-item-classifier` | `high` (pinned) | assigned by role class (execution → medium, judgment → high), not separately measured; re-measure per the clause below |
 | `ei-extractor` | `high` (pinned) | assigned by role class (execution → medium, judgment → high), not separately measured; re-measure per the clause below |
 | `sprint-scaffolder` | `high` (pinned) | assigned by role class (execution → medium, judgment → high), not separately measured; re-measure per the clause below |
 | `scaffold-harmonizer` | `medium` (pinned) | assigned by role class (execution → medium, judgment → high), not separately measured; re-measure per the clause below |

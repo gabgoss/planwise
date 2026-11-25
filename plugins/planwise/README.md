@@ -613,7 +613,7 @@ planwise is built entirely on markdown files and Python scripts — no databases
 
 ### Custom agents
 
-planwise uses fourteen specialized AI agents behind the scenes:
+planwise uses fifteen specialized AI agents behind the scenes:
 
 | Agent | What it does |
 |-------|-------------|
@@ -626,6 +626,7 @@ planwise uses fourteen specialized AI agents behind the scenes:
 | **backlog-preflight** | Proves backlog candidates against the live repository before anything is designed or filed |
 | **backlog-planner** | Designs the solution for one backlog item: approach, numbered steps, verification, or the questions only the user can answer; never authors a session plan |
 | **backlog-author** | Files or rewrites backlog items from the planner's designs, writes the executable sections and the `refined` flag, and regenerates the index |
+| **backlog-item-classifier** | Drafts the map for the `/planwise upgrade` heading re-parent step: the core section for each item heading the synonym table cannot place, a short title for each over-cap title and a Summary for each item without one; writes only the map file and never edits an item |
 | **plan-author** | Writes one plan session's bodies file from the metadata spec, the `plan_build.py keys` output and the plan-notes state file when plan authoring is delegated, then lints it; stops with the open questions when any remain |
 | **plan-preflight** | Checks the metadata spec, the bodies folder, the plan bodies file and the notes file before the plan-bodies workflow starts any author, and reports the loaded plugin's root; writes nothing |
 | **ei-extractor** | Extracts one sprint's Execution Input and its Deferred / Out-of-Scope Log from the Meta-plan's discovery sources when `/planwise plan --scaffold` fans out, copying content verbatim and reporting measured retention |
