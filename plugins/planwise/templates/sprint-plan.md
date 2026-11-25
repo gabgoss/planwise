@@ -45,6 +45,8 @@ over read-sets is meaningless, since nearly every sprint reads broadly but only
 a handful of paths are ever written to. Each row's paths also appear on the named
 task's `**Output:**` line, and lint Check 59 reconciles the two.
 
+The size cells of a path a task cites copy the Required Context row that the task's `**Measured:**` footer pins. Any other path takes its file size or a plan-time estimate. See `references/session-context-budget.md` for the conversion rates.
+
 | Path | Task | Role | KiB | ~Tokens |
 |------|------|------|----:|--------:|
 | `{path/or/directory}` | {ABBREV}-S{XX}-{YY}-{##} | {Role} | {K} | ~{X}K |
@@ -236,6 +238,18 @@ List each reference value that a port or recomputation must reproduce, with the 
 A consuming task's gate cites the row by Name.
 
 When this sprint reproduces no reference value, delete the section entirely rather than leaving an empty table.
+
+---
+
+## Contract Keys <!-- OPTIONAL -->
+
+Copy each Master Plan `## Contract Keys` row whose Defining Task or Consuming Tasks cell names a task of this sprint.
+
+| Key | Kind | Literal | Defining Task | Consuming Tasks |
+|-----|------|---------|---------------|-----------------|
+| `{KeyName}` | {function, column or table prefix} | `{exact name}` | {Abbrev}-S{XX_other}-{YY}-{ZZ} | {Abbrev}-S{XX}-{YY}-{ZZ} |
+
+A gate writes the `Literal` cell verbatim, never a census placeholder.
 
 ---
 

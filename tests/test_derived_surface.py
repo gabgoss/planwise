@@ -651,6 +651,48 @@ def test_the_master_total_counts_each_path_once_and_follows_a_changed_figure(tmp
     assert moved[1] == settled[1] and moved[2] != settled[2]
 
 
+@pytest.mark.parametrize(("rel", "start", "stop", "read", "broken"), [
+    (PLAN, "\n## Write-Set", "\n---\n", _write_set, ("## Sprint Objective", "## Renamed")),
+    (MASTER, "\n### Write-Sets", "\n### ", _master, (" distinct paths", "9 distinct paths")),
+], ids=["sprint", "master"])
+def test_the_write_set_cites_the_rates_and_the_pin_of_its_cells(tmp_path, capsys, rel, start, stop, read, broken):
+    section = Tree(tmp_path, spec=_two_sprints()).files[rel].split(start, 1)[1].split(stop, 1)[0]
+    cited = [ln for ln in section.split("\n")
+             if "references/session-context-budget.md" in ln and "**Measured:**" in ln]
+    assert len(cited) == 1
+    assert "B/tok" not in section
+
+    def findings(tree):
+        capsys.readouterr()
+        er.main(["check", str(tree.plan)])
+        rolled = capsys.readouterr().out.splitlines()
+        assert rolled[-1].startswith("estimates: sessions=4 ")  # the control: the check read every session
+        graded = deviation_check(tree.plan)[1]
+        assert graded[-1].startswith("deviations: ")
+        return [ln.replace(f"/{shape}/", "/") for ln in rolled + graded]
+
+    # Old shape: the same plan without the line takes the same figures and no new finding.
+    seen = {}
+    for shape in ("new", "old"):
+        (tmp_path / shape).mkdir()
+        tree = Tree(tmp_path / shape, spec=_two_sprints())
+        if shape == "old":
+            text = tree.text(rel)
+            tree.set(rel, text.replace(cited[0] + "\n\n", "", 1))
+            assert len(tree.text(rel)) < len(text)
+        before = read(tree.text(rel))
+        report = tree.write_back(TASK_1, TASK_2, OTHER_TASK, TASK_S2)
+        assert report["unreadable"] == []
+        assert not [r for r in report["left"] if Path(r["file"]).name == Path(rel).name]
+        assert read(tree.text(rel)) != before  # the control: the write-back moved the cells
+        _assert_master(tree)
+        assert _check_59(tree) == []
+        seen[shape] = (read(tree.text(rel)), findings(tree))
+    assert seen["old"] == seen["new"]
+    tree.set(rel, tree.text(rel).replace(*broken, 1))
+    assert findings(tree) != seen["old"][1]  # the control: the gates read this file
+
+
 @pytest.mark.parametrize("eol", ["\n", "\r\n"], ids=["lf", "crlf"])
 def test_a_second_write_back_of_the_master_plan_changes_no_byte(tmp_path, eol):
     spec = _two_sprints()

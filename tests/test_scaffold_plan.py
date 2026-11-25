@@ -739,7 +739,7 @@ def test_check_headings_grades_a_scaffolding_master_against_its_own_template(tmp
     target.write_text(_scaffolding_master_text(), encoding="utf-8", newline="\n")
     results = sp.check_headings([target], TEMPLATES)
     assert (results[0]["kind"], results[0]["stray"]) == ("scaffolding-master", [])
-    assert results[0]["h2"] == 12
+    assert results[0]["h2"] == 13
     assert sp.main(["check-headings", str(target)]) == 0
     out = capsys.readouterr().out
     assert "kind=scaffolding-master" in out and "stray=0" in out and "stray_h2=0 files=1" in out

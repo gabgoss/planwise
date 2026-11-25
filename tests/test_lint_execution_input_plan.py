@@ -639,6 +639,162 @@ def test_cross_sprint_touch_repaired_is_clean(tmp_path, capsys):
     assert "cross-sprint-touch: 1 subject(s), 0 finding(s)" in out
 
 
+# The heading and header lines copy templates/master-plan.md, the producer of the register.
+REGISTER = """## Contract Keys <!-- OPTIONAL -->
+
+| Key | Kind | Literal | Defining Task | Consuming Tasks |
+|-----|------|---------|---------------|-----------------|
+| `SharedTable` | table prefix | `SHARED = {` | XYZ-S01-02-04 | XYZ-S02-01-01 |
+"""
+WITH_REGISTER = ("## Sprint Dependencies", REGISTER + "\n## Sprint Dependencies")
+NO_LITERAL = (
+    "1. Grep `tests/test_shared.py` for `SHARED = {` before the first edit.",
+    "1. Grep `tests/test_shared.py` before the first edit.",
+)
+
+
+def test_cross_sprint_touch_fires_on_a_step_one_that_omits_a_register_literal(tmp_path, capsys):
+    code, out = run(tmp_path, capsys, edited(master=WITH_REGISTER, task1=NO_LITERAL))
+    assert code == 1, out
+    lines = findings(out, "cross-sprint-touch")
+    assert len(lines) == 1 and lines[0].startswith("BLOCKER "), out
+    assert (
+        "tests/test_shared.py: first writing task XYZ-S02-01-01 Step-1 gate omits "
+        "the Contract Keys literal SHARED = { from XYZ-S01-02-04"
+    ) in lines[0]
+
+
+def test_cross_sprint_touch_step_one_naming_the_register_literal_is_clean(tmp_path, capsys):
+    code, out = run(tmp_path, capsys, edited(master=WITH_REGISTER))
+    assert code == 0, out
+    assert "cross-sprint-touch: 1 subject(s), 0 finding(s)" in out
+
+
+def test_cross_sprint_touch_register_row_of_another_task_is_no_finding(tmp_path, capsys):
+    # the first writer's id sits inside a longer id here, so the case also pins the whole-id match
+    other = REGISTER.replace("| XYZ-S02-01-01 |", "| XYZ-S02-01-02, ABC-XYZ-S02-01-01 |")
+    # a template row nobody filled and a row with a blank Literal route nothing to the first writer
+    other += "| `{KeyName}` | table prefix | `{exact name}` | XYZ-S01-02-04 | XYZ-S02-01-01 |\n"
+    other += "| `BlankKey` | table prefix |  | XYZ-S01-02-04 | XYZ-S02-01-01 |\n"
+    register = (WITH_REGISTER[0], other + "\n## Sprint Dependencies")
+    code, out = run(tmp_path, capsys, edited(master=register, task1=NO_LITERAL))
+    assert code == 0, out
+    assert "cross-sprint-touch: 1 subject(s), 0 finding(s)" in out
+
+
+ROW = "| `SharedTable` | table prefix | `SHARED = {` | XYZ-S01-02-04 | XYZ-S02-01-01 |\n"
+
+
+def with_rows(*rows: str) -> tuple[str, str]:
+    """The Master Plan change that adds a register holding exactly these rows."""
+    return (WITH_REGISTER[0], REGISTER.replace(ROW, "".join(rows)) + "\n## Sprint Dependencies")
+
+
+def key_row(literal: str, consuming: str = "XYZ-S02-01-01") -> str:
+    return f"| `Key` | function | {literal} | XYZ-S01-02-04 | {consuming} |\n"
+
+
+def step_naming(text: str) -> tuple[str, str]:
+    return (NO_LITERAL[0], f"1. Grep `tests/test_shared.py` for `{text}` before the first edit.")
+
+
+def register_notes(out: str) -> list[str]:
+    return [line for line in out.splitlines() if "cross-sprint-touch: XYZ-Master-Plan.md:" in line]
+
+
+@pytest.mark.parametrize(
+    ("literal", "named", "expected"),
+    [
+        ("load_map", "load_map_v2", 1),
+        ("load_map", "reload_map", 1),
+        ("load_map", "load_map", 0),
+        ("load_map", "load_map_v2 and load_map", 0),
+        ("load.map", "loadxmap", 1),
+        ("SHARED = {", "SHARED = {1", 0),
+    ],
+)
+def test_cross_sprint_touch_register_literal_is_a_whole_name(tmp_path, capsys, literal, named, expected):
+    files = edited(master=with_rows(key_row(f"`{literal}`")), task1=step_naming(named))
+    code, out = run(tmp_path, capsys, files)
+    assert code == (1 if expected else 0), out
+    assert len(findings(out, "cross-sprint-touch")) == expected, out
+
+
+def test_cross_sprint_touch_reports_one_finding_per_task_and_literal(tmp_path, capsys):
+    """Two shared files with one first writer: each omitted literal is reported once, on the first file."""
+    second = "| `tests/test_other.py` | {} |\n"
+    own = "| `tests/test_shared.py` | XYZ-S02-01-01 |\n"
+    earlier = "| `tests/test_shared.py` | XYZ-S01-02-04 |\n"
+    files = edited(
+        master=with_rows(key_row("`load_map`"), key_row("`save_map`")),
+        earlier=(earlier, earlier + second.format("XYZ-S01-02-04")),
+        plan=(own, own + second.format("XYZ-S02-01-01")),
+        task1=NO_LITERAL,
+    )
+    files["plan"] = files["plan"].replace(TOUCH_ROW, TOUCH_ROW + TOUCH_ROW.replace("test_shared", "test_other"))
+    code, out = run(tmp_path, capsys, files)
+    assert code == 1, out
+    lines = findings(out, "cross-sprint-touch")
+    assert len(lines) == 2 and all("tests/test_shared.py: first writing task" in line for line in lines), out
+    assert "literal load_map from" in lines[0] and "literal save_map from" in lines[1]
+
+
+def test_cross_sprint_touch_reads_an_unescaped_pipe_in_a_backtick_literal(tmp_path, capsys):
+    files = edited(master=with_rows(key_row("`left|right`")), task1=NO_LITERAL)
+    code, out = run(tmp_path, capsys, files)
+    assert code == 1, out
+    lines = findings(out, "cross-sprint-touch")
+    assert len(lines) == 1 and "literal left|right from XYZ-S01-02-04" in lines[0], out
+    assert register_notes(out) == []
+
+
+def test_cross_sprint_touch_notes_a_malformed_register_row(tmp_path, capsys):
+    files = edited(master=with_rows(key_row("left|right")), task1=NO_LITERAL)
+    code, out = run(tmp_path, capsys, files)
+    assert code == 0, out
+    notes = register_notes(out)
+    line = files["master"].splitlines().index(key_row("left|right").strip()) + 1
+    assert len(notes) == 1 and f"XYZ-Master-Plan.md:{line} " in notes[0] and "malformed" in notes[0], out
+
+
+def test_cross_sprint_touch_accumulates_every_register_table(tmp_path, capsys):
+    """An empty first register hides nothing, and the rows of every Master Plan part are read."""
+    files = edited(master=with_rows(key_row("`{exact name}`")), task1=NO_LITERAL)
+    files["master"] += "\n" + REGISTER.replace(ROW, key_row("`load_map`"))
+    part = tmp_path / "plan/Exec-XYZ/XYZ-Master-Plan-Part-2-More.md"
+    part.parent.mkdir(parents=True)
+    part.write_text("# XYZ Part 2\n\n" + REGISTER, encoding="utf-8", newline="\n")
+    code, out = run(tmp_path, capsys, files)
+    assert code == 1, out
+    text = "\n".join(findings(out, "cross-sprint-touch"))
+    assert "literal load_map from" in text and "literal SHARED = { from" in text, out
+
+
+def test_cross_sprint_touch_single_brace_literal_is_checked(tmp_path, capsys):
+    files = edited(master=with_rows(key_row("`{tenant_id}`")), task1=NO_LITERAL)
+    code, out = run(tmp_path, capsys, files)
+    assert code == 1, out
+    lines = findings(out, "cross-sprint-touch")
+    assert len(lines) == 1 and "literal {tenant_id} from" in lines[0], out
+
+
+def test_cross_sprint_touch_unfilled_template_row_is_silent(tmp_path, capsys):
+    # the second cell is the shape scaffold_plan.py renders for the template's braced token
+    rendered = "`<!-- FILL: {exact name} -->`"
+    rows = (key_row("`{exact name}`", "none"), key_row(rendered, "none"), key_row(rendered))
+    code, out = run(tmp_path, capsys, edited(master=with_rows(*rows), task1=NO_LITERAL))
+    assert code == 0, out
+    assert findings(out, "cross-sprint-touch") == [] and register_notes(out) == []
+
+
+def test_cross_sprint_touch_notes_a_filled_row_that_routes_to_no_task(tmp_path, capsys):
+    files = edited(master=with_rows(key_row("`load_map`", "the second session")), task1=NO_LITERAL)
+    code, out = run(tmp_path, capsys, files)
+    assert code == 0, out
+    notes = register_notes(out)
+    assert len(notes) == 1 and "load_map" in notes[0] and "no whole task id" in notes[0], out
+
+
 # --------------------------------------------------------------------------- repoint-cluster
 
 

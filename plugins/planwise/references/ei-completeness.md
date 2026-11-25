@@ -35,7 +35,7 @@ The three axes are independent: an EI may pass one and fail another. The compani
 >
 > CORRECT — Sprint-N's EI declares the POST Sprint-{M} baseline of {N} rows behind a `[!gate] Cross-Sprint Precondition` callout, and appends only the remaining rows.
 
-**Enforced by:** `scripts/lint_execution_input.py`, word id `cross-sprint-touch` (the rule lives in `scripts/lint_execution_input_plan.py`). It cannot see a file no Write-Set table lists, a later sprint's obligations, or whether the grep gate names the prior task's marker. Reviewer Check 055 covers the full detection.
+**Enforced by:** `scripts/lint_execution_input.py`, word id `cross-sprint-touch` (the rule lives in `scripts/lint_execution_input_plan.py`). It reads the Master Plan's `## Contract Keys` register and checks that the first writer's Step-1 line names each literal routed to that task. It cannot see a file no Write-Set table lists, a later sprint's obligations, or a marker no register row names. Reviewer Check 055 covers the full detection.
 
 The section also requires:
 

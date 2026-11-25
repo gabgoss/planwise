@@ -129,6 +129,18 @@ Assigns a global number to each spec output for cross-EI traceability. Execution
 
 ---
 
+## Contract Keys <!-- OPTIONAL -->
+
+A row is a name that one task defines and a task of another sprint searches for, fixed once for the whole plan.
+
+| Key | Kind | Literal | Defining Task | Consuming Tasks |
+|-----|------|---------|---------------|-----------------|
+| `{KeyName}` | {function, column or table prefix} | `{exact name}` | {ABBREV}-S{XX}-{YY}-{ZZ} | {ABBREV}-S{XX}-{YY}-{ZZ} |
+
+A gate writes the `Literal` cell verbatim, never a census placeholder. The cross-sprint-touch lint reads this table and the Step-1 line of a consuming task that first writes a shared file.
+
+---
+
 ## References
 
 | Document | Purpose |

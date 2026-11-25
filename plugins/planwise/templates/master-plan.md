@@ -140,6 +140,8 @@ Sources the Discovery plan reads. The table names each one by reference and neve
 <!-- Collected from each sprint's own Sprint Plan `## Write-Set` section. A path counts once, at
      its highest figure. The total counts a path of several sprints once. -->
 
+The size cells sum the Sprint Plans' Write-Set cells. A figure a task's Required Context row supplies is pinned by that task's `**Measured:**` footer. See `references/session-context-budget.md` for the conversion rates.
+
 | Sprint | Write-set | Count | KiB | ~Tokens |
 |--------|-----------|------:|----:|--------:|
 | Sprint-01 | `{path/or/directory}`, `{path/or/directory}` | {F} | {K} | ~{X}K |
@@ -228,6 +230,18 @@ recomputed: {today's date}.
      Omit the section otherwise. -->
 
 - {Excluded item} — {why it is excluded, and where it goes instead, or "not planned"}
+
+---
+
+## Contract Keys <!-- OPTIONAL -->
+
+A row is a name that one task defines and a task of another sprint searches for, fixed once for the whole plan.
+
+| Key | Kind | Literal | Defining Task | Consuming Tasks |
+|-----|------|---------|---------------|-----------------|
+| `{KeyName}` | {function, column or table prefix} | `{exact name}` | {Abbrev}-S{XX}-{YY}-{ZZ} | {Abbrev}-S{XX}-{YY}-{ZZ} |
+
+A gate writes the `Literal` cell verbatim, never a census placeholder. The cross-sprint-touch lint reads this table and the Step-1 line of a consuming task that first writes a shared file.
 
 ---
 
