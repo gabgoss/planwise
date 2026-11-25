@@ -44,16 +44,17 @@ The spawn prompt supplies these fields. It carries no template heading: this bod
 | `ei_section_map` | `§{n}={EI filename}` pairs, verbatim from the extractor |
 | `write_set` | rows `Path \| Task` for this sprint |
 | `cross_sprint_markers` | rows `Path \| Writers \| Region \| Disposition` that involve this sprint |
+| `contract_keys` | rows `Key \| Kind \| Literal \| Defining Task \| Consuming Tasks` that involve this sprint |
 | `naming_scheme` | the pass-level task-output naming scheme, for example `task ordinal` |
 | `lessons_dir` | absolute path of the lessons folder |
 
-The orchestrator fixes the decomposition, every task id, every Output path, `write_set` and `cross_sprint_markers`. This agent copies them and never derives or changes them.
+The orchestrator fixes the decomposition, every task id, every Output path, `write_set`, `cross_sprint_markers` and `contract_keys`. This agent copies them and never derives or changes them.
 
 ## Mandated Headers
 
 Copy these headings byte for byte, in this order, with their markers. Each list was taken from the live template; the line count beside it shows when the template last moved. A heading marked OPTIONAL or CONDITIONAL is kept only when its condition holds, and then in this position. A file never gains a `##` H2 that its list does not hold.
 
-### Sprint Plan — `templates/sprint-plan.md` (273 lines)
+### Sprint Plan — `templates/sprint-plan.md` (287 lines)
 
 ```
 ## Sprint Objective <!-- REQUIRED -->
@@ -68,6 +69,7 @@ Copy these headings byte for byte, in this order, with their markers. Each list 
 ## Cross-Sprint File Touches <!-- OPTIONAL — include when this sprint edits a file ANY other sprint of the same plan also edits, ordered or not -->
 ## Consumes <!-- REQUIRED when Prerequisites or any task's Depends On names an earlier sprint (cross-sprint:) -->
 ## Positive-Control Ledger <!-- OPTIONAL -->
+## Contract Keys <!-- OPTIONAL -->
 ## Carried-Forward Coordination Flags <!-- OPTIONAL -->
 ## Change Log
 ## Plan-Specific Sections <!-- OPTIONAL -->
@@ -75,7 +77,7 @@ Copy these headings byte for byte, in this order, with their markers. Each list 
 
 Formatting lines: `**Sprint ID:** {ABBREV}-S{XX}`, `**Status:** PLANNED`, `**Estimated Tokens:** ~{XX}K total across all sessions` (equal to the sum of the Sessions table), and `**Total: {N} deliverables**` under the Deliverables table, counted from its rows. The Deliverables table header is `| # | Deliverable | Class | Producer | Description |`, and each row's `Producer` cell names one task id, one Post-Session Checklist step, or `n/a` for a `verified-absent` row. Repeat the `### Session {NN}:` H3 once per session. The OPTIONAL `## Positive-Control Ledger` sits after `## Consumes`.
 
-### Orchestration — `templates/orchestration.md` (487 lines)
+### Orchestration — `templates/orchestration.md` (490 lines)
 
 ```
 ## Session Objective <!-- REQUIRED -->
@@ -220,6 +222,7 @@ The scaffolding rules each file obeys:
 - **Cross-sprint markers.** Copy each `cross_sprint_markers` row into the Sprint Plan's `## Cross-Sprint File Touches` section. Write its Step-1 prerequisite gate into the first task that writes the file, which is the first task id in the file's Write-Set row. Number the gate as Execution Step `1.`. The lint rule `cross-sprint-touch` reads only the first line that begins `1.` under `## Execution Steps`, so a gate held in the `### Cross-Sprint Prerequisite Grep Gate` H3 or in a code fence fails it. That step names `Grep`, the prior sprint's marker and a HALT when the marker is missing. When the row's Ordering cell says the pair is unordered, write the gate into the first writing task of both sprints. Add one line to the `## Cross-Sprint File Touches` section that reads `MUST NOT run concurrently` and names the file. Delete the section when no row involves this sprint.
 - **Guardrails.** Fill one `## Guardrails` row per safety promise in the Master Plan Decisions, the Risk Mitigation rows and the Execution Input. Name the implementing step and the failing gate from this sprint's own task files. Write the `None` line when the sprint has no promise. Never delete the heading.
 - **Unanticipated sections.** A reference value that a port or recomputation must reproduce goes under `## Positive-Control Ledger` in the Sprint Plan. A scaffold-time finding for the orchestrator goes under `## Scaffold Findings` in the Orchestration. Add each in its template position when the render omitted it. A section no template heading covers goes under `## Plan-Specific Sections` as an `###` H3. Never add any other new `##` H2.
+- **Contract keys.** Copy the `contract_keys` rows into the Sprint Plan's `## Contract Keys`, in its template position. Write each row's `Literal` into the consuming task's gate verbatim, never a `{census:}` placeholder. A task that is the first writer of a shared file names every literal routed to it on the Step-1 gate's own line, the line that begins `1.`. Add the section in its template position when the render omitted it and a row involves this sprint. Delete the section when no row involves this sprint. A name a gate needs that no row carries is an `ISSUES` line, never a new `### Contract Keys` H3.
 - **Output folders.** Every session folder keeps `Outputs/.gitkeep`. Never delete it.
 - **Verification Commands.** Populate every task file's Verification Commands with runnable commands. Each command names its owner, runner or orchestrator, and carries its `# pre-edit:` annotation. A diff-derived command is scoped to the recorded base and to the task's own paths. Write `<!-- NEEDS-COMMAND -->` for a command type that does not apply. Never leave a `{cmd_after_N}` placeholder.
 - **Lessons.** Cite each Step 1 lesson hit in the Required Context or the Verification Commands of the task that touches its artifact class.

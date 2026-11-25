@@ -38,7 +38,10 @@ Rules, by word id:
                             sprint and an earlier sprint both write has a
                             Cross-Sprint File Touches row, its first writing
                             task opens with a grep gate, and an unordered pair
-                            has a "MUST NOT run concurrently" row. BLOCKER.
+                            has a "MUST NOT run concurrently" row. The gate
+                            names each Master Plan Contract Keys literal routed
+                            to that task, as a whole name. BLOCKER. A register
+                            row the rule cannot route gives a note.
     repoint-cluster         references/ei-completeness.md §9.2. An EI repoint
                             map holds fewer rows for a cluster than the audit
                             cites lines for it. BLOCKER.
@@ -79,6 +82,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+from markdown_parser import split_row_cells_code_aware
+
 DEVIATION_LIMIT = 0.10
 SECTION_NEAR = 0.05
 BODY_ABOVE = 0.10
@@ -108,6 +113,11 @@ PLAN_EI_TOTAL_RE = re.compile(r"\b(?:EI|Execution Input)(?:[ \t]+token)?[ \t]+to
 SESSION_FOLDER_RE = re.compile(r"Session-(?P<num>[0-9]+)-(?P<name>[^\\/]+)")
 SPRINT_FOLDER_RE = re.compile(r"Sprint-(?P<num>[0-9]+)\b")
 TASK_ID_RE = re.compile(r"\b[A-Z][A-Za-z0-9]*-S[0-9]{2}-[0-9]{2}-[0-9]{2}\b")
+# A whole task id: never the tail of a longer id, nor the head of a task file name.
+WHOLE_TASK_ID_RE = re.compile(r"(?<![\w-])" + TASK_ID_RE.pattern + r"(?![\w-])")
+CONTRACT_KEYS_TITLE_RE = re.compile(r"^Contract Keys\b")
+UNFILLED_LITERAL = "{exact name}"  # the Literal cell of the plan templates' register row
+FILL_MARKER = "<!-- FILL:"
 FIRST_STEP_RE = re.compile(r"[ \t]*1\.[ \t]")
 PATH_TOKEN_RE = re.compile(r"`(?P<path>[^`\s*{}<>]+)`")
 FILE_EXTENSION_RE = re.compile(r"\.[A-Za-z0-9]+")
@@ -759,17 +769,58 @@ def _sibling_plans(ctx: Any) -> list[tuple[int, Any]]:
     return found
 
 
-def _first_step_greps(ctx: Any, task_id: str) -> bool | None:
-    """True when the task's first Execution Step names a grep; None when no task file is found."""
+def _first_step_greps(ctx: Any, task_id: str) -> tuple[bool, str] | None:
+    """(the task's first Execution Step names a search gate, that step's line); None when no task file is found."""
     for doc in ctx.task_files:
         if not doc.path.name.startswith(task_id + "-"):
             continue
         for span in core.ranges_titled(doc.lines, STEPS_TITLE_RE):
             for index in span:
                 if FIRST_STEP_RE.match(doc.lines[index]):
-                    return GREP_RE.search(doc.lines[index]) is not None
-        return False
+                    return GREP_RE.search(doc.lines[index]) is not None, doc.lines[index]
+        return False, ""
     return None
+
+
+def _contract_keys(ctx: Any) -> tuple[list[tuple[str, str, set[str]]], list[str]]:
+    """(literal, defining task, consuming task ids) for each row of every Master Plan Contract Keys table, and notes.
+
+    A row whose Literal cell is blank or the template's unfilled cell routes
+    nothing and is dropped in silence. A row whose cell count differs from the
+    header's is re-cut once with backtick spans kept whole. A row still
+    malformed, or a filled row that names no whole task id, gives a note.
+    """
+    found: list[tuple[str, str, set[str]]] = []
+    notes: list[str] = []
+    for path in sorted(ctx.sprint.parent.glob("*-Master-Plan*.md")):
+        lines = core.read_doc(path).lines
+        for _title, start, end in _titled(lines, CONTRACT_KEYS_TITLE_RE):
+            for header, rows in _tables(lines, range(start, end)):
+                literal_at = _column_index(header, r"^literal")
+                defining_at = _column_index(header, r"^defining task")
+                consuming_at = _column_index(header, r"^consuming task")
+                if literal_at is None or defining_at is None or consuming_at is None:
+                    continue
+                for index, plain in rows:
+                    cells = plain if len(plain) == len(header) else split_row_cells_code_aware(lines[index])
+                    if len(cells) != len(header):
+                        notes.append(f"{path.name}:{index + 1} malformed Contract Keys row: its cell count differs from the header's")
+                        continue
+                    literal = cells[literal_at].strip("` ")
+                    if not literal or literal == UNFILLED_LITERAL or FILL_MARKER in literal:
+                        continue
+                    consuming = set(WHOLE_TASK_ID_RE.findall(cells[consuming_at]))
+                    if not consuming:
+                        notes.append(f"{path.name}:{index + 1} Contract Keys literal {literal} has no whole task id in its Consuming Tasks cell")
+                    found.append((literal, cells[defining_at].strip("` "), consuming))
+    return found, notes
+
+
+def _names_literal(line: str, literal: str) -> bool:
+    """True when `line` holds `literal` as plain text and not as part of a longer name."""
+    before = r"(?<!\w)" if re.match(r"\w", literal[0]) else ""
+    after = r"(?!\w)" if re.match(r"\w", literal[-1]) else ""
+    return re.search(before + re.escape(literal) + after, line) is not None
 
 
 def check_cross_sprint_touch(ctx: Any) -> Any:
@@ -783,10 +834,16 @@ def check_cross_sprint_touch(ctx: Any) -> Any:
     run concurrently' line naming the file in a Master Plan file beside the
     sprint folders. Write-Set paths written with an alias are expanded through
     the legend the Write-Set section states ("`S` = `plugins/planwise/scripts/`").
+    When the Master Plan holds a Contract Keys register, a first writer whose
+    Step 1 is a search gate names, on that step's line, the Literal of every
+    register row whose Consuming Tasks cell names the task. The Literal is plain
+    text and a longer name does not satisfy it. An omitted Literal is one finding
+    per task, on the first shared file the task writes first.
     Cannot see: a file a Write-Set table does not list, an alias the plan uses
     without stating a legend (such a path matches no full-path row, so it reads
-    as undeclared), a later sprint's obligations, or whether the grep gate names
-    the prior task's marker.
+    as undeclared), a later sprint's obligations, a prior task's marker that no
+    Contract Keys row names, or a Contract Keys row it can only note: a malformed
+    row, or one whose Consuming Tasks cell holds no whole task id.
     """
     word = "cross-sprint-touch"
     result = core.RuleResult()
@@ -811,6 +868,9 @@ def check_cross_sprint_touch(ctx: Any) -> Any:
         for path in sorted(ctx.sprint.parent.glob("*-Master-Plan*.md"))
         for line in core.read_doc(path).lines
     ] + [line for plan in ctx.sprint_plans for line in plan.lines]
+    contract_keys, register_notes = _contract_keys(ctx)
+    result.notes += [_note(word, text) for text in register_notes]
+    omissions: set[tuple[str, str]] = set()
     seen: set[str] = set()
     for index, path, tasks in own:
         prior = [(number, plan) for number, plan, entry in earlier if _same_file(entry[1], path)]
@@ -826,13 +886,24 @@ def check_cross_sprint_touch(ctx: Any) -> Any:
                 _finding(word, core.BLOCKER, plan_path, index, f"{path} is also written by {sprints} and has no Cross-Sprint File Touches row")
             )
         if tasks:
-            gated = _first_step_greps(ctx, tasks[0])
+            first_step = _first_step_greps(ctx, tasks[0])
+            gated, step_line = first_step or (None, "")
             if gated is False:
                 result.findings.append(
                     _finding(word, core.BLOCKER, plan_path, index, f"{path}: first writing task {tasks[0]} has no Step-1 grep gate")
                 )
             elif gated is None:
                 result.notes.append(_note(word, f"{path}: no task file found for {tasks[0]}"))
+            else:
+                for literal, defining, consuming in contract_keys:
+                    if tasks[0] not in consuming or (tasks[0], literal) in omissions:
+                        continue
+                    if not _names_literal(step_line, literal):
+                        omissions.add((tasks[0], literal))
+                        omitted = f"Step-1 gate omits the Contract Keys literal {literal} from {defining}"
+                        result.findings.append(
+                            _finding(word, core.BLOCKER, plan_path, index, f"{path}: first writing task {tasks[0]} {omitted}")
+                        )
         for row_plan, row_index, _file, ordering in declared:
             if not UNORDERED_RE.search(ordering):
                 continue

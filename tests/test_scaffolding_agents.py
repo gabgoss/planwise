@@ -92,6 +92,7 @@ AGENT_READS = (
     ("ei_section_map", SCAFFOLDER),
     ("write_set", SCAFFOLDER),
     ("cross_sprint_markers", SCAFFOLDER),
+    ("contract_keys", SCAFFOLDER),
     ("naming_scheme", SCAFFOLDER),
     ("lessons_dir", SCAFFOLDER),
     ("EI_SECTION_MAP", SCAFFOLDER),

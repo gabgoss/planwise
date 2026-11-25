@@ -87,7 +87,7 @@ FAN_OUT: S_src=<n> inline_estimate=<2n> limit=<practical_session_limit> -> fan-o
 
 - Each sprint's `ei_sections` rows `§{n} | {Topic} | {task ids} | {Spec #N list}`. Number `{n}` from 1 to `{N}` in the order the sprint's tasks first use them.
 - Each sprint's `source_map` rows `Spec #{N} | {filename} | T{1,2,3} | {absolute path} | {scope}`. `{N}` is that file's Global Source Map number when the plan uses global numbering, never a per-sprint count. `{scope}` is `primary | reference`. Set `reference` when the part says `Scope: Cross-sprint reference` or the Global Source Map's Primary Sprint names another sprint. Set `primary` otherwise. Add its `deferred_targets` rows `{sprint id} | {sprint name}` for every other sprint.
-- Each sprint's `write_set` rows `Path | Task`, and the `cross_sprint_markers` rows `Path | Writers | Region | Disposition`. Step 5's write-set rules govern both.
+- Each sprint's `write_set` rows `Path | Task`, and the `cross_sprint_markers` rows `Path | Writers | Region | Disposition`. Step 5's write-set rules govern both. Also the `contract_keys` rows `Key | Kind | Literal | Defining Task | Consuming Tasks`, fixed once and written into the Master Plan's `## Contract Keys`.
 - The pass-level task-output `naming_scheme`, for example `task ordinal`.
 
 ## Scaffolding Step 4: Create Execution Inputs
@@ -176,6 +176,7 @@ Agent(
            ei_section_map: {extractor EI_SECTION_MAP, verbatim}
            write_set: {rows}
            cross_sprint_markers: {rows}
+           contract_keys: {rows}
            naming_scheme: {scheme}
            lessons_dir: {abs path}"
 )
@@ -201,7 +202,7 @@ Act on each status block by the field names its agent file defines. Never ask an
 
 **Scaffolder gate** (fields from `agents/sprint-scaffolder.md`):
 
-- `COMPLETE`: reject any block whose `FILL_REMAINING` or `STRAY_H2` is above 0, and dispatch that sprint again. Then confirm that each `cross_sprint_markers` row appears in every involved Sprint Plan. Record `SPAN_ROWS_REPOINTED` for the Step 7 block.
+- `COMPLETE`: reject any block whose `FILL_REMAINING` or `STRAY_H2` is above 0, and dispatch that sprint again. Then confirm that each `cross_sprint_markers` row and each `contract_keys` row appears in every involved Sprint Plan. Record `SPAN_ROWS_REPOINTED` for the Step 7 block.
 - `PARTIAL`: dispatch again for the same sprint. The scaffolder skips its filled files, so the next dispatch continues where this one stopped.
 - A return with no status block: the dispatch returned with no `TASK_STATUS:` line, because the agent hit its turn limit before it reported. Count `<!-- FILL:` over `sprint_folder` with `Grep` (`output_mode='count'`) and run `scripts/scaffold_plan.py check-headings` over the folder. When both read 0, accept from disk and do not resume. Otherwise resume the same agent with a message that names the files left, per `references/dispatch-boundary-evidence.md` §4. Dispatch fresh only when the agent cannot be resumed.
 - `BLOCKED`: restore a missing input, then dispatch again. Write an absent rendered file from its template, because `render` never writes into a non-empty folder. An `ei_section_map` id that does not resolve means re-dispatch that sprint's extractor first. A user-only choice goes to the user, and the answer goes into the next dispatch's prompt.
@@ -284,7 +285,7 @@ Use the [scaffolding master plan template](../templates/scaffolding-master-plan.
 
 Use standard templates for all other files (sprint plans, orchestrations, recovery, task files).
 
-**Which path applies each rule in this step.** Every rule below governs the plan files on both paths. On the inline path this session applies all of them. On the fan-out path the sprint scaffolder's body carries the lessons search, the Execution Input citations, the measure-once rule, the Sprint Plan status, the Write-Set table, the cross-sprint markers, the stray-H2 rule and the Sprint Signoff. This session keeps the rest: the spec and render, the write-set intersection, the convention register, the roster-change surfaces, any `.gitkeep` a scaffolder reports missing, the Token Saver scan and both censuses. It runs the spec and render at Step 4's item 1, and applies the others after the scaffolder gate and before the Master Plan Write.
+**Which path applies each rule in this step.** Every rule below governs the plan files on both paths. On the inline path this session applies all of them. On the fan-out path the sprint scaffolder's body carries the lessons search, the Execution Input citations, the measure-once rule, the Sprint Plan status, the Write-Set table, the cross-sprint markers, the Sprint Plan's Contract Keys rows, the stray-H2 rule and the Sprint Signoff. This session keeps the rest: the spec and render, the write-set intersection, the Master Plan's Contract Keys register, the convention register, the roster-change surfaces, any `.gitkeep` a scaffolder reports missing, the Token Saver scan and both censuses. It runs the spec and render at Step 4's item 1, and applies the others after the scaffolder gate and before the Master Plan Write.
 
 **Spec, render, fill (mirrors the spec rules of standard [Steps 4-7](plan-Part-2-GatherAndGenerate.md#steps-4-7-generate-files)) when `Exec-{Abbrev}/` holds no file yet.** The keys `meta`, `omit_sections`, `omit_code_sections`, `output_k`, `working_k` and `estimate_k: "auto"` are build-only, and `lint-spec` rejects each one, so leave them out of this spec. Write ONE metadata-only spec, run `python -B "{plugin_root}/scripts/scaffold_plan.py" lint-spec --spec {spec}`, then `python -B "{plugin_root}/scripts/scaffold_plan.py" render --spec {spec} --out {plans_dir}/{PlanName}/Exec-{Abbrev}`, and fill every FILL marker. Cite each Execution Input section as a `kind` `"span"` row (`path` = the EI file, `span` = one fixed `§{n}` id), never as a hand-filled row after the render. A task reading several sections carries one row per id, never a range. This holds on both paths, as the fan-out path's item 1 states. The renderer reads the standard templates only, so it renders a standard Master Plan. Replace that file with ONE whole-file `Write` from the scaffolding master plan template. `render` refuses an `--out` folder that is not empty (exit 2) and never overwrites a plan file, so a scaffold repair stays a whole-file `Write` and never a re-render. On the inline path, Step 4 normally writes the Execution Inputs into the sprint folders first, so on that order write each file from its template as above. Do the same when the script is absent or exits non-zero. On the fan-out path, Step 4's item 1 runs this render before any Execution Input exists, and the scaffolders fill the rendered files. The scaffolders need a rendered skeleton, so when the script is absent or the render fails there, fix the spec and render again, or run the pass on the inline path.
 
@@ -301,6 +302,7 @@ Whichever path writes the files, repairs follow standard [Step 8](plan-Part-2-Ga
 - **On a non-empty intersection, take exactly one of the two dispositions `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §16 (rule 16.2) permits** and record which one in the same row: (1) **serialize the pair, dropping `∥`**; or (2) **qualify the parallelism per-file, naming an explicit task-level ordering edge for each shared file** (`S0A-01-0x → S0B-01-0y`).
 - **Never infer disjointness from sprint names, cluster names, or subsystem labels.** "Agents vs handlers, disjoint files" names two clusters, and a cluster is not a write-set; the distance between the two is exactly where two concurrent sessions overwrite each other. This inference is the originating failure the rule exists to prevent, and no degree of apparent obviousness licenses it.
 - **Recompute the whole matrix whenever any sprint's write-set changes during scaffolding,** and stamp the `Last recomputed:` date beneath the table on every recomputation. A mid-plan coordination flag that admits one new file into a sprint's scope can turn a `∅` row false, and the row does not re-derive itself.
+- **Fix the `contract_keys` rows once, with the columns Step 3.5 names, and write them into the Master Plan's `## Contract Keys`.** Copy each row into every Sprint Plan it involves, and omit the section when no row exists.
 
 See `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §16 for the full rule, both WRONG shapes, and the reviewer check that enforces it.
 
@@ -358,7 +360,7 @@ See `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §13.4 f
 >
 > On the inline path this applies to ALL file-generation agent prompts during scaffolding: sprint plans, orchestrations, task files.
 >
-> When a file keeps an OPTIONAL section, name it in its template position too. For an Orchestration that is `## Pre-Known Cross-Task Coordination Flags` after `## Task Files`, `## Scaffold Findings` after `## Pre-Known Cross-Task Coordination Flags`, `## User-Action Gate` after `## Post-Session Checklist`, and `## Plan-Specific Sections` as the last H2, which holds unanticipated sections as H3s. For a Sprint Plan that is `## Positive-Control Ledger` after `## Consumes`. `## Scaffold Findings` and `## Positive-Control Ledger` replace the ad-hoc H3s that scaffolders used to add.
+> When a file keeps an OPTIONAL section, name it in its template position too. For an Orchestration that is `## Pre-Known Cross-Task Coordination Flags` after `## Task Files`, `## Scaffold Findings` after `## Pre-Known Cross-Task Coordination Flags`, `## User-Action Gate` after `## Post-Session Checklist`, and `## Plan-Specific Sections` as the last H2, which holds unanticipated sections as H3s. For a Sprint Plan that is `## Positive-Control Ledger` after `## Consumes`, and `## Contract Keys` after `## Positive-Control Ledger`. `## Contract Keys` sits before `## Carried-Forward Coordination Flags` in a Master Plan, and before `## References` in a scaffolding Master Plan. `## Scaffold Findings` and `## Positive-Control Ledger` replace the ad-hoc H3s that scaffolders used to add.
 
 ## Scaffolding Step 6: Validation
 
