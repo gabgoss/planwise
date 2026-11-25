@@ -146,8 +146,9 @@ def parse_required_context(text: str) -> list[dict]:
 
     Columns are located by HEADER NAME, never by position. Live plans disagree
     on the column set — the current template emits
-    `| Priority | File | KiB | ~Tokens | Purpose |` while plans authored earlier
-    emit `| Priority | File | Est. Lines | Est. Tokens | Purpose |`. A
+    `| Priority | File | KiB | ~Tokens | Role | Purpose |` while plans authored earlier
+    emit the five-column form without `Role`, or
+    `| Priority | File | Est. Lines | Est. Tokens | Purpose |`. A
     positional parser silently reads the wrong cell on one of them.
     """
     section = re.search(

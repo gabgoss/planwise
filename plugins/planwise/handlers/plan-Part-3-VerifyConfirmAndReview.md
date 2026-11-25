@@ -312,6 +312,7 @@ Before completing `/planwise plan`, verify:
 [ ] Plans index regenerated (generate_plans_index.py --write; no hand-written row)
 [ ] Session token estimates validated (< `practical_session_limit` per session — 100K on Pro, 400K on Max; see `references/session-context-budget.md` §5)
 [ ] Each task has a bottom-up estimate: (Required Context tokens) + (output tokens) <= task estimate
+[ ] The build or the write-back wrote the derived cells (Session Surface block, Write-Set sizes, master Write-Sets and total), none by hand, and Step 9b's `estimate_reconcile.py check` reports no `surface-*`, `writeset-*` or `master-*` MISMATCH, with each `UNREAD` line at those levels named in the Step 9 confirmation block
 [ ] Every file a task's Execution Steps read has a measured Required Context row, a prior Recovery.md read included (references/task-content-fidelity.md §9.A.17, Check 123)
 [ ] Every plan-level id a task names (a Master Plan D{n}, H{n} or similar) is defined in the task file, or its Master Plan section is a Required Context row (references/task-content-fidelity.md §9.A.19, Check 136)
 [ ] If DELEGATED: each task estimate + 54K overhead < `context_window` (200K on Pro, 1M on Max)

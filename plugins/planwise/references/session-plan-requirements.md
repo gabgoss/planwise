@@ -51,6 +51,7 @@ consult-when: Checking required files per plan level and the DELEGATED-trigger c
 - Become the PRIMARY INPUT for the Scaffolding Phase
 - Live at: `Meta-{Abbrev}/Outputs/{Abbrev}-Consolidated-Context-Part-{N}-{Topic}.md`
 - Each part < 22,000 measured tokens (reading model's ratio; verify with `measure_files.py`); use as many parts as needed for full coverage
+- Each part carries a `## Files Touched` section in the `Path | Role | Size` shape of `templates/backlog-item.md`, and the last consolidation task writes the `## Files Touched Roll-Up` section of the last part (see Discovery Step 5 of `handlers/plan-discovery.md`)
 
 **Consolidation ≠ Summarization.** Consolidation means: organize, deduplicate, and structure. If source material is unique and substantive, it MUST appear in the consolidated output. Only remove true duplicates and trivial/redundant information.
 

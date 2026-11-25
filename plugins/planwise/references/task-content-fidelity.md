@@ -56,10 +56,10 @@ Applies to any planwise plan with sequential task dependencies, output-chaining 
 > WRONG — placeholders that bypass measurement, breaking task-header
 > reconciliation:
 > ```markdown
-> | Priority | File | KiB | ~Tokens | Purpose |
-> |----------|------|----:|--------:|---------|
-> | 1 | {src/module/file_A.ext} | ~? | ~{T}K | {purpose} |
-> | 1 | {src/module/file_B.ext} | ~? | ~{T}K | {purpose} |
+> | Priority | File | KiB | ~Tokens | Role | Purpose |
+> |----------|------|----:|--------:|------|---------|
+> | 1 | {file_A} | ~? | ~{T}K | {Role} | {purpose} |
+> | 1 | {file_B} | ~? | ~{T}K | {Role} | {purpose} |
 >
 > Context subtotal: ~{total}K reads + ~{out}K output = ~{total}K total
 > ```
@@ -68,10 +68,10 @@ Applies to any planwise plan with sequential task dependencies, output-chaining 
 >
 > CORRECT — measured sizes, derived token estimates, reconciled subtotal:
 > ```markdown
-> | Priority | File | KiB | ~Tokens | Purpose |
-> |----------|------|----:|--------:|---------|
-> | 1 | {src/module/file_A.ext} | {K_A}  | ~{T_A}K   | {purpose} |
-> | 1 | {src/module/file_B.ext} | {K_B}  | ~{T_B}K   | {purpose} |
+> | Priority | File | KiB | ~Tokens | Role | Purpose |
+> |----------|------|----:|--------:|------|---------|
+> | 1 | {file_A} | {K_A} | ~{T_A}K | {Role} | {purpose} |
+> | 1 | {file_B} | {K_B} | ~{T_B}K | {Role} | {purpose} |
 >
 > Context subtotal: ~{reads_total}K reads + ~{out}K output = ~{grand_total}K total
 > ```
