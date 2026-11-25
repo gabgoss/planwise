@@ -1230,6 +1230,25 @@ def test_count_blocked_on_an_absent_directory_is_zero(tmp_path):
     assert fd.count_blocked(tmp_path / "missing") == 0
 
 
+def test_blocked_records_equal_blocked_list_all_json_and_write_nothing(fdir, capsys):
+    active = make_promoted(fdir, "2026-11-18-bug-active.md")
+    dismissed = make_promoted(fdir, "2026-11-18-bug-dismissed.md")
+    posted = make_promoted(fdir, "2026-11-18-bug-posted.md")
+    orphan = make_promoted(fdir, "2026-11-18-bug-orphan.md")
+    for draft, block_class, line in ((active, "email", "3"), (dismissed, "handle", "7"), (posted, "git-remote", "5"), (orphan, "email", "1")):
+        mark(draft, capsys, block_class=block_class, line=line)
+    run(["dismiss-blocked", "--draft", str(dismissed)], capsys)
+    (fdir / (posted.name + ".posted")).write_text("posted: 2026-11-19\nurl: u\nroute: issue\n", encoding="utf-8")
+    orphan.unlink()
+    before = {p.name: p.read_bytes() for p in fdir.iterdir()}
+    records = fd.blocked_records(fdir)
+    _, out, _ = run(["blocked-list", "--all", "--json", "--feedback-dir", str(fdir)], capsys)
+    assert records == json.loads(out)
+    assert len(records) == 3
+    assert {p.name: p.read_bytes() for p in fdir.iterdir()} == before
+    assert fd.blocked_records(fdir.parent / "missing") == []
+
+
 def test_blocked_list_shows_active_drafts_and_all_adds_dismissed_and_posted(fdir, capsys):
     active = make_promoted(fdir, "2026-11-18-bug-a.md")
     dismissed = make_promoted(fdir, "2026-11-18-bug-b.md")

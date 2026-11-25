@@ -309,6 +309,9 @@ Return after writing the single expected output file. Do NOT proceed to task
 Resume clause (a resume message to a returned runner only, never a first dispatch):
 Findings to fix: {finding id} at `{file}:{line}` — {what is wrong}; one line per
 finding. An Output path alone is not a finding list.
+Gates to re-run: `{command}` -> {expected value}; one line per gate, pasted
+inline. Never cite another task's gate by number: HARD CONSTRAINT 2 bars the
+runner from reading that task file.
 ```
 
 Where a Verification Command in the task file holds the literal `{plugin_root}`, substitute the `Plugin root:` value above. Never copy a plugin path out of the task file. Where a gate holds `{census:<name>}`, substitute that name's value from the `Census:` line above.

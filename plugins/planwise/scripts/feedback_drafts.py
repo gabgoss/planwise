@@ -46,7 +46,7 @@ byte of the file, line endings included, stays as written.
 ## Read-only functions
 
 A caller that only reports, such as doctor, imports these when it needs a value
-without running a subprocess. `list`, `count_queued`, `is_expired` and `was_posted` all write nothing.
+without running a subprocess. `list`, `count_queued`, `is_expired`, `was_posted`, `count_blocked` and `blocked_records` all write nothing.
 
 | Function | Returns |
 |---|---|
@@ -54,6 +54,7 @@ without running a subprocess. `list`, `count_queued`, `is_expired` and `was_post
 | `was_posted(path)` | True when `{path}.posted` exists, or when the sidecar of a comment draft made from `path` sits beside it, under the current name `{draft date}-comment-{NN}-{kind}-{slug}.md.posted` or the older `{date}-comment-{NN}-{stem}.md.posted`. `feedback_post.py` and `blocked-list` use this same predicate. Writes nothing |
 | `count_queued(directory)` | The number of drafts `list` would show as `queued`. Writes nothing |
 | `count_blocked(directory)` | The number of drafts `blocked-list` would show without `--all`: blocked, not dismissed, not `was_posted`. Writes nothing |
+| `blocked_records(directory)` | Every record `blocked-list --all --json` prints: dismissed and posted drafts included, orphan sidecars left out. Writes nothing |
 """
 
 import argparse
@@ -1164,6 +1165,15 @@ def _blocked_record(entry: dict) -> dict:
         record[key] = entry["fields"].get(key, "")
     record["posted"] = entry["posted"]
     return record
+
+
+def blocked_records(directory: Path) -> "list[dict]":
+    """Every record `blocked-list --all --json` prints, in the same order.
+
+    Dismissed and posted drafts are included. A sidecar whose draft is gone is left out.
+    Read-only, like `count_blocked`. An absent directory gives an empty list.
+    """
+    return [_blocked_record(entry) for entry in _blocked_entries(directory)]
 
 
 def cmd_blocked_list(args: argparse.Namespace) -> int:

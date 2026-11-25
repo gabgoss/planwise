@@ -65,6 +65,7 @@ _REMEDY_NO_GH = (
 )
 _REMEDY_NO_AUTH = "gh is installed but not authenticated — run: gh auth login"
 _QUEUED_LABEL = "model drafts queued:"
+_BLOCKED_LABEL = "blocked drafts:"
 _REMEDY_QUEUED = (
     "review them with /planwise feedback --drafts, or post one with /planwise feedback --post <draftId>"
 )
@@ -264,6 +265,25 @@ def _queued_model_drafts(feedback_dir: Path) -> int:
     return feedback_drafts.count_queued(feedback_dir)
 
 
+def _blocked_drafts(feedback_dir: Path) -> "tuple[int, list[dict]]":
+    """The blocked-draft count and one record per sidecar, as `(count, records)`.
+    Both come from the helper's public read-only functions, so doctor and
+    `blocked-list` share one predicate and doctor imports no private name."""
+    import feedback_drafts
+
+    return feedback_drafts.count_blocked(feedback_dir), feedback_drafts.blocked_records(feedback_dir)
+
+
+def _blocked_row(record: dict) -> str:
+    """One per-sidecar row: the draft file name, then class, line, dismissed and posted."""
+    return (
+        f"    {Path(record['draft']).name}  class: {record.get('class') or 'unknown'}"
+        f"  line: {record.get('line') or 'unknown'}"
+        f"  dismissed: {'yes' if record.get('dismissed') else 'no'}"
+        f"  posted: {'yes' if record.get('posted') else 'no'}"
+    )
+
+
 def _draft_ignore_check(config: dict) -> tuple:
     """The model-draft ignore line's state in the project `.gitignore`, as
     `(state, line, gitignore_path)`. Read-only: `gitignore_entry.read_state`
@@ -307,6 +327,12 @@ def _stage_17(config: dict) -> None:
             queued = _queued_model_drafts(feedback_dir)
         except Exception as exc:  # noqa: BLE001 -- a failed count must not hide the presence lines
             count_failure = f" (the count failed: {exc})"
+    blocked, blocked_failure = None, ""
+    if exists:
+        try:
+            blocked = _blocked_drafts(feedback_dir)
+        except Exception as exc:  # noqa: BLE001 -- a failed read must not hide the presence lines
+            blocked_failure = f" (the read failed: {exc})"
     ignore, ignore_failure = None, ""
     try:
         ignore = _draft_ignore_check(config)
@@ -315,6 +341,10 @@ def _stage_17(config: dict) -> None:
     print(f"  feedback directory:  {feedback_dir.as_posix()}")
     print(f"  exists:               {'yes' if exists else 'no'}")
     print(f"  {_QUEUED_LABEL} {'not checked' + count_failure if queued is None else queued}")
+    print(f"  {_BLOCKED_LABEL} {'not checked' + blocked_failure if blocked is None else blocked[0]}")
+    if blocked is not None:
+        for record in blocked[1]:
+            print(_blocked_row(record))
     print(f"  {_IGNORE_LABEL} {_IGNORE_STATES[ignore[0]] if ignore else 'not checked' + ignore_failure}")
     print()
     if exists:
@@ -543,7 +573,7 @@ def run_probes(cfg) -> None:
             "Feedback directory presence check",
             _FEEDBACK_DIR_BANNER,
             _stage_17,
-            (f"  {_QUEUED_LABEL} not checked", f"  {_IGNORE_LABEL} not checked"),
+            (f"  {_QUEUED_LABEL} not checked", f"  {_BLOCKED_LABEL} not checked", f"  {_IGNORE_LABEL} not checked"),
         ),
         ("Capture self-containment scan", None, _step_7, ()),
         ("Bookkeeping index read-gate scan", _READ_GATE_BANNER, _step_8, ()),

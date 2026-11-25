@@ -269,6 +269,8 @@ when the directory is absent, the config cannot be read, or the count fails (it 
 adds the hint `review them with /planwise feedback --drafts, or post one with
 /planwise feedback --post <draftId>`. When `n` is above 0 and `feedback.enabled` is false, it adds a posting-off note: Choosing Review and post sets the key to true in `config.yaml` first. It also prints a read-only `model-draft .gitignore line:` row: `present`, `absent`, `opted out` (the line is negated) or `not checked` with the reason. On `absent`, the remedy is `/planwise init`, `/planwise upgrade` or the printed line added by hand. Doctor never edits `.gitignore`.
 
+The script also prints a read-only `blocked drafts: {n}` row, after the queued row and before the `.gitignore` row. The count `n` covers blocked drafts that are not dismissed and not posted. That is the same count `blocked-list` shows without `--all`. One indented row follows for each `.blocked` sidecar. Each row names the draft file and carries `class:`, `line:`, `dismissed: yes|no` and `posted: yes|no`. Dismissed and posted drafts stay listed, so the rows match `blocked-list --all`. A sidecar whose draft file is gone is not listed. The count reads `not checked` when the directory is absent, and `not checked` with the reason when the read fails. Then no per-sidecar row prints. Doctor never writes, dismisses or removes a sidecar.
+
 ### Stage 17b: `--create-feedback-dir` (opt-in writer)
 
 When `$ARGUMENTS` contains `--create-feedback-dir`, this is another doctor

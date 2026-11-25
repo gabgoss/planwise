@@ -1,13 +1,55 @@
 # Handler: /planwise upgrade — Part 4: Post-Run Reports and Backfills
 
-**Part 4 of [upgrade.md](upgrade.md).** Part 1 carries the Config Gate and Steps 1-2.4 of the Workflow, and is the file `/planwise upgrade` dispatches to. This part carries Step 2.5 (Refresh Token Saver calibration) through Step 2.8 (Feedback keys backfill and banner), the reports and backfills that follow the Step 2.4 script run. Read it after Step 2.4. [`upgrade-Part-3-BannerAndConflictResolution.md`](upgrade-Part-3-BannerAndConflictResolution.md) (Part 3) carries Step 3 and Step 4, and [`upgrade-Part-2-RecoveryAndReference.md`](upgrade-Part-2-RecoveryAndReference.md) (Part 2) carries the scenario table and the recovery procedures. Split at this section boundary so each part stays within one Read-tool page.
+**Part 4 of [upgrade.md](upgrade.md).** Part 1 carries the Config Gate and Steps 1-2.4 of the Workflow, and is the file `/planwise upgrade` dispatches to. This part carries Step 2.4b (Re-parent item headings, with consent) and Step 2.5 (Refresh Token Saver calibration) through Step 2.8 (Feedback keys backfill and banner). These are the reports and backfills that follow the Step 2.4 script run. Read it after Step 2.4. [`upgrade-Part-3-BannerAndConflictResolution.md`](upgrade-Part-3-BannerAndConflictResolution.md) (Part 3) carries Step 3 and Step 4, and [`upgrade-Part-2-RecoveryAndReference.md`](upgrade-Part-2-RecoveryAndReference.md) (Part 2) carries the scenario table and the recovery procedures. Split at this section boundary so each part stays within one Read-tool page.
 
 ## Table of Contents
 
+- [Step 2.4b — Re-parent item headings](#step-24b--re-parent-item-headings)
 - [Step 2.5 — Refresh Token Saver calibration](#step-25--refresh-token-saver-calibration)
 - [Step 2.6 — Lessons scaffolding backfill (PyYAML-missing fallback)](#step-26--lessons-scaffolding-backfill-pyyaml-missing-fallback)
 - [Step 2.7 — Working folders: move, backfill and creation](#step-27--working-folders-move-backfill-and-creation)
 - [Step 2.8 — Feedback keys backfill and banner](#step-28--feedback-keys-backfill-and-banner)
+
+---
+
+### Step 2.4b — Re-parent item headings
+
+An old item body that uses its own headings routes to a planning session, because the router counts every H2 outside the item template as a sub-item. Step 2.4 never moves such a heading. This step does, and only with consent. Run it after Step 2.4 exits 0, and skip it when the Step 2.4 banner shows a refused or failed backlog step.
+
+1. List the candidates. The command writes nothing. Add `--map {map_path}` after step 4 when it produced a map:
+
+   ```bash
+   python -B "{plugin_root}/scripts/backlog_item_reparent.py" --config "{planwise_root}/config.yaml" --list
+   ```
+
+2. Read the output. When it says no open item holds a heading outside the template, when its first line says `skipped`, or when it says no `config.yaml` or backlog index was found (exit code 1), skip this step and print nothing. Each other line names an item, each of its headings and the core section the heading would move under. A heading marked `(no core section)` matches no synonym. An `also:` line under an item names a gap that a map can fix: a title over the cap, no Summary section, or both.
+3. In Auto Mode, ask nothing and write nothing, and dispatch no agent. Print one line: `Action required: {n} backlog item(s) hold headings outside the item template. Run /planwise upgrade interactively to re-parent them.`
+4. In an interactive run, decide whether the items need a map. They need one when any heading reads `(no core section)` or any item carries an `also:` line.
+   - **No map needed.** Show the list and go to the consent question below.
+   - **A map is needed.** Dispatch `planwise:backlog-item-classifier` in the foreground. Pass `plugin_root`, `planwise_root`, `backlog_dir` and `map_path`, a new file in the session's scratch folder. The agent drafts the map and writes nothing else.
+   - **The agent returns `BLOCKED`.** Print its `ISSUES` as an action. Continue without a map.
+   - **The agent returns `COMPLETE` or `PARTIAL` with a map file.** Run step 1 again with `--map {map_path}`. Show the new list, the drafted map and the agent's `ISSUES`. A title in the map replaces the item's title, and the old title moves into a `Previous title` bullet under `## Notes`.
+   - **Every heading is still `(no core section)` and the map holds no title or Summary.** Print the list as an action, skip the question and stop.
+
+   Ask for consent:
+
+   <!-- AUTO-MODE: convenience -->
+   <!-- Default: skip this step and print the action-required line from step 3. -->
+   Use `AskUserQuestion`: "Re-parent the headings of these {n} item(s)? Each mapped heading becomes an H3 under its core section, every line stays, and each file is backed up first. A drafted title or Summary in the map is applied as shown."
+   - Option 1: Re-parent them (Recommended)
+   - Option 2: Skip this step
+
+5. On Option 1, run the writer. Add `--map "{map_path}"` when a map was drafted, so the run applies the map the user saw. Add `--ids {id,id}` to limit the run to named items, and leave it out to cover every listed item:
+
+   ```bash
+   python -B "{plugin_root}/scripts/backlog_item_reparent.py" --config "{planwise_root}/config.yaml" --apply --upgrade-pair "{from}-to-{to}" --map "{map_path}" --ids {id,id}
+   ```
+
+6. Print its stdout. The `routes before -> after` line shows each item's new route. Exit code 1 means the step did not finish. Read the banner's first line. `REFUSED` means every item file is back to its pre-run bytes. `WRITE FAILED` names what failed and the backups, and the item files may already hold the moved headings. `ERROR` prints the exception text and no backup path. Report the banner and continue.
+
+A map file is JSON with three optional objects. `headings` maps an old heading to one of Summary, Problem, Proposed Solution or Acceptance Criteria. `titles` maps an item id to a new title, and the old title moves into a bullet under `## Notes`. `summaries` maps an item id to Summary text, used only for an item with no Summary. The writer lists each map entry it could not use.
+
+The writer backs each file up under `upgrade-backups/{from}-to-{to}/backlog-items/`, writes atomically and runs the same preservation diff as the shape repair. It writes a Summary only where an item has none and the map holds text for it, and it never sets `refined`. A heading with no core section stays as written and prints as an action. A second run writes nothing.
 
 ---
 

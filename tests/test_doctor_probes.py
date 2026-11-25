@@ -437,6 +437,74 @@ def test_stage_17_a_helper_import_failure_stays_inside_stage_17(tmp_path):
     assert "model drafts queued: not checked (the count failed:" in out
 
 
+# --- Stage 17: blocked drafts -------------------------------------------------
+
+def _blocked_fixture(tmp_path):
+    """A feedback directory holding four `.blocked` sidecars, each made by the real
+    producers: one active (email, line 3), one dismissed (handle, line 7), one whose
+    draft was posted (git-remote, line 5) and one orphan whose draft is gone."""
+    config = _project(tmp_path)
+    directory = Path(config["_feedback_dir"])
+    directory.mkdir(parents=True)
+
+    def promoted(name):
+        path = directory / name
+        path.write_bytes(f"### What happened\n\nA line.\n\n{fd.PROVENANCE_LINE}\n".encode())
+        return path
+
+    def main(argv):
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert fd.main(argv) == 0
+
+    active = promoted("2026-11-18-bug-active.md")
+    dismissed = promoted("2026-11-18-bug-dismissed.md")
+    posted = promoted("2026-11-18-bug-posted.md")
+    orphan = promoted("2026-11-18-bug-orphan.md")
+    for draft, block_class, line in ((active, "email", "3"), (dismissed, "handle", "7"), (posted, "git-remote", "5"), (orphan, "email", "1")):
+        main(["mark-blocked", "--draft", str(draft), "--class", block_class, "--line", line, "--route", "issue"])
+    main(["dismiss-blocked", "--draft", str(dismissed)])
+    (directory / (posted.name + ".posted")).write_text("posted: 2026-11-19\nurl: u\nroute: issue\n", encoding="utf-8")
+    orphan.unlink()
+    return config
+
+
+def test_stage_17_blocked_drafts_row_counts_active_and_lists_every_sidecar_including_dismissed(tmp_path):
+    out = _run(dp._stage_17, _blocked_fixture(tmp_path))
+    rows = out.splitlines()
+    assert "  blocked drafts: 1" in rows
+    assert "    2026-11-18-bug-active.md  class: email  line: 3  dismissed: no  posted: no" in rows
+    assert "    2026-11-18-bug-dismissed.md  class: handle  line: 7  dismissed: yes  posted: no" in rows
+    assert "    2026-11-18-bug-posted.md  class: git-remote  line: 5  dismissed: no  posted: yes" in rows
+    assert sum(1 for row in rows if row.startswith("    2026-11-18-bug-") and "class:" in row) == 3
+    assert "orphan" not in out
+
+
+def test_stage_17_blocked_drafts_absent_directory_is_not_checked(tmp_path):
+    out = _run(dp._stage_17, _project(tmp_path))
+    assert "  blocked drafts: not checked" in out.splitlines()
+    assert "dismissed:" not in out
+
+
+def test_stage_17_a_failed_blocked_read_keeps_the_presence_lines(tmp_path):
+    config = _blocked_fixture(tmp_path)
+    with mock.patch.object(fd, "count_blocked", side_effect=OSError("sidecar unreadable")):
+        out = _run(dp._stage_17, config)
+    assert "exists:               yes" in out
+    assert "— present." in out
+    assert "blocked drafts: not checked (the read failed: sidecar unreadable)" in out
+    assert "model drafts queued: not checked" not in out
+    assert "dismissed:" not in out
+
+
+def test_stage_17_blocked_rows_are_read_only(tmp_path):
+    config = _blocked_fixture(tmp_path)
+    directory = Path(config["_feedback_dir"])
+    before = _tree_bytes(directory)
+    out = _run(dp._stage_17, config)
+    assert "  blocked drafts: 1" in out.splitlines()
+    assert _tree_bytes(directory) == before
+
+
 def test_stage_17_count_matches_the_helper_list_at_the_expiry_boundary(tmp_path):
     now = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
     config = _project(tmp_path)
