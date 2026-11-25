@@ -168,9 +168,15 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Recovery.md`.
 
 | Gate | Status | Date Asked | Answer |
 |------|--------|------------|--------|
-| {gate id} | OPEN | {YYYY-MM-DD} | {the user's answer, verbatim, or "pending"} |
+| {gate id} | OPEN | {YYYY-MM-DD} | {the user's answer, verbatim, or "pending". For a gate with several questions: "see the question rows below"} |
 
-*Status is `OPEN` until the user answers. It then becomes `RATIFIED` or `REJECTED`.*
+One row per question the gate asks. Write each row to this file as soon as the user answers that question, before asking the next one. When one prompt asks several questions, write every row before acting on any answer.
+
+| Gate | Question | Answer | Answered By | Date | Rationale |
+|------|----------|--------|-------------|------|-----------|
+| {gate id} | {the question, as asked} | {the user's answer, verbatim, or `DEFERRED` or `no answer`} | {the person who answered, never the agent, or `n/a` for a `no answer` row} | {YYYY-MM-DD} | {the reason the user gave, or "none given"} |
+
+*Status is `OPEN` from the time the gate is asked until every question row holds a substantive answer from the user, so `OPEN` is also the status of a gate in progress. It then becomes `RATIFIED` or `REJECTED`. `DEFERRED` and `no answer` are not answers. A gate with a question that reads either one stays `OPEN` and never reads `RATIFIED`.*
 
 ---
 

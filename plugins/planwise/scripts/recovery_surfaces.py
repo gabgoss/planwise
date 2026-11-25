@@ -9,11 +9,13 @@ An index-migration pre-image is the only restore point for the item files,
 lesson files and Master Plans the migration rewrote. It is therefore never
 offered as safe-to-discard: it reports as review-then-discard on its own
 line, and the prune writer never deletes it. Every other file in the pair is
-a refresh pre-image and stays safe-to-discard. `DISPOSITIONS.md` is
-bookkeeping, not a recovery artifact: it is never counted while a refresh or
-index file exists. A pair holding nothing else is residue and reports as
-safe-to-discard, so the writer removes it. No walk here follows a symlink or
-a junction, and the writer refuses a pair whose root is one.
+a refresh pre-image and stays safe-to-discard. `DISPOSITIONS.md` counts with
+the refresh files whenever the pair is clearable, because the prune removes
+the whole pair directory and the log with it. It stays out of the count and
+on disk while an index pre-image or a held entry remains. A pair holding
+nothing else is residue and reports as safe-to-discard, so the writer removes
+it. No walk here follows a symlink or a junction, and the writer refuses a
+pair whose root is one.
 """
 
 import os
@@ -124,7 +126,9 @@ def classify_backup_pair(pair_dir: Path, quiet: bool = False) -> dict:
     """Split a pair directory's files into `index`, `refresh` and `logs`.
 
     `index` holds every file under `{backlog,lessons,plans}/`, `logs` holds
-    every `DISPOSITIONS.md` outside them, and `refresh` holds the rest. `links`
+    every `DISPOSITIONS.md` outside them, and `refresh` holds the rest. When
+    the pair is clearable (no index file and nothing held), `logs` moves into
+    `refresh`, because the prune deletes the log with the pair directory. `links`
     holds each linked directory skipped, or the pair root when it is a link,
     and then nothing is walked. `unreadable` holds each entry that could not be
     examined or listed. Either may hide an index pre-image, so `held` lists
@@ -154,8 +158,9 @@ def classify_backup_pair(pair_dir: Path, quiet: bool = False) -> dict:
             groups["logs"].append(f)
         else:
             groups["refresh"].append(f)
-    if not (groups["index"] or groups["refresh"] or groups["links"] or groups["unreadable"]):
-        groups["refresh"], groups["logs"] = groups["logs"], []
+    if not (groups["index"] or groups["held"]):
+        groups["refresh"] += groups["logs"]
+        groups["logs"] = []
     return groups
 
 

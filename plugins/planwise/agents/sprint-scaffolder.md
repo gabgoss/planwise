@@ -75,7 +75,7 @@ Copy these headings byte for byte, in this order, with their markers. Each list 
 
 Formatting lines: `**Sprint ID:** {ABBREV}-S{XX}`, `**Status:** PLANNED`, `**Estimated Tokens:** ~{XX}K total across all sessions` (equal to the sum of the Sessions table), and `**Total: {N} deliverables**` under the Deliverables table, counted from its rows. The Deliverables table header is `| # | Deliverable | Class | Producer | Description |`, and each row's `Producer` cell names one task id, one Post-Session Checklist step, or `n/a` for a `verified-absent` row. Repeat the `### Session {NN}:` H3 once per session. The OPTIONAL `## Positive-Control Ledger` sits after `## Consumes`.
 
-### Orchestration — `templates/orchestration.md` (485 lines)
+### Orchestration — `templates/orchestration.md` (487 lines)
 
 ```
 ## Session Objective <!-- REQUIRED -->
@@ -115,7 +115,7 @@ The Spawn-Prompt Skeleton's fenced block holds four `##` lines. They are body te
 
 Formatting lines: `**Mode:** {DIRECT | DELEGATED}` as the first line of `## Execution Strategy`, followed by `**Reason:**`. `**Total Estimated:** ~{XX}K tokens` directly after the Session Task List table, equal to that table's sum and to the session's row in the Sprint Plan Sessions table. `**Declared layers:**` opens `## Dispatch Layers`. The four OPTIONAL positions: `## Pre-Known Cross-Task Coordination Flags` sits after `## Task Files`, `## Scaffold Findings` sits after `## Pre-Known Cross-Task Coordination Flags`, `## User-Action Gate` sits after `## Post-Session Checklist`, and `## Plan-Specific Sections` is the last H2.
 
-Columns and slots the headings above do not show. The `### Computed Write-Target Intersection` table carries an `Allocates from` column. The flag table under `## Pre-Known Cross-Task Coordination Flags` carries a `Routed` column, `pending` until the stamp `✅ ROUTED {YYYY-MM-DD} into {task file}` replaces it. The skeleton's `## HARD CONSTRAINTS` holds a `Permitted per Execution Step` line and a deferral line that says `no number assigned`. Its `## SCOPE BOUNDARY` holds a `Decision branches` line. A `Resume clause` with `Findings to fix:` closes the fence. `## Session Start Census` and Step 2 of the checklist carry the `{plugin_root}` caller lines of `dispatch_preflight.py`, `batch_gate.py`, `extract_status_block.py` and `outputs_coverage.py`.
+Columns and slots the headings above do not show. The `### Computed Write-Target Intersection` table carries an `Allocates from` column. The flag table under `## Pre-Known Cross-Task Coordination Flags` carries a `Routed` column, `pending` until the stamp `✅ ROUTED {YYYY-MM-DD} into {task file}` replaces it. The skeleton's `## HARD CONSTRAINTS` holds a `Permitted per Execution Step` line and a deferral line that says `no number assigned`. Its `## SCOPE BOUNDARY` holds a `Decision branches` line. A `Resume clause` with `Findings to fix:` closes the fence. `## Session Start Census` and Step 2 of the checklist carry the `{plugin_root}` caller lines of `dispatch_preflight.py`, `batch_gate.py`, `extract_status_block.py` and `outputs_coverage.py`. The `## User-Action Gate` table of an Orchestration carries a `No Answer` column, and the Recovery `## User-Action Gate` section carries a second table with one row per question.
 
 `## Post-Session Checklist` carries these six items verbatim, in this order:
 
@@ -128,7 +128,7 @@ Columns and slots the headings above do not show. The `### Computed Write-Target
 - [ ] **Git commit and push** — stage specific files (`git add` by name, never `git add .`), commit, push
 ```
 
-### Recovery — `templates/recovery.md` (206 lines)
+### Recovery — `templates/recovery.md` (212 lines)
 
 ```
 ## Step Completion Status

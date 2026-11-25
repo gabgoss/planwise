@@ -297,6 +297,8 @@ class TestNoQuestionsAfterSetup(unittest.TestCase):
             "open questions unanswered",
             "marked for a planning session",
             "A refine skip uses",
+            "--mark --outcome CLOSED",
+            "Answered close",
         ):
             with self.subTest(needle=needle):
                 self.assertIn(needle, text)

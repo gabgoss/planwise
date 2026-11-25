@@ -97,7 +97,7 @@ The citation is what makes it dangerous. Written as a bare list, `Sprints 01–0
 Three rules follow.
 
 - **The two forms agree only at the instant of authoring.** A quantifier keeps tracking the set. An enumeration freezes it.
-- **When an edge names a quantifier (`all`, `every`, `any`), treat the enumeration as expiring.** Re-derive the member set at Phase 1 whenever new members have been scaffolded since. `scripts/dispatch_preflight.py prereq --sprint-plan <file> --sprint-folder <dir>` checks a quantified prerequisite against the sprint folder list.
+- **When an edge names a quantifier (`all`, `every`, `any`), treat the enumeration as expiring.** Re-derive the member set at Phase 1 whenever new members have been scaffolded since. `scripts/dispatch_preflight.py prereq --sprint-plan <file> --sprint-folder <plan folder>` checks a quantified prerequisite against the sprint folder list.
 - **Add the reconciliation to plan review explicitly.** For every prerequisite citing a graph edge, re-derive the edge's member set and diff it against the stated list. This is mechanical and cheap, and no existing review check covers it — prerequisites are treated as premises rather than as derived claims.
 
 ### The same expiry lands on what the session publishes

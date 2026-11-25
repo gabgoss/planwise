@@ -214,7 +214,7 @@ The orchestrator classes each commit in `git log --format=%H {dispatch sha}..HEA
 > python -B "{plugin_root}/scripts/path_set_gate.py" {after list} {before list} {peer-owned list}   # expect exit 0
 > ```
 
-Before each dispatch the orchestrator runs the preflight set checks, each exiting 0 when clean and 1 with the difference listed: `python -B "{plugin_root}/scripts/dispatch_preflight.py" overlap --candidate {task file} --running {running task files, or none}` (Output paths shared with a running task; `none` is the empty set for this slot and for `--recoveries`, and the check then exits 0), `prereq --sprint-plan {Sprint Plan} --sprint-folder {sprint folder}` (enumerated prerequisites against the derived member set), `siblings --since {scaffold date} --recoveries {closed sibling Recovery files, or none} --edit-set {file naming the edit and sweep paths}` (sibling Files Modified that meet the edit set), and `decomposition --matrix {surface matrix} --output {consolidated output}` (matrix rows against output sections, both ways). `upstream --candidate {task file} --plan-root {plan root}` resolves each Required Context `Outputs/` path against the live listing. On `drift` pass the live name in the spawn prompt and log it in Recovery. On `missing` HALT. On `ambiguous` report the hits and never pick one.
+Before each dispatch the orchestrator runs the preflight set checks, each exiting 0 when clean and 1 with the difference listed: `python -B "{plugin_root}/scripts/dispatch_preflight.py" overlap --candidate {task file} --running {running task files, or none}` (Output paths shared with a running task; `none` is the empty set for this slot and for `--recoveries`, and the check then exits 0), `prereq --sprint-plan {Sprint Plan} --sprint-folder {plan folder}` (enumerated prerequisites against the derived member set. The plan folder is the one that holds the `Sprint-NN` folders, not this sprint's own folder. `not run` with exit 2 means the wrong folder was passed, and `not checked` means no quantified line was compared), `siblings --since {scaffold date} --recoveries {closed sibling Recovery files, or none} --edit-set {file naming the edit and sweep paths}` (sibling Files Modified that meet the edit set), and `decomposition --matrix {surface matrix} --output {consolidated output}` (matrix rows against output sections, both ways). `upstream --candidate {task file} --plan-root {plan root}` resolves each Required Context `Outputs/` path against the live listing. On `drift` pass the live name in the spawn prompt and log it in Recovery. On `missing` HALT. On `ambiguous` report the hits and never pick one.
 
 ---
 
@@ -463,11 +463,13 @@ List each finding from the scaffold pass that the orchestrator must act on befor
 <!-- Include when a task of this session waits on the user's answer. Write one row per gate. A gate that
      ends the session writes `session end` in Blocks Task. Omit the section otherwise.
      A Discovery plan's master plan names its gates in its User-Action Gates table. This section holds the
-     session's side of each one. The Recovery file tracks each gate by the id in the Gate column. -->
+     session's side of each one. The Recovery file tracks each gate by the id in the Gate column.
+     A gate the user leaves unanswered, or answers only with deferrals, stays `OPEN` and never reads `RATIFIED`.
+     An agent's recommendation is never recorded as the user's answer. -->
 
-| Gate | Blocks Task | Hands the User | Allowed Answers | After the Answer |
-|------|-------------|----------------|-----------------|------------------|
-| {gate id} | {task-id, or `session end`} | {document or summary the user reads, with its path} | {answer 1, answer 2} | {what the next session or the Recovery file does with each answer} |
+| Gate | Blocks Task | Hands the User | Allowed Answers | After the Answer | No Answer |
+|------|-------------|----------------|-----------------|------------------|-----------|
+| {gate id} | {task-id, or `session end`} | {document or summary the user reads, with its path} | {answer 1, answer 2} | {what the next session or the Recovery file does with each answer} | {what happens when the user gives no answer or defers every question: the gate stays `OPEN` and the blocked task, or the session end, does not proceed} |
 
 ---
 

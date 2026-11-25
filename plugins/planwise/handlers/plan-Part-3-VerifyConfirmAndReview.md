@@ -24,6 +24,20 @@ Exit 2 is a shape refusal only, and it means nothing was written. Print the `Err
 
 To change a plan's row later, edit the Master Plan's `**Status:**` line (and its footer date), then run `generate_plans_index.py --write`. See [`references/plans-schema.md`](../references/plans-schema.md) § The One-Writer Rule.
 
+When the Master Plan's `**Resolves:**` field names backlog items, set each one to PLANNING. Set an item only when its status is NOT_STARTED. Leave any other item as it is, and name it to the user. Run this once for each item id:
+
+```bash
+python "{plugin_root}/scripts/update_backlog.py" --config "{planwise_root}/config.yaml" --id "{item_id}" --status=PLANNING
+```
+
+Then regenerate the backlog index once:
+
+```bash
+python "{plugin_root}/scripts/generate_backlog_index.py" --config "{planwise_root}/config.yaml" --write
+```
+
+Skip both commands when the field is `none`. The backlog loop excludes a PLANNING item, and `/planwise run` closeout closes it.
+
 ### Step 8e: Populate Verification Commands (Per-File-Type Map)
 
 For every task file generated in Step 8 whose task touches code, tests, or schemas, populate

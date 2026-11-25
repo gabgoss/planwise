@@ -10,6 +10,7 @@ The Master Plan is written CRLF.
 import contextlib
 import io
 import re
+import shutil
 import sys
 import tempfile
 import unittest
@@ -17,6 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
+import plan_build
 from check_prior_sprint_outputs import resolve_complete_outputs_dirs
 from closeout_session import main
 
@@ -245,6 +247,70 @@ class TestApply(CloseoutFixture):
         self.assertEqual(list(complete_dirs), [(self.session1 / "Outputs").resolve()])
 
 
+class TestMetaPlan(CloseoutFixture):
+    """A Meta plan names its Master Plan and sprint plans with META. Its session files keep the plain id.
+
+    The fixture is the Alpha plan above, moved under `Plans/Meta-ALP/`. Each file's path and text go
+    through `plan_build.meta_tree`, the producer of the Meta names, and its line endings are kept.
+    """
+
+    def build_plan(self):
+        super().build_plan()
+        old, new = self.plans / "Alpha", self.plans / "Meta-ALP"
+
+        def meta_file(path: Path, text: str = "") -> tuple[Path, str]:
+            rel = path.relative_to(old).as_posix()
+            tree = plan_build.meta_tree({rel: text}, "ALP")
+            tree.pop("Outputs/.gitkeep")
+            self.assertEqual(len(tree), 1, tree)
+            (renamed, rewritten), = tree.items()
+            return new / renamed, rewritten
+
+        files = sorted(p for p in old.rglob("*") if p.is_file())
+        for path in files:
+            target, rewritten = meta_file(path, path.read_bytes().decode("utf-8"))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(rewritten.encode("utf-8"))
+        shutil.rmtree(old)
+        for attribute in ("master", "sprint_plan1", "sprint_plan2", "recovery", "orch1", "orch2"):
+            setattr(self, attribute, meta_file(getattr(self, attribute))[0])
+        for attribute in ("sprint1", "sprint2", "session1", "session2"):
+            setattr(self, attribute, new / getattr(self, attribute).relative_to(old))
+
+    def test_the_fixture_carries_the_producers_meta_names(self):
+        self.assertEqual(self.master.name, "ALP-META-Master-Plan.md")
+        self.assertEqual(self.sprint_plan1.name, "ALP-META-S01-Sprint-Plan.md")
+        self.assertEqual(self.sprint_plan2.name, "ALP-META-S02-Sprint-Plan.md")
+        self.assertEqual(self.recovery.name, "ALP-S01-01-Recovery.md")
+        self.assertTrue(all(p.is_file() for p in (self.master, self.sprint_plan1, self.sprint_plan2, self.recovery)))
+        moved = "\n".join(self.text(p) for p in (self.master, self.sprint_plan1, self.orch1))
+        self.assertIn("ALP-META-Master-Plan.md", self.text(self.orch1))
+        self.assertNotIn("ALP-Master-Plan", moved)
+        self.assertNotRegex(moved, r"ALP-S\d{2}-Sprint-Plan")
+
+    def test_sprint_status_reaches_the_meta_sprint_plan(self):
+        code, out = self.apply()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.status(self.sprint_plan1), "IN_PROGRESS")
+        self.assertEqual(self.status(self.master), "IN_PROGRESS")
+
+    def test_a_flag_for_an_unscaffolded_session_lands_in_the_meta_sprint_plan(self):
+        code, out = self.apply()
+        self.assertEqual(code, 0, out)
+        text = self.text(self.sprint_plan2)
+        self.assertIn("## Carried-Forward Coordination Flags", text)
+        self.assertIn("| 2 | ALP-S01-01-03 | ALP-S02-01 | Keep the order. | Route it first. |", text)
+
+    def test_a_plain_and_a_meta_sprint_plan_for_one_sprint_are_refused_with_nothing_written(self):
+        twin = self.sprint_plan2.with_name("ALP-S02-Sprint-Plan.md")
+        twin.write_bytes(self.sprint_plan2.read_bytes())
+        before = self.snapshot()
+        code, out = self.apply()
+        self.assertEqual(code, 1, out)
+        self.assertIn("2 files named ALP-S02-Sprint-Plan.md or ALP-META-S02-Sprint-Plan.md -- resolve by hand", out)
+        self.assertEqual(self.snapshot(), before)
+
+
 class TestIdempotent(CloseoutFixture):
     def test_a_second_apply_reports_zero_changes_and_leaves_identical_bytes(self):
         self.apply()
@@ -363,6 +429,84 @@ class TestExistingSectionIsKept(CloseoutFixture):
         self.assertEqual(text.count(f"### From {SESSION} — recorded {TODAY}"), 1)
         again, out = self.apply()
         self.assertEqual((again, self.text(self.sprint_plan2)), (0, text), out)
+
+
+class TestStaleAwaitingNoteDropped(CloseoutFixture):
+    """A Status line left at `IN_PROGRESS — awaiting {user action}` must not read `COMPLETE — awaiting ...`
+    after the writer sets COMPLETE. The writer drops the note and names it in its report."""
+
+    NOTE = "— awaiting the matrix sheet"
+
+    def put_awaiting_note(self, path: Path, label: str = "Status"):
+        text = path.read_bytes().decode("utf-8")
+        newline = "\r\n" if "\r\n" in text else "\n"
+        line = f"**{label}:** IN_PROGRESS {self.NOTE}"
+        text, count = re.subn(rf"^\*\*{label}:\*\*[^\r\n]*", line, text, count=1, flags=re.MULTILINE)
+        self.assertEqual(count, 1, f"{path.name} has no {label} line")
+        path.write_bytes(text.replace("\r\n", "\n").replace("\n", newline).encode("utf-8"))
+
+    def test_the_orchestration_status_drops_the_note_and_the_report_names_it(self):
+        self.put_awaiting_note(self.orch1)
+
+        code, out = self.apply()
+
+        self.assertEqual(code, 0, out)
+        text = self.text(self.orch1)
+        self.assertIn("**Status:** COMPLETE\n", text)
+        self.assertNotIn("awaiting the matrix sheet", text)
+        self.assertIn(f"dropped stale note: '{self.NOTE}'", out)
+
+    def test_the_recovery_session_status_drops_the_note_too(self):
+        self.put_awaiting_note(self.recovery, "Session Status")
+
+        code, out = self.apply()
+
+        self.assertEqual(code, 0, out)
+        text = self.text(self.recovery)
+        self.assertIn("**Session Status:** COMPLETE\n", text)
+        self.assertNotIn("awaiting the matrix sheet", text)
+        self.assertIn(f"dropped stale note: '{self.NOTE}'", out)
+
+    def test_a_sprint_plan_moved_to_complete_drops_the_note(self):
+        self.put_awaiting_note(self.sprint_plan1)
+
+        code, out = self.run_main("--apply", "--sprint-status", "COMPLETE")
+
+        self.assertEqual(code, 0, out)
+        text = self.text(self.sprint_plan1)
+        self.assertIn("**Status:** COMPLETE\n", text)
+        self.assertNotIn("awaiting the matrix sheet", text)
+        self.assertIn(f"dropped stale note: '{self.NOTE}'", out)
+
+    def test_a_master_status_that_does_not_move_keeps_its_note(self):
+        self.put_awaiting_note(self.master)
+
+        code, out = self.apply()
+
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"**Status:** IN_PROGRESS {self.NOTE}\n", self.text(self.master))
+        self.assertIn("ALP-Master-Plan.md Status: unchanged", out)
+
+    def test_a_crlf_master_keeps_its_note_when_the_target_is_not_complete(self):
+        self.put_awaiting_note(self.master)
+
+        code, out = self.run_main("--apply", "--master-status", "BLOCKED")
+
+        self.assertEqual(code, 0, out)
+        raw = self.master.read_bytes()
+        self.assertIn(f"**Status:** BLOCKED {self.NOTE}\r\n".encode(), raw)
+        self.assertEqual(raw.count(b"\n"), raw.count(b"\r\n"))
+
+    def test_a_crlf_master_drops_the_note_and_keeps_its_line_endings(self):
+        self.put_awaiting_note(self.master)
+
+        code, out = self.run_main("--apply", "--master-status", "COMPLETE")
+
+        self.assertEqual(code, 0, out)
+        raw = self.master.read_bytes()
+        self.assertIn(b"**Status:** COMPLETE\r\n", raw)
+        self.assertNotIn(b"awaiting the matrix sheet", raw)
+        self.assertEqual(raw.count(b"\n"), raw.count(b"\r\n"))
 
 
 if __name__ == "__main__":

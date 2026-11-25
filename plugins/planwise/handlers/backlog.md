@@ -494,7 +494,7 @@ In loop mode, before step 4 run `backlog_loop.py --mark --phase verifying --run 
 python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id "{item_id}" --status="{new_status}"
 ```
 
-**In loop mode,** after the `update_backlog.py --status` call, record the outcome with `backlog_loop.py --mark --outcome={COMPLETE|NOT_STARTED|SKIPPED} --run {run-id} --id {item_id}`. Approved or task list done maps to COMPLETE, reverted to NOT_STARTED, skipped to SKIPPED (see Part 2 § Per-iteration contract).
+**In loop mode,** after the `update_backlog.py --status` call, record the outcome with `backlog_loop.py --mark --outcome={COMPLETE|NOT_STARTED|SKIPPED|CLOSED} --run {run-id} --id {item_id}`. Approved or task list done maps to COMPLETE, reverted to NOT_STARTED, skipped to SKIPPED, an answered close to CLOSED (see Part 2 § Per-iteration contract).
 
 **Regenerate the index once after status changes** (skip if outcome was "Skipped" — nothing changed):
 

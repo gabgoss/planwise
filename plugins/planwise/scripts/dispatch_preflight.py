@@ -19,7 +19,10 @@ when it lists a difference, and 2 on unreadable or missing input.
     enumerates sprints is compared with the member set the quantifier derives
     from the folder listing: every ``Sprint-NN-*`` folder except the plan's
     own, restricted to lower numbers when the line says prior, earlier,
-    preceding or before. Sets are compared, never counts. Cannot see: a
+    preceding or before. Sets are compared, never counts. A listing that is
+    empty, or that lacks the plan's own Sprint-NN folder, is the wrong folder:
+    the check prints ``not run`` and exits 2. A valid listing with no
+    quantified line prints ``not checked`` and exits 0, never ``equal``. Cannot see: a
     quantifier scoped by other words ("all dispatch sprints") derives the
     whole listing, so its difference is a candidate for a human to read.
 
@@ -297,6 +300,9 @@ def _cmd_prereq(args: argparse.Namespace) -> int:
     lines = [ln for ln in unfenced(text.splitlines()) if _PREREQ_LINE_RE.search(ln)]
     print(f"sprint folders listed: {len(listing)}")
     print(f"prerequisite lines: {len(lines)}")
+    if not listing or (own is not None and own not in listing):
+        print("not run: --sprint-folder must be the plan folder that holds this plan's Sprint-NN folder")
+        return 2
     checked = 0
     failed = False
     for line in lines:
@@ -314,6 +320,9 @@ def _cmd_prereq(args: argparse.Namespace) -> int:
     print(f"quantified lines with an enumeration: {checked}")
     if failed:
         return 1
+    if checked == 0:
+        print("not checked: no quantified prerequisite line enumerates sprints")
+        return 0
     print("equal: every quantified enumeration matches its derived set")
     return 0
 

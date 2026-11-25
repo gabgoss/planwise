@@ -2120,7 +2120,8 @@ CHECK_REGISTRY.extend(_LAYER_CHECKS)
 #
 # The second line of stdout is always the ``Dispatch subjects`` line. It counts
 # what Checks 42-47 read, and ends ``-- nothing examined`` when they read no task
-# or orchestration file. The findings, or ``No findings.``, follow it.
+# or orchestration file. The third line is the ``Findings by check:`` line, or
+# ``No findings.`` when there are none. Every finding follows the summary line.
 # ---------------------------------------------------------------------------
 
 EXIT_NO_FINDINGS = 0
@@ -2142,6 +2143,27 @@ def _use_utf8_stdio() -> None:
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure is not None:
             reconfigure(encoding="utf-8")
+
+
+_SEVERITY_ORDER = {SEVERITY_ERROR: 0, SEVERITY_WARNING: 1, SEVERITY_UNCERTAIN: 2}
+
+
+def _findings_by_check(findings) -> str:
+    """The ``Findings by check:`` line: one ``Check N SEVERITY count`` entry for
+    each (check, severity) pair, ordered by check number with refusals last."""
+    counts: dict = {}
+    for finding in findings:
+        key = (finding["check"], finding["severity"])
+        counts[key] = counts.get(key, 0) + 1
+    ordered = sorted(
+        counts,
+        key=lambda key: (key[0] is None, key[0] or 0, _SEVERITY_ORDER.get(key[1], len(_SEVERITY_ORDER)), key[1]),
+    )
+    entries = [
+        f"{f'Check {check}' if check is not None else 'Refusal'} {severity} {counts[(check, severity)]}"
+        for check, severity in ordered
+    ]
+    return "Findings by check: " + ", ".join(entries)
 
 
 def _print_findings(findings) -> None:
@@ -2189,6 +2211,7 @@ def _run_cli() -> None:
         print("No findings.")
         sys.exit(EXIT_NOT_CHECKED if none_ran(context) else EXIT_NO_FINDINGS)
 
+    print(_findings_by_check(findings))
     _print_findings(findings)
 
     if any(finding["severity"] == SEVERITY_ERROR for finding in findings):

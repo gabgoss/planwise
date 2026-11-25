@@ -23,7 +23,10 @@ A plan already at the target is reported `unchanged` and not rewritten.
 Write discipline, so the diff stays auditable:
 
   * Only the token span moves. A leading emoji or `*` stays, and so does all
-    the trailing prose. The span is the capital run that
+    the trailing prose, with one exception: the `;`-bounded clause that holds
+    `awaiting` is dropped when the token moves to COMPLETE, and the report
+    names the dropped text. The
+    span is the capital run that
     `parse_plans.normalize_status` reads, WITHOUT its trailing underscores (a
     closing italic `_` stays), or the leading word of a title-case value such
     as `Complete`.
@@ -71,6 +74,7 @@ _FIRST_WORD_RE = re.compile(r"\S+\s*")
 _COMMENT_RE = re.compile(r"\s#.*$")
 _MARKUP_TAIL_RE = re.compile(r"[*`]+$")
 _MARKUP_HEAD_RE = re.compile(r"[*`]+")
+_OPENER_RE = re.compile(r"[*`_]+$")
 
 EPILOG = """\
 MAP_FILE: one `{Path as in the index}: {STATUS}` per line, read as UTF-8
@@ -222,6 +226,45 @@ def locate_status_span(raw: str) -> tuple[str, int, int] | str:
     return core, start, start + len(core)
 
 
+def stale_note_span(text: str, end: int, current: str, want: str) -> tuple[int, int, str, str] | None:
+    """Return `(cut_start, cut_end, dropped, keep)` when moving the token that ends at `end` to `want`
+    leaves a stale `awaiting` note on its line, else None. Side-effect free.
+
+    The caller splices `text[:start] + want + text[end:cut_start] + keep + text[cut_end:]`, where `start`
+    is `end - len(current)`. `dropped` is the clause text for the report.
+
+    Only a move to COMPLETE can strand the note: `IN_PROGRESS -- awaiting {user action}` reads as a gate
+    that is now closed. The note is the rest of the line after the token. Closing markup that sits
+    directly on the token and mirrors the markup that opens it (`**X**`) is not part of the note. The
+    cut is the one `;`-bounded clause that holds the word `awaiting`, in any letter case. Prose in the
+    other clauses stays. When the line wraps the whole value in markup (`*X -- awaiting y*`), the cut
+    reaches the closing markup, and `keep` puts it back so the markup stays balanced. The line ending
+    stays outside the cut, so CRLF stays CRLF."""
+    if want != "COMPLETE" or current == want:
+        return None
+    newline = text.find("\n", end)
+    line_end = len(text) if newline < 0 else newline
+    if line_end > end and text[line_end - 1] == "\r":
+        line_end -= 1
+    opener = _OPENER_RE.search(text[: end - len(current)])
+    closer = opener.group(0)[::-1] if opener else ""
+    note_start = end + len(closer) if closer and text.startswith(closer, end) else end
+    note = text[note_start:line_end]
+    at = note.lower().find("awaiting")
+    if at < 0:
+        return None
+    clause_start = max(note.rfind(";", 0, at), 0)
+    clause_end = note.find(";", at)
+    if clause_end < 0:
+        clause_end = len(note)
+    dropped = note[clause_start:clause_end]
+    keep = ""
+    if closer and note_start == end and clause_end == len(note) and note.endswith(closer):
+        keep = closer
+        dropped = dropped[: -len(closer)]
+    return note_start + clause_start, note_start + clause_end, dropped.lstrip(" ;").rstrip(), keep
+
+
 def _master_plans_by_path(plans_dir: Path) -> dict[str, list]:
     by_path: dict[str, list] = {}
     for entry in enumerate_master_plans(plans_dir):
@@ -283,7 +326,10 @@ def _read_bytes(path: Path) -> bytes:
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="flip_plan_status.py",
-        description="Flip a Master Plan's **Status:** token, keeping the prose and line endings.",
+        description=(
+            "Flip a Master Plan's **Status:** token, keeping the prose and line endings. "
+            "A move to COMPLETE drops an awaiting note and names it in the report."
+        ),
         epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         allow_abbrev=False,
@@ -343,10 +389,18 @@ def main() -> int:
             lines.append(f"  {plan_path}: unchanged (already {want})")
             counts["unchanged"] += 1
             continue
-        spliced, bumped = _bump_date(raw[:start] + want + raw[end:], today)
+        stale = stale_note_span(raw, end, current, want)
+        if stale is None:
+            moved = raw[:start] + want + raw[end:]
+            dropped = ""
+        else:
+            cut_start, cut_end, stale_text, keep = stale
+            moved = raw[:start] + want + raw[end:cut_start] + keep + raw[cut_end:]
+            dropped = f"; dropped stale note: '{stale_text}'"
+        spliced, bumped = _bump_date(moved, today)
         note = "" if bumped else " (no dated Last Updated line; dates left alone)"
         pending.append((len(lines), file, data, spliced))
-        lines.append(f"  {plan_path}: {current} -> {want}{note}")
+        lines.append(f"  {plan_path}: {current} -> {want}{dropped}{note}")
         counts["changed"] += 1
 
     if not args.dry_run:

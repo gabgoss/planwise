@@ -84,9 +84,14 @@ Sources the Discovery plan reads. The table names each one by reference and neve
 
 ### Hypotheses
 
+<!-- Confirmed By names the task that tests the claim. That task carries an execution step that
+     tests the claim and a success criterion that returns CONFIRMED, REFUTED or UNVERIFIED. The
+     orchestrator of the task's session writes that verdict into Status when it closes the session.
+     Status reads OPEN until then. -->
+
 | # | Hypothesis | Confirmed By | Status |
 |---|------------|--------------|--------|
-| {N} | {claim the Discovery plan tests} | {source or task-id} | OPEN |
+| {N} | {claim the Discovery plan tests} | {task-id} | OPEN |
 
 ### User-Action Gates
 

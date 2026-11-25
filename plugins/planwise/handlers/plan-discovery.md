@@ -92,6 +92,7 @@ Use standard templates with the following overrides:
 - List all source files/documents to be read (by reference, not loaded into the Master Plan)
 - Expected output: Number and topics of Consolidated Context Parts
 - Headings: the metadata spec keeps `Discovery Inputs` in the master plan's `optional_sections`. Its `Source Material`, `Expected Consolidated Context Parts`, `Hypotheses` and `User-Action Gates` H3s then carry the source list, the Parts with their Scope, the hypotheses and the gates. Never add these as `Plan-Specific Sections` H3s
+- Hypotheses: write a row only for a claim a task in this plan tests. Name that task in Confirmed By. Give the task an execution step that tests the claim and a success criterion that returns CONFIRMED, REFUTED or UNVERIFIED. The session's orchestrator writes the verdict into Status when it closes the session. The scaffolder strips the template comment under Hypotheses, so this bullet is the copy a scaffolded plan's author reads
 
 **Sprint Plan overrides:**
 - Objective: "Gather and consolidate context for {domain/topic}" — NOT "implement"
