@@ -190,7 +190,7 @@ class TestRecoveryArtifactsAggregation(_RecoveryArtifactFixtureMixin, _Migration
         self.assertEqual(klass, "safe-to-discard")
         self.assertEqual(count, 2, "counts from both pairs must sum into one surface line")
 
-    def test_dispositions_md_excluded_from_backup_count(self):
+    def test_dispositions_md_counted_with_a_clearable_pair(self):
         self.write_backup(self.PAIR, rel="a.md")
         (self._planwise_root() / "upgrade-backups" / self.PAIR / "DISPOSITIONS.md").write_text(
             "# disposition log\n", encoding="utf-8"
@@ -200,7 +200,7 @@ class TestRecoveryArtifactsAggregation(_RecoveryArtifactFixtureMixin, _Migration
 
         self.assertEqual(len(surfaces), 1)
         _path, count, _klass = surfaces[0]
-        self.assertEqual(count, 1, "DISPOSITIONS.md is bookkeeping, not a recovery artifact")
+        self.assertEqual(count, 2, "DISPOSITIONS.md goes with a clearable pair, so it is counted")
 
 
 class TestRecoveryArtifactTaxonomy(_RecoveryArtifactFixtureMixin, _MigrationFixtureBase):
@@ -665,7 +665,7 @@ class TestIndexPreImagesAreNotSafeToDiscard(_RecoveryArtifactFixtureMixin,
 
         surfaces = artifact_upgrade._scan_recovery_artifacts(self.cfg)
 
-        self.assertEqual([(c, k) for _p, c, k in surfaces], [(1, "safe-to-discard")])
+        self.assertEqual([(c, k) for _p, c, k in surfaces], [(2, "safe-to-discard")])
 
     def test_scan_and_sweep_agree_on_classes(self):
         self.write_backup(self.PAIR, self.REFRESH)
@@ -713,6 +713,33 @@ class TestIndexPreImagesAreNotSafeToDiscard(_RecoveryArtifactFixtureMixin,
                          "the empty upgrade-backups/ parent is removed")
         self.assertFalse((root / "upgrade-conflicts").exists(),
                          "the empty upgrade-conflicts/ parent is removed")
+
+    def test_sweep_count_equals_removing_lines(self):
+        """The count the user approves equals the files the prune deletes."""
+        self.write_gate_ok_config()
+        clearable = "1.0.0-to-1.1.0"
+        partial = "1.1.0-to-1.2.0"
+        for name in ("a.md", "b.md", "c.md"):
+            self.write_backup(clearable, name)
+        clearable_log = self.write_backup(clearable, "DISPOSITIONS.md", b"log\n")
+        self.write_backup(partial, "d.md")
+        self.write_backup(partial, self.INDEX)
+        partial_log = self.write_backup(partial, "DISPOSITIONS.md", b"log\n")
+
+        sweep = sum(f["count"] for f in doctor_sweeps.sweep_upgrade_leftovers(self.cfg)
+                    if f["klass"] == "safe-to-discard")
+        scan = sum(c for _p, c, k in artifact_upgrade._scan_recovery_artifacts(self.cfg)
+                   if k == "safe-to-discard")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(ip._run_prune_upgrade_leftovers(self.cfg), 0)
+        removing = [ln for ln in buf.getvalue().splitlines() if ln.startswith("Removing ")]
+
+        self.assertEqual(len(removing), 5, "four files from the clearable pair, one from the partial pair")
+        self.assertEqual(sweep, len(removing))
+        self.assertEqual(scan, len(removing))
+        self.assertFalse(clearable_log.exists(), "the log goes with a clearable pair")
+        self.assertTrue(partial_log.exists(), "the log stays while an index pre-image remains")
 
     def test_banner_labels_pre_images(self):
         self.write_backup(self.PAIR, self.INDEX)

@@ -39,6 +39,8 @@ The defect is systemic rather than per-plan: one audit found 109 diff-scoped gat
 
 Throughout this section `$BASE` stands for the sprint's own recorded `{ABBREV}_S{NN}_BASE` (or `{ABBREV}_SERIES_BASE` where a whole-series view is meant). It is a **recorded value**: pinned once from the live repo, then carried as the resolved SHA. Never copy it from another sprint, and never re-derive it from a later `HEAD`.
 
+**The executed gate carries the base in the same call.** The Bash tool keeps no shell state between calls, so a `BASE=` assignment made in one call is unset in the next. An unset `$BASE` drops out of `git diff $BASE -- <paths>`, and the command then becomes a working-tree-against-index diff that still prints plausible counts. Write the recorded SHA as a literal, or set the variable in the same command: `BASE=<recorded SHA>; git -C <repo> diff "${BASE:?unset}" -- <paths>`. The `${BASE:?unset}` form stops with an error when the variable is empty. `$BASE` in this file is notation for the recorded value.
+
 ### 8.1 Record a baseline before the first edit
 
 > [!constraint] The first task in a sprint that touches the target repo records the base, behind a clean-scope precondition
@@ -69,7 +71,7 @@ The precondition is scoped with `--` to **this sprint's write paths**, not to th
 > [!constraint] Every diff-scoped gate names the recorded base — `git diff $BASE -- <paths>`
 > Never a bare `git diff`, never `git diff --name-only` with no operand, and never `git diff HEAD`. `HEAD` is not a synonym for the base: it moves with every commit the session makes, so a gate written against it measures the delta since the *last commit*, not since the sprint began. A session that commits mid-way silently erases all of its own earlier work from every later gate — the gates go green because the evidence left the diff, not because the defect left the tree.
 
-`scripts/lint_verification_gates.py` registers Check 21 (`scripts/lint_gate_checks_commands.py`), which flags a `git diff` in Verification Commands or Success Criteria with no `$..._BASE` operand or no `--` path scope.
+`scripts/lint_verification_gates.py` registers Check 21 (`scripts/lint_gate_checks_commands.py`), which flags a `git diff` in Verification Commands or Success Criteria with no recorded-base operand or no `--` path scope. The accepted operands are a `$..._BASE` variable, a base placeholder such as `<base-sha>` or `{base_sha}`, and a literal commit id of 7 to 40 hex digits.
 
 ### 8.3 Path-scope with `-- <paths>`, not with an output filter
 
@@ -281,8 +283,7 @@ A baseline has a recording moment. It is not a command that returns the same ans
 > ```
 > CORRECT — carry the recorded value forward, and never re-mint it:
 > ```bash
-> BASE=<recorded SHA>    # injected at dispatch from the recording task's Recovery entry
-> git -C <repo> diff $BASE -- <paths> | grep '^+' | grep '<pattern>'
+> BASE=<recorded SHA>; git -C <repo> diff "${BASE:?unset}" -- <paths> | grep '^+' | grep '<pattern>'    # injected at dispatch from the recording task's Recovery entry
 > ```
 
 **A gate that cannot fail is worse than a missing gate**, because downstream readers consume it as evidence. Prove that the gate discriminates before trusting an empty result. Run each pattern once against input that genuinely carries the form and once against clean input, and record both readings. An undifferentiated pair invalidates the empty result.

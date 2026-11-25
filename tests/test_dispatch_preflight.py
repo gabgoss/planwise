@@ -105,7 +105,46 @@ def test_prereq_known_bad_fires(tmp_path, capsys):
 def test_prereq_repaired_is_equal(tmp_path, capsys):
     plan, root = _plan_tree(tmp_path, "**Prerequisite:** Sprints 01-03, 05 and 08 ALL COMPLETE")
     assert dp.main(["prereq", "--sprint-plan", str(plan), "--sprint-folder", str(root)]) == 0
-    assert "quantified lines with an enumeration: 1" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "quantified lines with an enumeration: 1" in out
+    assert "equal: every quantified enumeration matches its derived set" in out
+    assert "not checked:" not in out
+
+
+def test_prereq_own_sprint_folder_is_not_run(tmp_path, capsys):
+    # The Orchestration once told the orchestrator to pass the sprint's own folder.
+    # That folder holds session folders and no Sprint-NN folder, so nothing was compared.
+    plan, _root = _plan_tree(tmp_path, "**Prerequisite:** Sprints 01-03, 05 and 08 ALL COMPLETE")
+    (plan.parent / "Session-01-X").mkdir()
+    assert dp.main(["prereq", "--sprint-plan", str(plan), "--sprint-folder", str(plan.parent)]) == 2
+    out = capsys.readouterr().out
+    assert "sprint folders listed: 0" in out
+    assert "not run:" in out
+    assert "equal:" not in out
+
+
+def test_prereq_own_sprint_folder_without_quantified_line_is_not_run(tmp_path, capsys):
+    # The reported run: zero folders listed and zero quantified lines. It printed equal and exited 0.
+    plan, _root = _plan_tree(tmp_path, "**Prerequisite:** Sprint 03")
+    (plan.parent / "Session-01-X").mkdir()
+    assert dp.main(["prereq", "--sprint-plan", str(plan), "--sprint-folder", str(plan.parent)]) == 2
+    out = capsys.readouterr().out
+    assert "sprint folders listed: 0" in out
+    assert "not run:" in out
+    assert "equal:" not in out
+    assert "not checked:" not in out
+
+
+def test_prereq_folder_without_own_sprint_is_not_run(tmp_path, capsys):
+    # A folder that lists sprints but not this plan's own sprint is the wrong folder.
+    plan, _root = _plan_tree(tmp_path, "**Prerequisite:** Sprints 01-03, 05 and 08 ALL COMPLETE")
+    other = tmp_path / "Other"
+    (other / "Sprint-01-X").mkdir(parents=True)
+    assert dp.main(["prereq", "--sprint-plan", str(plan), "--sprint-folder", str(other)]) == 2
+    out = capsys.readouterr().out
+    assert "sprint folders listed: 1" in out
+    assert "not run:" in out
+    assert "equal:" not in out
 
 
 def test_prereq_prior_restricts_to_lower_numbers(tmp_path):
@@ -116,7 +155,10 @@ def test_prereq_prior_restricts_to_lower_numbers(tmp_path):
 def test_prereq_unquantified_line_is_not_checked(tmp_path, capsys):
     plan, root = _plan_tree(tmp_path, "**Prerequisite:** Sprint 03")
     assert dp.main(["prereq", "--sprint-plan", str(plan), "--sprint-folder", str(root)]) == 0
-    assert "quantified lines with an enumeration: 0" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "quantified lines with an enumeration: 0" in out
+    assert "not checked: no quantified prerequisite line enumerates sprints" in out
+    assert "equal:" not in out
 
 
 def test_short_form_skips_task_id_segments():

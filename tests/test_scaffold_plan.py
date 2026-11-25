@@ -514,6 +514,46 @@ def test_every_master_write_sets_row_has_the_header_cell_count(tmp_path, width):
     assert rows[1] == ["Sprint-02", "none", "0", "0.0", "~0.0K"][:width]
 
 
+def _intersection_table(text):
+    """The header cells and the data rows of the Computed Write-Target Intersection table, as cell lists."""
+    section = text.split("### Computed Write-Target Intersection", 1)[1]
+    table = []
+    for line in section.split("\n"):
+        if line.startswith("|"):
+            table.append(line)
+        elif table:
+            break
+    header, _separator, *rows = [[c.strip() for c in sp.split_row_cells(ln)] for ln in table]
+    return header, rows
+
+
+def test_intersection_row_has_one_cell_per_header_column(tmp_path):
+    spec = make_spec()
+    spec["sprints"][0]["sessions"][0]["tasks"] = [
+        _task(1, "ParseRows", "Sonnet", [], ["src/orchard/parse.py"]),
+        _task(2, "IndexRows", "Opus", [], ["src/orchard/index.py"]),
+        _task(3, "CheckRows", "Sonnet", [1, 2], ["Outputs/QZX-check.md"])]
+    files = sp.render_all(spec, TEMPLATES, project_root=tmp_path)[0]
+    orch = {rel.rsplit("/", 1)[-1]: text for rel, text in files.items() if rel.endswith("-Orchestration.md")}
+    header, rows = _intersection_table(orch["QZX-S01-01-Orchestration.md"])
+    # The derived cells are keyed by these names. A renamed column would turn a computed cell into a FILL marker.
+    assert header == ["Layer", "Members", "Member write-targets", "Intersection", "Reads from a layer-mate's Output",
+                      "Allocates from", "Verdict"]
+    reads, allocates =header.index("Reads from a layer-mate's Output"), header.index("Allocates from")
+    assert [r[0] for r in rows] == ["L1", "L2"]
+    assert all(len(r) == len(header) for r in rows), rows
+    shared_layer, single_layer = rows
+    for at, name in ((reads, "Reads from a layer-mate's Output"), (allocates, "Allocates from")):
+        assert shared_layer[at] == f"<!-- FILL: {{{name}}} -->"
+    assert single_layer[reads] == "n/a"
+    assert single_layer[allocates] == "<!-- FILL: {Allocates from} -->"
+    direct_header, direct_rows = _intersection_table(orch["QZX-S01-02-Orchestration.md"])
+    assert direct_header == header
+    assert direct_rows and all(len(r) == len(header) for r in direct_rows), direct_rows
+    assert all(r[reads] == r[allocates] == "n/a" for r in direct_rows)
+    assert not any("FILL" in cell for r in direct_rows for cell in r)
+
+
 INDEX = "src/orchard/index.py"
 OWN_OUTPUT = "Sprint-01-LedgerCore/Session-01-ReadPath/Outputs/QZX-a.md"
 
@@ -542,11 +582,11 @@ def test_two_spellings_in_one_layer_are_not_disjoint(tmp_path, first, second, sh
                                                   _task(2, "IndexRows", "Opus", [], second)]
     files = sp.render_all(spec, TEMPLATES, project_root=tmp_path)[0]
     text = next(t for rel, t in files.items() if rel.endswith("S01-01-Orchestration.md"))
-    row = next(ln for ln in text.split("\n") if ln.startswith("| L1 | {1, 2} |"))
-    cells = [c.strip() for c in row.strip("|").split("|")]
+    header, rows = _intersection_table(text)
+    cells = next(r for r in rows if r[1] == "{1, 2}")
     assert cells[2] == " / ".join(", ".join(f"`{o}`" for o in outs) for outs in (first, second))
     assert cells[3] == (", ".join(f"`{s}`" for s in shared) or "∅")
-    assert ("NOT" in cells[4]) == bool(shared)
+    assert ("NOT" in cells[header.index("Verdict")]) == bool(shared)
 
 
 def test_an_absolute_spelling_in_one_layer_is_not_disjoint(tmp_path):
@@ -879,6 +919,20 @@ def test_meta_plan_sections_render_only_when_opted_in():
         assert gated.count("\n## User-Action Gate") == 1, kind
         assert "\n## User-Action Gate" not in files[OTHER_SESSION + kind + ".md"], kind
         assert sp.check_text(gated, *sp.template_heading_sets(TEMPLATES)[kind.lower()])[1] == [], kind
+
+    # The gate's no-answer branch and answers table. An unanswered or all-deferred gate never reads RATIFIED.
+    gated_orch = files[GATED_SESSION + "Orchestration.md"]
+    gated_rec = files[GATED_SESSION + "Recovery.md"]
+    other_orch = files[OTHER_SESSION + "Orchestration.md"]
+    other_rec = files[OTHER_SESSION + "Recovery.md"]
+    answers_header = "| Gate | Question | Answer | Answered By | Date | Rationale |"
+    # The render drops the template's guidance comment, so the Orchestration pins the column and its FILL.
+    assert "| No Answer |" in gated_orch
+    assert "the gate stays `OPEN` and the blocked task, or the session end, does not proceed" in gated_orch
+    assert answers_header in gated_rec
+    assert "never reads `RATIFIED`" in gated_rec
+    assert "| No Answer |" not in other_orch
+    assert answers_header not in other_rec
 
 
 def test_schema_pin_fence_parity_is_bounded(rendered):

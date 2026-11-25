@@ -218,7 +218,9 @@ def test_meta_lint_and_keys_refuse_the_same_spec(tmp_path, capsys, make):
 
 @pytest.mark.parametrize("make", [direct_session_spec, plain_output_spec], ids=["direct", "plain-output"])
 def test_meta_false_renders_the_same_fixture_as_a_standard_plan(tmp_path, capsys, make):
-    build = meta_build(tmp_path, capsys, make(meta=False))
+    spec = make(meta=False)
+    # The bodies come from the spec under build: a DIRECT session holds fewer fill markers than a DELEGATED one.
+    build = meta_build(tmp_path, capsys, spec, bodies_set(index_of(tmp_path, spec)))
     code, out = build.run()
     assert code == 0, out
     files = tree_files(build.out)

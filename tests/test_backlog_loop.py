@@ -416,6 +416,69 @@ class TestNext(_LoopFixtureBase):
                 self.assertEqual(self.run_path(payload).read_bytes(), before)
 
 
+class TestPlanningItem(_LoopFixtureBase):
+    """A ready plan sets each item in its Resolves field to PLANNING.
+
+    The loop treats such an item as owned by that plan. It is excluded at
+    --init, dropped from a named list, and skipped at --next when a plan claims
+    it after --init. Item 006 is the PLANNING item in each test.
+    """
+
+    def set_planning(self, item_id: str = "006") -> None:
+        """Write the item's file and its hub row with status PLANNING."""
+        self.write_item(item_id, "PLANNING", "short")
+        hub = self.backlog_dir / "00-Index-Backlog.md"
+        out = []
+        for line in hub.read_text(encoding="utf-8").splitlines(keepends=True):
+            if line.startswith(f"| {item_id} |"):
+                line = line.replace("| NOT_STARTED |", "| PLANNING |")
+            out.append(line)
+        hub.write_text("".join(out), encoding="utf-8")
+
+    def test_init_excludes_planning_item(self):
+        self.set_planning()
+
+        payload = self.init("--mode", "all")
+
+        self.assertEqual([q["id"] for q in payload["queue"]], ["001", "002", "007"])
+        self.assertEqual([e["id"] for e in payload["excluded"]], ["003", "006", "008", "009"])
+        reasons = {e["id"]: e["reason"] for e in payload["excluded"]}
+        self.assertEqual(reasons["006"], backlog_loop.PLANNING_REASON)
+
+    def test_init_reads_the_item_file_before_the_hub_row(self):
+        # The plan wrote the item file, and the hub index is not regenerated yet.
+        self.write_item("006", "PLANNING", "short")
+
+        payload = self.init("--mode", "all")
+
+        self.assertEqual([q["id"] for q in payload["queue"]], ["001", "002", "007"])
+        reasons = {e["id"]: e["reason"] for e in payload["excluded"]}
+        self.assertEqual(reasons["006"], backlog_loop.PLANNING_REASON)
+
+    def test_specific_drops_planning_item_with_warning(self):
+        self.set_planning()
+
+        code, text, payload = self.loop("--init", "--mode", "specific", "--items", "006,001")
+
+        self.assertEqual(code, 0)
+        self.assertEqual([q["id"] for q in payload["queue"]], ["001"])
+        self.assertIn("warning: item 006 dropped: owned by a plan (status PLANNING)", text)
+
+    def test_next_skips_item_a_plan_claimed_after_init(self):
+        payload = self.init("--mode", "all")
+        # 001 is queued first; a plan names it in Resolves before the pop.
+        self.write_item("001", "PLANNING", "short")
+
+        code, _text, popped = self.loop("--next", "--run", payload["run"])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(popped["skipped"], ["001"])
+        self.assertEqual((popped["next"], popped["remaining"]), ("002", 2))
+        record = self.read_run(payload)["items"]["001"]
+        self.assertEqual(record["outcome"], "SKIPPED")
+        self.assertEqual(record["note"], "no-longer-selectable")
+
+
 class TestMark(_LoopFixtureBase):
     def test_mark_outcome(self):
         payload = self.init("--mode", "all")
@@ -443,6 +506,48 @@ class TestMark(_LoopFixtureBase):
         self.assertEqual(code, 1)
         self.assertIn("error", error)
         self.assertEqual(self.run_path(payload).read_bytes(), before)
+
+    def test_mark_outcome_closed(self):
+        payload = self.init("--mode", "n", "--n", "2")
+        run_id = payload["run"]
+        self.loop("--next", "--run", run_id)
+
+        # The SKIPPED-only guard holds for the new value: nothing is written.
+        before = self.run_path(payload).read_bytes()
+        code, _text, error = self.loop(
+            "--mark", "--run", run_id, "--id", "001", "--outcome", "CLOSED", "--decision", "Question: x?",
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("error", error)
+        self.assertEqual(self.run_path(payload).read_bytes(), before)
+
+        # The COMPLETE-only and SKIPPED-only flags refuse CLOSED too.
+        for flag in (("--needs-plan",), ("--resolution-file", "missing-resolution.md")):
+            with self.subTest(flag=flag[0]):
+                code, _text, error = self.loop(
+                    "--mark", "--run", run_id, "--id", "001", "--outcome", "CLOSED", *flag,
+                )
+                self.assertEqual(code, 1)
+                self.assertIn("error", error)
+                self.assertEqual(self.run_path(payload).read_bytes(), before)
+
+        code, _text, marked = self.loop(
+            "--mark", "--run", run_id, "--id", "001", "--outcome", "CLOSED", "--note", "closed by answer",
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual((marked["phase"], marked["outcome"]), ("closed", "CLOSED"))
+        record = self.read_run(payload)["items"]["001"]
+        self.assertEqual(record["outcome"], "CLOSED")
+        self.assertEqual(record["phase"], "closed")
+        self.assertEqual(record["note"], "closed by answer")
+
+        self.loop("--next", "--run", run_id)
+        self.loop("--mark", "--run", run_id, "--id", "002", "--outcome", "SKIPPED")
+        code, text, _last = self.loop("--boundary", "--run", run_id)
+        self.assertEqual(code, 0)
+        row = next(line for line in text.splitlines() if line.startswith("| 001 |"))
+        self.assertIn("| CLOSED |", row)
+        self.assertNotIn("COMPLETE", row)
 
 
 class TestBoundary(_LoopFixtureBase):

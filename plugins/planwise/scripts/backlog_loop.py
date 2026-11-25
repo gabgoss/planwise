@@ -21,7 +21,9 @@ single-line JSON object:
              --needs-plan it marks the item `needs_plan: true`. A COMPLETE
              outcome with --resolution-file appends the close record to the
              item file, and records an unattended close only when the run
-             never marked the item acting or verifying. --refined, alone, records the refine outcome;
+             never marked the item acting or verifying. A CLOSED outcome records a close the
+             user decided in an answered question; the handler sets the item's status first.
+             --refined, alone, records the refine outcome;
              --check with --exit, alone, records one verify command's result
   --boundary print the marker line the hooks module watches for
   --end      close the run and print the cross-run summary
@@ -104,7 +106,7 @@ EXIT_RUN_FILE = 2
 EXIT_AMBIGUOUS = 3
 
 PHASES = ("selected", "acting", "verifying")
-OUTCOMES = ("COMPLETE", "NOT_STARTED", "SKIPPED")
+OUTCOMES = ("COMPLETE", "NOT_STARTED", "SKIPPED", "CLOSED")
 EXCLUDED_REASON = "plans deferred in loop mode"
 NO_LONGER_SELECTABLE = "no-longer-selectable"
 # At its turn the item still waits for a blocker that has not closed.
@@ -116,6 +118,9 @@ REFINE_OUTCOMES = ("REFINED", "QUESTIONS", "ALREADY_MET", "DECOMPOSE", "NEEDS_PL
 NEEDS_REFINE_REASON = "needs refine"
 NEEDS_PLAN_NOTE = "marked for a planning session"
 NEEDS_PLAN_REASON = NEEDS_PLAN_NOTE
+# A ready plan names the item in its Resolves field, and `/planwise run` closeout closes it.
+PLANNING_STATUS = "PLANNING"
+PLANNING_REASON = "owned by a plan (status PLANNING)"
 OPEN_QUESTIONS_REASON = "open questions unanswered"
 OPEN_QUESTIONS_NOTE = "open-questions-unanswered"
 # The item still carries a legacy `## Loop Decision Needed` section.
@@ -293,7 +298,8 @@ def still_selectable(config: dict, rows_by_norm: dict, item_id: str) -> bool:
     # the hub row's status stands.
     frontmatter = read_item_frontmatter(path)
     status = str(frontmatter.get("status") or row["status"]).strip().upper()
-    return status in OPEN_STATUSES and status not in HOLD_STATUSES
+    # A PLANNING item belongs to a ready plan, so a plan that claimed it after --init wins.
+    return status in OPEN_STATUSES and status not in HOLD_STATUSES and status != PLANNING_STATUS
 
 
 def item_status_of(config: dict, rows_by_norm: dict, item_id: str) -> tuple[Path | None, str]:
@@ -522,6 +528,13 @@ def cmd_init(args, config: dict) -> int:
     def verdict_of(item: dict) -> tuple[dict | None, str | None]:
         """The item's route signals, and the reason that holds it whatever the cap."""
         frontmatter = frontmatters.get(item["id"], {})
+        # The item file's status first, then the hub row, as still_selectable reads it,
+        # so --init and --next agree when the index has not been regenerated yet.
+        status = str(frontmatter.get("status") or item["status"]).strip().upper()
+        if status == PLANNING_STATUS:
+            # A ready plan owns the item and /planwise run closeout closes it, so no
+            # route is computed and the loop never delivers it a second time.
+            return None, PLANNING_REASON
         if marked_needs_plan(frontmatter):
             # An item marked for a planning session is never queued, so the
             # loop does not pick it up again on every run. No route is computed.
@@ -665,8 +678,8 @@ def cmd_init(args, config: dict) -> int:
                 # A named unrefined item is always refined, so only a reason
                 # that holds whatever the cap can drop it here.
                 if excluded_reason[key] in (
-                    NEEDS_PLAN_REASON, DECISION_PENDING_REASON, PLACEMENT_REASON, USER_RUN_REASON,
-                    OPEN_QUESTIONS_REASON,
+                    PLANNING_REASON, NEEDS_PLAN_REASON, DECISION_PENDING_REASON, PLACEMENT_REASON,
+                    USER_RUN_REASON, OPEN_QUESTIONS_REASON,
                 ):
                     why = excluded_reason[key]
                 else:
