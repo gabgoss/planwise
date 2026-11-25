@@ -166,7 +166,7 @@ A BLI's "disposition if stale" note, or a triage brief, sometimes names a probe 
 
 ### 3i. BLI Cross-Cutting Check Coverage at Fix-Agent Delegation Time
 
-A BLI's "Files Touched" section names the **primary** target file. Other sections may name **additional** files where the same defect class is suspected. The conditions table in this section lists them.
+A BLI's "Files Touched" section names the **primary** target file: the first row of the item's `## Files Touched` table is the primary target. For an item whose first row is `READ`, take the first `EDIT` or `CREATE` row. Other sections may name **additional** files where the same defect class is suspected. The conditions table in this section lists them.
 
 When the BLI routes to DIRECT_FIX, the fix-agent spawn prompt MUST include those audit candidates as in-scope unless the main session explicitly scopes them out. The defect class is repo-wide, so treating only the primary file leaves N-1 latent defects to surface in future live-verifies.
 

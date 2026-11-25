@@ -301,8 +301,7 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
 >
 > ## Files Touched
 >
-> - `{path/to/file1.ext}` — {brief role}
-> - `{path/to/file2.ext}` — {brief role}
+> {the item's `## Files Touched` rows (Path | Role | Size), else the body's paths}
 >
 > ## Tasks at a Glance
 >

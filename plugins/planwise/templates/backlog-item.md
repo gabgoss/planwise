@@ -147,7 +147,7 @@ When an item's scope is understood well enough at filing time, list the files it
 | `path/to/new_file.py` | CREATE | ~2K tok (estimate) |
 ```
 
-`Role` is one of `READ` (context only), `EDIT` (modified), or `CREATE` (does not exist yet). Measure an existing file's size with `scripts/measure_files.py`; a `CREATE` row carries a flagged estimate, never a blank cell. This is a filing-time estimate, not a generated roll-up, and may be revised as scope firms up.
+List the primary target in the first row. `Role` is one of `READ` (context only), `EDIT` (modified), or `CREATE` (does not exist yet). Measure an existing file's size with `scripts/measure_files.py`; a `CREATE` row carries a flagged estimate, never a blank cell. This is a filing-time estimate, not a generated roll-up, and may be revised as scope firms up.
 
 ### Executable shape
 

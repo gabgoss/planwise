@@ -118,13 +118,16 @@ The most critical part of the Discovery plan. The final task(s) must produce Con
 - A `What This Enables` section describing what downstream work this context supports
 - Cross-references to other parts where topics overlap
 - Full substantive detail — consolidation means organize and deduplicate, NOT summarize
+- A `## Files Touched` section in the `Path | Role | Size` shape of `templates/backlog-item.md`. It lists each file the part's findings would read, edit or create. Measure an existing file with `measure_files.py`. Flag the estimate for a file that does not exist yet.
 - < 22K measured tokens per part (verify with `measure_files.py`); use multiple parts as needed. State the target in bytes beside the token figure, and add a split index when the estimate is within 20% of the ceiling.
+
+**Roll-up:** the last consolidation task writes a `## Files Touched Roll-Up` section in the last Consolidated Context Part. The section lists each distinct path of the parts' `Files Touched` tables once, with the parts that name it. A single consolidation task is the last one. Scaffolding reads the roll-up with that part.
 
 **Task file for a consolidation task should specify:**
 - **Objective:** "Consolidate findings from {sources} into Consolidated Context Part(s) for {scope}"
 - **Required Context:** The reading task outputs from earlier tasks in the session
 - **Expected Output:** `Meta-{Abbrev}/Outputs/{Abbrev}-Consolidated-Context-Part-{N}-{Topic}.md`
-- **Success Criteria:** All source material covered, no substantive content lost, organized by execution scope
+- **Success Criteria:** All source material covered, no substantive content lost, organized by execution scope. Also: every part the task writes carries a `## Files Touched` section. The last consolidation task alone adds: the `## Files Touched Roll-Up` section's distinct path count equals the count of distinct paths across all parts' `Files Touched` tables
 
 ## Discovery Step 6: Validation
 
@@ -143,6 +146,8 @@ Standard checklist applies, plus:
 [ ] Source files are listed by reference in Master Plan (the `Source Material` H3 under `Discovery Inputs`)
 [ ] A plan with a user gate keeps `User-Action Gates` in the Master Plan and `User-Action Gate` in the gated session's Orchestration and Recovery files
 [ ] Each Consolidated Context Part target is < 22K measured tokens (measure_files.py — OK on all three gates). State the target in bytes beside the token figure, and add a split index when the estimate is within 20% of the ceiling.
+[ ] Every consolidation task's Success Criteria require a `## Files Touched` section in the `Path | Role | Size` shape in every part it writes
+[ ] The last consolidation task's Success Criteria, and no other's, require a `## Files Touched Roll-Up` section in the last part, with a distinct path count equal to the count of distinct paths across all parts' `Files Touched` tables
 [ ] Plans index regenerated (generate_plans_index.py --write; no hand-written row)
 ```
 

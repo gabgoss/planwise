@@ -437,7 +437,7 @@ Applies to any `/planwise plan` invocation that produces 2+ Sprint Plan files in
 - Sprint Plan `## Session Details` cells and total
 - Sprint Plan `**Estimated Tokens:**` header
 
-In one reviewed plan, every task header in a session carried the same unreconciled figure, with drifts of 42-61% against the 10% threshold. Step 9b of `handlers/plan-Part-3-VerifyConfirmAndReview.md` runs the check at scaffold close, and a drift above 10% exits 1:
+In one plan, headers shared one stale figure, 42-61% off. Step 9b of `handlers/plan-Part-3-VerifyConfirmAndReview.md` runs this at scaffold close. A drift above 10% exits 1 (`task-self`: 3%, `surface-rows`, `surface-files`, `master-count`, `master-files`: exact):
 
 ```
 python -B "{plugin_root}/scripts/estimate_reconcile.py" check {exec_dir}

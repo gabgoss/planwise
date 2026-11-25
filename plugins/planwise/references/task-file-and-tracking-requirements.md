@@ -35,9 +35,9 @@ Every Task file MUST follow this structure:
 
 ## Required Context
 
-| Priority | File | KiB | ~Tokens | Purpose |
-|----------|------|----:|--------:|---------|
-| 1 | {file path} | {K} | ~{X}K | {why needed} |
+| Priority | File | KiB | ~Tokens | Role | Purpose |
+|----------|------|----:|--------:|------|---------|
+| 1 | {file path} | {K} | ~{X}K | {Role} | {why needed} |
 
 **Context subtotal:** ~{X}K tokens (reads) + ~{X}K (output) = ~{X}K total
 <!-- Reconciliation: this total MUST match the Estimated Tokens in this task's header. -->

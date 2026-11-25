@@ -255,9 +255,9 @@ This section owns **who** records a baseline, **when**, and **where** it lives; 
 A `∥` in a Master Plan's ordering is not a scheduling preference — it is a claim that two sprints never write the same file. The claim is about file sets, so only a file-set operation can support it, and a sprint's *name* is not evidence of one. "Agents vs handlers, disjoint files" describes two clusters; a cluster is not a write-set, and the distance between the two is exactly where concurrent sessions overwrite each other. This section makes the intersection an artifact the plan has to **show**, so that a parallel declaration is either computed or absent — never inferred, and never asserted behind a marker that cannot fail. 16.1–16.5 govern pairs the ordering line joins with `∥`; **16.6 extends the same computation to every pair whose write-sets overlap, including pairs the ordering line does not join at all**, and makes the scaffolder emit the resulting declaration rather than leaving it for a reviewer to miss.
 
 > [!constraint] A declared-parallel pair is unsupported until its write-sets are intersected and the result is shown
-> **16.1 — Every sprint declares a write-set.** Each Sprint Plan carries a `## Write-Set` section listing every directory or file the sprint **EDITS** — not the ones it merely reads — as a `| Path | Task |` table naming the task that writes each path. The read/edit distinction is the whole point: nearly every sprint reads broadly while only a handful of paths are ever written to, so an intersection computed over read-sets is meaningless. The `## Write-Set` declaration is distinct from a sequential Cross-Sprint File-Touch declaration, which compares this sprint against a *prior* sprint's already-landed delta; the write-set is the declaration an intersection is computed **from**, independent of landing order.
+> **16.1 — Every sprint declares a write-set.** Each Sprint Plan carries a `## Write-Set` section listing every directory or file the sprint **EDITS** — not the ones it merely reads — as a `templates/sprint-plan.md` table naming the task that writes each path. The read/edit distinction is the whole point: nearly every sprint reads broadly while only a handful of paths are ever written to, so an intersection computed over read-sets is meaningless. The `## Write-Set` declaration is distinct from a sequential Cross-Sprint File-Touch declaration, which compares this sprint against a *prior* sprint's already-landed delta; the write-set is the declaration an intersection is computed **from**, independent of landing order.
 >
-> **16.2 — Every declared-parallel pair states its computed intersection, with the result shown.** The Master Plan's `## Execution Ordering` section carries the declared-ordering line, a `### Write-Sets` table (`| Sprint | Write-set |`) collected from each Sprint Plan's own declaration, and a `### Computed Write-Set Intersection` table (`| Declared pair | Intersection | Verdict |`) with one row per `∥` pair. `∅` means the parallelism stands as declared. A non-empty intersection permits exactly two dispositions: (1) **serialize the pair, dropping `∥`**; or (2) **qualify the parallelism per-file, naming an explicit task-level ordering edge for each shared file (`S0A-01-0x → S0B-01-0y`)**. "We looked and it seemed fine" is neither disposition: an unshown result is an assertion wearing a computation's clothes, which is the precise shape that survives review. **Recompute the matrix whenever any sprint's write-set changes** — a mid-plan coordination flag that admits one new file into a sprint's scope can turn a `∅` row false, and the row does not re-derive itself.
+> **16.2 — Every declared-parallel pair states its computed intersection, with the result shown.** The Master Plan's `## Execution Ordering` section carries the declared-ordering line, a `### Write-Sets` table (`templates/master-plan.md`) collected from each Sprint Plan's own declaration, and a `### Computed Write-Set Intersection` table (`| Declared pair | Intersection | Verdict |`) with one row per `∥` pair. `∅` means the parallelism stands as declared. A non-empty intersection permits exactly two dispositions: (1) **serialize the pair, dropping `∥`**; or (2) **qualify the parallelism per-file, naming an explicit task-level ordering edge for each shared file (`S0A-01-0x → S0B-01-0y`)**. "We looked and it seemed fine" is neither disposition: an unshown result is an assertion wearing a computation's clothes, which is the precise shape that survives review. **Recompute the matrix whenever any sprint's write-set changes** — a mid-plan coordination flag that admits one new file into a sprint's scope can turn a `∅` row false, and the row does not re-derive itself.
 >
 > **16.3 — A file appearing under two sprints declared `∥` is a BLOCKER-grade contradiction.** When a plan's own file-touch or write-set tables list the same path under two sprints the ordering line joins with `∥`, the plan contradicts itself in writing. That is caught **mechanically**, by the structural reviewer, not by a reviewer happening to notice — the two statements typically sit sections apart, and the whole failure mode is that nobody reads them against each other.
 >
@@ -311,8 +311,8 @@ A `∥` in a Master Plan's ordering is not a scheduling preference — it is a c
 >   rationale: "agents vs handlers — disjoint files"
 >
 > Cross-Sprint File-Touch Matrix (same plan, further down):
->   `{path/to/shared-a.ext}`   touched by S0A, S0B
->   `{path/to/shared-b.ext}`   touched by S0A, S0B
+>   `{shared-a}`   touched by S0A, S0B
+>   `{shared-b}`   touched by S0A, S0B
 > ```
 > Nothing reconciles the two, because nothing ever intersected the write-sets. Run concurrently, two sessions append to the same two files with no lock. The sharpest detail is where the inference came from: the very document whose own resolution invalidated it — an upstream refactor map decided on a **per-source fold into a shared directory**, then a few sections later called the two sprints disjoint. The fold is what created the overlap; the disjointness claim was authored downstream of the decision that broke it and never re-derived.
 >
@@ -325,13 +325,13 @@ A `∥` in a Master Plan's ordering is not a scheduling preference — it is a c
 > CORRECT — declared per sprint, intersected, the result shown per pair, and the non-empty pair disposed of explicitly:
 > ```
 > ### Write-Sets
-> | Sprint | Write-set |
-> | {Sprint-N} (A) | `{dir-one}/`, `{path/to/shared-a.ext}`, `{path/to/shared-b.ext}` |
-> | {Sprint-N} (B) | `{dir-two}/`, `{path/to/shared-a.ext}`, `{path/to/shared-b.ext}` |
+> | Sprint | Write-set | Count | KiB | ~Tokens |
+> | {Sprint-N} (A) | `{dir-one}/`, `{shared-a}`, `{shared-b}` | … | … | … |
+> | {Sprint-N} (B) | `{dir-two}/`, `{shared-a}`, `{shared-b}` | … | … | … |
 >
 > ### Computed Write-Set Intersection
 > | Declared pair | Intersection | Verdict |
-> | S0A ∥ S0B | `{path/to/shared-a.ext}`, `{path/to/shared-b.ext}` | ❌ NOT disjoint — qualified per-file: `S0A-01-0x → S0B-01-0y`, `S0A-01-0z → S0B-01-0y` |
+> | S0A ∥ S0B | `{shared-a}`, `{shared-b}` | ❌ NOT disjoint — qualified per-file: `S0A-01-0x → S0B-01-0y`, `S0A-01-0z → S0B-01-0y` |
 > | S0A ∥ S0C | ∅ | ✅ disjoint — parallel stands |
 >
 > gate marker: `git -C <repo> diff --name-only $..._BASE -- {shared/dir}/`
