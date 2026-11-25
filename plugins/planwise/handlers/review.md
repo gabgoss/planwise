@@ -198,6 +198,8 @@ The first line of the findings file is always a `Coverage:` line. `Coverage: che
 
 The second line, `Dispatch subjects (Checks 42-47):`, states how many task files, orchestration files and rows Checks 42-47 read. Record it beside the `Coverage:` line. Treat a line ending `-- nothing examined` as those checks having decided nothing, not as a clean result.
 
+The third line is `Findings by check:` or `No findings.`. The first form lists one `Check N SEVERITY count` entry for each check and severity, ordered by check number, with refusals last. Record that line in the report. When the findings file is over the read cap, read that line first. Every finding still follows it, in full.
+
 4. If the script could not be run at all, exit `2` produced no findings, the exit code was `4`, or the first line starts `Coverage: NOT CHECKED`, continue the review with `{GateLintPath}` recorded as **unavailable** and say so in the report — the owning reviewer then derives its verification-gate findings by hand and states that it did. When only some gates were refused, the reviewer derives just those by hand.
 
 5. Pass `{GateLintPath}` into the spawn prompt of the reviewer that owns verification gates on the selected path: the No-Team Path's combined content reviewer, or the Team Path's Verification-Gate Reviewer.

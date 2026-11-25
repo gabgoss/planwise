@@ -290,10 +290,36 @@ def _relative_paths(tokens):
             yield _norm(token)
 
 
+def _paths_with_git_dir(text: str):
+    """``(token, c_dir)`` for each relative path in a command text. ``c_dir`` is
+    the ``git -C`` directory of the command stage that holds the token, or None
+    outside a ``git -C`` stage. Git joins repeated ``-C`` operands in order, so
+    ``c_dir`` is their join. Each ``-C`` operand is still a path to check from
+    the block's own base, as it was before the pathspecs took the ``-C`` base.
+    A stage yields nothing when an operand holds a placeholder or starts with
+    ``/`` or ``~``, because the base it names cannot be resolved here."""
+    tokens = _tokens(text)
+    if not tokens:
+        return
+    for pipeline in _pipelines(tokens):
+        for stage in pipeline:
+            _, at = _git_subcommand(stage)
+            operands = [stage[i + 1] for i in range(at or 0) if stage[i] == "-C"]
+            if any(_has_placeholder(op) or op.startswith(("/", "~")) or Path(op).is_absolute() for op in operands):
+                continue
+            c_dir = Path(*operands).as_posix() if operands else None
+            skip = {j for i in range(at or 0) if stage[i] == "-C" for j in (i, i + 1)}
+            yield from ((token, None) for token in _relative_paths(operands))
+            words = [word for j, word in enumerate(stage) if j not in skip]
+            for token in _relative_paths(words):
+                yield token, c_dir
+
+
 def _anchor_paths(text: str):
-    """Relative path tokens inside the inline code of an anchor cell."""
+    """``(token, c_dir)`` for each relative path inside the inline code of an
+    anchor cell. A path after ``git -C <dir>`` resolves from ``<dir>``."""
     for span in _INLINE_CODE_RE.findall(text):
-        yield from _relative_paths(_tokens(span) or [])
+        yield from _paths_with_git_dir(span)
 
 
 def _resolves(cwd: Path, token: str) -> bool:
@@ -313,8 +339,9 @@ def _check27_anchor_path_outside_declared_cwd(context) -> list:
     above the table, or from its header row. A path whose first segment is
     absent under that cwd cannot resolve whatever the task produces, so the
     anchor fails correct work. A path that may be created later is accepted
-    when its first segment exists. WARNING; UNCERTAIN when the declared cwd
-    itself does not resolve from the plan root or any parent.
+    when its first segment exists. A path after ``git -C <dir>`` resolves from
+    ``<dir>`` under the cwd. WARNING; UNCERTAIN when the declared cwd itself
+    does not resolve from the plan root or any parent.
     """
     root = Path(context.plan_root)
     findings = []
@@ -334,21 +361,23 @@ def _check27_anchor_path_outside_declared_cwd(context) -> list:
             ))
             continue
         for number, cells, row in table["rows"]:
-            for token in _anchor_paths(_anchor_text(table, cells, row)):
-                if _resolves(cwd, token):
+            for token, c_dir in _anchor_paths(_anchor_text(table, cells, row)):
+                if _resolves(cwd / c_dir if c_dir else cwd, token):
                     continue
+                lead = Path(c_dir) if c_dir else Path()
                 elsewhere = [
                     _rel(base, root) or "."
                     for base in (path.parent, root)
-                    if (base / token).exists() or (base / Path(token).parts[0]).is_dir()
+                    if (base / lead / token).exists() or (base / lead / Path(token).parts[0]).is_dir()
                 ]
                 hint = f" It resolves from {elsewhere[0]!r} instead." if elsewhere else ""
+                origin = f"{c_dir!r} (git -C, under the declared cwd {declared!r})" if c_dir else f"the declared cwd {declared!r}"
                 findings.append(_finding(
                     check=27, severity=SEVERITY_WARNING, file=rel, line=number, command=token,
                     message=(
-                        f"The path {token!r} does not resolve from the declared cwd "
-                        f"{declared!r}, so this anchor fails on every run.{hint} Write the "
-                        "path from the declared cwd, or state the exception in the header"
+                        f"The path {token!r} does not resolve from {origin}, so this anchor "
+                        f"fails on every run.{hint} Write the path from the declared cwd, or "
+                        "state the exception in the header"
                     ),
                 ))
     return findings
@@ -784,15 +813,17 @@ def _verification_sections(lines: list) -> list:
 
 
 def _section_paths(commands: list) -> list:
-    """``(line, token)`` for each relative path in a section's command lines."""
+    """``(line, token, c_dir)`` for each relative path in a section's command
+    lines. ``c_dir`` is the ``git -C`` directory of the command that holds the
+    token, or None."""
     found, seen = [], set()
     for number, text in commands:
         if text.startswith("#"):
             continue
-        for token in _relative_paths(_tokens(_COMMENT_RE.sub("", text)) or []):
-            if (number, token) not in seen:
-                seen.add((number, token))
-                found.append((number, token))
+        for token, c_dir in _paths_with_git_dir(_COMMENT_RE.sub("", text)):
+            if (number, token, c_dir) not in seen:
+                seen.add((number, token, c_dir))
+                found.append((number, token, c_dir))
     return found
 
 
@@ -810,27 +841,36 @@ def _declared_base_findings(path, rel, root, repo, field, tokens) -> list:
             ),
         )]
     findings = []
-    for number, token in tokens:
-        if _resolves_from(base, token):
+    for number, token, c_dir in tokens:
+        start = base / c_dir if c_dir else base
+        if _resolves_from(start, token):
             continue
         elsewhere = [
             _rel(other, root) or "."
             for other in (path.parent, root)
-            if other != base and _resolves_from(other, token)
+            if (other / c_dir if c_dir else other) != start
+            and _resolves_from(other / c_dir if c_dir else other, token)
         ]
         hint = f" It resolves from {elsewhere[0]!r} instead." if elsewhere else ""
+        origin = (
+            f"{c_dir!r} (git -C, under the declared working directory {declared!r})"
+            if c_dir else f"the declared working directory {declared!r}"
+        )
         findings.append(_finding(
             check=34, severity=SEVERITY_WARNING, file=rel, line=number, command=token,
             message=(
-                f"The path {token!r} does not resolve from the declared working directory "
-                f"{declared!r}, so this command fails on every run.{hint} Write the path from "
-                "the declared base, or change the declared base"
+                f"The path {token!r} does not resolve from {origin}, so this command fails "
+                f"on every run.{hint} Write the path from the declared base, or change the "
+                "declared base"
             ),
         ))
     return findings
 
 
 def _mixed_base_findings(path, rel, root, repo, tokens) -> list:
+    # A path after ``git -C <dir>`` names its own base, so it takes no part in
+    # the one-directory test of a block that declares none.
+    tokens = [(number, token) for number, token, c_dir in tokens if c_dir is None]
     repo_side = [
         token for _, token in tokens
         if not _SESSION_RELATIVE_RE.match(token)
@@ -868,7 +908,9 @@ def _check34_verification_path_outside_working_directory(context) -> list:
     directory (``.`` is the repo root: the nearest ancestor holding ``.git``),
     and each relative path token must resolve from it. A ``..`` path must
     exist today, which catches ``../../X`` written for ``../../../X``; any
-    other path may be created later when its first segment exists. WARNING;
+    other path may be created later when its first segment exists. A path
+    after ``git -C <dir>`` resolves from ``<dir>`` under that base, and a
+    ``git -C`` directory that holds a placeholder is skipped. WARNING;
     UNCERTAIN when the declared base itself does not resolve. With no line, a
     block is flagged when a token resolves only from the repo root and a bare
     ``Outputs/`` or ``../`` token does not: no one directory satisfies both.

@@ -72,9 +72,18 @@ _UNRESOLVED_CHARS_RE = re.compile(r"[{}<>*?]")
 
 # --- Checks 49 and 50: diff gates (measurement-discipline.md §8.7) ---
 _MATCHERS = frozenset({"grep", "egrep", "fgrep", "wc"})
-_BASE_OPERAND_RE = re.compile(r"\$\{?[A-Za-z0-9_]*BASE\b\}?|<[A-Za-z0-9_]*BASE>")
-_BASE_TOKEN_RE = re.compile(r"^(?:\$\{?[A-Za-z0-9_]*BASE\}?|<[A-Za-z0-9_]*BASE>)$")
-_LITERAL_BASE_RE = re.compile(r"\{BASE\}")
+# ``base`` is a whole name segment in every pattern below: the whole name, or the
+# tail after ``_`` (or ``-`` in a slot), with an optional ``sha`` or ``commit``
+# suffix. A name such as ``$database`` or ``{rebase}`` is no base placeholder.
+_BASE_OPERAND_RE = re.compile(
+    r"\$\{?(?:\w*_)?base(?:[-_](?:sha|commit))?\b\}?|<(?:[\w-]*[_-])?base(?:[-_](?:sha|commit))?>",
+    re.IGNORECASE,
+)
+_BASE_TOKEN_RE = re.compile(
+    r"^(?:\$\{?(?:\w*_)?base(?:[-_](?:sha|commit))?\}?|<(?:[\w-]*[_-])?base(?:[-_](?:sha|commit))?>)$",
+    re.IGNORECASE,
+)
+_LITERAL_BASE_RE = re.compile(r"(?<!\$)\{(?:\w*_)?base(?:[-_](?:sha|commit))?\}", re.IGNORECASE)
 _CAT_FILE_RE = re.compile(r"cat-file\s+-\w*e\b")
 
 
@@ -334,13 +343,15 @@ def _check50_base_gate_unresolved_or_uncounted(context) -> list:
     (measurement-discipline.md §8.7). (a) The task file uses a ``$..._BASE`` or
     ``<..._BASE>`` operand and holds no ``cat-file -e`` resolve step, or a command line
     holds the literal placeholder ``{BASE}``: the base may not resolve, and a diff
-    against an unresolved base reads empty. (b) A block holds a ``$..._BASE`` diff and no
+    against an unresolved base reads empty. The lower-case spellings count too:
+    ``$base_sha``, ``<base-sha>`` and ``{base_sha}``. A braced shell variable such as
+    ``${BASE}`` is a variable, not a literal placeholder. (b) A block holds a ``$..._BASE`` diff and no
     spanned-file count (``--name-only`` piped to a count, or a ``status --porcelain``
     count), so a diff that spans nothing looks like a clean one. A diff already
     reported by Check 49 is not reported again. Check 21 reports an unpinned or
     unscoped diff and Check 29 reports a base nobody pins, so neither is repeated
     here. WARNING. It cannot see a resolve step in a file other than the task file, a
-    base spelled without ``BASE`` in its name, or a count the block gets from a
+    base spelled without ``base`` in any case in its name, or a count the block gets from a
     script.
     """
     findings = []

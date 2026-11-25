@@ -640,7 +640,7 @@ Ask the user: "Were any lessons learned during this session?"
 
 2. The writer sets the Recovery `Session Status` and the orchestration `Status` to COMPLETE. It sets the sprint plan and Master Plan `Status` tokens to the given values. It writes this session's Master Plan `## Session Completion Tracking` row. A second `--apply` changes nothing.
 3. Exit 1 means the writer refused and wrote nothing. Read each `REFUSED` line, fix the file it names by hand, and run the writer again.
-4. Decide the Master Plan status for `--master-status`. The writer flips the token only, so append ` — awaiting {user action}` to the Status line by hand when a gate is pending:
+4. Decide the Master Plan status for `--master-status`. When the writer sets COMPLETE, it drops an `awaiting` note from the Status line and names the dropped text in its report. For any other value the writer flips the token only, so append ` — awaiting {user action}` to the Status line by hand when a gate is pending:
    - If all sprints COMPLETE AND no user-action gates pending → `Status: COMPLETE`
    - If all sprints COMPLETE BUT user-action gates pending (per Master Plan "Project Complete When" section) → `Status: IN_PROGRESS — awaiting {user action}` (per `references/session-execution-protocol.md` Discovery / Meta-Plan Status section)
    - If not all sprints COMPLETE → `Status: IN_PROGRESS`

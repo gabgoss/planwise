@@ -10,7 +10,8 @@ session's Recovery file and writes four kinds of change:
     the sprint plan and Master Plan `**Status:**` to the value the orchestrator
     decided. Each value must be in the config's `plan_statuses`. Only the
     status token moves, as in `flip_plan_status.py`, which supplies the
-    locator and the refusals.
+    locator and the refusals. The one exception: an `awaiting` note is
+    dropped when the token moves to COMPLETE, and the report names it.
   * the Master Plan `## Session Completion Tracking` row for this session:
     status `✅ COMPLETE`, the summary path and the date.
   * the Recovery `## Cross-Task Coordination Flags` rows. Each flag goes to the
@@ -52,8 +53,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 from config_loader import load_config
-from flip_plan_status import locate_status_span
+from flip_plan_status import locate_status_span, stale_note_span
 from markdown_parser import split_row_cells
+from parse_plans import META_MASTER_PLAN_SUFFIX
 from reconcile_common import write_text_preserving_newlines
 
 _SESSION_ID_RE = re.compile(r"^(?P<abbrev>[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*?)-S(?P<sprint>\d{2})-(?P<session>\d{2})$")
@@ -129,6 +131,18 @@ def _glob_one(plans_dir: Path, name: str) -> Path:
     raise CloseoutRefusal(f"no file named {name} under {plans_dir}")
 
 
+def _find_sprint_plan(plans_dir: Path, abbrev: str, sprint: str) -> Path:
+    """The one sprint plan of `abbrev` and `sprint`, under either the plain name or the Meta plan name."""
+    plain = f"{abbrev}-S{sprint}-Sprint-Plan.md"
+    meta = f"{abbrev}-META-S{sprint}-Sprint-Plan.md"
+    hits = sorted([*plans_dir.glob(f"**/{plain}"), *plans_dir.glob(f"**/{meta}")])
+    if len(hits) == 1:
+        return hits[0]
+    if hits:
+        raise CloseoutRefusal(f"{len(hits)} files named {plain} or {meta} -- resolve by hand")
+    raise CloseoutRefusal(f"no file named {plain} or {meta} under {plans_dir}")
+
+
 def _locate_status(text: str, session_line: bool) -> tuple[str, int, int] | str:
     """`(token, start, end)` of the status token on the Status line, or a refusal reason."""
     if not session_line:
@@ -145,7 +159,8 @@ def _locate_status(text: str, session_line: bool) -> tuple[str, int, int] | str:
 
 
 def set_status(ws: Workspace, path: Path, want: str, valid: list[str], *, session_line: bool = False) -> str:
-    """Set one Status token. Returns `changed` or `unchanged`. Raises `CloseoutRefusal`."""
+    """Set one Status token. Returns `unchanged`, `changed`, or `changed (dropped stale note: '...')` when
+    a move to COMPLETE removed an `awaiting` note. Raises `CloseoutRefusal`."""
     if want not in valid:
         raise CloseoutRefusal(f"{want!r} is not in plan_statuses {valid}")
     text = ws.load(path)
@@ -155,6 +170,11 @@ def set_status(ws: Workspace, path: Path, want: str, valid: list[str], *, sessio
     current, start, end = result
     if current == want:
         return "unchanged"
+    stale = stale_note_span(text, end, current, want)
+    if stale is not None:
+        cut_start, cut_end, note, keep = stale
+        ws.text[path] = text[:start] + want + text[end:cut_start] + keep + text[cut_end:]
+        return f"changed (dropped stale note: '{note}')"
     ws.text[path] = text[:start] + want + text[end:]
     return "changed"
 
@@ -276,7 +296,7 @@ def resolve_consumer(plans_dir: Path, consumer: str, master: Path) -> Destinatio
             raise CloseoutRefusal(
                 f"Downstream Consumer {consumer!r} names a sprint with scaffolded sessions -- name the session"
             )
-        return Destination("sprint", _glob_one(plans_dir, f"{abbrev}-S{sprint}-Sprint-Plan.md"), f"{abbrev}-S{sprint}")
+        return Destination("sprint", _find_sprint_plan(plans_dir, abbrev, sprint), f"{abbrev}-S{sprint}")
     session_id = f"{abbrev}-S{sprint}-{session}"
     orchestrations = sorted(plans_dir.glob(f"**/{session_id}-Orchestration.md"))
     if len(orchestrations) > 1:
@@ -284,7 +304,7 @@ def resolve_consumer(plans_dir: Path, consumer: str, master: Path) -> Destinatio
     if orchestrations:
         tasks = sorted(m.group(0) for m in found.values() if m["task"])
         return Destination("orchestration", orchestrations[0], ", ".join(tasks) if tasks else "session")
-    return Destination("sprint", _glob_one(plans_dir, f"{abbrev}-S{sprint}-Sprint-Plan.md"), session_id)
+    return Destination("sprint", _find_sprint_plan(plans_dir, abbrev, sprint), session_id)
 
 
 def _table_lines(columns: tuple[str, ...]) -> list[str]:
@@ -397,7 +417,8 @@ def main() -> int:
             raise CloseoutRefusal(f"{len(masters)} Master Plans in {master_dir} -- expected exactly one")
         master = masters[0]
         orchestration = session_dir / f"{args.session}-Orchestration.md"
-        sprint_plan = session_dir.parent / f"{abbrev}-S{sprint}-Sprint-Plan.md"
+        meta = "-META" if master.name.endswith(META_MASTER_PLAN_SUFFIX) else ""
+        sprint_plan = session_dir.parent / f"{abbrev}{meta}-S{sprint}-Sprint-Plan.md"
     except CloseoutRefusal as refusal:
         print(f"REFUSED: {refusal}")
         return 1

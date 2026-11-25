@@ -893,5 +893,110 @@ class TestStatedCountsMatchTheFilesAfterAFlip(FlipPlanStatusTestCase):
         table_rows = [ln for ln in text.splitlines() if re.match(r"\| \d+ \|", ln)]
         self.assertEqual(stated, len(table_rows))
 
+
+class TestStaleAwaitingNoteDropped(FlipPlanStatusTestCase):
+    """A Status line that reads `IN_PROGRESS — awaiting {user action}` goes stale when the plan
+    completes. Moving the token to COMPLETE drops the awaiting note and names it in the report.
+    Any other move keeps all the trailing prose."""
+
+    def test_complete_drops_the_note_and_the_report_names_it(self):
+        path = self.write_plan("Alpha", "IN_PROGRESS — awaiting user review")
+
+        code, out = self.flip("Alpha", "COMPLETE")
+
+        self.assertEqual(code, 0, out)
+        after = path.read_bytes().decode("utf-8")
+        self.assertIn("**Status:** COMPLETE\n", after)
+        self.assertNotIn("awaiting", after)
+        self.assertIn("dropped stale note: '— awaiting user review'", out)
+        self.assert_reader_agrees(path, "COMPLETE")
+
+    def test_another_target_keeps_the_note(self):
+        path = self.write_plan("Alpha", "IN_PROGRESS — awaiting user review")
+
+        code, out = self.flip("Alpha", "BLOCKED")
+
+        self.assertEqual(code, 0, out)
+        self.assertIn("**Status:** BLOCKED — awaiting user review\n", path.read_bytes().decode("utf-8"))
+        self.assertNotIn("dropped stale note", out)
+
+    def test_closing_markup_after_the_token_stays(self):
+        path = self.write_plan("Alpha", "**IN_PROGRESS** — awaiting x")
+
+        code, out = self.flip("Alpha", "COMPLETE")
+
+        self.assertEqual(code, 0, out)
+        self.assertIn("**Status:** **COMPLETE**\n", path.read_bytes().decode("utf-8"))
+        self.assertIn("dropped stale note: '— awaiting x'", out)
+
+    def test_crlf_line_ending_stays_after_the_drop(self):
+        path = self.write_plan("Alpha", "IN_PROGRESS — awaiting user review", crlf=True)
+
+        code, out = self.flip("Alpha", "COMPLETE")
+
+        self.assertEqual(code, 0, out)
+        raw = path.read_bytes()
+        self.assertIn(b"**Status:** COMPLETE\r\n", raw)
+        self.assertEqual(raw.count(b"\n"), raw.count(b"\r\n"))
+
+    def test_other_trailing_prose_stays_when_it_holds_no_awaiting_note(self):
+        path = self.write_plan("Alpha", "IN_PROGRESS — long narrative (2026-03-04)")
+
+        code, out = self.flip("Alpha", "COMPLETE")
+
+        self.assertEqual(code, 0, out)
+        self.assertIn("**Status:** COMPLETE — long narrative (2026-03-04)\n", path.read_bytes().decode("utf-8"))
+        self.assertNotIn("dropped stale note", out)
+
+    def test_prose_before_the_awaiting_clause_stays(self):
+        path = self.write_plan("Alpha", "IN_PROGRESS — Sprint scaffolded; awaiting user review")
+
+        code, out = self.flip("Alpha", "COMPLETE")
+
+        self.assertEqual(code, 0, out)
+        self.assertIn("**Status:** COMPLETE — Sprint scaffolded\n", path.read_bytes().decode("utf-8"))
+        self.assertIn("dropped stale note: 'awaiting user review'", out)
+
+    def test_prose_after_the_awaiting_clause_stays(self):
+        path = self.write_plan("Alpha", "IN_PROGRESS — gate; awaiting user review; commit abc1234")
+
+        code, out = self.flip("Alpha", "COMPLETE")
+
+        self.assertEqual(code, 0, out)
+        self.assertIn("**Status:** COMPLETE — gate; commit abc1234\n", path.read_bytes().decode("utf-8"))
+
+    def test_markup_that_wraps_the_whole_value_stays_balanced(self):
+        for value, expected in (
+            ("*IN_PROGRESS — awaiting sign-off*", "*COMPLETE*"),
+            ("`IN_PROGRESS — awaiting sign-off`", "`COMPLETE`"),
+            ("**IN_PROGRESS — awaiting sign-off**", "**COMPLETE**"),
+        ):
+            with self.subTest(value=value):
+                path = self.write_plan("Alpha", value)
+
+                code, out = self.flip("Alpha", "COMPLETE")
+
+                self.assertEqual(code, 0, out)
+                self.assertIn(f"**Status:** {expected}\n", path.read_bytes().decode("utf-8"))
+
+    def test_the_word_matches_in_any_letter_case(self):
+        path = self.write_plan("Alpha", "IN_PROGRESS — Awaiting the matrix sheet")
+
+        code, out = self.flip("Alpha", "COMPLETE")
+
+        self.assertEqual(code, 0, out)
+        self.assertIn("**Status:** COMPLETE\n", path.read_bytes().decode("utf-8"))
+
+    def test_a_plan_already_at_complete_keeps_its_line(self):
+        path = self.write_plan("Alpha", "COMPLETE — awaiting x")
+        before = path.read_bytes()
+
+        code, out = self.flip("Alpha", "COMPLETE")
+
+        self.assertEqual(code, 0, out)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertIn("unchanged", out)
+
+
 if __name__ == "__main__":
     unittest.main()

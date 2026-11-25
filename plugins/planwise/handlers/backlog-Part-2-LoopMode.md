@@ -46,6 +46,7 @@ python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yam
 | Selectable, `refined: false`, route C by the conservative default (`LARGE_SCOPE` false), past the refine cap, and `--init` ran without `--plan-exit` | No, listed as excluded | `needs refine` |
 | Selectable, route C with `LARGE_SCOPE` false, past the refine cap, and `--init` ran with `--plan-exit` | Yes, disposition `plan` | none |
 | Selectable, route C by a strong signal (`LARGE_SCOPE` true), or `refined: true` with a passing shape gate and route C | No, listed as excluded | `plans deferred in loop mode` |
+| Selectable, status PLANNING (a ready plan names it in **Resolves:**) | No, listed as excluded. A queued item that turns PLANNING is skipped at `--next` | `owned by a plan (status PLANNING)` |
 | Selectable, marked `needs_plan: true` in its frontmatter | No, listed as excluded | `marked for a planning session` |
 | Selectable, still carrying a legacy `## Loop Decision Needed` section | No, listed as excluded | `decision pending` |
 | Selectable, with the scoped-rule verdict `placement` | No, listed as excluded | `placement` |
@@ -63,7 +64,7 @@ Refining is opt-in. `--init --refine-max N` (default 0) queues up to N unrefined
 
 An open question is unanswered while its `Answer:` line is empty. It is answered once an `Answer:` line with text follows its `### Q` heading.
 
-An item is excluded with the first reason that holds, in this order: `marked for a planning session`, `decision pending`, `placement`, `user-run verification`, then the others. A `decision pending` exclusion adds one hint line: fold the legacy sections with `backlog_questions.py --fold`, then answer each question. These checks only read the item.
+An item is excluded with the first reason that holds, in this order: `owned by a plan (status PLANNING)`, `marked for a planning session`, `decision pending`, `placement`, `user-run verification`, then the others. A `decision pending` exclusion adds one hint line: fold the legacy sections with `backlog_questions.py --fold`, then answer each question. These checks only read the item.
 
 `--init --dry-run` prints the same report and writes no run file.
 
@@ -101,6 +102,7 @@ Each session handles exactly one item. The numbered steps run in order.
    | Refine step returned `DECOMPOSE` | `SKIPPED`, with `--note "decomposed: {ids}"` |
    | Refine step returned `NEEDS_PLAN` | `SKIPPED`, with `--note "needs plan"` |
    | Refine step returned `ALREADY_MET` | `COMPLETE`, with `--note "already met"` |
+   | An answered question chose close (§ Refine step) | `CLOSED`, with `--note "closed by answer"` |
    | Refine step ended on an agent `BLOCKED` or `PARTIAL` | `SKIPPED`, with `--note "refine blocked: {agent}: {reason}"` |
 
    A `SKIPPED` outcome restores the item's pre-loop status. When the script prints `Restored`, regenerate the backlog index.
@@ -121,6 +123,8 @@ Use this hand-over directory for the item's fact sheet and design file:
 {backlog_dir}/Backlog-Runs/{run-id}-refine/{item-id}/
 ```
 
+Before the first dispatch, read the item's `## Open Questions`. When an answered `### Q` block proposed CLOSED and its `Answer:` chooses close, the user has decided. Read the answer as a close only when it states the close plainly, such as `Answer: close` or the option the block named as the close. A hedged or conditional answer keeps the item open. For a close, dispatch no agent and take the `Answered close` row below. An answer that keeps the item open takes the normal dispatches.
+
 Make three dispatches, in the foreground and one at a time. `references/backlog-creation-process.md` § 3 and § 4 carry each spawn-prompt shape. Do not restate the shapes here.
 
 1. Dispatch `planwise:backlog-preflight` once, in `refine` mode, with the item id. Read the `DISPOSITIONS` field of its status block.
@@ -139,6 +143,7 @@ Then map the result to the loop action:
 | `DECOMPOSE` | The author files the sub-items with `blocks: [{parent}]` and adds each ordered dependent's id to its prerequisite sibling's `blocks:`. Run `--mark --refined DECOMPOSE --sub-items {ids}`, then `--mark --outcome SKIPPED --note "decomposed: {ids}"`. Regenerate the index |
 | `NEEDS_PLAN` | The author writes `needs_plan: true`. Run `--mark --refined NEEDS_PLAN`, then `--mark --outcome SKIPPED --note "needs plan"`. Regenerate the index |
 | `RESOLVED` or `DUPLICATE` (refine path) | The author writes one `### Q` block that proposes CLOSED, with the evidence. Run `--mark --refined QUESTIONS`, then skip as for `QUESTIONS`. The loop never sets CLOSED unattended |
+| Answered close (the user's answer chose close) | Run `update_backlog.py --status=CLOSED`, then regenerate the index. Run `--mark --outcome CLOSED --note "closed by answer"`. Record no refine outcome. The answered `### Q` block is the close record, so pass no `--resolution-file`. The close follows the user's written answer, so it is not an unattended close |
 | `PREMISE_FAILS` (refine path) | The author writes one `### Q` block that states the absent target and the options re-target, retire and keep. Run `--mark --refined QUESTIONS`, then `--mark --outcome SKIPPED --note "open questions"`. Regenerate the index |
 | Any of the three agents returns `BLOCKED` or `PARTIAL` | Resume the same agent once, naming the missing piece. On a second `BLOCKED` or `PARTIAL`, record no refine outcome. Run `--mark --outcome SKIPPED --note "refine blocked: {agent}: {reason}"`. The item stays `refined: false` and is eligible on the next run |
 | `--next` reported `disposition: run` | No refine step. Continue at Phase 3. The item carries no `refine` record, and the end summary's `Refine` column shows `-` |

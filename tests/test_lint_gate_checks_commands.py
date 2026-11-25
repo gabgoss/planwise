@@ -289,6 +289,28 @@ class TestCheck21DiffGateNotBaselinePinned(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertIn("no recorded base operand", findings[0]["message"])
 
+    def test_good_lower_case_base_placeholders(self):
+        for operand in ("<base-sha>", "{base_sha}", "$base_sha", "abc1234"):
+            with self.subTest(operand=operand):
+                findings = _lint_lines(21, [f"git diff {operand} -- scripts/   # expect empty"])
+                self.assertEqual(findings, [])
+
+    def test_bad_ref_holding_base_is_not_a_base(self):
+        findings = _lint_lines(21, ["git diff rebase-topic -- scripts/   # expect empty"])
+        self.assertEqual(len(findings), 1)
+        self.assertIn("no recorded base operand", findings[0]["message"])
+
+    def test_bad_name_holding_base_inside_a_word_is_not_a_base(self):
+        for operand in ("$rebase", "<database>", "{codebase}", "${rebase_point}"):
+            with self.subTest(operand=operand):
+                findings = _lint_lines(21, [f"git diff {operand} -- scripts/   # expect empty"])
+                self.assertEqual(len(findings), 1)
+                self.assertIn("no recorded base operand", findings[0]["message"])
+
+    def test_good_lower_case_guarded_variable(self):
+        findings = _lint_lines(21, ['git diff "${base:?unset}" -- scripts/   # expect empty'])
+        self.assertEqual(findings, [])
+
 
 class TestCheck22PathListReadBeforeCounted(unittest.TestCase):
     READER = "xargs -a paths.txt git status --porcelain --   # expect empty"

@@ -876,7 +876,17 @@ def o_intersection(lines, i, env):
                    "✅ disjoint — parallel stands" if not shared else "❌ NOT disjoint — serialized")
         mem = ", ".join(str(m) for m in members)
         inter = ", ".join(f"`{s}`" for s in sorted(shared)) or "∅"
-        rows.append(f"| L{k} | {{{mem}}} | {wt} | {inter} | {verdict} |")
+        derived = {"layer": f"L{k}", "members": f"{{{mem}}}", "member write-targets": wt,
+                   "intersection": inter, "verdict": verdict}
+        # A layer-mate read needs two members. A DIRECT session has neither a layer-mate nor a shared namespace.
+        if env.session["mode"] == "DIRECT":
+            derived.update({"reads from a layer-mate's output": "n/a", "allocates from": "n/a"})
+        elif len(members) == 1:
+            derived["reads from a layer-mate's output"] = "n/a"
+        # One cell per header column. A column this function cannot derive becomes a FILL marker named by its header.
+        cells = [derived[h.lower()] if h.lower() in derived else sub_line("{" + h + "}", env)
+                 for h in header_cells(lines, i)]
+        rows.append(f"| {' | '.join(cells)} |")
     return (rows, n)
 
 
@@ -1082,11 +1092,16 @@ def row_role(row, env):
     return role_cell(role_for(row["path"], env.task, env.sprint, env.session, env.project_root))
 
 
-def table_header(lines, i):
-    """The lowered header cells of the table that holds line `i`."""
+def header_cells(lines, i):
+    """The header cells of the table that holds line `i`, in the template's own spelling."""
     while i > 0 and lines[i - 1].startswith("|"):
         i -= 1
-    return [c.strip().lower() for c in split_row_cells(lines[i])]
+    return [c.strip() for c in split_row_cells(lines[i])]
+
+
+def table_header(lines, i):
+    """The lowered header cells of the table that holds line `i`."""
+    return [c.lower() for c in header_cells(lines, i)]
 
 
 def role_column(lines, i):

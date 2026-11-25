@@ -189,6 +189,33 @@ class TestCheck50BaseGate(unittest.TestCase):
         findings = [f for f in _lint(50, text) if "{BASE}" in f["message"]]
         self.assertEqual(len(findings), 1)
 
+    def test_lower_case_literal_placeholder(self):
+        text = _task(verification=_verification(before=self.RESOLVE, after="git diff --numstat {base_sha} -- a.md"))
+        findings = [f for f in _lint(50, text) if "{BASE}" in f["message"]]
+        self.assertEqual(len(findings), 1)
+
+    def test_lower_case_angle_operand_is_read(self):
+        count = "git status --porcelain -- a.md | grep -c '^??'"
+        text = _task(verification=_verification(after=f"git diff --numstat <base-sha> -- a.md\n{count}"))
+        findings = _lint(50, text)
+        self.assertEqual(len(findings), 1)
+        self.assertIn("cat-file -e", findings[0]["message"])
+
+    def test_name_holding_base_inside_a_word_is_not_read(self):
+        for operand in ("$database", "<codebase>", "{database}"):
+            with self.subTest(operand=operand):
+                text = _task(verification=_verification(
+                    before=self.RESOLVE, after=f"git diff --numstat {operand} -- a.md"
+                ))
+                self.assertEqual(_lint(50, text), [])
+
+    def test_braced_shell_variable_is_not_a_literal_placeholder(self):
+        text = _task(verification=_verification(
+            before=self.RESOLVE, after=f"git diff --numstat ${{X_BASE}} -- a.md\n{self.COUNT}"
+        ))
+        findings = [f for f in _lint(50, text) if "literal placeholder" in f["message"]]
+        self.assertEqual(findings, [])
+
     def test_bad_base_diff_without_spanned_file_count(self):
         text = _task(verification=_verification(before=self.RESOLVE, after=self.NUMSTAT))
         findings = _lint(50, text)

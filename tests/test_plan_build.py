@@ -407,6 +407,44 @@ def test_lint_names_each_missing_marker_before_the_summary(tmp_path, capsys, ind
     assert summary(out)["S01-01"] == (2, 0)
 
 
+def _intersection_cells(text):
+    """The header cells and the data rows of the Computed Write-Target Intersection table, as cell lists."""
+    table = []
+    for line in text.split("### Computed Write-Target Intersection", 1)[1].split("\n"):
+        if line.startswith("|"):
+            table.append([c.strip() for c in sp.split_row_cells(line)])
+        elif table:
+            break
+    return table[0], table[2:]
+
+
+def test_lint_names_the_intersection_fills_a_body_must_supply(tmp_path, capsys):
+    spec = make_spec()
+    spec["sprints"][0]["sessions"][0]["tasks"][1]["depends_on"] = []  # layer L1 now holds tasks 1 and 2
+    files = sp.render_all(spec, TEMPLATES)[0]
+    reads, allocates = "Reads from a layer-mate's Output", "Allocates from"
+    orch = next(text for rel, text in files.items() if rel.endswith("S01-01-Orchestration.md"))
+    header, rows = _intersection_cells(orch)
+    assert [r[0] for r in rows] == ["L1"]
+    assert all(len(r) == len(header) for r in rows), rows
+    idx = pb.doc_index(files, TEMPLATES)
+    assert {reads, allocates} <= {m[0] for m in idx[ORCH_DOC]["markers"]}
+    spec_file = _write_spec(tmp_path, spec)
+    code = pb.main(["lint", "--spec", str(spec_file), "--bodies-dir",
+                    str(_write_bodies(tmp_path, bodies_set(idx, skip={(ORCH_DOC, reads), (ORCH_DOC, allocates)})))])
+    out = capsys.readouterr().out
+    lines = out.splitlines()
+    assert code == 1, out
+    assert any(ln.startswith(f"MISSING: doc={ORCH_DOC} marker={allocates} [1] under ") for ln in lines), out
+    assert any(ln.startswith(f"MISSING: doc={ORCH_DOC} marker={reads} [1] under ") for ln in lines), out
+    assert summary(out)["S01-01"] == (2, 0)
+    # control: the same spec with both bodies written lints clean, so the two lines above name real gaps
+    (tmp_path / "control-run").mkdir()
+    control = pb.main(["lint", "--spec", str(spec_file), "--bodies-dir",
+                       str(_write_bodies(tmp_path / "control-run", bodies_set(idx)))])
+    assert control == 0, capsys.readouterr().out
+
+
 def test_lint_caps_missing_lines_per_group(tmp_path, capsys, index, monkeypatch):
     monkeypatch.setattr(pb, "DETAIL_LIMIT", 1)
     code, out = run_lint(tmp_path, capsys, {})

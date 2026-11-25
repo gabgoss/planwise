@@ -126,6 +126,19 @@ def test_check27_uncertain_when_the_declared_cwd_does_not_resolve(tmp_path):
     assert _found(plan, 27) == [(27, "UNCERTAIN", "Sprint-Signoff.md", 5)]
 
 
+def test_check27_resolves_a_git_C_pathspec_from_the_C_directory(tmp_path):
+    _write(tmp_path / "repo" / "sub" / "lib" / "b.py", "")
+    plan = _cwd_tree(tmp_path, "`git -C sub diff -- lib/b.py`")
+    assert _found(plan, 27) == []
+
+
+def test_check27_fires_on_a_git_C_pathspec_missing_under_the_C_directory(tmp_path):
+    # scripts/ exists at the cwd and not under sub/, so only the -C base can flag it.
+    _write(tmp_path / "repo" / "sub" / "lib" / "b.py", "")
+    plan = _cwd_tree(tmp_path, "`git -C sub diff -- scripts/tool.py`")
+    assert _found(plan, 27) == [(27, "WARNING", "Sprint-Signoff.md", 9)]
+
+
 # ---------------------------------------------------------------------------
 # Check 28 -- a file count over a sibling task's Output
 # ---------------------------------------------------------------------------
@@ -354,6 +367,80 @@ def test_check34_silent_on_the_correct_depth_from_the_declared_base(tmp_path):
 def test_check34_uncertain_when_the_declared_base_is_a_placeholder(tmp_path):
     plan = _vc_plan(tmp_path, ["test -f Outputs/Report.md"], field="{repo}")
     assert _found(plan, 34) == [(34, "UNCERTAIN", _TASK_REL, 7)]
+
+
+def _git_c_plan(repo: Path, commands, field: "str | None" = ".") -> Path:
+    """``_vc_plan`` plus a ``sub/lib/b.py`` under the repo root. The repo root holds
+    ``src/`` and the ``sub`` folder holds ``lib/``, so a pathspec read from the wrong
+    base resolves for one and not the other."""
+    plan = _vc_plan(repo, commands, field=field)
+    _write(repo / "sub" / "lib" / "b.py", "")
+    _write(repo / "sub" / "lib" / "deep" / "c.py", "")
+    return plan
+
+
+def test_check34_resolves_a_git_C_pathspec_from_the_C_directory(tmp_path):
+    plan = _git_c_plan(tmp_path, [
+        "git -C sub diff -- lib/b.py",
+        "git -C sub diff --name-only -- lib/b.py | wc -l   # 1",
+    ])
+    assert _found(plan, 34) == []
+
+
+def test_check34_fires_on_a_git_C_pathspec_missing_under_the_C_directory(tmp_path):
+    # src/ exists at the repo root and not under sub/, so only the -C base can flag it.
+    plan = _git_c_plan(tmp_path, ["git -C sub diff -- src/b.py"])
+    assert _found(plan, 34) == [(34, "WARNING", _TASK_REL, 12)]
+
+
+def test_check34_still_checks_a_path_beside_a_git_C_stage(tmp_path):
+    plan = _git_c_plan(tmp_path, ["git -C sub diff -- lib/b.py", "test -f Outputs/Report.md"])
+    assert _found(plan, 34) == [(34, "WARNING", _TASK_REL, 13)]
+
+
+def test_check34_skips_a_placeholder_git_C_directory(tmp_path):
+    plan = _git_c_plan(tmp_path, ["git -C $REPO diff -- nope/b.py"])
+    assert _found(plan, 34) == []
+
+
+def test_check34_mixed_base_test_ignores_a_git_C_pathspec(tmp_path):
+    # With no declared directory, src/b.py would read as a repo-root path beside Outputs/.
+    plan = _git_c_plan(tmp_path, ["git -C sub diff -- src/b.py", "test -f Outputs/Report.md"], field=None)
+    assert _found(plan, 34) == []
+
+
+def test_check34_joins_repeated_git_C_directories_in_order(tmp_path):
+    # git reads -C sub -C lib as sub/lib, so deep/c.py resolves. The last -C alone would not.
+    plan = _git_c_plan(tmp_path, ["git -C sub -C lib diff -- deep/c.py"])
+    assert _found(plan, 34) == []
+
+
+def test_check34_reads_a_git_C_pathspec_inside_a_brace_group(tmp_path):
+    ok = _git_c_plan(tmp_path / "ok", ["{ git -C sub diff -- lib/b.py; } | wc -l   # 1"])
+    bad = _git_c_plan(tmp_path / "bad", ["{ git -C sub diff -- src/b.py; } | wc -l   # 1"])
+    assert _found(ok, 34) == []
+    assert _found(bad, 34) == [(34, "WARNING", _TASK_REL, 12)]
+
+
+def test_check34_still_checks_a_git_C_operand_written_as_a_path(tmp_path):
+    # An operand that ends in a slash was a checked path before pathspecs took the -C base.
+    plan = _git_c_plan(tmp_path, ["git -C nodir/ diff --stat"])
+    assert _found(plan, 34) == [(34, "WARNING", _TASK_REL, 12)]
+
+
+def test_check34_skips_a_git_C_directory_it_cannot_resolve(tmp_path):
+    for operand in ("~/repos/x", "/abs/repo"):
+        plan = _git_c_plan(tmp_path / operand.strip("/~").replace("/", "_"), [f"git -C {operand} diff -- nope/b.py"])
+        assert _found(plan, 34) == [], operand
+
+
+def test_check34_hint_joins_the_git_C_directory_to_the_other_base(tmp_path):
+    plan = _git_c_plan(tmp_path, ["git -C sub diff -- src/b.py"])
+    messages = [f["message"] for f in lint_plan(plan, execute=False) if f["check"] == 34]
+    assert len(messages) == 1 and "resolves from" not in messages[0], messages
+    _write(plan / "sub" / "src" / "b.py", "")   # now the plan root holds sub/src/b.py
+    messages = [f["message"] for f in lint_plan(plan, execute=False) if f["check"] == 34]
+    assert len(messages) == 1 and "It resolves from '.' instead" in messages[0], messages
 
 
 # ---------------------------------------------------------------------------

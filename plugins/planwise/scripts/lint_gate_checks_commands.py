@@ -60,9 +60,22 @@ _DIFF_STAT_OPTIONS = ("--numstat", "--stat", "--shortstat", "--dirstat")
 # A grep context flag: -B1, -A2, -C1, a combined -nB1, or the long forms.
 _CONTEXT_FLAG_RE = re.compile(r"^-[a-zA-Z]*[ABC]\d*$|^--(before-context|after-context|context)(=\d+)?$")
 
-# A diff operand that names a recorded base: a ``$..._BASE`` variable, a
-# template slot naming a base, or a literal commit id of seven or more hex digits.
-_BASE_OPERAND_RE = re.compile(r"BASE|^[0-9a-f]{7,40}(\.\.\.?\S*)?$")
+# A diff operand that names a recorded base: any operand holding upper-case
+# ``BASE`` (a ``$..._BASE`` variable or a ``<BASE_SHA>`` slot), a literal commit
+# id of seven or more hex digits, or a lower-case base slot (``<base-sha>``,
+# ``{base_sha}``, ``$base_sha``, ``${base:?unset}``). In the slot, ``base`` is a
+# whole name segment: the whole name, or the tail after ``_`` or ``-``, with an
+# optional ``sha`` or ``commit`` suffix. A bare word such as ``rebase-topic`` names
+# a ref, and a name such as ``$rebase`` or ``<database>`` is no base. Both stay flagged.
+_BASE_OPERAND_RE = re.compile(
+    r"BASE|^[0-9a-f]{7,40}(\.\.\.?\S*)?$"
+    r"|(?i:^(?:"
+    r"<(?:[\w-]*[_-])?base(?:[_-](?:sha|commit))?>"
+    r"|\{(?:[\w-]*[_-])?base(?:[_-](?:sha|commit))?\}"
+    r"|\$\{(?:\w*_)?base(?:_(?:sha|commit))?(?::[^}\s]*)?\}"
+    r"|\$(?:\w*_)?base(?:_(?:sha|commit))?"
+    r")(\.\.\.?\S*)?$)"
+)
 _HEAD_OPERAND_RE = re.compile(r"\bHEAD\b")
 
 # A grep pattern that filters out comment lines: a comment marker inside it.
@@ -657,7 +670,8 @@ def _check21_diff_gate_not_baseline_pinned(context) -> list:
     """Check 21 -- a ``git diff`` in Verification Commands or Success Criteria
     that is not pinned to a recorded base (gate-diff-baseline-pinning.md §8.2,
     §8.3 and §8.5; Reviewer Check 077 steps a and b). The diff must name a
-    ``$..._BASE`` operand (or a literal commit id) and scope its paths with
+    ``$..._BASE`` operand, a lower-case base placeholder such as ``<base-sha>``
+    or ``{base_sha}``, or a literal commit id, and scope its paths with
     ``--``. ``HEAD`` moves with every commit, and a downstream grep only hides
     what git already read from the whole working tree. A ``--name-only``
     listing must also carry a ``git ls-files --others`` union, because
@@ -685,7 +699,10 @@ def _check21_diff_gate_not_baseline_pinned(context) -> list:
         if not defects:
             continue
         defects = list(dict.fromkeys(defects))
-        fix = "Pin a recorded base before the first edit and write git diff $BASE -- <paths>"
+        fix = (
+            "Pin a recorded base before the first edit and write git diff <recorded SHA> -- <paths>, "
+            "or set $BASE in the same command"
+        )
         if any("ls-files" in defect for defect in defects):
             fix += (
                 ", then join `git ls-files --others --exclude-standard -- <paths>` "

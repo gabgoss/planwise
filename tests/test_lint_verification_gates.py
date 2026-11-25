@@ -49,6 +49,7 @@ Run with:  python -m pytest tests/test_lint_verification_gates.py -q
 import hashlib
 import io
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -1140,6 +1141,52 @@ class TestExitNotChecked(unittest.TestCase):
         self.assertIn("task_files=1", lines[1])
         self.assertNotIn("nothing examined", lines[1])
 
+    def test_findings_print_a_summary_by_check_as_the_third_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run_cli(self._plan(tmp, ["grep -c 'X' target.md   # expect >=1"]), "--no-execute")
+        stdout = result.stdout.decode("utf-8")
+        lines = stdout.splitlines()
+        self.assertTrue(lines[2].startswith("Findings by check: "), stdout)
+        # A finding line opens with its severity and "Check N:", or "Refusal:". The summary
+        # must count exactly those lines, and every one of them still prints.
+        heads = [re.match(r"\[(ERROR|WARNING|UNCERTAIN)\] (?:Check (\d+)|Refusal):", line) for line in lines[3:]]
+        printed = [match for match in heads if match]
+        self.assertTrue(printed, stdout)
+        counts: dict = {}
+        for match in printed:
+            key = (int(match.group(2)) if match.group(2) else None, match.group(1))
+            counts[key] = counts.get(key, 0) + 1
+        rank = {"ERROR": 0, "WARNING": 1, "UNCERTAIN": 2}
+        expected = ", ".join(
+            f"{'Refusal' if check is None else f'Check {check}'} {severity} {n}"
+            for (check, severity), n in sorted(
+                counts.items(), key=lambda item: (item[0][0] is None, item[0][0] or 0, rank[item[0][1]])
+            )
+        )
+        self.assertEqual(lines[2], "Findings by check: " + expected, stdout)
+
+    def test_clean_plan_prints_no_findings_as_the_third_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_root = Path(tmp)
+            (plan_root / "target.md").write_bytes(b"X\n")
+            result = self._run_cli(plan_root, "--no-execute")
+        lines = result.stdout.decode("utf-8").splitlines()
+        self.assertEqual(lines[2], "No findings.", lines)
+
+    def test_summary_orders_by_check_number_with_refusals_last(self):
+        def finding(check, severity):
+            return {"check": check, "severity": severity, "file": "f", "line": 1, "command": "c", "message": "m"}
+
+        findings = [
+            finding(None, "UNCERTAIN"), finding(34, "WARNING"), finding(9, "WARNING"),
+            finding(34, "ERROR"), finding(34, "WARNING"), finding(9, "ERROR"),
+        ]
+        self.assertEqual(
+            lint_module._findings_by_check(findings),
+            "Findings by check: Check 9 ERROR 1, Check 9 WARNING 1, Check 34 ERROR 1, "
+            "Check 34 WARNING 2, Refusal UNCERTAIN 1",
+        )
+
 
 class TestConsoleEncodingSurvival(unittest.TestCase):
     """A finding whose command text holds a character outside cp1252 must
@@ -1289,7 +1336,9 @@ class TestCheck17GlobFolderLedPattern(unittest.TestCase):
                 encoding="utf-8",
                 check=False,
             )
-        self.assertEqual(result.stdout.count("Check 17"), 1, result.stdout)
+        # The finding line carries "] Check 17:". The summary line also names the check, so
+        # the count reads the finding lines only.
+        self.assertEqual(result.stdout.count("] Check 17:"), 1, result.stdout)
         self.assertEqual(result.returncode, lint_module.EXIT_ADVISORY_ONLY)
 
 
