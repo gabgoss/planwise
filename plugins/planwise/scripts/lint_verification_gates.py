@@ -69,7 +69,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 from lint_gate_git_policy import git_refusal, hardened_git_argv_env
 from lint_gate_grep_tool import measured_value as grep_tool_measured_value
-from lint_gate_grep_tool import parse_grep_call, run_grep_call
+from lint_gate_grep_tool import parse_grep_call, run_grep_call, translate_posix_classes
 from lint_gate_tool_calls import (
     GLOB_FOLDER_LED_MESSAGE,
     GREP_ALTERNATION_MESSAGE,
@@ -529,6 +529,40 @@ def _argv_refusal(argv) -> str | None:
     return None
 
 
+def _msys_argv_refusal(argv) -> str | None:
+    """Return why an MSYS tool would not receive ``argv`` as written, or None.
+
+    ``noglob`` stops the glob pass and the backslash loss. Two rewrites remain
+    under it. A quote character is consumed, so ``it's`` arrives as ``its``.
+    An argument that starts with ``@`` is read as a response file and replaced
+    by that file's content when the file exists. Either one changes the
+    pattern or the path the gate names, so the command is refused.
+    """
+    for token in argv[1:]:
+        if "'" in token or '"' in token:
+            return (
+                f"the argument {token!r} holds a quote character, which the "
+                "Windows tool consumes when it parses its command line"
+            )
+        if token.startswith("@"):
+            return (
+                f"the argument {token!r} starts with '@', which the Windows "
+                "tool reads as a response file"
+            )
+    return None
+
+
+def _msys_noglob_env() -> dict:
+    """The child environment for an MSYS tool: the caller's, with ``noglob``
+    added to ``MSYS``. An existing ``MSYS`` value is kept."""
+    env = dict(os.environ)
+    words = env.get("MSYS", "").split()
+    if "noglob" not in words:
+        words.append("noglob")
+    env["MSYS"] = " ".join(words)
+    return env
+
+
 def run_command(argv, *, cwd=None, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> dict:
     """Run ``argv`` if and only if the allowlist admits its executable.
 
@@ -545,6 +579,14 @@ def run_command(argv, *, cwd=None, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> di
 
     The argument vector is passed straight to the operating system, so no
     interpreter ever sees the text and metacharacters cannot take effect.
+
+    Windows needs one more step for the four tools other than ``git``. Git for
+    Windows ships them as MSYS programs, and an MSYS program parses its own
+    command line when a native process starts it. That parse expands a glob,
+    and drops every backslash of an argument that holds a glob character. The
+    child therefore runs with ``noglob`` in ``MSYS``, which switches the parse
+    off, and ``_msys_argv_refusal`` refuses the arguments the parse still
+    rewrites. A native build of one of the tools ignores the variable.
     """
     refusal = _argv_refusal(argv)
     if refusal is not None:
@@ -553,6 +595,11 @@ def run_command(argv, *, cwd=None, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> di
     run_argv, run_env = list(argv), None
     if argv[0] == "git":
         run_argv, run_env = hardened_git_argv_env(argv)
+    elif _on_windows():
+        refusal = _msys_argv_refusal(argv)
+        if refusal is not None:
+            return _refused(refusal)
+        run_env = _msys_noglob_env()
 
     try:
         completed = subprocess.run(
@@ -1060,21 +1107,78 @@ def _translate_bre_to_python(pattern: str) -> str:
     return "".join(out)
 
 
-def _compile_grep_pattern(pattern: str, extended: bool, fixed: bool = False):
+def _has_perl_flag(argv) -> bool:
+    """True when the grep command reads its pattern as a Perl regular
+    expression (``-P`` or ``--perl-regexp``). Reads option letters only, the
+    way ``_has_fixed_flag`` does."""
+    for token in argv[1:]:
+        if token == "--":
+            return False
+        if token == "--perl-regexp":
+            return True
+        if token.startswith("-") and not token.startswith("--"):
+            for ch in token[1:]:
+                if ch == "P":
+                    return True
+                if ch in _SHORT_OPTIONS_WITH_ARGUMENT:
+                    break
+    return False
+
+
+def _grep_digit_escape_as_letter(pattern: str) -> str:
+    """Rewrite ``\\d`` and ``\\D`` the way grep reads them without ``-P``.
+
+    grep's basic and extended syntax have no digit class. GNU grep reads
+    ``\\d`` as the letter ``d`` and ``\\D`` as the letter ``D``, where Python
+    reads a digit and a non-digit. A gate written ``grep -c '\\d'`` therefore
+    counts lines that hold a ``d``. The rewrite covers the escape outside a
+    bracket expression only, and leaves an escaped backslash alone.
+    """
+    out = []
+    index = 0
+    inside = False
+    length = len(pattern)
+    while index < length:
+        char = pattern[index]
+        if char == "\\" and index + 1 < length:
+            nxt = pattern[index + 1]
+            if not inside and nxt in "dD":
+                out.append(nxt)
+            else:
+                out.append(char)
+                out.append(nxt)
+            index += 2
+            continue
+        if char == "[":
+            inside = True
+        elif char == "]":
+            inside = False
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
+def _compile_grep_pattern(pattern: str, extended: bool, fixed: bool = False,
+                          perl: bool = False):
     """Compile a grep search pattern into the Python regex grep would
     actually match against, honouring the same BRE/ERE distinction Check 3's
     other branch already tracks via ``_has_extended_flag``. An extended
     (``-E``) pattern already shares Python's own escaping convention for
     ``( ) { } | + ?`` and passes through unchanged; a basic pattern is
-    translated first. A fixed-string (``-F``) pattern has no regex syntax at
+    translated first. Both lose ``\\d`` to ``_grep_digit_escape_as_letter``,
+    because grep has no digit class outside ``-P``. A Perl (``-P``) pattern
+    passes through whole. A fixed-string (``-F``) pattern has no regex syntax at
     all, so it is escaped and matched as a literal. Returns None when the
     result does not compile, so a caller has nothing to count against rather
     than an exception to catch.
     """
     if fixed:
         translated = re.escape(pattern)
+    elif perl:
+        translated = pattern
     else:
         translated = pattern if extended else _translate_bre_to_python(pattern)
+        translated = _grep_digit_escape_as_letter(translated)
     try:
         return re.compile(translated)
     except re.error:
@@ -1082,7 +1186,8 @@ def _compile_grep_pattern(pattern: str, extended: bool, fixed: bool = False):
 
 
 def _count_line_and_occurrence_totals(
-    pattern: str, text: str, extended: bool = False, fixed: bool = False
+    pattern: str, text: str, extended: bool = False, fixed: bool = False,
+    perl: bool = False,
 ):
     """Count how many lines a grep pattern touches, and how many times it
     occurs in total -- the two quantities ``grep -c`` conflates when a
@@ -1100,7 +1205,7 @@ def _count_line_and_occurrence_totals(
     Returns ``(0, 0)`` when the pattern does not compile at all -- nothing to
     count is the safe reading, never a fabricated zero-vs-nonzero disparity.
     """
-    compiled = _compile_grep_pattern(pattern, extended, fixed)
+    compiled = _compile_grep_pattern(pattern, extended, fixed, perl)
     if compiled is None:
         return 0, 0
     occurrence_total = 0
@@ -1261,6 +1366,7 @@ def _check3_bre_ere_and_line_count_absorption(context: LintContext) -> list:
                         text,
                         extended=_has_extended_flag(argv),
                         fixed=_has_fixed_flag(argv),
+                        perl=_has_perl_flag(argv),
                     )
                     if line_total != occurrence_total and occurrence_total == expectation.value:
                         findings.append(
@@ -1577,28 +1683,6 @@ def _on_windows() -> bool:
     return os.name == "nt"
 
 
-def _grep_pattern_has_backslash(command: ExtractedCommand) -> bool:
-    """True when any grep stage of the command passes a pattern holding a backslash.
-
-    On Windows the executor starts an MSYS ``grep`` from an argument list, and
-    that path drops a backslash before ``[`` and similar characters. The value it
-    measures then differs from what a shell measures, so a comparison with it
-    would report a contradiction the author never wrote.
-
-    Every token after the stage's ``grep`` counts, so a pattern behind an option
-    such as ``-m 5`` or ``-e`` is seen too.
-    """
-    argv = _static_argv(command.command)
-    if not argv:
-        return False
-    for stage in _pipeline_stages(argv):
-        if not stage or stage[0] != "grep":
-            continue
-        if any("\\" in token for token in stage[1:]):
-            return True
-    return False
-
-
 _NOT_STARTED_RE = re.compile(r"NOT[\s_-]*STARTED", re.IGNORECASE)
 _DEPENDS_ON_RE = re.compile(r"^\*\*Depends On:\*\*[ \t]*([^\r\n]*)", re.MULTILINE)
 # A Depends On entry that names no producer: empty, or ``none``, ``n/a`` or a
@@ -1722,9 +1806,7 @@ def _check66_stated_value_contradicts_measurement(context: LintContext) -> list:
     measured value (a refused command keeps its own refusal finding), a value
     that does not start with an integer, and a task in a session the Master
     Plan marks anything but NOT STARTED -- once a session has begun, the live
-    tree need not hold the pre-task state. On Windows it also skips a gate
-    whose grep tokens hold a backslash, because the executor's measurement of
-    it is not the value a shell reads (see ``_grep_pattern_has_backslash``).
+    tree need not hold the pre-task state.
 
     Every contradiction is a WARNING, not an ERROR, when the task's
     ``**Depends On:**`` names any producer (see ``_depends_on_producer``): the
@@ -1734,14 +1816,11 @@ def _check66_stated_value_contradicts_measurement(context: LintContext) -> list:
     if not context.execute:
         return []
     may_compare = None
-    windows = _on_windows()
     findings = []
     for command in context.commands:
         if command.block not in (BLOCK_BEFORE, BLOCK_AFTER):
             continue
         if command.is_placeholder or not command.is_gate:
-            continue
-        if windows and _grep_pattern_has_backslash(command):
             continue
         measured = _measured_value(command)
         if measured is None:
@@ -1950,77 +2029,14 @@ def _parse_simulated_grep(stage):
     return flags, patterns, positionals
 
 
-# POSIX character classes inside a bracket expression, and the Python class
-# body each one stands for. A class not listed here makes the gate UNCERTAIN.
-_POSIX_CLASSES = {
-    "space": r"\s",
-    "digit": "0-9",
-    "alpha": "A-Za-z",
-    "alnum": "A-Za-z0-9",
-    "upper": "A-Z",
-    "lower": "a-z",
-    "punct": r"!-/:-@\[-`{-~",
-    "blank": r" \t",
-}
-# A bracket term: ``[:name:]``, ``[=x=]`` or ``[.x.]``.
-_BRACKET_TERM_RE = re.compile(r"\[([:=.])([^\]]*?)\1\]")
-
-
 def _translate_posix_classes(pattern: str):
-    """Replace each ``[:name:]`` class inside a bracket expression with its
-    Python equivalent.
+    """Translate the POSIX classes of a grep pattern for Python ``re``.
 
-    Returns ``(pattern, None)``, or ``(pattern, reason)`` when the pattern holds
-    a class the simulation does not translate, an equivalence class
-    (``[=x=]``), a collating symbol (``[.x.]``), or a class outside a bracket
-    expression, which grep itself rejects.
+    The translation lives in ``lint_gate_grep_tool``, which the native Grep
+    reader shares. grep rejects a class outside a bracket expression, so this
+    grep-side wrapper keeps that case a refusal.
     """
-    out = []
-    index = 0
-    inside = False
-    length = len(pattern)
-    while index < length:
-        char = pattern[index]
-        if not inside:
-            if char == "\\" and index + 1 < length:
-                out.append(pattern[index:index + 2])
-                index += 2
-                continue
-            if char == "[":
-                if _BRACKET_TERM_RE.match(pattern, index):
-                    return pattern, (
-                        f"'{_BRACKET_TERM_RE.match(pattern, index).group(0)}' sits outside "
-                        "a bracket expression, which grep rejects"
-                    )
-                inside = True
-                out.append(char)
-                index += 1
-                # A leading '^' and a leading ']' belong to the bracket's set.
-                if index < length and pattern[index] == "^":
-                    out.append("^")
-                    index += 1
-                if index < length and pattern[index] == "]":
-                    out.append(r"\]")
-                    index += 1
-                continue
-            out.append(char)
-            index += 1
-            continue
-        term = _BRACKET_TERM_RE.match(pattern, index)
-        if term:
-            kind, name = term.group(1), term.group(2)
-            if kind != ":":
-                return pattern, f"bracket term '{term.group(0)}' is not simulated"
-            if name not in _POSIX_CLASSES:
-                return pattern, f"character class '[:{name}:]' is not simulated"
-            out.append(_POSIX_CLASSES[name])
-            index = term.end()
-            continue
-        if char == "]":
-            inside = False
-        out.append(char)
-        index += 1
-    return "".join(out), None
+    return translate_posix_classes(pattern, bare_term_is_error=True)
 
 
 def _simulate_grep_pipeline(stages, lines):

@@ -97,11 +97,35 @@ class TestParse(unittest.TestCase):
         self.assertIsNone(parse_grep_call([])[0])
 
     def test_an_uncompilable_pattern_is_refused_as_ripgrep_only_syntax(self):
-        for pattern in ("(", "[a-", "*abc", "[[:alpha:]]", r"\p{L}", "(?<name>x)"):
+        for pattern in ("(", "[a-", "*abc", "[[:xdigit:]]", "[[=a=]]", "a[[]b", r"\p{L}", "(?<name>x)"):
             with self.subTest(pattern=pattern):
                 params, refusal = parse_grep_call(_argv(f"pattern={pattern}"))
                 self.assertIsNone(params)
                 self.assertIn("ripgrep-only syntax", refusal)
+
+    def test_a_posix_class_in_a_bracket_is_translated(self):
+        # The ripgrep engine reads a class. Python reads '[[:alnum:]' as a set
+        # of seven characters, so the untranslated negated form counted 0 here.
+        text = "x!\nxa\nx:]\nplain\n\ttab\n"
+        cases = {
+            "x[^[:alnum:]]": [1, 3],
+            "[[:space:]]": [5],
+            "x[[:punct:]]": [1, 3],
+            "[[:digit:][:upper:]]": [],
+            "^[[:alpha:]]+$": [2, 4],
+        }
+        for pattern, expected in cases.items():
+            with self.subTest(pattern=pattern):
+                params = _params(f"pattern={pattern}")
+                lines = text.split("\n")[:-1]
+                hits = [n for n, line in enumerate(lines, start=1) if params["regex"].search(line)]
+                self.assertEqual(hits, expected)
+
+    def test_a_class_outside_a_bracket_stays_a_plain_set(self):
+        # The ripgrep engine reads a bare '[:space:]' as the set ': s p a c e'.
+        params = _params("pattern=[:space:]")
+        self.assertIsNotNone(params["regex"].search("q:z"))
+        self.assertIsNone(params["regex"].search("XYZ"))
 
     def test_a_construct_only_python_accepts_is_refused_too(self):
         cases = {

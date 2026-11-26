@@ -425,16 +425,28 @@ class TestCheck66MeasuredValues(unittest.TestCase):
             found = _of(lint_plan(self._plan(tmp, _task_text(WRONG_BEFORE, WRONG_AFTER)), execute=False), 66)
         self.assertEqual(found, [])
 
-    def test_backslash_pattern_skipped_on_windows_only(self):
-        # The stated 9 contradicts every reading of the pattern: a shell reads 3,
-        # and an MSYS argv path that drops the backslash reads 0. So the
-        # non-Windows arm fires on either runner, and only the patch decides.
-        gate = "grep -c 'X\\|Y' notes.md   # pre-edit: 9 → expect 4"
-        for windows, expected in ((True, 0), (False, 1)):
-            with self.subTest(windows=windows), tempfile.TemporaryDirectory() as tmp, \
-                    patch.object(lint_module, "_on_windows", return_value=windows):
-                found = _of(lint_plan(self._plan(tmp, _task_text(after=[gate]))), 66)
-                self.assertEqual(len(found), expected, found)
+    def test_backslash_pattern_is_compared_on_every_platform(self):
+        # A shell reads 3 for both patterns, and the stated 9 contradicts that.
+        # The gate fires on the real platform, and with the Windows branch
+        # forced on. Forcing the branch off on a Windows runner would only
+        # reproduce the defect, so that arm is not asserted.
+        for pattern in ("X\\|Y", "^\\(X\\|Y\\)$"):
+            gate = f"grep -c '{pattern}' notes.md   # pre-edit: 9 → expect 4"
+            for windows in (lint_module._on_windows(), True):
+                with self.subTest(pattern=pattern, windows=windows), \
+                        tempfile.TemporaryDirectory() as tmp, \
+                        patch.object(lint_module, "_on_windows", return_value=windows):
+                    found = _of(lint_plan(self._plan(tmp, _task_text(after=[gate]))), 66)
+                    self.assertEqual(len(found), 1, found)
+                    self.assertIn("measures 3", found[0]["message"])
+
+    def test_right_value_with_a_backslash_pattern_is_silent(self):
+        # The executor reads 3, as a shell does. Before the executor ran MSYS
+        # tools with noglob, a Windows run read 0 here and reported an ERROR.
+        gate = "grep -c '^\\(X\\|Y\\)$' notes.md   # pre-edit: 3 → expect 4"
+        with tempfile.TemporaryDirectory() as tmp:
+            found = _of(lint_plan(self._plan(tmp, _task_text(after=[gate]))), 66)
+        self.assertEqual(found, [])
 
     def test_session_status_decides_the_comparison(self):
         # Only a NOT STARTED session holds the pre-task tree, so only it compares.
@@ -478,13 +490,6 @@ class TestCheck66MeasuredValues(unittest.TestCase):
                 found = _of(lint_plan(root), 66)
                 self.assertEqual(sorted(f["severity"] for f in found), expected, found)
 
-    def test_backslash_in_any_grep_token_is_skipped_on_windows(self):
-        gate = "grep -c -m 5 'a\\|b' notes.md   # pre-edit: 3 → expect 4"
-        with tempfile.TemporaryDirectory() as tmp, \
-                patch.object(lint_module, "_on_windows", return_value=True):
-            found = _of(lint_plan(self._plan(tmp, _task_text(after=[gate]))), 66)
-        self.assertEqual(found, [])
-
     def test_no_backslash_still_fires_on_windows(self):
         with tempfile.TemporaryDirectory() as tmp, \
                 patch.object(lint_module, "_on_windows", return_value=True):
@@ -495,6 +500,140 @@ class TestCheck66MeasuredValues(unittest.TestCase):
         self.assertEqual(lint_module._stated_pre_edit("# pre-edit: 89,787 bytes"), 89787)
         self.assertIsNone(lint_module._stated_pre_edit("# pre-edit: 2.5"))
         self.assertIsNone(lint_module._stated_invariant("# invariant: the same three lines"))
+
+
+class TestExecutorArgvReachesTheTool(unittest.TestCase):
+    """``run_command`` must hand grep the pattern a shell would hand it.
+
+    On Windows the allowed tools other than git are MSYS programs. Started
+    from an argument list, an MSYS program expands a glob against the working
+    directory and drops the backslashes of an argument that holds a glob
+    character. The three real-grep tests below read wrong values on Windows
+    without ``noglob``: 0 for the bracket pattern, 0 for the star pattern and
+    a count for the bare class. They pass on every platform with it.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        (self.root / "log.txt").write_bytes(
+            b"[ERROR] a\n[INFO] b\n[WARN] c\nstar*char\nstarchar\nplain\n")
+        # Decoys: a glob pass would turn 'star*char' and '[:space:]' into these names.
+        (self.root / "starXchar").write_bytes(b"decoy\n")
+        (self.root / "a").write_bytes(b"decoy\n")
+
+    def _grep(self, *argv):
+        result = lint_module.run_command(["grep", *argv, "log.txt"], cwd=self.root)
+        self.assertTrue(result["executed"], result)
+        return result["returncode"], result["stdout"].strip(), result["stderr"].strip()
+
+    def test_backslash_pattern_counts_what_a_shell_counts(self):
+        self.assertEqual(self._grep("-cE", r"^\[(ERROR|INFO)\]")[:2], (0, "2"))
+        self.assertEqual(self._grep("-c", r"\[")[:2], (0, "3"))
+
+    def test_glob_shaped_pattern_is_not_expanded(self):
+        # As a glob, 'star*char' names the decoy file. As a pattern it matches 'starchar'.
+        self.assertEqual(self._grep("-c", "star*char")[:2], (0, "1"))
+
+    def test_bare_class_reaches_grep_and_is_rejected(self):
+        code, _out, err = self._grep("-c", "[:space:]")
+        self.assertEqual(code, 2)
+        self.assertIn("character class syntax", err)
+
+    def _captured_env(self, windows, argv):
+        seen = {}
+
+        def fake_run(run_argv, **kwargs):
+            seen.update(kwargs)
+            return subprocess.CompletedProcess(run_argv, 0, "0\n", "")
+
+        with patch.object(lint_module, "_on_windows", return_value=windows), \
+                patch.object(lint_module.subprocess, "run", side_effect=fake_run):
+            lint_module.run_command(argv, cwd=self.root)
+        return seen
+
+    def test_windows_branch_adds_noglob_and_keeps_an_existing_value(self):
+        cases = ((None, "noglob"), ("winsymlinks:native", "winsymlinks:native noglob"), ("noglob", "noglob"))
+        for existing, expected in cases:
+            with self.subTest(existing=existing):
+                env = {k: v for k, v in os.environ.items() if k != "MSYS"}
+                if existing is not None:
+                    env["MSYS"] = existing
+                with patch.dict(os.environ, env, clear=True):
+                    seen = self._captured_env(True, ["grep", "-c", "x", "log.txt"])
+                self.assertEqual(seen["env"]["MSYS"], expected)
+
+    def test_other_platforms_pass_no_environment(self):
+        seen = self._captured_env(False, ["grep", "-c", "x", "log.txt"])
+        self.assertIsNone(seen["env"])
+
+    def test_git_does_not_take_the_msys_branch(self):
+        with patch.object(lint_module, "_msys_noglob_env", side_effect=AssertionError("called")), \
+                patch.object(lint_module, "_msys_argv_refusal", side_effect=AssertionError("called")):
+            seen = self._captured_env(True, ["git", "-C", str(self.root), "status", "--porcelain"])
+        self.assertIn("env", seen)
+
+    def test_windows_branch_refuses_what_noglob_cannot_protect(self):
+        for token in ("it's", '"key"', "@resp.txt"):
+            with self.subTest(token=token), \
+                    patch.object(lint_module, "_on_windows", return_value=True), \
+                    patch.object(lint_module.subprocess, "run") as run:
+                result = lint_module.run_command(["grep", "-c", token, "log.txt"], cwd=self.root)
+                self.assertFalse(result["executed"])
+                self.assertEqual(result["disposition"], "UNCERTAIN")
+                self.assertIn(repr(token), result["reason"])
+                run.assert_not_called()
+
+    def test_other_platforms_run_a_quoted_argument(self):
+        for token in ("it's", '"key"', "@resp.txt"):
+            with self.subTest(token=token):
+                seen = self._captured_env(False, ["grep", "-c", token, "log.txt"])
+                self.assertIn("env", seen)
+
+
+class TestGrepDigitEscape(unittest.TestCase):
+    """grep has no digit class outside ``-P``: it reads ``\\d`` as the letter d."""
+
+    LINES = ("disk full", "digits123here", "none", "end")
+
+    def test_backslash_d_is_the_letter_without_perl(self):
+        for extended in (False, True):
+            with self.subTest(extended=extended):
+                regex = lint_module._compile_grep_pattern(r"\d", extended)
+                self.assertIsNotNone(regex.search("disk"))
+                self.assertIsNone(regex.search("123"))
+                upper = lint_module._compile_grep_pattern(r"\D", extended)
+                self.assertIsNotNone(upper.search("D"))
+                self.assertIsNone(upper.search("abc"))
+
+    def test_perl_mode_keeps_the_digit_class(self):
+        regex = lint_module._compile_grep_pattern(r"\d", False, perl=True)
+        self.assertIsNotNone(regex.search("123"))
+        self.assertIsNone(regex.search("disk"))
+
+    def test_escaped_backslash_and_bracket_are_left_alone(self):
+        rewrite = lint_module._grep_digit_escape_as_letter
+        self.assertEqual(rewrite(r"a\\d"), r"a\\d")
+        self.assertEqual(rewrite(r"[\d]x\d\D"), r"[\d]xdD")
+        self.assertEqual(rewrite(r"\.\[\d"), r"\.\[d")
+
+    def test_perl_flag_is_read_from_option_letters_only(self):
+        self.assertTrue(lint_module._has_perl_flag(["grep", "-cP", "x", "f"]))
+        self.assertTrue(lint_module._has_perl_flag(["grep", "--perl-regexp", "x", "f"]))
+        self.assertFalse(lint_module._has_perl_flag(["grep", "-c", "-e", "P", "f"]))
+        self.assertFalse(lint_module._has_perl_flag(["grep", "-c", "P", "f"]))
+
+    def test_simulation_agrees_with_real_grep(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "f.txt").write_bytes(("\n".join(self.LINES) + "\n").encode("utf-8"))
+            for flags in ("-c", "-cE"):
+                with self.subTest(flags=flags):
+                    simulated = lint_module._simulate_grep_pipeline(
+                        [["grep", flags, r"\d", "f.txt"]], list(self.LINES))
+                    real = lint_module.run_command(["grep", flags, r"\d", "f.txt"], cwd=tmp)
+                    self.assertEqual(simulated, (3, None))
+                    self.assertEqual(real["stdout"].strip(), "3", real)
 
 
 class TestCliForm(unittest.TestCase):
