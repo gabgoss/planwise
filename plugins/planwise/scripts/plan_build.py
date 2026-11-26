@@ -47,6 +47,14 @@ Commands (run with `python -B`):
         belong to no session. Each session then prints one `session=` line, so a count
         of those lines is a count of sessions. --session limits the check to one
         session, or to the plan documents when its value is `PLAN`.
+        A missing marker that the last build did not know prints a second line, after
+        the MISSING lines and before the summary lines:
+          ADDED: doc=<ID> marker=<name> [<k>] (new since the last build: the template or the spec added it)
+        Each group prints at most 20 of these lines, followed by `ADDED: +<n> more`,
+        and one `added_since_build=<n>` line gives the total. Both print only when a
+        marker is new. An ADDED marker keeps its MISSING line and its place in
+        `keys_missing`. When the manifest holds no marker record and a marker has no
+        body, one `NOTE:` line says so instead. See Marker record below.
         Exit 0 clean, 1 no errors but a marker has no body, 2 refused or any error.
 
     build --spec SPEC.json --bodies-dir DIR --out PLAN_DIR --config FILE
@@ -73,7 +81,7 @@ Commands (run with `python -B`):
                       a finding.
         Then `write_manifest(out, spec)` runs again, so the manifest covers the task
         files the estimates gate rewrote. The report, after the `built` line and any
-        SURVIVING and STALE lines, holds one line per gate:
+        SURVIVING, STALE and ADDED lines, holds one line per gate:
           gate=<name> status=<ok|finding|skipped> files=<n> <figures>
         `files` is the number of rendered files the gates were handed. At most 20
         indented detail lines follow a gate line, then `  +<k> more` when cut. The
@@ -186,6 +194,20 @@ manifest moves that path and its hash to its `stale` key, and every build prints
 stale hash is no hand edit. A step that rewrites built files calls
 `write_manifest(out, spec)` afterwards, so the final manifest matches the final tree.
 
+Marker record: the manifest's `markers` key maps each doc id to the marker names that
+document had at the last build. A first build records every rendered name, and so does a
+document that is new to the manifest. A rebuild keeps each name a document knew, and adds
+a new name once every occurrence of it has a body. `lint` and `build` read the record from
+the manifest beside the spec. A missing occurrence whose name the document's record lacks
+prints as ADDED. Two changes cause that: a template that gained the marker in a newer
+plugin version, and a spec change that restores a section. A document with no record
+prints MISSING only, so a session added to the spec never reads as ADDED. The record holds
+names, not counts, so a second occurrence of a known name prints MISSING only. A manifest
+written before the record existed has no `markers` key. `lint` then prints one `NOTE:`
+line while a marker has no body, and the next build writes the record. `lint` never
+refuses over the manifest, and a missing or unreadable one prints neither line. A write
+that stops part-way keeps the record of the last finished build.
+
 Build spec format. The spec is the JSON that `scaffold_plan.py` documents under its
 "Spec format" section, with its required keys and its lint rules. The build adds
 five keys that `scaffold_plan.py` does not know: `meta`, `omit_sections`,
@@ -238,8 +260,9 @@ plan keeps its own manifest. Turning `meta` on for a plan already built therefor
 writes a new tree and leaves the old tree and its manifest on disk.
 
 Report. `build` prints, in this order: the `built` line, any SURVIVING and STALE
-lines, the five gate lines with their detail lines, one delta line per task file,
-then `fill_remaining=<n>` and `exit=<code>`. The delta line reads
+lines, any ADDED lines with their `added_since_build=<n>` line, the five gate lines
+with their detail lines, one delta line per task file, then `fill_remaining=<n>`
+and `exit=<code>`. The ADDED lines are the ones `lint` prints. The delta line reads
   delta task=<doc id> spec=<n> measured=<n>
 `spec` is the computed auto figure, or the numeric `estimate_k`. `measured` is the
 `**Estimated Tokens:**` header read from the built file after the estimates gate,
@@ -951,12 +974,17 @@ def load_all_bodies(spec_path, bodies_dir, core, index, spec=None):
     return docs, [*load_errors, *fill_estimates(docs, figures, index)], figures
 
 
-def lint_bodies(index, docs, load_errors=(), session=None):
-    """Return (error lines, summary rows {group, keys_missing, errors, missing}) in report order.
+ADDED_REASON = "(new since the last build: the template or the spec added it)"
+
+
+def lint_bodies(index, docs, load_errors=(), session=None, known=None):
+    """Return (error lines, summary rows {group, keys_missing, errors, missing, added}) in report order.
 
     `missing` holds one line per marker occurrence with no body, and `keys_missing` is its length.
+    `known` is the last build's marker record. `added` holds one line per missing occurrence whose
+    name the document's record lacks. A document with no record adds no line.
     """
-    groups = {PLAN_GROUP: []}
+    groups, added = {PLAN_GROUP: []}, {}
     for doc in index:
         groups.setdefault(session_of(doc), [])
     errors = list(load_errors)
@@ -966,16 +994,40 @@ def lint_bodies(index, docs, load_errors=(), session=None):
         else:
             errors.append((session_of(doc), f"doc={doc} key=doc: the doc is not in the rendered tree"))
     for doc, info in index.items():
-        groups[session_of(doc)].extend(
-            f"doc={doc} marker={name} [{k}] under {h2 or 'none'}/{h3 or 'none'}"
-            for name, k, h2, h3 in missing_keys(docs.get(doc), info))
+        group = session_of(doc)
+        seen = None if known is None else known.get(doc)
+        for name, k, h2, h3 in missing_keys(docs.get(doc), info):
+            groups[group].append(f"doc={doc} marker={name} [{k}] under {h2 or 'none'}/{h3 or 'none'}")
+            if seen is not None and name not in seen:
+                added.setdefault(group, []).append(f"doc={doc} marker={name} [{k}] {ADDED_REASON}")
     for group, _msg in errors:
         groups.setdefault(group, [])
     wanted = [g for g in groups if session in (None, g)]
     lines = [msg for group, msg in errors if group in wanted]
-    rows = [{"group": g, "keys_missing": len(groups[g]), "missing": groups[g],
+    rows = [{"group": g, "keys_missing": len(groups[g]), "missing": groups[g], "added": added.get(g, []),
              "errors": sum(1 for e, _m in errors if e == g)} for g in wanted]
     return lines, rows
+
+
+def added_report(rows, manifest, unrecorded=False):
+    """The lines that say which missing markers are new since the last build, or an empty list.
+
+    Each group gives at most DETAIL_LIMIT `ADDED:` lines, and one `added_since_build=<n>` line follows.
+    With `unrecorded`, a manifest that holds no marker record gives one `NOTE:` line while a marker has no body.
+    """
+    lines, total = [], 0
+    for row in rows:
+        total += len(row["added"])
+        lines.extend(f"ADDED: {line}" for line in row["added"][:DETAIL_LIMIT])
+        if len(row["added"]) > DETAIL_LIMIT:
+            lines.append(f"ADDED: +{len(row['added']) - DETAIL_LIMIT} more")
+    if total:
+        return [*lines, f"added_since_build={total}"]
+    if unrecorded and any(row["keys_missing"] for row in rows):
+        note = (f"NOTE: {manifest.name} holds no marker record, so this run cannot tell a marker that is new since "
+                "the last build from an unwritten body. The next build writes the record.")
+        return [note]
+    return []
 
 
 # ---------------------------------------------------------------- apply
@@ -1069,27 +1121,64 @@ def read_stale(path):
     return dict(json.loads(Path(path).read_text(encoding="utf-8")).get("stale", {}))
 
 
+def read_markers(path):
+    """{doc id: [marker name, ...]} that the last build recorded, or None when the manifest holds no record."""
+    table = json.loads(Path(path).read_text(encoding="utf-8")).get("markers")
+    return None if table is None else {doc: list(names) for doc, names in dict(table).items()}
+
+
+def marker_record(path):
+    """(the last build's marker record or None, whether a readable manifest holds no record).
+
+    A missing or unreadable manifest gives (None, False), so a command that only reports never refuses over it.
+    """
+    try:
+        known = read_markers(path)
+    except MANIFEST_ERRORS:
+        return None, False
+    return known, known is None
+
+
+def known_markers(old, index, docs):
+    """{doc id: [marker name, ...]} a build records: the names each document had when its bodies were last built.
+
+    A document absent from `old`, the last build's record, records every rendered name. A document
+    in `old` keeps each rendered name it knew, and gains a new name once no occurrence of it lacks a body.
+    """
+    table = {}
+    for doc, info in index.items():
+        names = {m[0] for m in info["markers"]}
+        if old is not None and doc in old:
+            unwritten = {name for name, _k, _h2, _h3 in missing_keys(docs.get(doc), info)}
+            names -= unwritten - set(old[doc])
+        table[doc] = sorted(names)
+    return table
+
+
 def file_hash(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def store_manifest(path, hashes, stale):
-    """Write the two manifest tables, each sorted by path."""
+def store_manifest(path, hashes, stale, markers=None):
+    """Write the manifest tables, each sorted by key. `markers` of None writes no marker record."""
     data = {"files": dict(sorted(hashes.items())), "stale": dict(sorted(stale.items()))}
+    if markers is not None:
+        data["markers"] = {doc: sorted(names) for doc, names in sorted(markers.items())}
     path.write_bytes((json.dumps(data, indent=2) + "\n").encode("utf-8"))
 
 
-def write_manifest(out, spec, rels=None, stale=None, path=None):
+def write_manifest(out, spec, rels=None, stale=None, path=None, markers=None):
     """Hash the built files under `out` into the manifest beside `spec`. Return its path.
 
-    `rels` names the files, and `stale` holds the dropped paths with their hashes. Both
-    default to what the manifest already lists. A step that rewrites built files calls
-    this with `out` and `spec` alone.
+    `rels` names the files, `stale` holds the dropped paths with their hashes, and `markers`
+    holds the marker record. Each defaults to what the manifest already lists. A step that
+    rewrites built files calls this with `out` and `spec` alone.
     """
     path = manifest_path(spec) if path is None else path
     names = read_manifest(path) if rels is None else rels
     kept = read_stale(path) if stale is None else stale
-    store_manifest(path, {rel: file_hash(Path(out) / rel) for rel in names}, kept)
+    known = marker_record(path)[0] if markers is None else markers
+    store_manifest(path, {rel: file_hash(Path(out) / rel) for rel in names}, kept, known)
     return path
 
 
@@ -1097,7 +1186,8 @@ def record_landed(out, spec, landed, stale, path=None):
     """Record the files of a write that stopped, so the next build can tell them from hand edits.
 
     A file the write never reached keeps its earlier hash, because nothing here has
-    checked its bytes. The file that stopped the write keeps its earlier hash too.
+    checked its bytes. The file that stopped the write keeps its earlier hash too. The
+    marker record stays as the last finished build wrote it.
     """
     path = manifest_path(spec) if path is None else path
     try:
@@ -1106,7 +1196,7 @@ def record_landed(out, spec, landed, stale, path=None):
         earlier = {}
     hashes = {rel: digest for rel, digest in earlier.items() if rel not in stale}
     hashes.update({rel: file_hash(Path(out) / rel) for rel in landed})
-    store_manifest(path, hashes, stale)
+    store_manifest(path, hashes, stale, marker_record(path)[0])
 
 
 def changed_files(out, manifest, rels, stale=None):
@@ -1211,7 +1301,9 @@ def cmd_lint(args):
         print(f"REFUSED: {args.bodies_dir} is not a folder. Fix: pass the folder that holds the bodies files.")
         return 2
     docs, load_errors, _figures = load_all_bodies(args.spec, args.bodies_dir, core, index, spec)
-    lines, rows = lint_bodies(index, docs, load_errors, args.session)
+    manifest = manifest_path(args.spec, spec)
+    known, unrecorded = marker_record(manifest)
+    lines, rows = lint_bodies(index, docs, load_errors, args.session, known)
     for line in lines:
         print(f"LINT: {line}")
     for row in rows:
@@ -1219,6 +1311,8 @@ def cmd_lint(args):
             print(f"MISSING: {line}")
         if len(row["missing"]) > DETAIL_LIMIT:
             print(f"MISSING: +{len(row['missing']) - DETAIL_LIMIT} more")
+    for line in added_report(rows, manifest, unrecorded):  # before the summary lines, which stay last
+        print(line)
     for row in rows:
         if row["group"] == PLAN_GROUP:
             print(f"plan missing={row['keys_missing']} errors={row['errors']}")
@@ -1451,7 +1545,9 @@ def cmd_build(args):
         return 2
     caps, spec, core, skeleton, index = ready
     docs, load_errors, figures = load_all_bodies(args.spec, args.bodies_dir, core, index, spec)
-    lines, _rows = lint_bodies(index, docs, load_errors)
+    path = manifest_path(args.spec, spec)
+    known = marker_record(path)[0]
+    lines, rows = lint_bodies(index, docs, load_errors, known=known)
     if lines:
         refuse_errors(lines, "bodies lint", "correct the bodies files, then re-run this command.")
         return 2
@@ -1472,7 +1568,6 @@ def cmd_build(args):
     if over:
         print("\n".join(over))
         return 2
-    path = manifest_path(args.spec, spec)
     guard = [] if args.force else guard_refusal(args.out, path, skeleton)
     if guard:
         print("\n".join(guard))
@@ -1482,7 +1577,7 @@ def cmd_build(args):
     landed = []
     try:
         write_built(files, args.out, landed)
-        write_manifest(args.out, args.spec, files, stale, path)
+        write_manifest(args.out, args.spec, files, stale, path, known_markers(known, index, docs))
     except OSError as exc:
         return write_failure(args, exc, landed, len(files), stale, left, path)
     print(f"built {len(files)} files to {args.out}; fill_remaining={left}; surviving_placeholders="
@@ -1491,6 +1586,8 @@ def cmd_build(args):
         print(f"SURVIVING: {rel}: {', '.join(names)}")
     for rel in stale:
         print(f"STALE: {rel}")
+    for line in added_report(rows, path):
+        print(line)
     gates = run_chain(args, files, core["abbrev"])
     print_gates(gates, len(files))
     for line in delta_lines(args.out, files, figures):
