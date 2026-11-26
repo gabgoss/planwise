@@ -138,6 +138,8 @@ If none of A/B/C applies (no IPC/protocol/codec sessions), state "N/A — no IPC
 
 {Free-form notes: deferred items, follow-ups, lessons-learned candidates.
 
+Copy each deferred-tool fallback deviation from the session Summaries' `Context Notes` into these notes.
+
 If actionable follow-ups exist, encode them as declarative `> [!followup]` blocks so /planwise backlog Phase 7 can auto-surface them at next triage:
 
 > [!followup] Follow-Up Recommendation

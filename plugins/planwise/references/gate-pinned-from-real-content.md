@@ -1,6 +1,6 @@
 ---
-description: A gate is pinned from a run over real content, never from a mental image — a gate over a verification report reads the machine-readable verdict line, never a bare substring the report's own vocabulary emits (§10.5); a pattern pinned before its subject exists is a prediction, run at the first reconciliation with the row read on zero matches (§11.1); a count gate pinned beside a content block runs over that block before the task file ships, and when they disagree the content is the deliverable and the gate is the defect (§11.2); a count method matches the command's real output shape, with a zero count a FAIL (§11.3); a verdict-line gate copies the skeleton's bytes including the emphasis between label and value, dry-run on a passing and a failing copy (§11.4); a section is counted by a line-anchored heading test, never by substring (§11.5); and a gate pinned for the post-edit state runs over the file every step of the task writes (§11.6).
-consult-when: The thing a gate measures does not exist yet, sits in a content block you wrote, or comes from a tool whose output you have not seen — a verdict line is read by its machine-readable form (§10.5) and its skeleton bytes (§11.4), a pattern pinned before its subject exists is re-run when the producer lands (§11.1), a count beside a content block is run over that block (§11.2), a count method matches the real output shape (§11.3), a heading is counted by a line-anchored test (§11.5), a gate pinned for the post-edit state runs over the file every step of the task writes (§11.6)
+description: A gate is pinned from a run over real content, never from a mental image — a gate over a verification report reads the machine-readable verdict line, never a bare substring the report's own vocabulary emits (§10.5); a pattern pinned before its subject exists is a prediction, run at the first reconciliation with the row read on zero matches (§11.1); a count gate pinned beside a content block runs over that block before the task file ships, and when they disagree the content is the deliverable and the gate is the defect (§11.2); a count method matches the command's real output shape, with a zero count a FAIL (§11.3); a verdict-line gate copies the skeleton's bytes including the emphasis between label and value, dry-run on a passing and a failing copy (§11.4); a section is counted by a line-anchored heading test, never by substring (§11.5); and a gate pinned for the post-edit state runs over the file every step of the task writes (§11.6). Every literal a gate matches traces to a producer-side declaration the gate cites (§11.7). A token audit writes tokens in full form and gives a prefix-sharing id a boundary (§11.8).
+consult-when: The thing a gate measures does not exist yet, sits in a content block you wrote, or comes from a tool whose output you have not seen — a verdict line is read by its machine-readable form (§10.5) and its skeleton bytes (§11.4), a pattern pinned before its subject exists is re-run when the producer lands (§11.1), a count beside a content block is run over that block (§11.2), a count method matches the real output shape (§11.3), a heading is counted by a line-anchored test (§11.5), a gate pinned for the post-edit state runs over the file every step of the task writes (§11.6), a matched literal cites the producer line that mandates its bytes (§11.7), a token audit uses full-form tokens and a prefix boundary (§11.8)
 paths: {planwise_root}/{plans_dir}/**
 ---
 
@@ -8,7 +8,7 @@ paths: {planwise_root}/{plans_dir}/**
 
 **Purpose:** A pinned gate is a claim about the shape of something. The something may not exist yet, or it may exist in a form the author never looked at. The instrument then returns the wrong value on correct work, or cannot return its passing value at all. Each section covers one way the claim fails. Split from `verification-task-authoring.md` on 2026-10-08. Section numbers are kept from that reference, so an existing `verification-task-authoring.md §N` citation translates by filename alone. The family index is `verification-task-authoring.md`.
 
-**Read this when** you pin a regex, a count, a count method or a reproduction command in a task file and the thing it measures does not exist yet, sits in a content block you wrote, or comes from a tool whose output you have not looked at. Read §10.5 and §11.4 when a gate greps a Markdown verdict line, and §11.5 when a gate counts a section by its heading. Read §11.6 when the gate measures a file the same task edits.
+**Read this when** you pin a regex, a count, a count method or a reproduction command in a task file and the thing it measures does not exist yet, sits in a content block you wrote, or comes from a tool whose output you have not looked at. Read §10.5 and §11.4 when a gate greps a Markdown verdict line, and §11.5 when a gate counts a section by its heading. Read §11.6 when the gate measures a file the same task edits. Read §11.7 when a gate matches a heading, id spelling or row shape that another task writes, and §11.8 when an audit checks that tokens reach their consumers.
 
 ## Table of Contents
 
@@ -20,6 +20,8 @@ paths: {planwise_root}/{plans_dir}/**
   - [11.4 A verdict-line gate copies the skeleton's bytes, emphasis included](#114-a-verdict-line-gate-copies-the-skeletons-bytes-emphasis-included)
   - [11.5 Count a section by a line-anchored heading test, never by substring](#115-count-a-section-by-a-line-anchored-heading-test-never-by-substring)
   - [11.6 A post-edit gate is pinned from the file the task's own edits produce](#116-a-post-edit-gate-is-pinned-from-the-file-the-tasks-own-edits-produce)
+  - [11.7 Every literal a gate matches traces to a producer-side declaration the gate cites](#117-every-literal-a-gate-matches-traces-to-a-producer-side-declaration-the-gate-cites)
+  - [11.8 A token audit uses full-form tokens and a boundary for prefix-sharing ids](#118-a-token-audit-uses-full-form-tokens-and-a-boundary-for-prefix-sharing-ids)
 
 ---
 
@@ -243,6 +245,76 @@ count(<file>, phrase)                   >= 1
 count(git show <base>:<file>, phrase)   == 0   # proves this edit put it there
 ```
 
+### 11.7 Every literal a gate matches traces to a producer-side declaration the gate cites
+
+A gate often matches a literal that another task writes: a heading string, an id spelling, or a row shape with its table decoration. When no line of the producing task mandates those exact bytes, the gate bets on the writer's wording. A writer who picks another reasonable spelling then fails the gate while the deliverable is correct. Or both sides of a comparison happen to agree by accident, and the gate passes a broken comparison.
+
+> [!constraint] Cite the producer line that mandates the exact bytes the gate matches
+> **Rule.** Every literal a gate matches has a producer-side declaration. That is a line in the producing task's Execution Steps or Expected Output that mandates the exact bytes. The gate cites that line. A gate with no cited declaration is a finding, whether or not it passes on the current draft. Three shapes were reported from one plan:
+>
+> - **An unmandated heading.** Two gates count a working-tree status heading in a runner's report, the heading in the WRONG block below. The task says only "paste the status output". A writer who picks any other heading fails both gates.
+> - **Two extraction patterns over one id set.** A gate diffs the ids of two files. One pattern keeps the table pipes and the other strips them, so every id differs in both directions on a correct pair. Both patterns derive from one declared row format.
+> - **A comment that names a discriminator the pattern lacks.** A cardinality comment says a line is "excluded by the trailing space", and the regex holds no trailing space. A gate comment that names a discriminator sits beside a pattern that contains it.
+>
+> The same plan held a counter-example. A gate matched four prerequisite names. The producing task's file enumerated all four verbatim, and the checking gate cited that file.
+>
+> WRONG — the gate matches a heading that no producer line mandates:
+> ```
+> Step 4:   Paste the `git status --porcelain` output into the report.
+> Verify:   Grep  pattern='^### Working-tree status \(before\)'  path='{report}'  output_mode='count'   # expect 1
+> ```
+> CORRECT — the producer mandates the bytes, and the gate cites the producer line:
+> ```
+> Expected Output:  Paste the `git status --porcelain` output under the heading `### Working-tree status (before)`.
+> Verify:   Grep  pattern='^### Working-tree status \(before\)'  path='{report}'  output_mode='count'   # expect 1
+>           # producer: <task file> <Execution Steps step N or Expected Output>
+> ```
+
+#### Reviewer Check 141 — Gate Literal With No Producer-Side Declaration
+
+- **Severity / Role / Type:** WARNING (HIGH confidence), or ERROR when the gate is a Signoff anchor or an exit criterion | Verification-Gate Reviewer | NEW
+- **What:** A gate whose literal no producer line mandates can fail correct work, and two compared patterns with no one declared row format can disagree on correct work. Flag a literal gate with no cited producer-side declaration.
+- **Detection:** Read each Verification Command, Signoff anchor and exit criterion beside the task that writes its subject.
+  1. Grep the plan's Verification Commands, anchors and exit criteria for literal string patterns: a heading, a suffixed id, a row shape.
+  2. For each pattern, find the producing task. Grep its Execution Steps and Expected Output for the same bytes.
+  3. Bytes missing from the producer, or a gate with no producer citation, is a finding. A gate that shows both is one finding.
+  4. A two-sided comparison whose two patterns do not derive from one declared row format is a finding.
+  5. A gate comment that names a discriminator absent from its pattern is a finding.
+  6. An id pattern with no boundary, where a longer id with the same prefix exists in the plan, is a finding.
+- **Finding template:**
+```
+[WARNING] Gate literal with no producer-side declaration
+File: {task file path} | Location: {command line}
+Issue: "{command}" matches "{literal}", and {no Execution Steps or Expected Output line of {producing task} mandates those bytes | the gate cites no producer line | its two patterns derive from no one declared row format | its comment names "{discriminator}", which the pattern lacks | the id has no boundary and {longer id} shares its prefix}
+Fix: Mandate the exact bytes in the producing task's Execution Steps or Expected Output, and add "# producer: <task file> <Execution Steps step N or Expected Output>" to the gate, per references/gate-pinned-from-real-content.md §11.7 and §11.8 | Confidence: HIGH
+```
+
+### 11.8 A token audit uses full-form tokens and a boundary for prefix-sharing ids
+
+A token audit checks that every listed token reaches every file that consumes it. A literal search per token fails in both directions. It reports a miss when the writer abbreviated the token, and it reports a hit when a longer id shares the token's prefix.
+
+> [!constraint] Write every token in full form, bound every prefix-sharing id, and classify misses before remediation
+> **Rule.** Five obligations:
+>
+> 1. **Write every token in full form.** No abbreviated list such as `XX-HZ-8 / HZ-4 / HZ-10`, and no range. State this in the matrix that owns the audit, where every writer reads it.
+> 2. **Give a prefix-sharing id a boundary.** A plain substring search for `XX-HZ-1` passes on a file that holds only `XX-HZ-10`. In the native Grep tool, use the pattern `XX-HZ-1([^0-9]|$)`. Never use `(?![0-9])` there, because the tool rejects look-around.
+> 3. **Classify the misses as abbreviated or absent before remediation.** An abbreviated miss has the content and a short token. An absent miss lacks the content. The two take different fixes.
+> 4. **Run the audit at scaffold time**, in the plan review, not first at signoff.
+> 5. **Measure a sentence such as "every consumer carries all N" with the audit's own instrument before writing it.** The sentence is a claim about bytes.
+>
+> WRONG — the audit runs first at signoff, and every miss is treated as absent:
+> ```
+> Grep  pattern='XX-HZ-4'  path='{consumers}'  output_mode='files_with_matches'   # one call per token, first run at signoff
+> -> 51 misses (consumers absent from the listings) across 11 files -> "add the token in 51 places"
+> # 19 of them hold the content, with the token written "HZ-4" inside "XX-HZ-8 / HZ-4 / HZ-10"
+> ```
+> CORRECT — full-form tokens, a boundary, and classified misses at scaffold time:
+> ```
+> matrix rule:  write each token in full form; no "/" lists, no ranges
+> Grep  pattern='XX-HZ-4([^0-9]|$)'  path='{consumers}'  output_mode='files_with_matches'   # one call per token, at scaffold time
+> -> 51 misses (consumers absent from the listings): 19 abbreviated (rewrite the list in full form), 32 absent (add the content)
+> ```
+
 ---
 
-*Cross-references: [gate-heuristic-verifier-patterns.md](gate-heuristic-verifier-patterns.md) §3 (the sibling extraction formats a pattern must accept) · [gate-command-semantics.md](gate-command-semantics.md) §10.9 (reading a command as a program) · [gate-absence-and-consistency.md](gate-absence-and-consistency.md) §8.1-§8.2 (scrubbing a token from every surface, asserting against the right population) · [gate-predicate-discrimination.md](gate-predicate-discrimination.md) §9 (the real expected-hit line as a fixture, and a passing branch that is reachable) and §10 (a "count unchanged" gate beside an addition that shares its vocabulary) · [gate-instrument-proof-obligations.md](gate-instrument-proof-obligations.md) §10 obligation A (the reproduction recipe is run before it is pinned) · [templates/verification-report.md](../templates/verification-report.md) (the verdict-line convention §10.5 and §11.4 read) · this file's §11.6 (the post-edit file includes the task's own edits) · [verification-task-authoring.md](verification-task-authoring.md) (the family index).*
+*Cross-references: [gate-heuristic-verifier-patterns.md](gate-heuristic-verifier-patterns.md) §3 (the sibling extraction formats a pattern must accept) · [gate-command-semantics.md](gate-command-semantics.md) §10.9 (reading a command as a program) · [gate-absence-and-consistency.md](gate-absence-and-consistency.md) §8.1-§8.2 (scrubbing a token from every surface, asserting against the right population) · [gate-predicate-discrimination.md](gate-predicate-discrimination.md) §9 (the real expected-hit line as a fixture, and a passing branch that is reachable) and §10 (a "count unchanged" gate beside an addition that shares its vocabulary) · [gate-instrument-proof-obligations.md](gate-instrument-proof-obligations.md) §10 obligation A (the reproduction recipe is run before it is pinned) · [templates/verification-report.md](../templates/verification-report.md) (the verdict-line convention §10.5 and §11.4 read) · this file's §11.6 (the post-edit file includes the task's own edits) · [rule-authoring.md](rule-authoring.md) §7 (the converse direction: a format sentence needs a writer or a gate) · [verification-task-authoring.md](verification-task-authoring.md) (the family index).*

@@ -1,6 +1,6 @@
 ---
-description: Required Context fidelity — measured estimates, freshness across file splits, bytes-per-token ratios, the Token Saver large-file ladder, and giving a copy or quote task every source it quotes from — for planwise task files
-consult-when: Checking Required Context fidelity in a task file — measured estimates, freshness, large-file ladder, and a copy or quote task's brief lists every quote source in Required Context (§9.A.16), pricing table-shaped output by column count (§9.A.18), and a brief that names a plan-level id (a Master Plan decision or hypothesis) carries its definition (§9.A.19)
+description: Required Context fidelity — measured estimates, freshness across file splits, bytes-per-token ratios, the Token Saver large-file ladder, and giving a copy or quote task every source it quotes from — for planwise task files. Part 1 of 2 — §9.A.20 to §9.A.22, the derived-figure rules, live in task-content-fidelity-Part-2-DerivedFigures.md
+consult-when: Checking Required Context fidelity in a task file — measured estimates, freshness, large-file ladder, and a copy or quote task's brief lists every quote source in Required Context (§9.A.16), pricing table-shaped output by column count (§9.A.18), and a brief that names a plan-level id (a Master Plan decision or hypothesis) carries its definition (§9.A.19), derived figures (Part 2)
 ---
 
 # Task Content Fidelity
@@ -10,6 +10,9 @@ consult-when: Checking Required Context fidelity in a task file — measured est
 **Companion files:** [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) (Task File Template, Orchestration linkage, completion tracking), [verify-before-cite.md](verify-before-cite.md) (§9.B Verify-Before-Cite — split sibling: lesson IDs, schema files, field names, facade re-exports, upsert helper design).
 
 ---
+
+> [!hazard] This reference is split across two files — §9.A.20 to §9.A.22 live in Part 2
+> This part carries §9.A.1 to §9.A.19. The derived-figure rules (a corrected figure re-derives the rules that cite it, a split count is checked per row, every count names its denominator) and Reviewer Check 140 live in [task-content-fidelity-Part-2-DerivedFigures.md](task-content-fidelity-Part-2-DerivedFigures.md).
 
 ## 9.A Required Context Fidelity (BINDING)
 
@@ -415,7 +418,7 @@ Fix: Apply the §9.A.8 remedy — flag 1M-exception (cost-Critical) / file a bac
 > [!practice] The list is the source of truth — prefer no cached count
 > The list is the source of truth; the number is a cache with no invalidation. Every count typed next to a list is correct at the instant it is written and decays on the next edit to either side. Prefer no cache.
 
-Applies to: the narrower glob-cited file-set case is §9.A.4 — this rule generalises it to any prose count adjacent to an enumerated list.
+Applies to: the narrower glob-cited file-set case is §9.A.4 — this rule generalises it to any prose count adjacent to an enumerated list. A split count whose halves sum to the list's length is checked per row against its membership rule, per [task-content-fidelity-Part-2-DerivedFigures.md](task-content-fidelity-Part-2-DerivedFigures.md) §9.A.21.
 
 ### 9.A.10 Cross-file enumeration sweep on item-set change
 
@@ -797,9 +800,12 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 | 13 | Execution Steps read with no Required Context row | A path the Execution Steps Read, Grep or Edit has no row in the task's Required Context File column | §9.A.17 |
 | 14 | Table-shaped output with no column term | Schema Pin recount of 20 or more columns, a column-enumerating deliverable, and no column term in Expected Output or the subtotal | §9.A.18 |
 | 15 | Plan-level id with no definition the runner can read | A task names a Master Plan decision or table id, and neither defines it nor lists the Master Plan in Required Context | §9.A.19 |
+| 16 | Conclusion not re-derived from a corrected figure | A brief corrects a figure that a rule, gate or prohibition cites, and the conclusion is neither withdrawn nor kept by a superseding callout | [task-content-fidelity-Part-2-DerivedFigures.md](task-content-fidelity-Part-2-DerivedFigures.md) §9.A.20 |
+| 17 | Split count not checked per row | A split count over a table disagrees with a per-row application of its stated membership rule, or is satisfied by a no-op entry | [task-content-fidelity-Part-2-DerivedFigures.md](task-content-fidelity-Part-2-DerivedFigures.md) §9.A.21 |
+| 18 | Count with no denominator | A count in a brief names no denominator, or two related counts over different sets carry no inline relation | [task-content-fidelity-Part-2-DerivedFigures.md](task-content-fidelity-Part-2-DerivedFigures.md) §9.A.22 |
 
 For the Verify-Before-Cite checks (§9.B: cited-artifact verification, field-name drift, facade re-export, upsert column-presence, Schema Pin / Pre-SQL verification), see [verify-before-cite.md](verify-before-cite.md)'s Plan-Review Enforcement Summary.
 
 ---
 
-*Companion files: [session-plan-requirements.md](session-plan-requirements.md), [verify-before-cite.md](verify-before-cite.md), [agent-orchestration-delegated.md](agent-orchestration-delegated.md) §1.1–§1.3 (DELEGATED triggers, task-file error recovery, orchestration context boundary) and §1.4–§1.13 (dispatch-prompt construction), [agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) §1.14–§1.22 (dispatch mechanics and returns).*
+*Companion files: [task-content-fidelity-Part-2-DerivedFigures.md](task-content-fidelity-Part-2-DerivedFigures.md) §9.A.20–§9.A.22 (derived figures in a brief, Reviewer Check 140), [session-plan-requirements.md](session-plan-requirements.md), [verify-before-cite.md](verify-before-cite.md), [agent-orchestration-delegated.md](agent-orchestration-delegated.md) §1.1–§1.3 (DELEGATED triggers, task-file error recovery, orchestration context boundary) and §1.4–§1.13 (dispatch-prompt construction), [agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) §1.14–§1.22 (dispatch mechanics and returns).*

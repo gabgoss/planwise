@@ -1,14 +1,14 @@
 ---
-description: A diff-pinned or sweep-based criterion records the spanned-file count and the untracked count beside its own verdict, because an empty result reads the same whether the predicate inspected the work or inspected nothing (§10.6); a verbatim-literal proof extracts from the function body only, excludes by the exact token and not a bare word, and prints the compared-set size beside the difference count (§12); a selection pattern that defines a task's scope is dry-run against known-bad input and its count is checked by an independent non-empty assertion (§14); a fixed context window around a structured entry is sized from the schema's maximum (§15); and a Verification Command's match set covers the whole population its comment or criterion names (§16).
-consult-when: A criterion is fed by a pinned diff or a sweep, a proof compares string literals, a task selects its own work with a pattern and measures success against that pattern's count, or a pull uses a fixed -B or -A window around a structured entry — record the spanned-file and untracked counts beside the verdict (§10.6), extract from the body and print the compared-set size (§12), dry-run the selection pattern and assert a non-empty input independently (§14), size the window from the schema maximum (§15); a comment or criterion names a population (N files, every row, fixtures B and C) and a Verification Command matches it — expand the pattern and compare its match set to the named population (§16)
+description: A diff-pinned or sweep-based criterion records the spanned-file count and the untracked count beside its own verdict, because an empty result reads the same whether the predicate inspected the work or inspected nothing (§10.6); a verbatim-literal proof extracts from the function body only, excludes by the exact token and not a bare word, and prints the compared-set size beside the difference count (§12); a selection pattern that defines a task's scope is dry-run against known-bad input and its count is checked by an independent non-empty assertion (§14); a fixed context window around a structured entry is sized from the schema's maximum (§15); and a Verification Command's match set covers the whole population its comment or criterion names (§16). A no-output-change refactor diffs its base emit-call literals against the working tree and explains each missing one (§17).
+consult-when: A criterion is fed by a pinned diff or a sweep, a proof compares string literals, a task selects its own work with a pattern and measures success against that pattern's count, or a pull uses a fixed -B or -A window around a structured entry — record the spanned-file and untracked counts beside the verdict (§10.6), extract from the body and print the compared-set size (§12), dry-run the selection pattern and assert a non-empty input independently (§14), size the window from the schema maximum (§15); a comment or criterion names a population (N files, every row, fixtures B and C) and a Verification Command matches it — expand the pattern and compare its match set to the named population (§16); a refactor's contract is no output change — diff the emitted text and explain each missing literal (§17)
 paths: {planwise_root}/{plans_dir}/**
 ---
 
 # Gate Input Set and Compared Window
 
-**Purpose:** Five rules about what a gate or a task was permitted to look at. §10.6 covers the input set a diff or sweep criterion ran over, recorded before the edit. §12 covers the window an extractor reads and the set size it reports after. §14 covers the pattern that selects a task's own work, and §15 covers the fixed context window that pulls each selected entry. §14.1 extends §14 to a relational criterion that passes on two empty sides. §16 covers the match set a Verification Command reaches against the population its comment or criterion names. A green result over a smaller set than the criterion names is not the proof the criterion asked for. Split from `verification-task-authoring.md` on 2026-10-08. Section numbers are kept from that reference, so an existing `verification-task-authoring.md §N` citation translates by filename alone. The family index is `verification-task-authoring.md`.
+**Purpose:** Six rules about what a gate or a task was permitted to look at. §10.6 covers the input set a diff or sweep criterion ran over, recorded before the edit. §12 covers the window an extractor reads and the set size it reports after. §14 covers the pattern that selects a task's own work, and §15 covers the fixed context window that pulls each selected entry. §14.1 extends §14 to a relational criterion that passes on two empty sides. §16 covers the match set a Verification Command reaches against the population its comment or criterion names. §17 covers the emitted text a no-output-change refactor must keep. A green result over a smaller set than the criterion names is not the proof the criterion asked for. Split from `verification-task-authoring.md` on 2026-10-08. Section numbers are kept from that reference, so an existing `verification-task-authoring.md §N` citation translates by filename alone. §17 is native to this file, so no `verification-task-authoring.md` citation maps to it. The family index is `verification-task-authoring.md`.
 
-**Read this when** a verification report carries a criterion fed by a pinned diff or an on-disk sweep, a proof script compares string literals between two sources and reports a difference count, a task selects its own work with a pattern and checks success against the count that pattern returned, a task pulls a structured entry with a fixed `-B` or `-A` window, or a Verification Command sits beside a comment or criterion that names a population (a file list, "every row", a headline count) the command's pattern may match only in part.
+**Read this when** a verification report carries a criterion fed by a pinned diff or an on-disk sweep, a proof script compares string literals between two sources and reports a difference count, a task selects its own work with a pattern and checks success against the count that pattern returned, a task pulls a structured entry with a fixed `-B` or `-A` window, or a Verification Command sits beside a comment or criterion that names a population (a file list, "every row", a headline count) the command's pattern may match only in part, or a refactor's contract is no output change.
 
 ## Table of Contents
 
@@ -18,6 +18,7 @@ paths: {planwise_root}/{plans_dir}/**
 - [14.1 A Relational Criterion Prints Its Vacuity](#141-a-relational-criterion-prints-its-vacuity)
 - [15. A Context Window Around a Structured Entry Is Sized From the Schema's Maximum](#15-a-context-window-around-a-structured-entry-is-sized-from-the-schemas-maximum)
 - [16. A Verification Command's Match Set Covers the Population Its Criterion Names](#16-a-verification-commands-match-set-covers-the-population-its-criterion-names)
+- [17. A No-Output-Change Refactor Gates on Emitted Text](#17-a-no-output-change-refactor-gates-on-emitted-text)
 
 ---
 
@@ -249,6 +250,37 @@ File: {task file path} | Location: {command line}
 Issue: "{command}" reaches {M} of the {N} members that "{comment or criterion}" names ({missing members}), so it passes while the rest go unchecked
 Fix: List the named population as one row per member, expand the pattern to cover every row, derive the count from the table, and dry-run the command against a copy with one member removed, per references/gate-input-set-and-compared-window.md §16 | Confidence: HIGH
 ```
+
+## 17. A No-Output-Change Refactor Gates on Emitted Text
+
+A refactor whose contract is "no output change" can still change what a script prints. A test suite checks behaviour, and it rarely pins the wording of a status line. Every gate can stay green while a changed print line ships.
+
+> [!constraint] Diff the base emit-call literals against the working tree, and explain each missing literal
+> **Rule.** A brief told a runner to keep the prints of a script it refactored, and gave no command for it. The refactor changed one print line to report a match count where it had reported a key count. Every gate passed. The orchestrator caught the change only by searching the base revision and the working tree by hand.
+>
+> Four operative points:
+>
+> 1. **List every base emit-call string literal that is missing from the files the refactor writes.** Take each base file with `git show <base>:<path>`. Compare the base file set with the union of the destination files in the working tree, because a module split moves literals between files. Then list the working-tree emit literals that are absent from the base. Emit calls are `print(...)` and its kin: a logger call, a `sys.stdout.write`, an `echo`.
+> 2. **Explain each missing and each new literal.** A missing literal passes only when the replacement emits the same text through a renamed variable or an engine field. An engine field is a template or format string held outside the script, such as a config entry. The literal check alone cannot see a change carried by a variable or an engine field. So either pass also shows that the value is unchanged. The evidence is the assignment line or the field in base and working tree, or a captured output diff. A new literal is an output change unless the same evidence explains it. Any other missing or new literal is an output change, and the gate fails.
+> 3. **The runner runs the gate and the orchestrator re-runs it.** The runner's report is one reading. The orchestrator's re-run on the final bytes is the acceptance.
+> 4. **Print both compared-set sizes.** Report the number of base literals beside the missing count, and the number of working-tree literals beside the new count, as §12 point 4 requires. `0 missing` over 40 literals and `0 missing` over 0 literals print the same line otherwise.
+>
+> WRONG — the brief asks for the prints to stay, and no command checks them:
+> ```
+> Step 4: Refactor report.py. Keep the prints.
+> After:  pytest tests/test_report.py     # green while one print line changed
+> ```
+> CORRECT — a mechanical diff of the emitted text, with both set sizes and each difference explained:
+> ```
+> git show <base>:scripts/report.py > <scratch>/report.base.py
+> <list the emit-call literals of both sides; print both counts and both difference sets>
+> # 14 base literals, 2 missing; 14 tree literals, 2 new (the two replacements below)
+> # f"keys: {keys}" -> f"keys: {key_count}": renamed variable; base keys = len(index),
+> #   tree key_count = len(index), so the value is unchanged: pass
+> # "keys found"   -> replaced by "matches found": output change, FAIL
+> ```
+
+**Applies to** any refactor, port or module split whose brief says the output must not change. Cross-reference: §12 covers a verbatim proof between two languages. This section covers the text one script emits before and after its own refactor.
 
 ---
 
