@@ -1,6 +1,7 @@
 // A minimal reader for the three scalars the feedback tool needs from config.yaml.
 // It handles a two-level indented scalar, such as `feedback.drafts`. It is not a
-// YAML parser. Only `findConfig` reads files, and only through the table it is handed.
+// YAML parser. Only `findConfig` and `mainCheckoutDir` read files, and only through
+// the table they are handed.
 
 /** Which feedback.drafts values the tool understands. */
 export type DraftsMode = 'notify' | 'quiet' | 'off'
@@ -123,6 +124,76 @@ export const resolveDraftsDir = (configDir: string, feedbackDirScalar: string | 
   const rel = (feedbackDirScalar ?? '').trim() === '' ? 'Feedback/Feedback-Drafts' : (feedbackDirScalar ?? '').trim()
   const joined = /^([A-Za-z]:)?[\\/]/.test(rel) ? rel : configDir.replace(/[\\/]+$/, '') + '/' + rel
   return joined.replace(/\\/g, '/')
+}
+
+/** True for a path that starts at a drive or at the file system root. */
+const isAbsolute = (path: string): boolean => /^([A-Za-z]:)?\//.test(path)
+
+/** Join a forward-slash path to a base, and resolve its `.` and `..` segments. */
+const joinPath = (base: string, path: string): string => {
+  const full = isAbsolute(path) ? path : base + '/' + path
+  const out: string[] = []
+  for (const part of full.split('/')) {
+    if (part === '..') out.pop()
+    else if (part !== '.' && (part !== '' || out.length === 0)) out.push(part)
+  }
+  // A UNC share starts with two slashes, and the segment walk keeps one.
+  return (full.startsWith('//') ? '/' : '') + out.join('/')
+}
+
+/** True when a git config text sets `bare` to a true value under `[core]`. */
+const setsBare = (config: string): boolean => {
+  let section = ''
+  let bare = false
+  for (const line of config.split(/\r?\n/)) {
+    const text = line.trim()
+    if (text.startsWith('[')) {
+      section = text.replace(/^\[+|\]+$/g, '').trim().toLowerCase()
+      continue
+    }
+    const at = text.indexOf('=')
+    if (section !== 'core' || at < 0 || text.slice(0, at).trim().toLowerCase() !== 'bare') continue
+    bare = ['true', 'yes', 'on', '1'].includes(text.slice(at + 1).trim().toLowerCase())
+  }
+  return bare
+}
+
+/**
+ * The same folder inside the main checkout, when `dir` sits in a git linked worktree. It mirrors
+ * `main_checkout_root` of the Python install check: it reads `.git` files only and runs no
+ * process. A linked worktree's `.git` is a file that names an admin folder, and that folder's
+ * `commondir` file names the common git folder. An ordinary checkout, a submodule, a bare
+ * repository, a folder outside git and any read failure give null.
+ *
+ * @param fs the file calls
+ * @param dir the folder to map, with either separator
+ * @returns the mapped folder with forward slashes, or null
+ */
+export const mainCheckoutDir = async (fs: ConfigFs, dir: string): Promise<string | null> => {
+  const start = dir.replace(/\\/g, '/').replace(/\/+$/, '')
+  try {
+    let base = start
+    for (;;) {
+      if (await fs.exists(base + '/.git/HEAD')) return null
+      if (await fs.exists(base + '/.git')) break
+      const cut = base.lastIndexOf('/')
+      if (cut < 0) return null
+      base = base.slice(0, cut)
+    }
+    const first = String(await fs.read(base + '/.git')).split(/\r?\n/)[0] ?? ''
+    if (!first.startsWith('gitdir:')) return null
+    const admin = joinPath(base, first.slice('gitdir:'.length).trim().replace(/\\/g, '/'))
+    const named = String(await fs.read(admin + '/commondir')).trim().replace(/\\/g, '/')
+    if (named === '') return null
+    const common = joinPath(admin, named)
+    if (!common.endsWith('/.git')) return null
+    // A config that cannot be read counts as not bare, as in the Python lookup.
+    const config = await fs.read(common + '/config').then(String, () => '')
+    if (setsBare(config)) return null
+    return common.slice(0, -'/.git'.length) + start.slice(base.length)
+  } catch {
+    return null
+  }
 }
 
 /**

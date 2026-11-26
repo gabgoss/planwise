@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { draftsMode, findConfig, isPlanwiseConfig, readRawScalar, readScalar, resolveDraftsDir, resolvePlansDir } from '../../plugins/planwise/hooks/feedback/config-read.ts'
+import { draftsMode, findConfig, isPlanwiseConfig, mainCheckoutDir, readRawScalar, readScalar, resolveDraftsDir, resolvePlansDir } from '../../plugins/planwise/hooks/feedback/config-read.ts'
 import { CAP_TEXT, MAX_CALLS_PER_SESSION, MAX_QUEUED, NOTICE_TEXT, PYTHON_CANDIDATES, RESULT_TEXT, relativeDraftPath } from '../../plugins/planwise/hooks/feedback/names.ts'
 
 /** An excerpt shaped like the shipped config template. */
@@ -120,6 +120,70 @@ const treeFs = (files: Record<string, string>, dirs: string[] = []) => ({
   exists: async (path: string) => path in files,
   read: async (path: string) => files[path],
   list: async () => dirs.map((name) => ({ name, kind: 'dir' })),
+})
+
+/** An in-memory tree whose read rejects on a missing file, as the engine's read does. */
+const gitFs = (files: Record<string, string>) => ({
+  ...treeFs(files),
+  read: async (path: string) => {
+    const text = files[path]
+    if (text === undefined) throw new Error('ENOENT ' + path)
+    return text
+  },
+})
+
+const MAIN_DIR = '/repo/main'
+const TREE = '/repo/main/.claude/worktrees/wt'
+const ADMIN = MAIN_DIR + '/.git/worktrees/wt'
+
+/** A linked worktree as git lays it out, with `over` replacing or adding files. */
+const linked = (over: Record<string, string> = {}) => ({
+  [MAIN_DIR + '/.git/HEAD']: 'ref: refs/heads/main\n',
+  [MAIN_DIR + '/.git/config']: '[core]\n\tbare = false\n',
+  [TREE + '/.git']: `gitdir: ${ADMIN}\n`,
+  [ADMIN + '/commondir']: '../..\n',
+  ...over,
+})
+
+test('config-read: mainCheckoutDir maps a linked worktree folder to the main checkout', async () => {
+  assert.equal(await mainCheckoutDir(gitFs(linked()), TREE + '/planwise'), MAIN_DIR + '/planwise')
+  assert.equal(await mainCheckoutDir(gitFs(linked()), TREE + '/'), MAIN_DIR)
+})
+
+test('config-read: mainCheckoutDir resolves a relative gitdir against the worktree root', async () => {
+  const files = linked({ [TREE + '/.git']: 'gitdir: ../../../.git/worktrees/wt\n' })
+  assert.equal(await mainCheckoutDir(gitFs(files), TREE + '/planwise'), MAIN_DIR + '/planwise')
+})
+
+test('config-read: mainCheckoutDir keeps the two leading slashes of a UNC share', async () => {
+  const files = {
+    '//server/share/wt/.git': 'gitdir: //server/share/main/.git/worktrees/wt\n',
+    '//server/share/main/.git/worktrees/wt/commondir': '../..\n',
+  }
+  assert.equal(await mainCheckoutDir(gitFs(files), '\\\\server\\share\\wt\\planwise'), '//server/share/main/planwise')
+})
+
+test('config-read: mainCheckoutDir gives null for an ordinary checkout', async () => {
+  assert.equal(await mainCheckoutDir(gitFs(linked()), MAIN_DIR + '/planwise'), null)
+})
+
+test('config-read: mainCheckoutDir gives null for a submodule, whose admin folder has no commondir', async () => {
+  const files = { '/repo/main/sub/.git': 'gitdir: ../.git/modules/sub\n', '/repo/main/.git/modules/sub/HEAD': 'x\n' }
+  assert.equal(await mainCheckoutDir(gitFs(files), '/repo/main/sub'), null)
+})
+
+test('config-read: mainCheckoutDir gives null for a bare common folder', async () => {
+  const files = linked({ [MAIN_DIR + '/.git/config']: '[core]\n\tbare = true\n' })
+  assert.equal(await mainCheckoutDir(gitFs(files), TREE), null)
+})
+
+test('config-read: mainCheckoutDir gives null when the common folder is not named .git', async () => {
+  const files = { [TREE + '/.git']: 'gitdir: /srv/repo.git/worktrees/wt\n', '/srv/repo.git/worktrees/wt/commondir': '../..\n' }
+  assert.equal(await mainCheckoutDir(gitFs(files), TREE), null)
+})
+
+test('config-read: mainCheckoutDir gives null outside git', async () => {
+  assert.equal(await mainCheckoutDir(gitFs({}), '/repo/plain/planwise'), null)
 })
 
 test('config-read: findConfig takes planwise/config.yaml before the root and the other folders', async () => {

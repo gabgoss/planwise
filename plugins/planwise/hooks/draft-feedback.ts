@@ -8,7 +8,7 @@ import { update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions, SessionVersion, ToolSpec } from 'claude-code'
 
 import { CAP_TEXT, DESCRIPTION, FULL_TOOL_NAME, INPUT_SCHEMA, MAX_CALLS_PER_SESSION, MAX_NOTICES, NOTICE_TEXT, PYTHON_CANDIDATES, RESULT_TEXT, TOOL_NAME, relativeDraftPath } from './feedback/names.ts'
-import { draftsMode, findConfig, readRawScalar, readScalar, resolveDraftsDir } from './feedback/config-read.ts'
+import { draftsMode, findConfig, mainCheckoutDir, readRawScalar, readScalar, resolveDraftsDir } from './feedback/config-read.ts'
 import type { DraftsMode } from './feedback/config-read.ts'
 import { previewSourceOf } from './feedback/card-preview.ts'
 import { isDraftFileName, newestQueued } from './feedback/queued.ts'
@@ -46,6 +46,8 @@ type Session = {
   /** The path of the config file, which the review card edits to turn drafting off. */
   configPath: string
   projectRoot: string
+  /** The main checkout's copy of the project root in a linked worktree, else the project root. */
+  draftsRoot: string
   calls: number
   notices: number
   /** True once the config was resolved in this process. A module reload resets it. */
@@ -99,10 +101,13 @@ const pluginVersionOf = async (host: Host): Promise<string> => {
 }
 
 /** One record of module memory. Every field resets with the process. */
-const session: Session = { mode: 'off', draftsDir: '', configPath: '', projectRoot: '', calls: 0, notices: 0, resolved: false, found: false }
+const session: Session = { mode: 'off', draftsDir: '', configPath: '', projectRoot: '', draftsRoot: '', calls: 0, notices: 0, resolved: false, found: false }
 
 /** Draft paths reserved by calls still in flight, so two calls in one turn never pick one file. */
 const reserved = new Set<string>()
+
+/** The roots a draft's text must not show: the session's, and the main checkout's in a worktree. */
+const hiddenRoots = (): string[] => [session.projectRoot, session.draftsRoot]
 
 /** Logs a failure of one hook. Never throws. */
 const failed = (host: Host, where: string, why: string): void => {
@@ -141,7 +146,7 @@ const offerQueued = async (host: Host): Promise<void> => {
       draftId: draft.draftId,
       kind: draft.kind,
       title: draft.title,
-      preview: previewSourceOf(draft.kind, draft.fields, [session.projectRoot]),
+      preview: previewSourceOf(draft.kind, draft.fields, hiddenRoots()),
       feedbackDir: session.draftsDir,
       sessionId: draft.sessionId,
       configPath: session.configPath,
@@ -181,25 +186,27 @@ const slashed = (path: string): string => path.replace(/\\/g, '/').replace(/\/+$
 /**
  * Resolves the config into the session record: the mode, the project root and the drafts dir.
  * Both session.start and a tool.call whose root changed (or that finds no resolved session) call
- * it. The record always follows the root it was just given. A root with no config resets the
- * mode, the drafts dir and the config path, so a stale value never survives a move. It throws on
- * a read failure and leaves `resolved` as it was, so the next caller tries again.
+ * it. The record always follows the root it was just given. In a linked worktree the drafts dir
+ * is the main checkout's, so a draft outlives the worktree, while the config path stays the
+ * session's own. A root with no config resets the mode, the drafts dir and the config path, so a
+ * stale value never survives a move. It throws on a read failure and leaves `resolved` as it
+ * was, so the next caller tries again.
  */
 async function resolveSession(host: Host): Promise<void> {
   const root = await host.root()
   const config = await findConfig(host, root)
-  session.found = config !== null
-  session.projectRoot = root
-  if (config !== null) {
-    session.mode = draftsMode(readRawScalar(config.text, ['feedback', 'drafts']))
-    session.draftsDir = resolveDraftsDir(config.dir, readScalar(config.text, ['project', 'feedback_dir']))
-    session.configPath = config.dir + '/config.yaml'
-  } else {
-    session.mode = 'off'
-    session.draftsDir = ''
-    session.configPath = ''
-  }
-  session.resolved = true
+  const next =
+    config === null
+      ? { mode: 'off' as const, draftsDir: '', draftsRoot: '', configPath: '' }
+      : {
+          mode: draftsMode(readRawScalar(config.text, ['feedback', 'drafts'])),
+          draftsDir: resolveDraftsDir((await mainCheckoutDir(host, config.dir)) ?? config.dir, readScalar(config.text, ['project', 'feedback_dir'])),
+          draftsRoot: (await mainCheckoutDir(host, root)) ?? root,
+          configPath: config.dir + '/config.yaml',
+        }
+  // One assignment with no await before it, so a call in the same turn never reads a record that
+  // holds the new root beside the old folders.
+  Object.assign(session, next, { found: config !== null, projectRoot: root, resolved: true })
 }
 
 /**
@@ -269,7 +276,7 @@ export function register(on: On, options: PluginOptions) {
       )
       // fs.write creates missing parent directories. It is not atomic and takes no mode;
       // a partial file fails the helper's head parse and is skipped.
-      await host.write(path, scrub(text, [session.projectRoot]))
+      await host.write(path, scrub(text, hiddenRoots()))
 
       try {
         const run = await admit(host, path)
@@ -282,14 +289,14 @@ export function register(on: On, options: PluginOptions) {
           return { deny: firstLine(run.stderr) || 'draft_feedback: the draft was refused' }
         }
         if (run.exitCode !== 0) host.uiLog(`draft feedback: admit exit ${run.exitCode}: ${run.stderr}`, 'debug')
-        if (run.exitCode === 0) await noteCard(host, { draftId, kind: checked.kind, title: checked.title, preview: previewSourceOf(checked.kind, checked.fields, [session.projectRoot]), feedbackDir: session.draftsDir, sessionId, configPath: session.configPath })
+        if (run.exitCode === 0) await noteCard(host, { draftId, kind: checked.kind, title: checked.title, preview: previewSourceOf(checked.kind, checked.fields, hiddenRoots()), feedbackDir: session.draftsDir, sessionId, configPath: session.configPath })
       } catch (err) {
         host.uiLog('draft feedback: no python could start; the draft was kept: ' + errText(err), 'debug')
       }
 
       const loud = session.mode === 'notify' && session.notices < MAX_NOTICES
       if (loud) session.notices += 1
-      host.uiLog(NOTICE_TEXT(relativeDraftPath(session.projectRoot, path)), loud ? 'transcript' : 'debug')
+      host.uiLog(NOTICE_TEXT(relativeDraftPath(session.draftsRoot, path)), loud ? 'transcript' : 'debug')
       return { result: RESULT_TEXT }
     } finally {
       reserved.delete(path)
