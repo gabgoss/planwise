@@ -314,9 +314,10 @@ For each task in the orchestration's Session Task List (respecting dependency or
 1. Read the task file completely
 2. If the Orchestration carries `## User-Action Gate`, find each row whose Blocks Task names this task. If that gate's row in the Recovery `## User-Action Gate` table reads `OPEN`, log `GATE_PENDING: {gate}` in the Change Log and stop for the user's answer. A row that reads `REJECTED` stops the session and reports the gate.
 3. Re-read the Recovery `**Orchestrator:**` line and the last Change Log row. A token or row this orchestrator did not write means STOP: dispatch nothing and ask the user who owns the session. A `-` token over a Change Log that holds only `CREATED`, or this orchestrator's own token, means write its own token and the time. A window that cannot recall its own token asks.
-4. Mark task IN_PROGRESS in recovery file
-5. Run the Step 1.1 split-index check again over this task's Required Context files that an earlier task of this session wrote, because those files did not exist at Step 1.1. A task that lists an index file and none of the sub-parts its `**Split index:**` line names stops dispatch and goes to the Step 1.2a gate
-6. **(Track B)** Update the task list: `TaskUpdate(taskId: "{id}", status: "in_progress")`
+4. If this task runs a destructive path live, find a routed flag that names a `DEFERRED (user action required)` destructive-diff review of that path, or this session's own diff adding it. While the user has not run `/code-review ultra` on that diff, log `GATE_PENDING: /code-review ultra` in the Change Log and stop for the user's answer. Once the user has run it, log that in the Change Log before dispatch (destructive-change-requirements.md §10.4).
+5. Mark task IN_PROGRESS in recovery file
+6. Run the Step 1.1 split-index check again over this task's Required Context files that an earlier task of this session wrote, because those files did not exist at Step 1.1. A task that lists an index file and none of the sub-parts its `**Split index:**` line names stops dispatch and goes to the Step 1.2a gate
+7. **(Track B)** Update the task list: `TaskUpdate(taskId: "{id}", status: "in_progress")`
 
 ### Step 3.2: Dispatch by Execution Mode
 
@@ -589,7 +590,7 @@ Read recovery file and orchestration file. Generate the summary document using [
 | 1 | Tasks Completed | Recovery file step table |
 | 2 | Key Deliverables | Files Modified in Recovery |
 | 3 | Issues Encountered | Issues table in Recovery |
-| 4 | Verification Results | Build/test results from execution |
+| 4 | Verification Results | Build/test results from execution. Step 4.5 writes the destructive-diff row |
 | 5 | Success Criteria Status | Orchestration success criteria |
 | 6 | Context Notes | Key Findings in Recovery |
 | 7 | Consumption Record | Orchestrator window accounting for this session, plus the per-task consumption rows in Recovery. Field semantics are defined once in the template's own Consumption Record section — do not restate them here |
@@ -640,7 +641,7 @@ Ask the user: "Were any lessons learned during this session?"
 
 2. The writer sets the Recovery `Session Status` and the orchestration `Status` to COMPLETE. It sets the sprint plan and Master Plan `Status` tokens to the given values. It writes this session's Master Plan `## Session Completion Tracking` row. A second `--apply` changes nothing.
 3. Exit 1 means the writer refused and wrote nothing. Read each `REFUSED` line, fix the file it names by hand, and run the writer again.
-4. Decide the Master Plan status for `--master-status`. When the writer sets COMPLETE, it drops an `awaiting` note from the Status line and names the dropped text in its report. For any other value the writer flips the token only, so append ` — awaiting {user action}` to the Status line by hand when a gate is pending:
+4. Decide the Master Plan status for `--master-status`. When the writer sets COMPLETE, it drops an `awaiting` note from the Status line and names the dropped text in its report. For any other value the writer flips the token only, so append ` — awaiting {user action}` to the Status line by hand when a gate is pending. Decide the Step 4.5 destructive-diff state first. A `DEFERRED (user action required)` state is a pending user-action gate (` — awaiting /code-review ultra`), so step 6 leaves the Resolves items PLANNING:
    - If all sprints COMPLETE AND no user-action gates pending → `Status: COMPLETE`
    - If all sprints COMPLETE BUT user-action gates pending (per Master Plan "Project Complete When" section) → `Status: IN_PROGRESS — awaiting {user action}` (per `references/session-execution-protocol.md` Discovery / Meta-Plan Status section)
    - If not all sprints COMPLETE → `Status: IN_PROGRESS`
@@ -685,12 +686,27 @@ Ask the user: "Were any lessons learned during this session?"
 
 ### Step 4.5: Git Commit
 
-If the session produced code changes and `/code-review` has not already been run on all changed files, run `/code-review` before staging. Per `references/session-execution-protocol.md` §7 Git Workflow.
+**Gate 1, code review.** Instrument: `/code-review`. If the session produced code changes and `/code-review` has not already been run on all changed files, run `/code-review` before staging. Per `references/session-execution-protocol.md` §7 Git Workflow.
 
-> [!binding] Destructive-Diff Pre-Commit Review Gate
-> - [ ] If this session's diff adds or widens a destructive disposition (delete / overwrite / migrate / prune / sweep): a pre-commit adversarial multi-agent code review was run as a gate DISTINCT from script verification, its findings fixed, and regression tests added in the same session. Each fix round's diff was then reviewed again, scoped to its changed write paths, until a round confirmed no data-loss, silent-corruption or false-success finding (destructive-change-requirements.md §10.12). (A green suite + clean lint + passing smoke does NOT satisfy this gate.)
+**Gate 2, destructive-diff review.** Instrument: `/code-review ultra`. The user triggers it explicitly and it is billed, so a runner does not launch it on its own. A local `/code-review`, at any effort, does not satisfy this gate.
+
+> [!binding] Destructive-Diff Review Gate
+> For every session, record one state per diff: this session's diff, and each upstream diff a consumed flag names. `SATISFIED` or `DEFERRED` applies when the diff adds or widens a destructive disposition (delete / overwrite / migrate / prune / sweep):
+> - `SATISFIED`: the user ran `/code-review ultra` on this diff, its findings are fixed, and regression tests were added in the same session. Each fix round's diff was then reviewed again, scoped to its changed write paths, until a round confirmed no data-loss, silent-corruption or false-success finding (destructive-change-requirements.md §10.12).
+> - `DEFERRED (user action required)`: the review has not run. Write why the runner cannot run it in the flag row's Observation and the Summary Notes cell, name the exact command for the user, and route it as below. Only a diff whose first live execution a downstream session owns may defer. Any other diff reaches `SATISFIED` before the commit.
+> - `N/A`: the diff adds or widens no destructive disposition.
 >
-> "Run script verification" and "run code review" are DIFFERENT gates; the second is mandatory when the diff touches destructive dispositions, even when the first is fully green. Why: [destructive-change-requirements.md](../references/destructive-change-requirements.md).
+> A green suite + clean lint + passing smoke does NOT satisfy this gate. A state without its evidence is a false report. Definitions, the instrument of each review round and the first-live-execution precondition: destructive-change-requirements.md §10.4.
+>
+> "Run script verification" and "run code review" are DIFFERENT gates; the second is mandatory when the diff touches destructive dispositions, even when the first is fully green.
+
+Route a DEFERRED state in this order:
+
+1. Add a Recovery `Cross-Task Coordination Flags` row whose Downstream Consumer is the session that owns the first live execution of the destructive path. Its Observation names the changed destructive paths and carries the review brief (destructive-change-requirements.md §10.8).
+2. Re-run Step 4.3 item 1 only: `closeout_session.py` as a dry run, then `--apply`, so the writer routes the new flag. A second run adds only the rows a block lacks.
+3. Run Step 4.4 items 5 and 6.
+
+Write each diff's state into the Summary's Verification Results row, then stage. Step 3.1 item 4 blocks a live run of an unreviewed destructive path.
 
 ```bash
 git add -- {this session's paths}
@@ -704,7 +720,7 @@ git push
 - After the push, record SHA and push state in the Session Commit Pin, before any user gate
 - `git add` by path alone does not protect the commit. A bare `git commit` commits the whole index, including entries another session staged. `git commit -- {paths}` costs nothing on a clean index and prevents the sweep on a dirty one
 - Re-verify any allocated id (lesson or backlog) is still free at write time. A concurrent session can take the next id between this session's read and its write
-- Include: task output files, recovery file, orchestration file, summary file, lesson files (if created), the regenerated plans index, the backlog item files closed in Step 4.3 and the regenerated backlog index (if any), **any downstream plan files that received propagated coordination flags in Step 4.4**
+- Include: task output files, recovery file, orchestration file, summary file, lesson files (if created), the regenerated plans index, the backlog item files closed in Step 4.3 and the regenerated backlog index (if any), the downstream front-door file that the Step 4.5 closeout re-run wrote, **any downstream plan files that received propagated coordination flags in Step 4.4**
 - Commit types: `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`
 - Step 4.0's prior-sprint Outputs guard MUST have passed (or carry a recorded Recovery override) before staging — a commit is what makes a silent overwrite of a completed sprint's artifact of record permanent
 
@@ -723,6 +739,7 @@ Summary: Outputs/{Abbrev}-S{XX}-{YY}-Summary.md
 Lessons: {N} captured (or "None")
 Backlog closed: {item ids closed in Step 4.3, or "none"; items held PLANNING behind a user-action gate are named here}
 Plan status: {the Master Plan Status: line that Step 4.3 wrote}
+Destructive-diff review: {one state per diff, e.g. "this diff: N/A; upstream {session} diff: SATISFIED"; DEFERRED (user action required) adds: run {command}, routed to {session}}
 ```
 
 Then branch on the Summary's `**Next run:**` line:

@@ -12,7 +12,7 @@ consult-when: A branch can DELETE, OVERWRITE, MIGRATE, PRUNE or SWEEP user data 
 
 ## 10. Destructive-Path & Config-Gated Change Requirements
 
-*Applies to any task that adds or extends a branch which can DELETE, OVERWRITE, MIGRATE, PRUNE, or SWEEP user data or user customizations. For such code the ordinary per-task gates — lint clean, unit suite green, smoke passing, self-containment greps empty — certify nothing about the inputs and adjacent states nobody named. These requirements are a chain, not duplicates: §10.1 makes the spec cover the whole interaction matrix; §10.2 has an independent test task re-derive the contract; §10.3 pins the gated branch without disturbing default-path evidence; §10.4 backstops all three with an adversarial review before the commit. §10.5 to §10.7 cover a destructive path that a similarity score or a severity label steers: §10.5 says a lexical scorer's "absent" verdict is not evidence of absence, so a semantic adjudicator runs before the writer; §10.6 says a similarity heuristic may only escalate toward refusal; §10.7 gates a review loop's convergence on consequence classes, not on severity labels. §10.8 and §10.9 cover what a review and a guard author each miss when the author of the feature also wrote its fixtures: §10.8 names the case classes the review brief must carry, requires a review of a fix diff, and sets the stopping rule. §10.9 says an exemption modelled on a reference check copies that check's whole refusal condition. §10.10 covers the guard itself: a guard before a destructive step is verified through the producer of its condition, not by a read of the guard or a test that injects the condition's value. §10.11 covers a test whose safety rests on a rollback: it cites a search of the callee's commit calls, because a rollback protects only a callee that does not commit. §10.12 covers the fix itself: each fix round's diff is reviewed again before commit, and a fix that replaces a library primitive first lists the semantics the primitive gave.*
+*Applies to any task that adds or extends a branch which can DELETE, OVERWRITE, MIGRATE, PRUNE, or SWEEP user data or user customizations. For such code the ordinary per-task gates — lint clean, unit suite green, smoke passing, self-containment greps empty — certify nothing about the inputs and adjacent states nobody named. These requirements are a chain, not duplicates: §10.1 makes the spec cover the whole interaction matrix; §10.2 has an independent test task re-derive the contract; §10.3 pins the gated branch without disturbing default-path evidence; §10.4 backstops all three with an adversarial review before the commit, or, when the gate is DEFERRED, before the first live execution. §10.5 to §10.7 cover a destructive path that a similarity score or a severity label steers: §10.5 says a lexical scorer's "absent" verdict is not evidence of absence, so a semantic adjudicator runs before the writer; §10.6 says a similarity heuristic may only escalate toward refusal; §10.7 gates a review loop's convergence on consequence classes, not on severity labels. §10.8 and §10.9 cover what a review and a guard author each miss when the author of the feature also wrote its fixtures: §10.8 names the case classes the review brief must carry, requires a review of a fix diff, and sets the stopping rule. §10.9 says an exemption modelled on a reference check copies that check's whole refusal condition. §10.10 covers the guard itself: a guard before a destructive step is verified through the producer of its condition, not by a read of the guard or a test that injects the condition's value. §10.11 covers a test whose safety rests on a rollback: it cites a search of the callee's commit calls, because a rollback protects only a callee that does not commit. §10.12 covers the fix itself: each fix round's diff is reviewed again before commit, and a fix that replaces a library primitive first lists the semantics the primitive gave.*
 
 ### 10.1 Enumerate the config-interaction matrix in the spec
 
@@ -84,13 +84,51 @@ Fix: Phrase as "verify existing pins still pass unchanged (default path untouche
 
 ### 10.4 A green suite is not a review: pre-commit adversarial review for destructive diffs
 
-> [!constraint] For any diff that adds or widens a destructive disposition (delete / overwrite / migrate), run an adversarial multi-agent review BEFORE the commit, then fix-and-regression-test in the same session
+> [!constraint] For any diff that adds or widens a destructive disposition (delete / overwrite / migrate), run an adversarial multi-agent review BEFORE the commit, or, when DEFERRED, before the first live execution, then fix-and-regression-test in the same session
 >
 > WRONG — treat per-task verification (lint + suite green + smoke) as sufficient to commit a new destructive path.
 >
 > CORRECT — run the adversarial review pre-commit; a fresh feature's tests are written by the same mind that wrote its bugs, so a green suite says nothing about the inputs nobody imagined (BOMs, block-style YAML, non-dict JSON cache entries, retry-after-crash staleness, filename collisions).
 >
 > "Run script verification" and "run code review" are DIFFERENT gates; the second is mandatory when the diff touches destructive dispositions, even when the first is fully green.
+>
+> The `DEFERRED` exception below governs every "before the commit" and "pre-commit" in this file, §10.12 included.
+
+#### The disposition and its instrument
+
+Only the user's `/code-review ultra` run counts as the gate's review. The user triggers it explicitly and it is billed, so a runner does not launch it on its own. When Claude tries to launch it, the CLI runs a local review instead (measured on Claude Code 2.1.332). A local `/code-review`, at any effort, does not satisfy the gate, even when its findings are fixed. "Adversarial review" in this file means that `/code-review ultra` run, never a review Claude ran.
+
+Each review round has its own instrument:
+
+- **The first review** is `/code-review ultra`, run by the user. The runner writes the §10.8 brief, naming the destructive surfaces, for the user to pass to that run.
+- **Each later §10.12 fix-round review** may be a local `/code-review`, scoped to that fix diff's changed write paths. Those rounds re-check fixes, and they are not the gate's first adversarial pass.
+
+The run handler's Step 4.5 records one state per diff, every session. The diffs are this session's own diff and each upstream diff a consumed flag names. The Summary's Verification Results row and the Step 4.6 line list them keyed by source, for example `this diff: N/A; upstream {session} diff: SATISFIED`.
+
+| State | Meaning | Evidence |
+|---|---|---|
+| `SATISFIED` | The user ran `/code-review ultra` on this diff. Its findings are fixed, regression tests were added in the same session, and each fix round was reviewed again as §10.12 requires | The review's findings and the fix diff: its paths and the regression test names. The commit SHA comes from the Session Commit Pin after the push |
+| `DEFERRED (user action required)` | The review has not run, and a downstream session owns the first live execution. The runner writes why it cannot run it in the flag row's Observation and the Summary Notes cell, and names the exact command for the user | The reason, the command, and the routed flag |
+| `N/A` | The diff adds or widens no destructive disposition | The diff itself |
+
+Recording a state the runner cannot show evidence for is a false report. A local review recorded as `SATISFIED` is one.
+
+Route a `DEFERRED` state in this order, before staging:
+
+1. Add a Recovery `Cross-Task Coordination Flags` row. Its Downstream Consumer is the session that owns the first live execution of the destructive path. Its Observation names the changed destructive paths and carries the §10.8 brief, the destructive surfaces by name.
+2. Re-run the closeout writer, `closeout_session.py`, as a dry run and then with `--apply` (the run handler's Step 4.3 item 1 only), so it routes the new flag to that session's front door. A second run adds only the rows a block lacks.
+3. Run Step 4.4 items 5 and 6, so the Summary names the flag's destination.
+4. Write each diff's state into the Summary's Verification Results row, then stage.
+
+When no downstream session owns the first live execution, the session cannot defer. It reaches `SATISFIED` before the commit. A `DEFERRED` state also counts as a pending user-action gate at the run handler's Step 4.3, so the plan stays `IN_PROGRESS — awaiting /code-review ultra` and its Resolves items stay PLANNING.
+
+The gate fires when the diff adds or widens the disposition, not when the path first runs. A `DEFERRED` state is the one way a destructive diff commits before its review. It moves the review's deadline to the first live execution of the destructive path.
+
+The receiving session consumes the flag with no new field or section:
+
+1. Its normal flag routing (the run handler's Step 1.1a) carries the flag into the task that first runs the path. The flag's Observation names the paths and the brief. The receiver reads the commit from the upstream session's Recovery Session Commit Pin, as Step 1.1f already does.
+2. Before that task dispatches, Step 3.1 logs `GATE_PENDING` and stops until the user has run `/code-review ultra` on that upstream diff. It logs the run in the Change Log before dispatch. The same check stops a task that runs a destructive path its own session's diff added, so that session cannot defer.
+3. That session's Step 4.5 records `SATISFIED` for the upstream diff the flag names, with the review's findings and the fix diff.
 
 ### 10.5 A lexical scorer's absent verdict is not evidence of absence: adjudicate before the writer runs
 
@@ -172,7 +210,7 @@ Four operative points:
 ### 10.8 What the adversarial review must be told, and when it stops
 
 > [!constraint] The runner that wrote each feature also wrote its fixtures. A review finds defects in the cases nobody fixtured
-> The per-task gates check that the code does what its author tested. For a destructive disposition, run the adversarial review of §10.4 before commit as a gate distinct from the suite. A green suite, a clean lint and a PASS sweep are not evidence against the case classes below.
+> The per-task gates check that the code does what its author tested. For a destructive disposition, run the adversarial review of §10.4 before commit, or, when DEFERRED, before the first live execution, as a gate distinct from the suite. A green suite, a clean lint and a PASS sweep are not evidence against the case classes below.
 >
 > One session added repair flags and budgeted changelog parts to a migrator that overwrites item files, rewrites the index and re-splits changelogs. Each of five tasks passed its own gates: tests, lint, the identifier battery and module size. The orchestrator recomputed each gate independently. The verification task reported all six closing gates PASS on 1,207 passed and 0 failed.
 >
