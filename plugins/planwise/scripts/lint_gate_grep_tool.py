@@ -67,6 +67,90 @@ BINARY_PROBE_BYTES = 8192
 
 _REJECTED_AS_RIPGREP_ONLY = "uses ripgrep-only syntax that the in-process matcher cannot decide"
 
+# POSIX character classes inside a bracket expression, and the Python class
+# body each one stands for. A class not listed here makes the gate UNCERTAIN.
+POSIX_CLASSES = {
+    "space": r"\s",
+    "digit": "0-9",
+    "alpha": "A-Za-z",
+    "alnum": "A-Za-z0-9",
+    "upper": "A-Z",
+    "lower": "a-z",
+    "punct": r"!-/:-@\[-`{-~",
+    "blank": r" \t",
+}
+# A bracket term: ``[:name:]``, ``[=x=]`` or ``[.x.]``.
+_BRACKET_TERM_RE = re.compile(r"\[([:=.])([^\]]*?)\1\]")
+
+
+def translate_posix_classes(pattern: str, bare_term_is_error: bool = True):
+    """Replace each ``[:name:]`` class inside a bracket expression with its
+    Python equivalent.
+
+    Python ``re`` has no POSIX classes. It reads ``[[:space:]]`` as a set of
+    the characters ``[ : s p a c e`` followed by a literal ``]``, and it reads
+    the negated form ``[^[:alnum:]]`` the same way with no warning. ``grep``
+    and the ripgrep engine both read a class, so the pattern is translated
+    before Python compiles it.
+
+    Returns ``(pattern, None)``, or ``(pattern, reason)`` when the pattern holds
+    a class the translation does not know, an equivalence class (``[=x=]``) or
+    a collating symbol (``[.x.]``).
+
+    A class outside a bracket expression, such as a bare ``[:space:]``, splits
+    the two engines. ``grep`` rejects it, so ``bare_term_is_error`` returns a
+    reason. The ripgrep engine reads it as the set of its characters, which is
+    also what Python reads, so with ``bare_term_is_error`` off it passes
+    through unchanged.
+    """
+    out = []
+    index = 0
+    inside = False
+    length = len(pattern)
+    while index < length:
+        char = pattern[index]
+        if not inside:
+            if char == "\\" and index + 1 < length:
+                out.append(pattern[index:index + 2])
+                index += 2
+                continue
+            if char == "[":
+                bare = _BRACKET_TERM_RE.match(pattern, index)
+                if bare and bare_term_is_error:
+                    return pattern, (
+                        f"'{bare.group(0)}' sits outside "
+                        "a bracket expression, which grep rejects"
+                    )
+                inside = True
+                out.append(char)
+                index += 1
+                # A leading '^' and a leading ']' belong to the bracket's set.
+                if index < length and pattern[index] == "^":
+                    out.append("^")
+                    index += 1
+                if index < length and pattern[index] == "]":
+                    out.append(r"\]")
+                    index += 1
+                continue
+            out.append(char)
+            index += 1
+            continue
+        term = _BRACKET_TERM_RE.match(pattern, index)
+        if term:
+            kind, name = term.group(1), term.group(2)
+            if kind != ":":
+                return pattern, f"bracket term '{term.group(0)}' is not simulated"
+            if name not in POSIX_CLASSES:
+                return pattern, f"character class '[:{name}:]' is not simulated"
+            out.append(POSIX_CLASSES[name])
+            index = term.end()
+            continue
+        if char == "]":
+            inside = False
+        out.append(char)
+        index += 1
+    return "".join(out), None
+
 
 def _parse_bool(name, value, default):
     """Return ``(flag, refusal)`` for a ``true`` or ``false`` parameter."""
@@ -153,17 +237,24 @@ def _python_only_construct(pattern, multiline):
 
 
 def _compile_pattern(pattern, ignore_case, multiline):
-    """Return ``(regex, refusal)``."""
+    """Return ``(regex, refusal)``.
+
+    A POSIX class inside a bracket expression is translated first, because
+    the ripgrep engine reads ``[[:space:]]`` as a class and Python does not.
+    """
     construct = _python_only_construct(pattern, multiline)
     if construct is not None:
         return None, f"the Grep pattern {_REJECTED_AS_RIPGREP_ONLY} ({construct})"
+    translated, reason = translate_posix_classes(pattern, bare_term_is_error=False)
+    if reason is not None:
+        return None, f"the Grep pattern {_REJECTED_AS_RIPGREP_ONLY} ({reason})"
     flags = re.MULTILINE | re.DOTALL if multiline else 0
     if ignore_case:
         flags |= re.IGNORECASE
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error")
-            return re.compile(pattern, flags), None
+            return re.compile(translated, flags), None
     except (re.error, Warning, RecursionError, OverflowError) as exc:
         return None, f"the Grep pattern {_REJECTED_AS_RIPGREP_ONLY} ({exc})"
 
