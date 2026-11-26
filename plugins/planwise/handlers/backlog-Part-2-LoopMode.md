@@ -49,7 +49,7 @@ python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yam
 | Selectable, status PLANNING (a ready plan names it in **Resolves:**) | No, listed as excluded. A queued item that turns PLANNING is skipped at `--next` | `owned by a plan (status PLANNING)` |
 | Selectable, marked `needs_plan: true` in its frontmatter | No, listed as excluded | `marked for a planning session` |
 | Selectable, still carrying a legacy `## Loop Decision Needed` section | No, listed as excluded | `decision pending` |
-| Selectable, with the scoped-rule verdict `placement` | No, listed as excluded | `placement` |
+| Selectable, with the scoped-rule verdict `placement` (a new file that needs a placement decision and that its `placement_approved` list omits; see the verdict table in `handlers/backlog.md` step 7) | No, listed as excluded | `placement` |
 | Selectable, with a `# user-run:` line inside its `## Verification` fence | No, listed as excluded | `user-run verification` |
 | Selectable, with an unanswered question under `## Open Questions` | No, listed as excluded | `open questions unanswered` |
 | Blocked by an open dependency, and every open blocker is queued in this run | Yes, behind its blockers, with the disposition its own state gives | none. `--mode specific` adds a `note:` line when a blocker was named after it |
@@ -64,7 +64,7 @@ Refining is opt-in. `--init --refine-max N` (default 0) queues up to N unrefined
 
 An open question is unanswered while its `Answer:` line is empty. It is answered once an `Answer:` line with text follows its `### Q` heading.
 
-An item is excluded with the first reason that holds, in this order: `owned by a plan (status PLANNING)`, `marked for a planning session`, `decision pending`, `placement`, `user-run verification`, then the others. A `decision pending` exclusion adds one hint line: fold the legacy sections with `backlog_questions.py --fold`, then answer each question. These checks only read the item.
+An item is excluded with the first reason that holds, in this order: `owned by a plan (status PLANNING)`, `marked for a planning session`, `decision pending`, `placement`, `user-run verification`, then the others. A `decision pending` exclusion adds one hint line: fold the legacy sections with `backlog_questions.py --fold`, then answer each question. A `placement` exclusion adds one hint line: confirm the destination in an interactive `/planwise backlog <id>` run, or record it with `update_backlog.py --id <id> --approve-placement PATH`. `score_backlog.py --route --id <id>` lists the path. Either approval writes `placement_approved`. Under Auto Mode that run asks nothing and approves nothing: it escalates the item to Route C. An answer under `## Open Questions` does not clear `placement`, and a loop-decision question there still needs its own answer. These checks only read the item.
 
 `--init --dry-run` prints the same report and writes no run file.
 
@@ -198,7 +198,7 @@ Q1, Q2, Q3 and the HALT question are the only questions in loop mode. Every othe
 | Phase 2 held-item notice | Not reached. The queue never holds a `BLOCKED` item |
 | Phase 3 premise probe fails | Documented skip |
 | Phase 3 scoped-rule verdict `inject` or `none` | Proceed. An `inject` verdict carries the listed rules into the fix-agent prompt |
-| Phase 3 scoped-rule verdict `placement` | Documented skip. The evidence names the destination and the rule or content tree |
+| Phase 3 scoped-rule verdict `placement` | Documented skip. The evidence names the destination, the rule or content tree, and an interactive `/planwise backlog <id>` run as the way to approve the path |
 | Phase 3 acceptance criteria already met | Unattended close (§ Unattended close): every criterion's proving command is run, the record is written under `## Resolution`, and the item is closed `COMPLETE`; the refine step closes an item whose preflight proved every criterion MET the same way, with the close record under `## Resolution` |
 | Phase 3 conditional check resolves to close | Documented skip. The evidence is the item's `Conditional:` lines. Never an unattended close: a resolved conditional is not a met criterion |
 | Refine step returns `QUESTIONS` | Written into `## Open Questions`; skip with the short note; no `--decision` |

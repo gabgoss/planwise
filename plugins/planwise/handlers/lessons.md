@@ -442,11 +442,11 @@ If approved:
 > python "{plugin_root}/scripts/parse_lessons.py" --config "{planwise_root}/config.yaml" --next-id
 > ```
 >
-> It prints `LL-{NNN}` computed from the union of the working lessons directory, `Archive/`, and the index; the stated counter is not an input. If that value differs from the counter line, report the gap rather than silently correcting it — some lesson was authored off this path, and its categorisation entry may carry its own gap. `/planwise doctor` Stage 13 surfaces this drift on its next run.
+> It prints `LL-{NNN}` computed from the union of the working lessons directory, `Archive/`, and the index; the stated counter is not an input. The union also reads the lessons folders of the other linked worktrees. The printed id may therefore exceed this tree's counter line. The command then writes a `Note:` line to stderr that names this tree's own next id. Compare that id, not the printed one, with the counter line, because the linked-worktree gap is not drift. If this tree's own value differs from the counter line, report the gap rather than silently correcting it — some lesson was authored off this path, and its categorisation entry may carry its own gap. `/planwise doctor` Stage 13 surfaces this drift on its next run.
 
 1. Take `{NNN}` from the `--next-id` command above; take the lesson file template from `templates/lesson.md`
 2. Determine `{Domain}` from the first value in the `domain:` field
-3. **Assert `{NNN}` is unused, in BOTH directories, immediately before writing.** Glob `{lessons_dir}/LL-{NNN}-*.md` and `{lessons_dir}/Archive/LL-{NNN}-*.md`. A hit means a concurrent session claimed the ID between derivation and write. FAIL LOUD and STOP — never overwrite, and never silently pick the next free number, because the draft's frontmatter `id:` and any cross-reference already written into the body still name `{NNN}`:
+3. **Assert `{NNN}` is unused, in BOTH directories, immediately before writing.** Glob `{lessons_dir}/LL-{NNN}-*.md` and `{lessons_dir}/Archive/LL-{NNN}-*.md`. This Glob covers the current tree only. A hit means a concurrent session claimed the ID between derivation and write. FAIL LOUD and STOP — never overwrite, and never silently pick the next free number, because the draft's frontmatter `id:` and any cross-reference already written into the body still name `{NNN}`:
    ```
    Lesson ID collision: LL-{NNN} already exists at {path}.
    The draft was not written. Re-run `/planwise lessons capture` to re-derive the ID.

@@ -342,8 +342,8 @@ per-draft question.
 
 This route runs when the preflight block is present with no `PLANWISE_FEEDBACK_FALLBACK:` line,
 and the `ARGUMENTS:` line is `--post {draft_id}` or `--drafts` without `--all`. The block holds
-a `Queued drafts (N) in {folder}:` header, the queued rows, a `Posting state:` line and each
-body under `--- draft {id}: {title} ---`. The
+a `Queued drafts (N) in {folder}:` header, the queued rows, a `Posting state:` line, a
+`Target repository:` line and each body under `--- draft {id}: {title} ---`. The
 block already did the listing, the state check and the draft reads, so the route repeats none
 of them. Expired drafts are not in the block.
 
@@ -351,8 +351,9 @@ When the `Posting state:` line is not `enabled`, ask the posting question of the
 once, before the first draft. On Enable, run `enable-posting` and print its one line.
 
 One `AskUserQuestion` per draft: the named draft on `--post`, each row in block order on
-`--drafts`. The question shows the draft's id, title and body verbatim from the block. It says
-that **Post** publishes the shown body with no further question. Three options:
+`--drafts`. The question shows the draft's id, title and body verbatim from the block. It names
+the repository on the `Target repository:` line. It says that **Post** publishes the shown body
+there with no further question. Three options:
 
 | Option | What it does |
 |---|---|

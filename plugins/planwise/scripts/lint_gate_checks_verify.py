@@ -144,6 +144,11 @@ _READ_SLICE_RE = re.compile(
 )
 _READ_LIMIT_RE = re.compile(r"\bRead\b(?=[^\n]*\bfile_path\s*=)[^\n]*?\blimit\s*=\s*\d+")
 _WRONG_LABEL_RE = re.compile(r"^\s*(?:>\s*)?WRONG\b")
+# A WRONG label on a prose line is the word on its own, outside every code span.
+_BARE_WRONG_RE = re.compile(r"\bWRONG\b")
+_PROSE_SPAN_RE = re.compile(r"(`+).*?\1")
+# One quoted ``name=value`` argument of a native tool call.
+_QUOTED_ARGUMENT_RE = re.compile(r"\b\w+\s*=\s*(['\"]).*?\1")
 # The sections whose lines a native Read call is read from: a paged read in an
 # instruction step is a read, not a gate.
 _READ_SCAN_SECTION_RE = re.compile(r"^(#{1,6})\s+(?:Verification Commands|Success Criteria)\b", re.IGNORECASE)
@@ -199,18 +204,34 @@ def _task_files(context):
 
 
 def _fence_marked(lines):
-    """Yield ``(number, line, fenced)``; a fence marker line counts as fenced."""
+    """Yield ``(number, line, fenced)``; a fence marker line counts as fenced.
+
+    A fence closes only on a bare marker of its own character, at least as long
+    as the opener. A marker with an info string closes nothing. At the opener's
+    own length it starts a nested sample, which takes its own bare closer first.
+    The shipped task template nests a sample that way, and the scaffolder reads
+    it the same way."""
     fence = None
+    depth = 0
     for number, line in enumerate(lines, start=1):
         stripped = line.lstrip("> ").strip()
         marker = _FENCE_RE.match(stripped)
         if fence is not None:
-            if marker and stripped[0] == fence[0] and len(stripped) >= len(fence):
-                fence = None
+            token = marker.group(1) if marker else ""
+            if token and token[0] == fence[0] and len(token) >= len(fence):
+                info = stripped[len(token):]
+                if not info:
+                    depth -= 1
+                    if not depth:
+                        fence = None
+                # A backtick info string holds no backtick: that line is inline code.
+                elif len(token) == len(fence) and not (token[0] == "`" and "`" in info):
+                    depth += 1
             yield number, line, True
             continue
         if marker:
             fence = marker.group(1)
+            depth = 1
             yield number, line, True
             continue
         yield number, line, False
@@ -229,7 +250,7 @@ def _heading_anchor_commands(context):
     an After-block gate or an exit criterion decides PASS or FAIL, so a
     Before-block reading is a measurement, not an anchor, and is skipped."""
     for command in context.commands:
-        if command.is_placeholder or not command.is_gate or "WRONG" in command.command:
+        if command.is_placeholder or not command.is_gate or _is_wrong(command):
             continue
         if command.block not in _ANCHOR_BLOCKS:
             continue
@@ -249,12 +270,15 @@ def _heading_anchor_commands(context):
 def _heading_anchor_tool_calls(context):
     """Yield ``(file, line, text, notes)`` for every native ``Grep`` call in a
     task file whose pattern starts at a heading marker. The line after the
-    call is part of its notes, because a pre-edit comment sits there."""
+    call is part of its notes, because a pre-edit comment sits there. A WRONG
+    label is read from the line outside the call and outside every quoted
+    argument value, so a pattern or a path that holds the word is no label."""
     for rel, lines in _task_files(context):
         for index, line in enumerate(lines):
-            if "WRONG" in line:
-                continue
             for call in GREP_TOOL_CALL_RE.finditer(line):
+                outside = line[:call.start()] + line[call.end():]
+                if "WRONG" in _QUOTED_ARGUMENT_RE.sub("", outside):
+                    continue
                 if _HEADING_ANCHOR_RE.match(call.group(2)):
                     following = lines[index + 1] if index + 1 < len(lines) else ""
                     yield rel, index + 1, call.group(0), f"{line} {following}"
@@ -399,7 +423,7 @@ def _check33_writer_command_without_scratch_target(context) -> list:
     """
     findings = []
     for command in context.commands:
-        if command.is_placeholder or "WRONG" in command.command:
+        if command.is_placeholder or _is_wrong(command):
             continue
         tokens = _tokens(command.command)
         if not tokens:
@@ -436,7 +460,7 @@ def _absence_grep_token(command):
     """The literal token of a zero-expected grep over a prose-bearing target,
     or None when the command is not that shape."""
     note = f"{command.comment} {command.annotation}"
-    if "WRONG" in command.command or "WRONG" in note or not _ZERO_EXPECT_RE.search(note):
+    if _is_wrong(command) or not _ZERO_EXPECT_RE.search(note):
         return None
     tokens = _tokens(command.command)
     if not tokens:
@@ -461,21 +485,25 @@ def _check35_absence_gate_over_mandated_prose(context) -> list:
     that the gate then counts. A gate here is a non-placeholder, non-WRONG
     command whose note expects 0, whose grep stage has a literal pattern, and
     whose target ends in a prose-bearing suffix. The mandate is a line outside
-    any fenced block that holds the same token, a documenting verb and no
-    ``grep``. Heuristic, so WARNING: it reports and never gates alone.
+    any fenced block that holds the same token, a documenting verb, no
+    ``grep`` and no WRONG label outside its code spans. Heuristic, so WARNING:
+    it reports and never gates alone.
     """
     prose_by_file = {}
     for rel, lines in _task_files(context):
         prose_by_file[rel] = [
             line for _number, line in _unfenced(lines)
-            if _DOCUMENTING_VERB_RE.search(line) and "grep" not in line and "WRONG" not in line
+            if _DOCUMENTING_VERB_RE.search(line) and "grep" not in line
         ]
     findings = []
     for command in context.commands:
         if command.is_placeholder or not command.is_gate:
             continue
         token = _absence_grep_token(command)
-        if token is None or not any(token in line for line in prose_by_file.get(command.file, ())):
+        if token is None or not any(
+            token in line and not _BARE_WRONG_RE.search(_PROSE_SPAN_RE.sub("", line))
+            for line in prose_by_file.get(command.file, ())
+        ):
             continue
         findings.append(_finding(
             check=35, severity=SEVERITY_WARNING, file=command.file, line=command.line,

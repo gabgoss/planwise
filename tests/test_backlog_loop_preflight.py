@@ -17,6 +17,7 @@ Run with:  python -m pytest tests/test_backlog_loop_preflight.py -q
 """
 
 import contextlib
+import io
 import sys
 import unittest
 from pathlib import Path
@@ -27,10 +28,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import backlog_loop
 import scoped_rules
+import update_backlog
 from backlog_loop import (
     DECISION_PENDING_REASON,
     MARKER_FORMAT,
     NEEDS_PLAN_REASON,
+    PLACEMENT_HINT,
     PLACEMENT_REASON,
     USER_RUN_REASON,
 )
@@ -46,6 +49,8 @@ LEGACY_SECTION = [
 ]
 PLACEMENT_LINE = "Add `.claude/rules/fixture-new-rule.md` to hold the new convention."
 UNANSWERED = ["## Open Questions", "", "### Q1. Which helper owns the change?", "", "Answer:"]
+ANSWERED = ["## Open Questions", "", "### Q1. Which helper owns the change?", "", "Answer: the loader helper."]
+PLACEMENT_PATH = ".claude/rules/fixture-new-rule.md"
 
 
 class _PreflightBase(_LoopFixtureBase):
@@ -71,6 +76,19 @@ class _PreflightBase(_LoopFixtureBase):
 
     def reasons(self, payload: dict) -> dict:
         return {entry["id"]: entry["reason"] for entry in payload["excluded"]}
+
+    def approve(self, item_id: str, path: str) -> None:
+        """Record a confirmed destination through the real `--approve-placement` writer."""
+        saved_argv = sys.argv
+        sys.argv = [
+            "update_backlog", "--config", str(self.config_path), "--id", item_id, "--approve-placement", path,
+        ]
+        out, err = io.StringIO(), io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                update_backlog.main()
+        finally:
+            sys.argv = saved_argv
 
 
 class TestInitPreflight(_PreflightBase):
@@ -111,6 +129,60 @@ class TestInitPreflight(_PreflightBase):
         self.assertIn(f"warning: item 010 dropped: {DECISION_PENDING_REASON}", payload["warnings"])
         self.assertIn(f"warning: item 011 dropped: {PLACEMENT_REASON}", payload["warnings"])
         self.assertIn(f"warning: item 011 dropped: {PLACEMENT_REASON}", text)
+
+
+class TestPlacementHint(_PreflightBase):
+    """A `placement` exclusion prints, once, how the user clears it."""
+
+    def dry_run(self, *argv: str) -> tuple[list[str], dict]:
+        code, text, payload = self.loop("--init", *argv, "--dry-run")
+        self.assertEqual(code, 0, payload)
+        return text.splitlines(), payload
+
+    def test_each_mode_prints_the_hint_once(self):
+        self.add_item("011", [PLACEMENT_LINE])
+        self.add_item("012", [PLACEMENT_LINE])
+        lines, _payload = self.dry_run("--mode", "all")
+        self.assertEqual(lines.count(PLACEMENT_HINT), 1)
+        lines, _payload = self.dry_run("--mode", "n", "--n", "2")
+        self.assertEqual(lines.count(PLACEMENT_HINT), 1)
+        lines, payload = self.dry_run("--mode", "specific", "--items", "001,011,012")
+        self.assertEqual(lines.count(PLACEMENT_HINT), 1)
+        self.assertIn(PLACEMENT_HINT, payload["warnings"])
+
+    def test_the_hint_names_both_ways_out_and_the_dead_end(self):
+        for part in (
+            "interactive /planwise backlog <id>", "--approve-placement", "placement_approved",
+            # The report names no path, and only an interactive run asks for one.
+            "score_backlog.py --route --id <id>", "Open Questions", "loop-decision question",
+        ):
+            with self.subTest(part=part):
+                self.assertIn(part, PLACEMENT_HINT)
+
+    def test_an_approved_destination_queues_the_item_without_the_hint(self):
+        self.add_item("011", [PLACEMENT_LINE])
+        self.approve("011", PLACEMENT_PATH)
+        lines, payload = self.dry_run("--mode", "all")
+
+        self.assertIn("011", [q["id"] for q in payload["queue"]])
+        self.assertNotIn("011", self.reasons(payload))
+        self.assertNotIn(PLACEMENT_HINT, lines)
+
+    def test_an_answered_question_does_not_clear_placement(self):
+        self.add_item("011", [PLACEMENT_LINE, ""] + ANSWERED)
+        lines, payload = self.dry_run("--mode", "all")
+
+        self.assertEqual(self.reasons(payload)["011"], PLACEMENT_REASON)
+        self.assertEqual(lines.count(PLACEMENT_HINT), 1)
+
+    def test_another_exclusion_prints_no_placement_hint(self):
+        self.add_item("010", LEGACY_SECTION)
+        lines, payload = self.dry_run("--mode", "all")
+
+        self.assertEqual(self.reasons(payload)["010"], DECISION_PENDING_REASON)
+        self.assertNotIn(PLACEMENT_HINT, lines)
+        lines, _payload = self.dry_run("--mode", "specific", "--items", "001,010")
+        self.assertNotIn(PLACEMENT_HINT, lines)
 
 
 USER_RUN_LINE = "# user-run: open the live probe -> the probe prints PASS"

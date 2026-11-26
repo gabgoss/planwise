@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 
 import config_loader
 import doctor_probes as dp
+import feedback_drafts
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 
@@ -137,3 +138,35 @@ def test_legacy_layout_folders_in_a_worktree_still_name_a_legacy_config(tmp_path
     for config_path in (main_config, wt_config):
         config = config_loader.load_config(config_path=config_path)
         assert dp._legacy_layout_folders(config) == [(f"{old}/", "Feedback/Feedback-Drafts/")]
+
+
+def _feedback_dir_command(config_path: Path):
+    """Run `feedback-dir --config <path>` and return its exit code and stdout."""
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        code = feedback_drafts.main(["feedback-dir", "--config", str(config_path)])
+    return code, buf.getvalue()
+
+
+def test_feedback_dir_command_in_a_worktree_prints_the_main_checkouts_folder(tmp_path):
+    main_config, wt_config = _make_pair(tmp_path)
+    expected = (main_config.parent / FEEDBACK_REL).resolve()
+    code, out = _feedback_dir_command(wt_config)
+    assert code == 0
+    lines = out.splitlines()
+    assert len(lines) == 1
+    assert Path(lines[0]).resolve() == expected
+    assert not expected.exists()  # the command writes nothing
+
+
+def test_feedback_dir_command_on_the_main_config_prints_the_same_folder(tmp_path):
+    main_config, _ = _make_pair(tmp_path)
+    code, out = _feedback_dir_command(main_config)
+    assert code == 0
+    assert Path(out.strip()).resolve() == (main_config.parent / FEEDBACK_REL).resolve()
+
+
+def test_feedback_dir_command_on_a_missing_config_exits_1_with_no_stdout(tmp_path):
+    code, out = _feedback_dir_command(tmp_path / "no-such" / "config.yaml")
+    assert code == 1
+    assert out == ""

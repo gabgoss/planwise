@@ -910,6 +910,7 @@ def test_card_lists_three_drafts_the_state_and_each_body(tmp_path):
         "d-0002\tlesson\tName the key the class uses\t5d\n"
         "d-0003\tidea\tPreview the card body\t0d\n"
         "Posting state: enabled\n"
+        "Target repository: example-owner/example-repo\n"
         "\n--- draft d-0001: List skips a queued draft ---\n### What happened\n\nThe list command skipped a draft.\n"
         "\n--- draft d-0002: Name the key the class uses ---\n### Lesson\n\nCount by the key citers use.\n"
         "\n--- draft d-0003: Preview the card body ---\n### Idea\n\nShow the body in the card.\n")
@@ -925,7 +926,19 @@ def test_card_draft_id_narrows_to_one_draft(tmp_path):
         f"Queued drafts (1) in {folder}:\n"
         "d-0002\tlesson\tName the key the class uses\t5d\n"
         "Posting state: enabled\n"
+        "Target repository: example-owner/example-repo\n"
         "\n--- draft d-0002: Name the key the class uses ---\n### Lesson\n\nCount by the key citers use.\n")
+    assert count_calls(log) == 0
+
+
+def test_card_prints_the_default_repository_for_an_invalid_value(tmp_path):
+    config, _folder = card_setup(tmp_path)
+    config.write_bytes(b"feedback:\n  enabled: true\n  repo: not a repo\n")
+    env, log = gh_env(tmp_path, route="override")
+    result = card(config, env)
+    assert result.returncode == 0, result.stderr
+    assert "\nTarget repository: gabgoss/planwise\n" in result.stdout
+    assert "not a repo" not in result.stdout
     assert count_calls(log) == 0
 
 

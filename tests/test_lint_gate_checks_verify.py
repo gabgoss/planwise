@@ -208,6 +208,62 @@ class TestCheck35AbsenceGateOverMandatedProse(unittest.TestCase):
         self.assertEqual(_lint(35, self.GATE, extra=extra), [])
 
 
+class TestWrongLabelIsReadFromTheNote(unittest.TestCase):
+    """The word WRONG exempts a gate only as a label. A pattern or a target
+    that merely holds the word leaves the gate checked."""
+
+    CALL = "Grep  pattern='{pattern}'  path='{path}'  output_mode='count'{note}\n\n"
+
+    def _call(self, pattern="^## Results", path="report.md", note=""):
+        return _lint(30, QUIET, extra=self.CALL.format(pattern=pattern, path=path, note=note))
+
+    def test_check30_fires_on_a_pattern_that_holds_the_word(self):
+        findings = _lint(30, ["grep -c '^## WRONG' refs/x.md   # expect 1"])
+        self.assertEqual(_pairs(findings), [(30, "WARNING")])
+
+    def test_check30_labelled_command_stays_silent(self):
+        self.assertEqual(_lint(30, ["grep -c '^## Results' report.md   # WRONG: expect 1"]), [])
+
+    def test_check30_fires_on_a_native_call_whose_pattern_holds_the_word(self):
+        self.assertEqual(_pairs(self._call(pattern="^## WRONG")), [(30, "WARNING")])
+
+    def test_check30_fires_on_a_native_call_whose_target_holds_the_word(self):
+        self.assertEqual(_pairs(self._call(path="refs/WRONG-cases.md")), [(30, "WARNING")])
+
+    def test_check30_labelled_native_call_stays_silent(self):
+        self.assertEqual(self._call(note="   # WRONG: no date"), [])
+
+    def test_check33_fires_on_a_writer_whose_target_holds_the_word(self):
+        findings = _lint(33, ["ruff check --fix plugins/WRONG_cases.py   # expect All checks passed"])
+        self.assertEqual(_pairs(findings), [(33, "ERROR")])
+
+    def test_check33_labelled_writer_stays_silent(self):
+        self.assertEqual(_lint(33, ["ruff check --fix plugins/x.py   # WRONG: writes the live tree"]), [])
+
+    def test_check35_fires_on_a_target_that_holds_the_word(self):
+        gate = ["grep -c 'date.today' src/WRONG_clock.py   # expect 0"]
+        findings = _lint(35, gate, extra=TestCheck35AbsenceGateOverMandatedProse.MANDATE)
+        self.assertEqual(_pairs(findings), [(35, "WARNING")])
+
+    def test_check35_fires_on_a_pattern_that_holds_the_word(self):
+        mandate = "The module docstring must explain why `WRONG_MODE` is absent.\n\n"
+        findings = _lint(35, ["grep -c 'WRONG_MODE' src/clock.py   # expect 0"], extra=mandate)
+        self.assertEqual(_pairs(findings), [(35, "WARNING")])
+
+    def test_check35_labelled_mandate_line_is_still_ignored(self):
+        mandate = "WRONG: the module docstring must explain why `date.today` is absent.\n\n"
+        self.assertEqual(_lint(35, TestCheck35AbsenceGateOverMandatedProse.GATE, extra=mandate), [])
+
+    def test_check35_fires_when_the_mandate_line_names_a_target_that_holds_the_word(self):
+        mandate = "The docstring of `src/WRONG_clock.py` must explain why `date.today` is absent.\n\n"
+        findings = _lint(35, ["grep -c 'date.today' src/WRONG_clock.py   # expect 0"], extra=mandate)
+        self.assertEqual(_pairs(findings), [(35, "WARNING")])
+
+    def test_check35_label_still_counts_when_the_gate_token_is_the_word(self):
+        mandate = "WRONG: the module docstring must explain why `WRONG` is absent.\n\n"
+        self.assertEqual(_lint(35, ["grep -c 'WRONG' src/clock.py   # expect 0"], extra=mandate), [])
+
+
 class TestCheck36DigitlessIdentifierClass(unittest.TestCase):
     def test_bad_grep_class_without_a_digit(self):
         findings = _lint(36, ["grep -oE '[a-z_]+' ddl.sql   # expect 15 names"])
@@ -650,6 +706,61 @@ class TestCheck68LiteralExtractionBound(unittest.TestCase):
         self.assertEqual(self._check(gate), [])
         extra = self.CRITERIA + "WRONG: Read  file_path='ddl.sql'  limit=200\n\n"
         self.assertEqual(self._check(QUIET, extra=extra), [])
+
+
+class TestFenceClosesOnABareMarkerOnly(unittest.TestCase):
+    """A fence ends on a bare marker line of its own character, at least as long
+    as the opener. A marker line with an info string closes nothing. At the
+    opener's own length it starts a nested sample, which takes its own closer."""
+
+    @staticmethod
+    def _fenced(*lines):
+        return [fenced for _number, _line, fenced in verify_module._fence_marked(list(lines))]
+
+    def test_nested_sample_stays_inside_a_longer_outer_fence(self):
+        flags = self._fenced(
+            "````markdown", "```bash", "echo hi", "```", "## Heading inside outer", "````", "after"
+        )
+        self.assertEqual(flags, [True, True, True, True, True, True, False])
+
+    def test_same_length_nested_sample_stays_inside_the_outer_fence(self):
+        flags = self._fenced("```", "```bash", "x", "```", "## still inside", "```", "after")
+        self.assertEqual(flags, [True, True, True, True, True, True, False])
+
+    def test_schema_pin_block_of_the_task_template_is_one_fence(self):
+        # The lines of the shipped task-file template's Schema Pin block.
+        flags = self._fenced(
+            "```", "**Schema Pin** - ddl.sql#widgets", "```sql", "## DDL comment", "```",
+            "Live as of: {YYYY-MM-DD}", "```", "## Execution Steps",
+        )
+        self.assertEqual(flags, [True] * 7 + [False])
+
+    def test_inline_code_line_inside_a_fence_starts_no_nested_sample(self):
+        self.assertEqual(self._fenced("```", "```sql``` is the tag", "```", "after"), [True, True, True, False])
+
+    def test_info_string_of_the_other_character_starts_no_nested_sample(self):
+        self.assertEqual(self._fenced("```", "~~~bash", "```", "after"), [True, True, True, False])
+
+    def test_shorter_marker_does_not_close(self):
+        self.assertEqual(self._fenced("````", "```", "x", "````", "after"), [True, True, True, True, False])
+
+    def test_other_character_does_not_close(self):
+        self.assertEqual(self._fenced("```", "~~~", "x", "```", "after"), [True, True, True, True, False])
+
+    def test_longer_marker_closes(self):
+        self.assertEqual(self._fenced("```", "x", "`````", "after"), [True, True, True, False])
+
+    def test_quoted_bare_marker_closes(self):
+        self.assertEqual(self._fenced("> ```bash", "> x", "> ```", "after"), [True, True, True, False])
+
+    def test_check68_section_does_not_end_at_a_heading_inside_a_nested_sample(self):
+        extra = (
+            "## Success Criteria\n\n"
+            "````markdown\n```bash\n## a comment in the sample\n```\n````\n\n"
+            "Read  file_path='ddl.sql'  limit=200\n\n"
+        )
+        findings = _lint(68, QUIET, extra=extra)
+        self.assertEqual([(f["check"], f["line"]) for f in findings], [(68, 11)])
 
 
 class TestRegistrationContract(unittest.TestCase):

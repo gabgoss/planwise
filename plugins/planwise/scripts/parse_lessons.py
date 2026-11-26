@@ -68,6 +68,7 @@ from markdown_parser import (
     split_row_cells,
     split_row_cells_code_aware,
 )
+from worktree_scan import sibling_dirs
 
 # The single ID-cell regex: bare, bold, linked, any digit count. Group 1 is
 # the digits only. Every other reader in this project imports this rather
@@ -474,15 +475,50 @@ def collect_all_known_ids(config: dict) -> dict:
     }
 
 
-def compute_next_id(config: dict) -> dict:
+def _linked_worktree_ids(config: dict) -> set:
+    """The lesson ids, file names and index rows, that the lessons folders of
+    the other linked worktrees hold. Empty on no git or a single worktree.
+
+    Another worktree's files may be mid-write or unreadable. That must not stop
+    allocation here, so a failed read is named on stderr and skipped.
+    """
+    lessons_dir = config.get("_lessons_dir")
+    index_path = config.get("_lessons_index")
+    if lessons_dir is None:
+        return set()
+    ids: set = set()
+    for folder in sibling_dirs(lessons_dir):
+        try:
+            ids |= {lesson_id for lesson_id, _ in lesson_files(folder, folder / "Archive")}
+            if index_path is None or not index_path.is_relative_to(lessons_dir):
+                continue
+            sibling_index = folder / index_path.relative_to(lessons_dir)
+            parsed = parse_index({"_lessons_dir": folder, "_lessons_index": sibling_index})
+            ids |= {row.id for row in parsed.rows if row.id != -1}
+        except (OSError, UnicodeDecodeError) as exc:
+            print(
+                f"Warning: could not read all lesson ids in linked worktree folder {folder}: {exc}",
+                file=sys.stderr,
+            )
+    return ids
+
+
+def compute_next_id(config: dict, *, include_siblings: bool = False) -> dict:
     """The true next lesson id: `max(disk union the generated index family
     union a legacy Master Table) + 1`, or 1 when every source is empty.
+
+    With `include_siblings`, the union also covers the lessons folders of the
+    other linked git worktrees (`worktree_scan.sibling_dirs`). Only an id
+    allocator passes it: the committed counter and the drift check stay a
+    function of this tree alone. The scope is local folders only. No remote
+    branch is read, and no git or a single worktree adds nothing.
 
     Returns the shape every existing caller already reads -- `next`,
     `next_id`, `max_found`, `found_in`, `counts` -- with the `found_in`
     labels `"working directory"`, `"Archive/"` and `"master table"`
-    unchanged, plus `"generated index"` for the generated shape, so an
-    existing caller's assertions keep holding.
+    unchanged, plus `"generated index"` for the generated shape and
+    `"linked worktree"` for a max that another worktree holds. `counts`
+    covers this tree only.
     """
     lessons_dir = config.get("_lessons_dir")
     archive_dir = (lessons_dir / "Archive") if lessons_dir else None
@@ -504,7 +540,9 @@ def compute_next_id(config: dict) -> dict:
         generated_ids = {row.id for row in valid_rows}
         master_ids = set()
 
-    all_ids = working_ids | archive_ids | master_ids | generated_ids
+    linked_ids = _linked_worktree_ids(config) if include_siblings else set()
+
+    all_ids = working_ids | archive_ids | master_ids | generated_ids | linked_ids
     max_found = max(all_ids) if all_ids else None
     found_in = []
     if max_found is not None:
@@ -516,6 +554,8 @@ def compute_next_id(config: dict) -> dict:
             found_in.append("master table")
         if max_found in generated_ids:
             found_in.append("generated index")
+        if max_found in linked_ids:
+            found_in.append("linked worktree")
 
     return {
         "next": (max_found + 1) if max_found is not None else 1,
@@ -731,8 +771,15 @@ def main() -> int:
     has_duplicates = bool(known["duplicates_on_disk"] or known["duplicates_in_index"])
 
     if args.next_id:
-        result = compute_next_id(config)
+        result = compute_next_id(config, include_siblings=True)
         print(result["next_id"])
+        local = compute_next_id(config)
+        if local["next"] != result["next"]:
+            print(
+                f"Note: a linked worktree holds {format_id(result['max_found'])}. "
+                f"This tree alone would give {local['next_id']}.",
+                file=sys.stderr,
+            )
         if has_duplicates:
             print(_format_duplicates_report(known), file=sys.stderr)
         if args.json:

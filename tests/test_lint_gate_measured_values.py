@@ -502,6 +502,38 @@ class TestCheck66MeasuredValues(unittest.TestCase):
         self.assertIsNone(lint_module._stated_invariant("# invariant: the same three lines"))
 
 
+class TestCheck1SessionState(unittest.TestCase):
+    """Check 1 reads the live tree as the pre-edit state, so it runs only in a
+    session the Master Plan marks NOT STARTED or does not track."""
+
+    TASK = "Sprint-01-Alpha/Session-01-Beta/TST-S01-01-01-Fixture.md"
+    # notes.md holds three X lines, so this After gate already passes.
+    VACUOUS = "grep -c 'X' notes.md   # expect 3"
+
+    # The same plan shape the Check 66 cases build.
+    _plan = TestCheck66MeasuredValues._plan
+
+    def _check1(self, row_status):
+        with tempfile.TemporaryDirectory() as tmp:
+            text = _task_text(after=[self.VACUOUS])
+            root = self._plan(tmp, text, task_name=self.TASK, row_status=row_status)
+            return _of(lint_plan(root), 1)
+
+    def test_begun_session_is_silent(self):
+        for status in ("✅ COMPLETE", "🔄 IN PROGRESS", "🚫 BLOCKED"):
+            with self.subTest(status=status):
+                self.assertEqual(self._check1(status), [])
+
+    def test_not_started_session_fires(self):
+        found = self._check1("⏳ NOT STARTED")
+        self.assertEqual([f["severity"] for f in found], ["ERROR"], found)
+
+    def test_untracked_session_fires(self):
+        # No Master Plan records a state, so the live tree is still compared.
+        found = self._check1(None)
+        self.assertEqual([f["severity"] for f in found], ["ERROR"], found)
+
+
 class TestExecutorArgvReachesTheTool(unittest.TestCase):
     """``run_command`` must hand grep the pattern a shell would hand it.
 
