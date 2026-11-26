@@ -73,6 +73,14 @@ Commands Plan-Review Enforcement table; `templates/task-file.md` §Per-File-Type
    Plan § Decisions (Locked). Reuse it only in gates that run before any edit to that population.
    Re-check the tree identity at each dispatch. See `references/gate-pre-edit-baseline.md`
    §10.1.1 Scope the measurement to the gate's population.
+6. **Run each new gate once.** Before the task is plan-complete, run each new Before
+   `# expect:` or `baseline:` command and each new After gate once against the working tree.
+   Check 66 compares the Before expectation, and Check 7 reads `baseline:`. When the task's
+   `**Depends On:**` names no producer, a Before value that differs means the expectation is
+   wrong, so correct the `expect:` or `baseline:` value itself to the observed value. When it names
+   a producer, keep a value that carries that producer's edits forward as written. Check 66 then
+   reports a contradiction as a WARNING. For an After gate of a task with no producer, write the
+   observed value after the `pre-edit:` token, which Checks 2 and 66 read.
 
 On the default path, the Per-File-Type rows are bodies, so write and repair them in the session's
 bodies file, then rebuild.

@@ -21,7 +21,7 @@ Verify that every check block in the consolidated report carries a severity tag.
 > ```
 > **After:** *(runner)*
 > ```bash
-> grep -cE '^\[(BLOCKER|ERROR|WARNING|INFO)\]' report.md
+> grep -cE '^.(BLOCKER|ERROR|WARNING|INFO).' report.md
 > # pre-edit: 3 → expect >= 54
 > ```
 

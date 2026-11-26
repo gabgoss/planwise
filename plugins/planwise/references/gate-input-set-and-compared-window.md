@@ -1,14 +1,14 @@
 ---
-description: A diff-pinned or sweep-based criterion records the spanned-file count and the untracked count beside its own verdict, because an empty result reads the same whether the predicate inspected the work or inspected nothing (§10.6); a verbatim-literal proof extracts from the function body only, excludes by the exact token and not a bare word, and prints the compared-set size beside the difference count (§12); a selection pattern that defines a task's scope is dry-run against known-bad input and its count is checked by an independent non-empty assertion (§14); a fixed context window around a structured entry is sized from the schema's maximum (§15); and a Verification Command's match set covers the whole population its comment or criterion names (§16). A no-output-change refactor diffs its base emit-call literals against the working tree and explains each missing one (§17).
-consult-when: A criterion is fed by a pinned diff or a sweep, a proof compares string literals, a task selects its own work with a pattern and measures success against that pattern's count, or a pull uses a fixed -B or -A window around a structured entry — record the spanned-file and untracked counts beside the verdict (§10.6), extract from the body and print the compared-set size (§12), dry-run the selection pattern and assert a non-empty input independently (§14), size the window from the schema maximum (§15); a comment or criterion names a population (N files, every row, fixtures B and C) and a Verification Command matches it — expand the pattern and compare its match set to the named population (§16); a refactor's contract is no output change — diff the emitted text and explain each missing literal (§17)
+description: A diff-pinned or sweep-based criterion records the spanned-file count and the untracked count beside its own verdict, because an empty result reads the same whether the predicate inspected the work or inspected nothing (§10.6); a verbatim-literal proof extracts from the function body only, excludes by the exact token and not a bare word, and prints the compared-set size beside the difference count (§12); a selection pattern that defines a task's scope is dry-run against known-bad input and its count is checked by an independent non-empty assertion (§14); a fixed context window around a structured entry is sized from the schema's maximum (§15); and a Verification Command's match set covers the whole population its comment or criterion names (§16). A no-output-change refactor diffs its base emit-call literals against the working tree and explains each missing one (§17). An extraction step is bounded by markers, never by a literal byte or line count, and asserts its parsed length (§18).
+consult-when: A criterion is fed by a pinned diff or a sweep, a proof compares string literals, a task selects its own work with a pattern and measures success against that pattern's count, or a pull uses a fixed -B or -A window around a structured entry — record the spanned-file and untracked counts beside the verdict (§10.6), extract from the body and print the compared-set size (§12), dry-run the selection pattern and assert a non-empty input independently (§14), size the window from the schema maximum (§15); a comment or criterion names a population (N files, every row, fixtures B and C) and a Verification Command matches it — expand the pattern and compare its match set to the named population (§16); a refactor's contract is no output change — diff the emitted text and explain each missing literal (§17); an extraction cuts at a literal byte or line count — bound it by markers and assert the parsed length (§18)
 paths: {planwise_root}/{plans_dir}/**
 ---
 
 # Gate Input Set and Compared Window
 
-**Purpose:** Six rules about what a gate or a task was permitted to look at. §10.6 covers the input set a diff or sweep criterion ran over, recorded before the edit. §12 covers the window an extractor reads and the set size it reports after. §14 covers the pattern that selects a task's own work, and §15 covers the fixed context window that pulls each selected entry. §14.1 extends §14 to a relational criterion that passes on two empty sides. §16 covers the match set a Verification Command reaches against the population its comment or criterion names. §17 covers the emitted text a no-output-change refactor must keep. A green result over a smaller set than the criterion names is not the proof the criterion asked for. Split from `verification-task-authoring.md` on 2026-10-08. Section numbers are kept from that reference, so an existing `verification-task-authoring.md §N` citation translates by filename alone. §17 is native to this file, so no `verification-task-authoring.md` citation maps to it. The family index is `verification-task-authoring.md`.
+**Purpose:** Seven rules about what a gate or a task was permitted to look at. §10.6 covers the input set a diff or sweep criterion ran over, recorded before the edit. §12 covers the window an extractor reads and the set size it reports after. §14 covers the pattern that selects a task's own work, and §15 covers the fixed context window that pulls each selected entry. §14.1 extends §14 to a relational criterion that passes on two empty sides. §16 covers the match set a Verification Command reaches against the population its comment or criterion names. §17 covers the emitted text a no-output-change refactor must keep. §18 covers the bound of an extraction step and the parsed length it asserts. A green result over a smaller set than the criterion names is not the proof the criterion asked for. Split from `verification-task-authoring.md` on 2026-10-08. Section numbers are kept from that reference, so an existing `verification-task-authoring.md §N` citation translates by filename alone. §17 and §18 are native to this file, so no `verification-task-authoring.md` citation maps to them. The family index is `verification-task-authoring.md`.
 
-**Read this when** a verification report carries a criterion fed by a pinned diff or an on-disk sweep, a proof script compares string literals between two sources and reports a difference count, a task selects its own work with a pattern and checks success against the count that pattern returned, a task pulls a structured entry with a fixed `-B` or `-A` window, or a Verification Command sits beside a comment or criterion that names a population (a file list, "every row", a headline count) the command's pattern may match only in part, or a refactor's contract is no output change.
+**Read this when** a verification report carries a criterion fed by a pinned diff or an on-disk sweep, a proof script compares string literals between two sources and reports a difference count, a task selects its own work with a pattern and checks success against the count that pattern returned, a task pulls a structured entry with a fixed `-B` or `-A` window, or a Verification Command sits beside a comment or criterion that names a population (a file list, "every row", a headline count) the command's pattern may match only in part, a refactor's contract is no output change, or an extraction step cuts its input at a literal byte or line count.
 
 ## Table of Contents
 
@@ -19,6 +19,7 @@ paths: {planwise_root}/{plans_dir}/**
 - [15. A Context Window Around a Structured Entry Is Sized From the Schema's Maximum](#15-a-context-window-around-a-structured-entry-is-sized-from-the-schemas-maximum)
 - [16. A Verification Command's Match Set Covers the Population Its Criterion Names](#16-a-verification-commands-match-set-covers-the-population-its-criterion-names)
 - [17. A No-Output-Change Refactor Gates on Emitted Text](#17-a-no-output-change-refactor-gates-on-emitted-text)
+- [18. An Extraction Is Bounded by Markers and Asserts Its Parsed Length](#18-an-extraction-is-bounded-by-markers-and-asserts-its-parsed-length)
 
 ---
 
@@ -281,6 +282,47 @@ A refactor whose contract is "no output change" can still change what a script p
 > ```
 
 **Applies to** any refactor, port or module split whose brief says the output must not change. Cross-reference: §12 covers a verbatim proof between two languages. This section covers the text one script emits before and after its own refactor.
+
+## 18. An Extraction Is Bounded by Markers and Asserts Its Parsed Length
+
+An extraction step that cuts its input at a literal byte or line count reads whatever falls inside the cut. When the subject grows past the cut, the step returns less, and nothing reports it. A gate fed by that step can then pass more easily as the file grows.
+
+> [!constraint] Bound the extraction by markers, assert the parsed length, and ask which way a short read moves the gate
+> **Rule.** A gate proved that every column of a table definition was bound in a merge statement. It took the column list from `open(path).read()[:9000]`. The definition block ended at byte 8,528 when the gate was written. A task in the same session added five columns, and the block then ended at about 8,743. A block that crosses the cut makes the parse return fewer columns. The list of missing columns then gets shorter, and the assertion passes more readily. No error and no warning marks the change.
+>
+> Four operative points:
+>
+> 1. **Never bound an extraction step with a literal size.** A slice such as `[:N]`, a `head -n N` stage, `grep -m N` and a `Read` call with a `limit` each cut the subject at a number chosen on one day.
+> 2. **Bound it by markers.** Start at the token that opens the block and end at the token that closes it. The extent then comes from the block's own structure.
+> 3. **Assert the parsed length.** State the count the extraction must return, as in `assert len(ddl) == 73`. The length assertion is the line that fails when the extraction comes back short.
+> 4. **Ask the fail-open question.** If this extraction silently returns less than it should, does the assertion get easier or harder to satisfy? Easier means the gate is fail-open, and it needs a completeness assertion. Harder means a short read fails loudly.
+>
+> WRONG — a literal byte bound, and an assertion that a short read satisfies more easily:
+> ```python
+> ddl = re.findall(PATTERN, open(SQL).read()[:9000], re.M)
+> missing = [c for c in ddl if c not in bound]
+> assert not missing
+> ```
+> CORRECT — marker bounds, and a parsed-length assertion beside the real check:
+> ```python
+> text = open(SQL).read()
+> start = text.index("CREATE TABLE")
+> ddl = re.findall(PATTERN, text[start:text.index(");", start)], re.M)
+> assert len(ddl) == 73, f"parsed {len(ddl)} columns, expected 73"
+> missing = [c for c in ddl if c not in bound]
+> assert not missing
+> ```
+
+**Enforced by script:** lint Check 68 of `scripts/lint_verification_gates.py`, defined in `scripts/lint_gate_checks_verify.py`. It is static and reports a WARNING once for each command that holds a literal extraction bound and no clearing form. The flagged shapes are these:
+
+- A slice with a literal integer stop on a read result, such as `.read()[:9000]` or `.read_text(...)[:9000]`.
+- A `head` stage (`-n N`, `-nN`, `-N`, `-c N` and the long forms) or a `tail` stage with a literal count, when another stage follows it.
+- `grep -m N` or `--max-count=N`.
+- A native `Read` call with `limit=N` in the Verification Commands or Success Criteria section of a task file. The line after the call is read as its annotation. A paged read under Execution Steps or Required Context is an instruction and is not flagged.
+
+A command clears when its comment or annotation holds the words `parsed length`. A `len(...)` comparison clears only the pipeline that holds the bounded stage, or the command's note. One on the other side of `&&` or `;` does not. A final `wc -l`, `wc -c`, `wc --lines` or `wc --bytes` stage also clears a bound, but only when it directly follows the bounded stage. A filter stage between the cut and the `wc` leaves the bound flagged, because the `wc` then counts the filtered output. A command with several bounds is flagged when any one bound is uncleared. The check does not flag a pipeline whose last stage is `head` or `tail`, because that stage only displays. It does not flag `tail -n +N`, which is a start offset, or a `[:N]` slice on something that is not a read result. It skips a command whose comment or annotation is labelled WRONG, and the word inside a pattern argument is not a label. It cannot see a bound held in a variable, a length asserted in a later command, or a bound that is correct by design.
+
+**Applies to** any gate whose input comes from an extraction step: a slice, a `head -n`, a `Read` with a `limit`, an implicit `TOP`, or any "parse the first N of X" step. Cross-reference: §15 covers a fixed context window around one structured entry. This section covers the cut that decides how much of the subject an extraction reads at all.
 
 ---
 

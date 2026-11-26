@@ -192,22 +192,28 @@ class TestPerCheckShapes(unittest.TestCase):
         self.assertEqual(findings[0]["severity"], "WARNING")
 
     def test_check11_verdict_emphasis_dropped_is_error(self):
+        # Check 66 also fires: the Before gate expects 1 and measures 0.
         findings = _lint_fixture("shape_11_verdict_emphasis_dropped")
-        self.assertEqual(_checks_present(findings), [11])
-        self.assertEqual(len(findings), 1)
-        self.assertEqual(findings[0]["severity"], "ERROR")
+        self.assertEqual(_checks_present(findings), [11, 66])
+        self.assertEqual(len(findings), 2)
+        self.assertEqual(_severities_for_check(findings, 11), ["ERROR"])
+        self.assertEqual(_severities_for_check(findings, 66), ["ERROR"])
 
     def test_check12_heading_substring_is_warning(self):
+        # Check 66 also fires: the Before gate expects 0 and measures 2.
         findings = _lint_fixture("shape_12_heading_substring")
-        self.assertEqual(_checks_present(findings), [12])
-        self.assertEqual(len(findings), 1)
-        self.assertEqual(findings[0]["severity"], "WARNING")
+        self.assertEqual(_checks_present(findings), [12, 66])
+        self.assertEqual(len(findings), 2)
+        self.assertEqual(_severities_for_check(findings, 12), ["WARNING"])
+        self.assertEqual(_severities_for_check(findings, 66), ["ERROR"])
 
     def test_check13_bare_numeric_literal_is_warning(self):
+        # Check 66 also fires: the After gate states pre-edit 0 and measures 2.
         findings = _lint_fixture("shape_13_bare_numeric_literal")
-        self.assertEqual(_checks_present(findings), [13])
-        self.assertEqual(len(findings), 1)
-        self.assertEqual(findings[0]["severity"], "WARNING")
+        self.assertEqual(_checks_present(findings), [13, 66])
+        self.assertEqual(len(findings), 2)
+        self.assertEqual(_severities_for_check(findings, 13), ["WARNING"])
+        self.assertEqual(_severities_for_check(findings, 66), ["ERROR"])
 
     def test_check14_context_window_counted_is_warning(self):
         # A pipeline: the executor refuses it whole (one UNCERTAIN refusal,
