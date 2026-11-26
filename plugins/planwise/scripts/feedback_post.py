@@ -960,7 +960,7 @@ def _card_row(draft: "feedback_drafts.Draft", now: datetime, status: "str | None
 
 
 def cmd_card(args: argparse.Namespace) -> int:
-    """Print the queued drafts, the posting state and each queued body. Local-only and read-only: no file, no gh."""
+    """Print the queued drafts, the posting state, the target repository and each queued body. Local-only and read-only: no file, no gh."""
     config = Path(args.config)
     if not config.is_file():
         print(f"feedback_post: config.yaml not found at {config}", file=sys.stderr)
@@ -983,6 +983,10 @@ def cmd_card(args: argparse.Namespace) -> int:
         state = feedback_drafts.read_posting_state(config)
     except (OSError, ValueError) as exc:
         state = f"unreadable ({' '.join(str(exc).split())})"
+    try:
+        repo = feedback_drafts.read_post_settings(config)[1]
+    except feedback_drafts._CONFIG_ERRORS as exc:
+        repo = f"unreadable ({' '.join(str(exc).split())})"
 
     print(f"Queued drafts ({len(queued)}) in {directory}:")
     for draft in queued:
@@ -993,6 +997,7 @@ def cmd_card(args: argparse.Namespace) -> int:
         for draft in others:
             print(_card_row(draft, now, statuses[id(draft)]))
     print(f"Posting state: {state}")
+    print(f"Target repository: {repo}")
     for draft in queued:
         print()
         print(f"--- draft {draft.draft_id}: {' '.join(draft.fm.get('title', '').split())} ---")

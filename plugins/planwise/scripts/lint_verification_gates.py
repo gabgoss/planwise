@@ -1223,9 +1223,14 @@ def _check1_vacuous_after_gate(context: LintContext) -> list:
     its stated expectation cannot tell whether the work happened. Exempt
     when the author marked the gate ``invariant:`` -- ``pre == post`` is the
     intended outcome there, not a defect.
+
+    Skips a task in a session the Master Plan marks anything but NOT STARTED
+    (see ``_session_state_reader``). Once a session has begun, the live tree
+    may already hold its edits, so a passing After gate is the expected result.
     """
     if not context.execute:
         return []
+    may_compare = None
     findings = []
     for command in context.commands:
         if command.block != BLOCK_AFTER or command.is_placeholder or not command.is_gate:
@@ -1239,6 +1244,10 @@ def _check1_vacuous_after_gate(context: LintContext) -> list:
         if measured is None:
             continue
         if expectation.satisfies(measured):
+            if may_compare is None:
+                may_compare = _session_state_reader()
+            if not may_compare(command.path):
+                continue
             findings.append(
                 make_finding(
                     check=1,
@@ -1698,12 +1707,13 @@ _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 
 
 def _session_state_reader():
-    """Return a function that says whether Check 66 may compare a task's gates.
+    """Return a function that says whether Checks 1 and 66 may compare a task's
+    gates with the live tree.
 
     It reads the nearest Master Plan's Session Completion Tracking table with
     the readers ``token_saver_scan`` uses for its COMPLETE-session skip. They
     are imported here rather than at module load: the import pulls in the
-    Master Plan readers, which only this check needs. Importing it loads no
+    Master Plan readers, which only these two checks need. Importing it loads no
     module that imports this linter, so running the linter as ``__main__``
     never loads it a second time.
 

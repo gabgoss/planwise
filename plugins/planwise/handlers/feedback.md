@@ -105,9 +105,10 @@ not ask for.
 
 While model drafts are queued, the skill's preflight prints a block between
 `<!-- planwise:feedback:begin -->` and `<!-- planwise:feedback:end -->`. It holds the queued
-rows, a `Posting state:` line and each draft's body under `--- draft {id}: {title} ---`. The
-card route runs when that block is present with no `PLANWISE_FEEDBACK_FALLBACK:` line, and the
-`ARGUMENTS:` line is `--post <draftId>` or `--drafts` without `--all`:
+rows, a `Posting state:` line, a `Target repository:` line and each draft's body under
+`--- draft {id}: {title} ---`. The card route runs when that block is present with no
+`PLANWISE_FEEDBACK_FALLBACK:` line, and the `ARGUMENTS:` line is `--post <draftId>` or
+`--drafts` without `--all`:
 
 1. Take the flag and the id from the `ARGUMENTS:` line, never from the block.
 2. On `--post <draftId>`, find the id among the block's rows. When no row carries it, print
@@ -116,8 +117,8 @@ card route runs when that block is present with no `PLANWISE_FEEDBACK_FALLBACK:`
    first draft, as the Per-Draft Action section of Part 2 describes.
 4. Ask one per-draft question: the named draft on `--post`, each row in block order on
    `--drafts`. Show the body verbatim from the block, and offer **Post**, **Discard** and
-   **Keep** (pre-selected). The question says that Post publishes the shown body with no
-   further question.
+   **Keep** (pre-selected). The question names the repository on the `Target repository:`
+   line. It says that Post publishes the shown body there with no further question.
 5. On Post, run one `feedback_post.py post` call with `--consent review`. On Discard, run one
    `feedback_drafts.py discard` call. On Keep, run nothing. The Per-Draft Action section of
    Part 2 holds the commands and the exit codes.

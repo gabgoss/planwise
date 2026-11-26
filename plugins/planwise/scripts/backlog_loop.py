@@ -126,8 +126,15 @@ OPEN_QUESTIONS_NOTE = "open-questions-unanswered"
 # The item still carries a legacy `## Loop Decision Needed` section.
 DECISION_PENDING_REASON = "decision pending"
 DECISION_PENDING_HINT = "decision pending: run scripts/backlog_questions.py --fold, then --answer each question"
-# The item's scoped-rule verdict is `placement`: a human decides where a file goes.
+# The item's scoped-rule verdict is `placement`: a human decides where a file goes,
+# and its hint names both ways to approve the path.
 PLACEMENT_REASON = "placement"
+PLACEMENT_HINT = (
+    "placement: confirm the destination in an interactive /planwise backlog <id> run, or run "
+    "scripts/update_backlog.py --id <id> --approve-placement PATH (scripts/score_backlog.py --route --id <id> "
+    "lists PATH). Either approval writes placement_approved. An answer under ## Open Questions does not clear "
+    "placement, and a loop-decision question there still needs its own answer."
+)
 # The item's Verification fence holds a `# user-run:` line: only the user can run that step.
 USER_RUN_REASON = "user-run verification"
 USER_INPUT_NOTE = "USER INPUT NEEDED: see ## Open Questions in the item file"
@@ -699,6 +706,8 @@ def cmd_init(args, config: dict) -> int:
             warnings.append(f"warning: item {raw} dropped: {why}")
         if any(line.endswith(f": {DECISION_PENDING_REASON}") for line in warnings):
             warnings.append(DECISION_PENDING_HINT)
+        if any(line.endswith(f": {PLACEMENT_REASON}") for line in warnings):
+            warnings.append(PLACEMENT_HINT)
     else:
         # Score order, with each candidate at the place its own score gives it.
         # The sort puts `plan` items after run items, so a `plan` item leads only when
@@ -721,6 +730,7 @@ def cmd_init(args, config: dict) -> int:
     pending_hint = (
         args.mode != "specific" and any(entry["reason"] == DECISION_PENDING_REASON for entry in excluded)
     )
+    placement_hint = args.mode != "specific" and any(entry["reason"] == PLACEMENT_REASON for entry in excluded)
 
     queue = [pair[0]["id"] for pair in queue_pairs]
     queue_meta = {}
@@ -752,6 +762,8 @@ def cmd_init(args, config: dict) -> int:
             report.append(f"  {entry['id']}  route {entry['route'] or '-'}  {entry['reason']}{scope}")
     if pending_hint:
         report.append(DECISION_PENDING_HINT)
+    if placement_hint:
+        report.append(PLACEMENT_HINT)
     report.extend(warnings)
     result = {
         "queue": [

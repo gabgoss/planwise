@@ -184,7 +184,7 @@ def _sources(config: dict) -> dict:
     }
 
 
-def compute_next_id(config: dict) -> dict:
+def compute_next_id(config: dict, *, include_siblings: bool = False) -> dict:
     """Compute the true next lesson ID from the union of every known source.
 
     Delegates to `parse_lessons.compute_next_id` — the union-of-sources
@@ -194,8 +194,12 @@ def compute_next_id(config: dict) -> dict:
          "counts": {"working": N, "archive": N, "master": N, "generated": N}}
     `max_found` is None and `next` is 1 on a fresh project with no lessons
     anywhere — the seed index's starting `LL-001` is then correct, not drifted.
+
+    An id allocator passes `include_siblings`, which adds the ids of the other
+    linked worktrees and the `found_in` label "linked worktree". The drift
+    check and the counter write leave it off, so they read this tree alone.
     """
-    return _parse_lessons_compute_next_id(config)
+    return _parse_lessons_compute_next_id(config, include_siblings=include_siblings)
 
 
 def detect_drift(config: dict) -> dict:
@@ -456,9 +460,10 @@ def renumber(config: dict, old: int, new: int, file_name: str | None = None) -> 
     content = index_path.read_text(encoding="utf-8") if index_path.exists() else ""
     if detect_index_shape(content) == "legacy":
         raise RenumberRefused("the lessons index is a legacy Master Table; run /planwise upgrade first")
-    floor = compute_next_id(config)["next"]
+    floor = compute_next_id(config, include_siblings=True)["next"]
     if new < floor:
-        raise RenumberRefused(f"{format_id(new)} is below the next free id {format_id(floor)}; an id never moves backward")
+        source = "" if compute_next_id(config)["next"] == floor else " (a linked worktree holds a higher id)"
+        raise RenumberRefused(f"{format_id(new)} is below the next free id {format_id(floor)}{source}; an id never moves backward")
     known = collect_all_known_ids(config)
     if new in known["disk"] or new in known["index"] or new in known["legacy"]:
         raise RenumberRefused(f"{format_id(new)} is already claimed by a file or an index row")
@@ -585,7 +590,7 @@ def main():
         return
 
     if args.next_id:
-        print(compute_next_id(config)["next_id"])
+        print(compute_next_id(config, include_siblings=True)["next_id"])
         return
 
     if args.write:

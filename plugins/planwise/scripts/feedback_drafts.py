@@ -2,7 +2,7 @@
 """Shared helper for model-drafted feedback files (stdlib only).
 
 Producers and the review surface call this one script to list, admit,
-discard, promote and expire model-drafted feedback, to switch on posting, to report whether posting is on, and to switch drafting off.
+discard, promote and expire model-drafted feedback, to switch on posting, to report whether posting is on, to switch drafting off, and to print the resolved feedback directory.
 
 ## The draft file
 
@@ -26,6 +26,7 @@ hand-written feedback draft, a posted-marker sidecar, and anything under
 | `expire` | Sets `status: expired` on queued drafts older than `EXPIRY_DAYS`. One of the two commands that write `status: expired`, with `admit` | 0 |
 | `enable-posting --config <path>` | Sets `feedback.enabled: true` by text splice, idempotent, in the block's own indent. The result is parsed before it is written, and a result that would not parse is never written | 0, 1 config problem |
 | `posting-state --config <path>` | Reads `feedback.enabled` and prints one word, writing nothing: `enabled` when it is `true`, `disabled` when the key is set to anything else (an explicit decision), `absent` when the `feedback` block or its `enabled` key is missing or empty. A caller uses the word to tell a user who never saw the key from one who turned posting off | 0, 1 config missing or the feedback key is not a block mapping |
+| `feedback-dir --config <path>` | Prints the absolute feedback directory the config resolves to, writing nothing. In a linked git worktree that is the main checkout's folder. The folder need not exist, and the command never creates it. A caller that writes a draft by hand uses this path | 0, 1 config missing or unreadable |
 | `disable-drafts --config <path>` | Sets `feedback.drafts: off` by the same text splice, idempotent, comments kept, in the block's own indent. A comment line never ends the block or sets its indent. The result is parsed before it is written, and a result that would not parse is never written. Prints the old and new value | 0, 1 config problem |
 | `prepare-post --config C --draft D` | Makes the draft file into the exact bytes a post reads, in place: cuts it at the last scan-annotation marker that starts a line and, when `feedback.include_environment` is false, deletes each `### Environment` section outside a code fence. Both settings come from `config_loader.get_feedback_config`. Then scans those bytes for an absolute path, an email address, a git remote URL and an `@handle`, and prints `clean` or `blocked: <class> at line <n>`. Never prints the matched text. A blocked draft stays in its cut state | 0 clean, 1 missing `--config` or `--draft`, or a config or read error, 2 argparse usage error such as an unknown flag, 3 blocked |
 | `mark-blocked --draft D --class C --line N --route R` | `R` is `issue` or `comment`. Writes `{D}.blocked` beside the promoted draft: `blocked: {date}`, `class:`, `line:` and `route:`, nothing else. It never holds text from the draft. A second call replaces the file, so a new block clears an earlier `dismissed:`. Needs no directory option. Refuses a model draft. The unattended post path runs it when `prepare-post` exits 3 | 0 written, 1 draft missing, `--line` below 1 or a model draft, 2 argparse usage error such as a class outside the four `prepare-post` prints |
@@ -58,6 +59,7 @@ without running a subprocess. `list`, `count_queued`, `is_expired`, `was_posted`
 """
 
 import argparse
+import io
 import json
 import os
 import re
@@ -819,6 +821,22 @@ def cmd_posting_state(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_feedback_dir(args: argparse.Namespace) -> int:
+    try:
+        import config_loader
+
+        config = config_loader.load_config(config_path=Path(args.config))
+        directory = Path(config["_feedback_dir"])
+    except _CONFIG_ERRORS as exc:
+        print(f"feedback_drafts: cannot resolve the feedback directory: {' '.join(str(exc).split())}", file=sys.stderr)
+        return 1
+    # A caller writes a file at this path, and a piped stream on Windows defaults to the ANSI code page.
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(encoding="utf-8")
+    print(directory)
+    return 0
+
+
 def cmd_disable_drafts(args: argparse.Namespace) -> int:
     config = Path(args.config)
     if not config.is_file():
@@ -1266,6 +1284,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_state = sub.add_parser("posting-state", help="print whether feedback.enabled is enabled, disabled or absent")
     p_state.add_argument("--config", required=True, help="path to config.yaml")
     p_state.set_defaults(func=cmd_posting_state)
+
+    p_fdir = sub.add_parser("feedback-dir", help="print the absolute feedback directory the config resolves to; read-only")
+    p_fdir.add_argument("--config", required=True, help="path to config.yaml")
+    p_fdir.set_defaults(func=cmd_feedback_dir)
 
     p_disable = sub.add_parser("disable-drafts", help="set feedback.drafts: off in config.yaml")
     p_disable.add_argument("--config", required=True, help="path to config.yaml")
