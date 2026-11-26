@@ -40,8 +40,8 @@ Fix: Add tier-cross-cite per references/ei-citation-and-token-reconciliation.md 
 ### Reviewer Check 008 — EI Extraction Retention Threshold
 
 - **Severity / Role / Type:** BLOCKER/WARNING (tiered) | EI Reviewer | NEW
-- **What:** Multi-tier Discovery extraction MUST meet the retention bands of [ei-fidelity.md](ei-fidelity.md) §3.1 (Algorithm-Sprint Retention-Band Calibration). Ratio = EI tokens / source tokens, measured over the whole EI.
-- **Detection:** For each EI section, compute token count vs cited source Consolidated Context section, and grade the ratio by the band table of [ei-fidelity.md](ei-fidelity.md) §3.1. `scripts/lint_execution_input.py` rule `retention-threshold` grades the EI's stated `Retention:` figure.
+- **What:** Multi-tier Discovery extraction MUST meet the retention bands of [ei-fidelity.md](ei-fidelity.md) §3.1 (Algorithm-Sprint Retention-Band Calibration). Ratio = (EI tokens + Deferred log tokens) / primary source tokens, as ei-fidelity.md §3.1 defines it.
+- **Detection:** Measure the whole EI plus the Deferred log against the sprint's primary source tokens (its primary `source_map` rows), and grade the ratio by the band table of [ei-fidelity.md](ei-fidelity.md) §3.1. `scripts/lint_execution_input.py` rule `retention-threshold` grades the EI's stated `Retention:` figure.
 - **Finding template:**
 ```
 [{SEVERITY}] EI extraction retention below threshold
