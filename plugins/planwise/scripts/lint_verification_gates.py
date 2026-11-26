@@ -55,11 +55,13 @@ supplies the extraction and execution substrate they are built on.
 """
 
 import argparse
+import os
 import re
 import shlex
 import subprocess
 import sys
 import traceback
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -747,11 +749,13 @@ def coverage_line(context: LintContext) -> str:
 # reads only fenced blocks and lowercase shell verbs. A ``Grep`` call on its own
 # line in a fenced gate block is extracted, and the executor decides it
 # in-process (``lint_gate_grep_tool``).
-# Checks 1 and 7 read the ``result`` the executor already stored on a command
-# in ``_run_gates`` -- they never execute a command themselves, so a refused
-# command they cannot reason about is simply skipped, and its own UNCERTAIN
-# finding (already produced by ``_run_gates``) stands as the only report for
-# it. Nothing here ever concludes a gate passed.
+# Checks 1, 7 and 66 read the ``result`` the executor already stored on a
+# command in ``_run_gates`` -- they never execute a command themselves, so a
+# refused command they cannot reason about is simply skipped, and its own
+# UNCERTAIN finding (already produced by ``_run_gates``) stands as the only
+# report for it. Nothing here ever concludes a gate passed.
+# Check 67 reads no stored result: it simulates a grep-only pipeline in process
+# over a brief's paste-ready block, so it runs with execution off too.
 # Checks 9-16 are static shape checks over a gate's command text and, where a
 # check needs it, the bytes of the file the gate targets. They read a piped
 # command stage by stage, which the executor refuses whole. Each mechanises a
@@ -774,9 +778,13 @@ _PRE_EDIT_DEFERRAL_RE = re.compile(
 _INVARIANT_TOKEN = "invariant:"
 _BASELINE_RE = re.compile(r"baseline:\s*(\d+)", re.IGNORECASE)
 
+# ``expect 0``, ``expect >=1`` and the colon form ``expect: 0`` / ``expect: >= 1``.
 _EXPECT_KEYWORD_RE = re.compile(
-    r"expect\s*(>=|<=|==|>|<|≥|≤)?\s*(\d+)", re.IGNORECASE
+    r"expect\s*:?\s*(>=|<=|==|>|<|≥|≤)?\s*(\d+)", re.IGNORECASE
 )
+# ``MUST be 0`` and ``MUST be >= 1``. The upper-case word is the signal, so prose
+# that says "must be" in passing is not read as an expectation.
+_MUST_BE_RE = re.compile(r"\bMUST\s+be\s*(>=|<=|==|>|<|≥|≤)?\s*(\d+)")
 _BARE_COMPARATOR_RE = re.compile(r"(?<![\w.])(>=|<=|≥|≤)\s*(\d+)")
 _BARE_NUMBER_ONLY_RE = re.compile(r"^#?\s*(\d+)\s*$")
 
@@ -823,12 +831,15 @@ def _normalize_comparator(token: str | None) -> str | None:
 def _parse_expectation(note: str):
     """Read a stated expectation out of a gate's own comment/annotation text.
 
-    Tries the keyworded form first (``expect >=1``, ``expect 0``), then the
-    bare comparator form some authors write without the word ``expect``
-    (``>=2``). A gate stating no expectation at all -- prose only -- returns
-    None, and a caller must treat that as "nothing to evaluate", not as zero.
+    Tries the keyworded form first (``expect >=1``, ``expect 0``, ``expect: 0``),
+    then ``MUST be N`` (``MUST be >= N``), then the bare comparator form some
+    authors write without a keyword (``>=2``). A gate stating no expectation at
+    all -- prose only -- returns None, and a caller must treat that as "nothing
+    to evaluate", not as zero.
     """
     match = _EXPECT_KEYWORD_RE.search(note)
+    if not match:
+        match = _MUST_BE_RE.search(note)
     if not match:
         match = _BARE_COMPARATOR_RE.search(note)
     if not match:
@@ -1534,6 +1545,661 @@ def _check7_contradicted_before_baseline(context: LintContext) -> list:
     return findings
 
 
+# A stated value counts only when it starts with an integer. A thousands
+# separator is read as part of the number (``89,787``), and a decimal or a
+# digit glued to a separator (``2.5``) is not an integer, so it is skipped.
+_LEADING_INT_RE = re.compile(r"\s*(\d{1,3}(?:,\d{3})+|\d+)(?![.,]?\d)")
+_INVARIANT_VALUE_RE = re.compile(r"invariant:")
+
+
+def _leading_int(text: str, start: int):
+    """Return the integer that opens ``text`` at ``start``, or None."""
+    match = _LEADING_INT_RE.match(text, start)
+    if not match:
+        return None
+    return int(match.group(1).replace(",", ""))
+
+
+def _stated_pre_edit(note: str):
+    """The integer a gate states after ``pre-edit:``, or None."""
+    match = _PRE_EDIT_RE.search(note)
+    return _leading_int(note, match.end()) if match else None
+
+
+def _stated_invariant(note: str):
+    """The integer a gate states after ``invariant:``, or None."""
+    match = _INVARIANT_VALUE_RE.search(note)
+    return _leading_int(note, match.end()) if match else None
+
+
+def _on_windows() -> bool:
+    """True when the linter runs on Windows. A test patches this one helper."""
+    return os.name == "nt"
+
+
+def _grep_pattern_has_backslash(command: ExtractedCommand) -> bool:
+    """True when any grep stage of the command passes a pattern holding a backslash.
+
+    On Windows the executor starts an MSYS ``grep`` from an argument list, and
+    that path drops a backslash before ``[`` and similar characters. The value it
+    measures then differs from what a shell measures, so a comparison with it
+    would report a contradiction the author never wrote.
+
+    Every token after the stage's ``grep`` counts, so a pattern behind an option
+    such as ``-m 5`` or ``-e`` is seen too.
+    """
+    argv = _static_argv(command.command)
+    if not argv:
+        return False
+    for stage in _pipeline_stages(argv):
+        if not stage or stage[0] != "grep":
+            continue
+        if any("\\" in token for token in stage[1:]):
+            return True
+    return False
+
+
+_NOT_STARTED_RE = re.compile(r"NOT[\s_-]*STARTED", re.IGNORECASE)
+_DEPENDS_ON_RE = re.compile(r"^\*\*Depends On:\*\*[ \t]*([^\r\n]*)", re.MULTILINE)
+# A Depends On entry that names no producer: empty, or ``none``, ``n/a`` or a
+# dash, followed by the end, whitespace, ``(`` or an HTML comment.
+_NO_PRODUCER_RE = re.compile(r"^(?:$|(?:none|n/a|-+|—|–)(?:$|\s|\(|<!--))", re.IGNORECASE)
+# A Depends On entry that names a producer: a task number (``01``, ``Task 01``,
+# ``01 (writes X)``), a full task id, or a cross-session/cross-sprint entry.
+_PRODUCER_RE = re.compile(
+    r"^(?:cross-session:|cross-sprint:|(?:task\s+)?\d{1,3}\b|[A-Za-z][A-Za-z0-9]*-S\d+-\d+-\d+\b)",
+    re.IGNORECASE,
+)
+_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+
+
+def _session_state_reader():
+    """Return a function that says whether Check 66 may compare a task's gates.
+
+    It reads the nearest Master Plan's Session Completion Tracking table with
+    the readers ``token_saver_scan`` uses for its COMPLETE-session skip. They
+    are imported here rather than at module load: the import pulls in the
+    Master Plan readers, which only this check needs. Importing it loads no
+    module that imports this linter, so running the linter as ``__main__``
+    never loads it a second time.
+
+    The function returns True when the task's session row reads NOT STARTED,
+    and False for any other status (COMPLETE, IN PROGRESS, BLOCKED): there the
+    live tree need not hold the pre-task state. A task with no session folder,
+    no Master Plan or no row has no recorded state, so it returns True.
+    """
+    from token_saver_scan import (
+        _parse_tracking_table,
+        find_master_plan,
+        session_key,
+        task_session_key,
+    )
+
+    cache: dict = {}
+
+    def statuses(master_plan: Path) -> dict:
+        if master_plan not in cache:
+            table: dict = {}
+            try:
+                rows = _parse_tracking_table(
+                    master_plan.read_text(encoding="utf-8", errors="replace")
+                )
+            except OSError:
+                rows = []
+            for cells in rows or []:
+                if len(cells) >= 3:
+                    key = session_key(cells[0], cells[1])
+                    if key is not None:
+                        table[key] = cells[2]
+            cache[master_plan] = table
+        return cache[master_plan]
+
+    def may_compare(task_path: Path) -> bool:
+        key = task_session_key(task_path)
+        master_plan = find_master_plan(task_path) if key is not None else None
+        if master_plan is None:
+            return True
+        status = statuses(master_plan).get(key)
+        return status is None or bool(_NOT_STARTED_RE.search(status))
+
+    return may_compare
+
+
+def _split_top_level(value: str) -> list:
+    """Split on ``,`` and ``;`` at parenthesis depth 0 only, so a
+    parenthetical stays with the entry it explains."""
+    items: list = []
+    current: list = []
+    depth = 0
+    for char in value:
+        if char == "(":
+            depth += 1
+        elif char == ")" and depth:
+            depth -= 1
+        elif char in ",;" and not depth:
+            items.append("".join(current))
+            current = []
+            continue
+        current.append(char)
+    items.append("".join(current))
+    return items
+
+
+def _depends_on_producer(path: Path) -> bool:
+    """True when the task's ``**Depends On:**`` names any producer: a task
+    number (``01``, ``01 (writes X)``), a full task id, or a ``cross-sprint:``
+    or ``cross-session:`` entry. An HTML comment is removed first. An entry
+    that starts with ``none``, ``n/a`` or a dash names no producer, whatever
+    prose follows it, and so does any entry of another shape: the ERROR stays."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    match = _DEPENDS_ON_RE.search(text)
+    if not match:
+        return False
+    value = _HTML_COMMENT_RE.sub(" ", match.group(1))
+    for item in _split_top_level(value):
+        item = item.strip().strip("`*").strip()
+        if _NO_PRODUCER_RE.match(item):
+            continue
+        if _PRODUCER_RE.match(item):
+            return True
+    return False
+
+
+def _check66_stated_value_contradicts_measurement(context: LintContext) -> list:
+    """Check 66 -- a value the gate says already holds before the work
+    disagrees with what the executor measured on the live tree.
+
+    Three stated values are compared: an After gate's ``invariant:`` integer,
+    an After gate's ``pre-edit:`` integer, and a Before gate's stated
+    expectation (``expect: N``, ``MUST be N`` and the other spellings
+    ``_parse_expectation`` reads). A Before gate that states ``baseline:`` is
+    Check 7's subject and is skipped here, so it is never reported twice.
+
+    Stands down with execution off. Skips a placeholder, a command with no
+    measured value (a refused command keeps its own refusal finding), a value
+    that does not start with an integer, and a task in a session the Master
+    Plan marks anything but NOT STARTED -- once a session has begun, the live
+    tree need not hold the pre-task state. On Windows it also skips a gate
+    whose grep tokens hold a backslash, because the executor's measurement of
+    it is not the value a shell reads (see ``_grep_pattern_has_backslash``).
+
+    Every contradiction is a WARNING, not an ERROR, when the task's
+    ``**Depends On:**`` names any producer (see ``_depends_on_producer``): the
+    producer may edit the target first, so the stated value may project its
+    edits. A task with no producer keeps ERROR.
+    """
+    if not context.execute:
+        return []
+    may_compare = None
+    windows = _on_windows()
+    findings = []
+    for command in context.commands:
+        if command.block not in (BLOCK_BEFORE, BLOCK_AFTER):
+            continue
+        if command.is_placeholder or not command.is_gate:
+            continue
+        if windows and _grep_pattern_has_backslash(command):
+            continue
+        measured = _measured_value(command)
+        if measured is None:
+            continue
+        note = _note_for(command)
+        contradictions = []
+        if command.block == BLOCK_AFTER:
+            for label, stated in (
+                ("invariant:", _stated_invariant(note)),
+                ("pre-edit:", _stated_pre_edit(note)),
+            ):
+                if stated is not None and stated != measured:
+                    contradictions.append(f"'{label} {stated}'")
+        else:
+            if _BASELINE_RE.search(note):
+                continue
+            expectation = _parse_expectation(note)
+            if expectation is not None and not expectation.satisfies(measured):
+                comparator = expectation.comparator or ""
+                contradictions.append(f"the expectation '{comparator}{expectation.value}'")
+        if not contradictions:
+            continue
+        if may_compare is None:
+            may_compare = _session_state_reader()
+        if not may_compare(command.path):
+            continue
+        severity = SEVERITY_ERROR
+        if _depends_on_producer(command.path):
+            severity = SEVERITY_WARNING
+        findings.append(
+            make_finding(
+                check=66,
+                severity=severity,
+                file=command.file,
+                line=command.line,
+                command=command.command,
+                message=(
+                    f"This {command.block}-block gate states "
+                    f"{' and '.join(contradictions)}, but executing it against "
+                    f"the live tree measures {measured} -- a value that must "
+                    "already hold before the work was written from intent, "
+                    "not from a run"
+                ),
+            )
+        )
+    return findings
+
+
+# A paste-ready marker: ``<!--`` opens the line after optional whitespace and
+# ``-->`` ends it. A marker inside an inline code span or mid-sentence does not
+# open its line, so it never matches.
+_PASTE_READY_RE = re.compile(r"^\s*<!--\s*paste-ready:\s*(.+?)\s*-->\s*$")
+_FENCE_OPEN_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+# The grep options Check 67 can simulate. Anything else makes the gate UNCERTAIN.
+_SIMULATED_GREP_FLAGS = frozenset("vciEFne")
+
+
+def _fold_path(text: str) -> str:
+    folded = text.strip().strip("`'\"").replace("\\", "/")
+    while folded.startswith("./"):
+        folded = folded[2:]
+    return folded
+
+
+def _paths_pair(a: str, b: str) -> bool:
+    """Equal after slash folding, or one is the other's suffix on a whole segment."""
+    a, b = _fold_path(a), _fold_path(b)
+    if not a or not b:
+        return False
+    return a == b or a.endswith("/" + b) or b.endswith("/" + a)
+
+
+_FENCE_CLOSE_RE = re.compile(r"^\s*(`{3,}|~{3,})\s*$")
+
+
+def _closes_fence(line: str, mark: str) -> bool:
+    """True when ``line`` closes a fence opened with ``mark``: the same fence
+    character, at least as many of them, and no info string after them."""
+    closer = _FENCE_CLOSE_RE.match(line)
+    return bool(closer) and closer.group(1)[0] == mark[0] and len(closer.group(1)) >= len(mark)
+
+
+def _paste_ready_blocks(path: Path):
+    """Yield ``(marker_line, target, block_lines)`` for each marker in one file.
+
+    ``block_lines`` is None when no fenced block follows the marker. Lines are
+    split on LF with any CR dropped, so a CRLF file reads the same as an LF one.
+    A marker inside a fenced block is ignored. One blockquote level is
+    stripped from every line first, as ``_strip_blockquote`` does for the
+    extractor, so a marker or fence inside a callout is read, and a fence
+    inside a callout suppresses the markers it holds. A closing fence carries
+    no info string.
+    """
+    try:
+        text = path.read_bytes().decode("utf-8", errors="replace")
+    except OSError:
+        return
+    raw = [line.rstrip("\r") for line in text.split("\n")]
+    # ``lines`` is the blockquote-stripped view, read outside a fence. Inside a
+    # fence, a line is stripped only when the fence's opener was quoted: a
+    # plain fence's ``> ...`` lines are its content, not a callout.
+    lines = [_strip_blockquote(line) for line in raw]
+
+    def inner(at: int, quoted: bool) -> str:
+        return lines[at] if quoted else raw[at]
+
+    def is_quoted(at: int) -> bool:
+        return _BLOCKQUOTE_RE.match(raw[at]) is not None
+
+    fence = None
+    fence_quoted = False
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        opener = _FENCE_OPEN_RE.match(line)
+        if fence is not None:
+            if fence_quoted and not is_quoted(index):
+                # A fence inside a blockquote ends where the blockquote ends.
+                fence = None
+                continue
+            if _closes_fence(inner(index, fence_quoted), fence):
+                fence = None
+            index += 1
+            continue
+        if opener:
+            fence = opener.group(1)
+            fence_quoted = is_quoted(index)
+            index += 1
+            continue
+        marker = _PASTE_READY_RE.match(line)
+        if not marker:
+            index += 1
+            continue
+        probe = index + 1
+        while probe < len(lines) and not lines[probe].strip():
+            probe += 1
+        block_open = _FENCE_OPEN_RE.match(lines[probe]) if probe < len(lines) else None
+        if not block_open:
+            yield index + 1, marker.group(1), None
+            index += 1
+            continue
+        mark = block_open.group(1)
+        quoted = is_quoted(probe)
+        # As CommonMark does, strip up to the opening fence's indentation from
+        # each body line, so a block inside a numbered step reads as written.
+        indent = len(lines[probe]) - len(lines[probe].lstrip(" "))
+        body = []
+        end = probe + 1
+        closed = False
+        while end < len(lines):
+            if quoted and not is_quoted(end):
+                # A fence inside a blockquote ends where the blockquote ends.
+                break
+            line = inner(end, quoted)
+            if _closes_fence(line, mark):
+                closed = True
+                break
+            strip = min(indent, len(line) - len(line.lstrip(" ")))
+            body.append(line[strip:])
+            end += 1
+        yield index + 1, marker.group(1), body
+        index = end + 1 if closed else end
+
+
+def _parse_simulated_grep(stage):
+    """Read one grep stage into ``(flags, patterns, files)``, or a reason string
+    when the stage holds something the simulation does not model."""
+    if not stage or stage[0] != "grep":
+        return f"stage '{stage[0] if stage else ''}' is not a grep"
+    flags: set = set()
+    patterns: list = []
+    positionals: list = []
+    tokens = stage[1:]
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token == "--":
+            positionals.extend(tokens[index + 1:])
+            break
+        if token.startswith("--"):
+            return f"option '{token}' is not simulated"
+        if token.startswith("-") and len(token) > 1:
+            letters = token[1:]
+            for at, letter in enumerate(letters):
+                if letter not in _SIMULATED_GREP_FLAGS:
+                    return f"option '-{letter}' is not simulated"
+                if letter == "e":
+                    rest = letters[at + 1:]
+                    if rest:
+                        patterns.append(rest)
+                    elif index + 1 < len(tokens):
+                        index += 1
+                        patterns.append(tokens[index])
+                    else:
+                        return "option '-e' has no pattern"
+                    break
+                flags.add(letter)
+            index += 1
+            continue
+        positionals.append(token)
+        index += 1
+    if not patterns:
+        if not positionals:
+            return "the grep stage has no pattern"
+        patterns.append(positionals.pop(0))
+    return flags, patterns, positionals
+
+
+# POSIX character classes inside a bracket expression, and the Python class
+# body each one stands for. A class not listed here makes the gate UNCERTAIN.
+_POSIX_CLASSES = {
+    "space": r"\s",
+    "digit": "0-9",
+    "alpha": "A-Za-z",
+    "alnum": "A-Za-z0-9",
+    "upper": "A-Z",
+    "lower": "a-z",
+    "punct": r"!-/:-@\[-`{-~",
+    "blank": r" \t",
+}
+# A bracket term: ``[:name:]``, ``[=x=]`` or ``[.x.]``.
+_BRACKET_TERM_RE = re.compile(r"\[([:=.])([^\]]*?)\1\]")
+
+
+def _translate_posix_classes(pattern: str):
+    """Replace each ``[:name:]`` class inside a bracket expression with its
+    Python equivalent.
+
+    Returns ``(pattern, None)``, or ``(pattern, reason)`` when the pattern holds
+    a class the simulation does not translate, an equivalence class
+    (``[=x=]``), a collating symbol (``[.x.]``), or a class outside a bracket
+    expression, which grep itself rejects.
+    """
+    out = []
+    index = 0
+    inside = False
+    length = len(pattern)
+    while index < length:
+        char = pattern[index]
+        if not inside:
+            if char == "\\" and index + 1 < length:
+                out.append(pattern[index:index + 2])
+                index += 2
+                continue
+            if char == "[":
+                if _BRACKET_TERM_RE.match(pattern, index):
+                    return pattern, (
+                        f"'{_BRACKET_TERM_RE.match(pattern, index).group(0)}' sits outside "
+                        "a bracket expression, which grep rejects"
+                    )
+                inside = True
+                out.append(char)
+                index += 1
+                # A leading '^' and a leading ']' belong to the bracket's set.
+                if index < length and pattern[index] == "^":
+                    out.append("^")
+                    index += 1
+                if index < length and pattern[index] == "]":
+                    out.append(r"\]")
+                    index += 1
+                continue
+            out.append(char)
+            index += 1
+            continue
+        term = _BRACKET_TERM_RE.match(pattern, index)
+        if term:
+            kind, name = term.group(1), term.group(2)
+            if kind != ":":
+                return pattern, f"bracket term '{term.group(0)}' is not simulated"
+            if name not in _POSIX_CLASSES:
+                return pattern, f"character class '[:{name}:]' is not simulated"
+            out.append(_POSIX_CLASSES[name])
+            index = term.end()
+            continue
+        if char == "]":
+            inside = False
+        out.append(char)
+        index += 1
+    return "".join(out), None
+
+
+def _simulate_grep_pipeline(stages, lines):
+    """Run a grep-only pipeline over ``lines`` in process.
+
+    Returns ``(count, None)`` -- the number a ``-c`` last stage prints, or the
+    number of lines the pipeline outputs -- or ``(None, reason)`` when a stage
+    cannot be simulated. Spawns nothing.
+    """
+    current = list(lines)
+    for position, stage in enumerate(stages):
+        parsed = _parse_simulated_grep(stage)
+        if isinstance(parsed, str):
+            return None, parsed
+        flags, patterns, files = parsed
+        if position == 0 and len(files) != 1:
+            return None, "the first grep stage does not read exactly one file"
+        if position > 0 and files:
+            return None, "a later grep stage reads a file instead of its input"
+        compiled = []
+        for pattern in patterns:
+            source = pattern
+            if "F" not in flags:
+                source, reason = _translate_posix_classes(pattern)
+                if reason:
+                    return None, reason
+            with warnings.catch_warnings():
+                # Python warns about a possible nested set on ``[[``; grep reads
+                # it as a bracket holding ``[``, and the warning is noise here.
+                warnings.simplefilter("ignore", FutureWarning)
+                regex = _compile_grep_pattern(source, "E" in flags, "F" in flags)
+                if regex is not None and "i" in flags:
+                    regex = re.compile(regex.pattern, re.IGNORECASE)
+            if regex is None:
+                return None, f"pattern '{pattern}' does not compile"
+            compiled.append(regex)
+        kept = []
+        for number, line in enumerate(current, start=1):
+            hit = any(regex.search(line) for regex in compiled)
+            if hit != ("v" in flags):
+                kept.append(f"{number}:{line}" if "n" in flags else line)
+        current = [str(len(kept))] if "c" in flags else kept
+    last = _parse_simulated_grep(stages[-1])
+    if "c" in last[0]:
+        return int(current[0]), None
+    return len(current), None
+
+
+def _upper_bound(expectation):
+    """The largest count an expectation admits, or None when it has no upper bound."""
+    if expectation.comparator in (None, "==", "<="):
+        return expectation.value
+    if expectation.comparator == "<":
+        return expectation.value - 1
+    return None
+
+
+def _check67_gate_rejects_paste_ready_block(context: LintContext) -> list:
+    """Check 67 -- a gate fails against the brief's own paste-ready block.
+
+    Reads each ``<!-- paste-ready: <target path> -->`` marker outside a fence,
+    and the one fenced block after it. Pairs the block with every After or
+    exit-criterion gate in the same task file whose first grep stage reads
+    that path. A Before gate is skipped: it describes the tree before the block
+    lands. A command with no expectation note, or one labelled WRONG, is not a
+    gate and is skipped too. The gate's grep-only pipeline is simulated over the block's lines in
+    process, so nothing is spawned and execution being off changes nothing.
+
+    ERROR when the block alone exceeds the expectation's upper bound or
+    equality: the finished file holds at least the block, so the gate cannot
+    pass on correct work. WARNING when the gate states an integer ``pre-edit:``
+    value and that value plus the block's count fails the expectation. The sum
+    assumes the block is inserted. A whole-file write marks its gates with a
+    non-integer ``pre-edit:`` value (``pre-edit: replaced``), which skips it.
+    UNCERTAIN when a gate states an expectation but a later stage is not a
+    grep, an option or a character class is not simulated, or a pattern does
+    not compile. A gate with no parseable expectation, or whose first stage is
+    ``rg``, gives no finding. A marker with no fenced block after it is a
+    WARNING at the marker's line.
+    """
+    findings = []
+    candidates = []
+    for command in context.commands:
+        if command.block not in (BLOCK_AFTER, BLOCK_EXIT_CRITERION) or command.is_placeholder:
+            continue
+        # The label is read from the note only: a gate may count WRONG labels.
+        if not command.is_gate or "WRONG" in f"{command.comment} {command.annotation}":
+            continue
+        stage, stages = _first_grep_stage(command)
+        if stage is None or stage[0] != "grep":
+            continue
+        parsed = _parse_simulated_grep(stage)
+        files = parsed[2] if not isinstance(parsed, str) else _positional_tokens(stage)[1:]
+        candidates.append((command, stages, files))
+
+    for path in context.markdown_files():
+        rel = _relative_name(path, context.plan_root)
+        for marker_line, target, block in _paste_ready_blocks(path):
+            if block is None:
+                findings.append(
+                    make_finding(
+                        check=67,
+                        severity=SEVERITY_WARNING,
+                        file=rel,
+                        line=marker_line,
+                        command=f"<!-- paste-ready: {target} -->",
+                        message=(
+                            "This paste-ready marker has no fenced block after "
+                            "it, so no gate can be checked against the block it "
+                            "announces"
+                        ),
+                    )
+                )
+                continue
+            # A gate's command has ``{plugin_root}`` resolved, so the target is too.
+            resolved = target.replace(_PLUGIN_ROOT_TOKEN, _PLUGIN_ROOT)
+            for command, stages, files in candidates:
+                if command.path != path:
+                    continue
+                if not any(_paths_pair(resolved, name) for name in files):
+                    continue
+                findings.extend(
+                    _paste_ready_finding(command, stages, block, rel, marker_line, target)
+                )
+    return findings
+
+
+def _paste_ready_finding(command, stages, block, rel, marker_line, target) -> list:
+    where = f"the paste-ready block for {target} at {rel}:{marker_line}"
+
+    def finding(severity, message):
+        return [
+            make_finding(
+                check=67,
+                severity=severity,
+                file=command.file,
+                line=command.line,
+                command=command.command,
+                message=message,
+            )
+        ]
+
+    note = _note_for(command)
+    expectation = _parse_expectation(note)
+    if expectation is None:
+        invariant = _stated_invariant(note)
+        if invariant is not None:
+            expectation = _Expectation(None, invariant)
+    if expectation is None:
+        # A prose note ("shows the headings", "expect: pass") states nothing
+        # to check the block against, so it gives no finding.
+        return []
+    count, reason = _simulate_grep_pipeline(stages, block)
+    if count is None:
+        return finding(
+            SEVERITY_UNCERTAIN,
+            f"This gate reads the target of {where}, but it could not be "
+            f"simulated against the block: {reason}",
+        )
+    stated = f"{expectation.comparator or ''}{expectation.value}"
+    upper = _upper_bound(expectation)
+    if upper is not None and count > upper:
+        return finding(
+            SEVERITY_ERROR,
+            f"This gate expects {stated}, but {where} alone counts {count} -- "
+            "the brief's own block fails the brief's own gate, so the gate "
+            "fails on correct work",
+        )
+    pre_edit = _stated_pre_edit(note)
+    if pre_edit is not None and not expectation.satisfies(pre_edit + count):
+        return finding(
+            SEVERITY_WARNING,
+            f"This gate expects {stated}; its pre-edit value {pre_edit} plus "
+            f"the {count} counted in {where} gives {pre_edit + count}, which "
+            "fails it",
+        )
+    return []
+
+
 def _tool_call_findings(context: LintContext, *, check: int, matcher, message: str) -> list:
     """One WARNING per markdown line whose native tool call ``matcher`` flags.
 
@@ -2058,6 +2724,8 @@ CHECK_REGISTRY.extend(
         _check5_stale_ownership,
         _check6_substring_over_own_vocabulary,
         _check7_contradicted_before_baseline,
+        _check66_stated_value_contradicts_measurement,
+        _check67_gate_rejects_paste_ready_block,
         _check8_grep_tool_escaped_pipe_alternation,
         _check9_dollar_anchor_over_crlf_target,
         _check10_single_term_coverage_count,

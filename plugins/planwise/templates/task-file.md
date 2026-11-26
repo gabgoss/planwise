@@ -282,6 +282,8 @@ The later stale-reference sweep task lists this slot in its `## Required Context
 
 **Working directory:** `.` (repo root; the default)
 
+**Paste-ready blocks.** When a step gives the runner a fenced block to paste into a file as written, put the marker `<!-- paste-ready: <target path> -->` on its own line directly above that fence, with the file's path in the slot. A marker and its fence inside one callout level also count. The gate linter then runs every gate on that target against the block (Check 67). It pairs the block with each After and exit-criterion gate in the same task file whose first stage is `grep` and reads the path. A gate with no parseable expectation, a gate whose note carries WRONG, and a gate that starts with `rg` get no finding. A gate that the block alone already fails is an ERROR, because correct work then fails it. Before gates are not paired, because they describe the tree before the block lands. When the step inserts the block, a gate whose `pre-edit:` value plus the block fails its expectation is a WARNING. When the step writes the target whole, mark each gate on it with a non-integer `pre-edit:` value, such as `pre-edit: replaced`, and the WARNING is skipped.
+
 > [!verify] Before / After Commands
 > **Before:**
 > ```
@@ -303,6 +305,13 @@ The later stale-reference sweep task lists this slot in its `## Required Context
 > Every `{cmd_after_N}` line carries the `# pre-edit: {value} → expect {expectation}` annotation
 > immediately beneath it (or `→ invariant: {value}` for a preservation gate) — see the constraint
 > below.
+>
+> Run each new command now, once, against the working tree. Check 66 compares a Before
+> expectation, and Check 7 reads `baseline:`. When `**Depends On:**` names no producer, a
+> different observed value means the expectation is wrong: correct the `expect:` or `baseline:`
+> value itself, and write an After gate's observed value after `pre-edit:` (Checks 2 and 66).
+> When it names a producer, keep a value that carries the producer's edits forward as written.
+> Check 66 then reports a contradiction as a WARNING, not an ERROR.
 >
 > Every After gate reports its Actual beside its `expect`, a plain count-equality gate included.
 > When Actual contradicts `expect` per the operator, the verdict is FAIL or `[UNCERTAIN]`, never PASS.

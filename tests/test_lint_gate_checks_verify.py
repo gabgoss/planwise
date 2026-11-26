@@ -295,6 +295,10 @@ class TestCheck37ExclusionOverPathPrefix(unittest.TestCase):
         gate = ["grep -rn pooled_table src | grep -v pooled_table_season   # WRONG: drops files"]
         self.assertEqual(_lint(37, gate), [])
 
+    def test_bad_pattern_holding_the_word_wrong_is_not_a_label(self):
+        gate = ["grep -rn WRONG refs | grep -v legacy   # expect 4"]
+        self.assertEqual(_pairs(_lint(37, gate)), [(37, "WARNING")])
+
 
 class TestCheck38SplitSliceAsParser(unittest.TestCase):
     BAD = "python -c \"print(len(open('nb.py').read().split('params = [')[1].split(']')[0]))\"   # expect 99"
@@ -474,6 +478,180 @@ class TestCheck65FirstWritePlacementWithoutWriteList(unittest.TestCase):
         self.assertEqual(_lint_files(65, {"Sprint-Plan.md": _doc(FIRST_WRITE_LINE)}), [])
 
 
+class TestCheck68LiteralExtractionBound(unittest.TestCase):
+    SLICE = "python -c \"print(len(open('ddl.sql').read()[:9000].split()))\"   # expect 15"
+    HEAD = "grep -n 'CREATE' ddl.sql | head -n 40 | cut -d: -f1   # expect 15 lines"
+    CRITERIA = "## Success Criteria\n\n"
+
+    def _check(self, fence_lines, **kwargs):
+        return _lint(68, fence_lines, **kwargs)
+
+    def test_bad_read_slice_with_a_literal_stop(self):
+        findings = self._check([self.SLICE])
+        self.assertEqual(_pairs(findings), [(68, "WARNING")])
+        self.assertIn("slice", findings[0]["message"])
+
+    def test_bad_read_text_slice(self):
+        gate = ["python -c \"print(Path('ddl.sql').read_text(encoding='utf-8')[:9000].count('x'))\"   # expect 15"]
+        self.assertEqual(_pairs(self._check(gate)), [(68, "WARNING")])
+
+    def test_bad_head_n_stage_feeding_another_stage(self):
+        self.assertEqual(_pairs(self._check([self.HEAD])), [(68, "WARNING")])
+
+    def test_bad_head_dash_count_form(self):
+        gate = ["grep -n 'CREATE' ddl.sql | head -40 | cut -d: -f1   # expect 15 lines"]
+        self.assertEqual(_pairs(self._check(gate)), [(68, "WARNING")])
+
+    def test_bad_head_c_bytes_stage(self):
+        gate = ["cat ddl.sql | head -c 9000 | grep -c CREATE   # expect 15"]
+        self.assertEqual(_pairs(self._check(gate)), [(68, "WARNING")])
+
+    def test_bad_tail_with_a_literal_count_feeding_another_stage(self):
+        gate = ["git log --oneline | tail -n 30 | grep -c fix   # expect 3"]
+        self.assertEqual(_pairs(self._check(gate)), [(68, "WARNING")])
+
+    def test_bad_grep_m_stops_after_a_literal_count(self):
+        gate = ["grep -m 20 CREATE ddl.sql | cut -d: -f1   # expect 15 lines"]
+        self.assertEqual(_pairs(self._check(gate)), [(68, "WARNING")])
+
+    def test_bad_grep_max_count_long_form(self):
+        gate = ["grep --max-count=20 CREATE ddl.sql   # expect 15 lines"]
+        self.assertEqual(_pairs(self._check(gate)), [(68, "WARNING")])
+
+    def test_bad_native_read_call_with_a_limit(self):
+        extra = self.CRITERIA + "Read  file_path='ddl.sql'  offset=1  limit=200\n\n"
+        findings = self._check(QUIET, extra=extra)
+        self.assertEqual([(f["check"], f["severity"], f["line"]) for f in findings], [(68, "WARNING", 5)])
+
+    def test_bad_on_a_crlf_file(self):
+        self.assertEqual(len(self._check([self.SLICE], newline="\r\n")), 1)
+        extra = self.CRITERIA + "Read  file_path='ddl.sql'  limit=200\n\n"
+        self.assertEqual(len(self._check(QUIET, extra=extra, newline="\r\n")), 1)
+
+    def test_bad_fires_once_for_each_command(self):
+        gate = ["grep -m 20 CREATE ddl.sql | head -n 40 | cut -d: -f1   # expect 15 lines"]
+        self.assertEqual(len(self._check(gate)), 1)
+
+    def test_good_slice_on_something_that_is_not_a_read_result(self):
+        gate = ["python -c \"print(sha[:7])\"   # expect the short sha"]
+        self.assertEqual(self._check(gate), [])
+
+    def test_good_slice_on_a_literal_string(self):
+        gate = ["python -c \"print('abcdefghij'[:9])\"   # expect abcdefghi"]
+        self.assertEqual(self._check(gate), [])
+
+    def test_good_pipeline_ending_in_head_is_display(self):
+        gate = ["grep -n 'CREATE' ddl.sql | sort | head -n 5   # the first five, for the reader"]
+        self.assertEqual(self._check(gate), [])
+
+    def test_good_pipeline_ending_in_tail_is_display(self):
+        gate = ["pytest -q tests 2>&1 | tail -n 5   # the summary"]
+        self.assertEqual(self._check(gate), [])
+
+    def test_good_tail_start_offset_is_not_a_count(self):
+        gate = ["grep -n x f.md | tail -n +2 | wc -l   # expect 3"]
+        self.assertEqual(self._check(gate), [])
+
+    def test_good_len_in_a_comparison_clears_it(self):
+        gate = ["python -c \"assert len(open('ddl.sql').read()[:9000].split()) == 15\"   # expect exit 0"]
+        self.assertEqual(self._check(gate), [])
+
+    def test_good_wc_l_as_the_last_stage_clears_it(self):
+        gate = ["grep -n 'CREATE' ddl.sql | head -n 40 | wc -l   # expect 15"]
+        self.assertEqual(self._check(gate), [])
+
+    def test_good_wc_c_as_the_last_stage_clears_it(self):
+        gate = ["head -c 9000 ddl.sql | wc -c   # expect 9000"]
+        self.assertEqual(self._check(gate), [])
+
+    def test_bad_filter_between_the_cut_and_the_wc(self):
+        gate = ["head -n 300 schema.sql | grep -c 'ADD' | wc -l   # expect 73"]
+        self.assertEqual(_pairs(self._check(gate)), [(68, "WARNING")])
+
+    def test_bad_filter_between_a_byte_cut_and_the_wc(self):
+        gate = ["head -c 9000 f | grep col | wc -l   # expect 73"]
+        self.assertEqual(_pairs(self._check(gate)), [(68, "WARNING")])
+
+    def test_good_wc_directly_after_the_cut_clears_it(self):
+        self.assertEqual(self._check(["head -n 300 schema.sql | wc -l   # expect 300"]), [])
+
+    def test_bad_one_cleared_bound_does_not_clear_a_second(self):
+        gate = ["head -n 300 f | wc -l && grep -m 20 CREATE ddl.sql | cut -d: -f1   # expect 15"]
+        self.assertEqual(_pairs(self._check(gate)), [(68, "WARNING")])
+
+    def test_message_and_docstring_name_the_reference_section_in_words(self):
+        findings = self._check([self.SLICE])
+        title = "An Extraction Is Bounded by Markers and Asserts Its Parsed Length"
+        for text in (findings[0]["message"], verify_module.__doc__ or "", verify_module._check68_literal_extraction_bound_without_length_assertion.__doc__):
+            text = " ".join(text.split())  # a docstring wraps the title across lines
+            self.assertIn("gate-input-set-and-compared-window.md", text)
+            self.assertIn(title, text)
+            self.assertNotIn("gate-instrument-proof-obligations.md", text)
+        source = (SCRIPTS / "lint_gate_checks_verify.py").read_text(encoding="utf-8")
+        check68 = source[source.index("def _check68_"):source.index("CHECKS = [")]
+        self.assertNotIn("§", check68)
+
+    def test_good_parsed_length_note_clears_it(self):
+        gate = [self.HEAD.replace("# expect 15 lines", "# expect 15 lines (parsed length asserted on the next line)")]
+        self.assertEqual(self._check(gate), [])
+
+    def test_good_parsed_length_note_clears_a_read_call(self):
+        extra = self.CRITERIA + "Read  file_path='ddl.sql'  limit=200   # parsed length 200 lines, checked by wc -l\n\n"
+        self.assertEqual(self._check(QUIET, extra=extra), [])
+
+    def test_good_native_read_call_without_a_limit(self):
+        extra = self.CRITERIA + "Read  file_path='ddl.sql'  offset=1\n\n"
+        self.assertEqual(self._check(QUIET, extra=extra), [])
+
+    def test_good_paged_read_instruction_under_execution_steps(self):
+        extra = "## Execution Steps\n\n1. Read  file_path='handlers/plan.md'  offset=400  limit=200\n\n"
+        self.assertEqual(self._check(QUIET, extra=extra), [])
+
+    def test_good_paged_read_instruction_under_required_context(self):
+        extra = "## Required Context\n\nRead  file_path='handlers/plan.md'  offset=400  limit=200\n\n"
+        self.assertEqual(self._check(QUIET, extra=extra), [])
+
+    def test_bad_read_limit_inside_the_verification_commands_block(self):
+        findings = self._check(["Read  file_path='ddl.sql'  offset=1  limit=200"])
+        self.assertEqual(_pairs(findings), [(68, "WARNING")])
+
+    def test_bad_read_limit_under_a_success_criteria_heading_after_other_sections(self):
+        extra = "## Execution Steps\n\n1. do it\n\n## Success Criteria\n\n- [ ] Read  file_path='a.md'  limit=9\n\n"
+        self.assertEqual(len(self._check(QUIET, extra=extra)), 1)
+
+    def test_bad_grep_pattern_holding_the_word_wrong_is_not_exempt(self):
+        gate = ["head -n 5 f | grep -c 'WRONG'   # expect 1"]
+        self.assertEqual(_pairs(self._check(gate)), [(68, "WARNING")])
+
+    def test_bad_wrong_in_the_pattern_with_a_label_shaped_pattern(self):
+        gate = ["head -n 5 f | grep -c '^> WRONG' references/x.md   # expect 1"]
+        self.assertEqual(_pairs(self._check(gate)), [(68, "WARNING")])
+
+    def test_good_wc_long_lines_option_clears_it(self):
+        self.assertEqual(self._check(["head -n 50 f | wc --lines   # expect 50"]), [])
+
+    def test_good_wc_long_bytes_option_clears_it(self):
+        self.assertEqual(self._check(["head -c 900 f | wc --bytes   # expect 900"]), [])
+
+    def test_bad_len_comparison_in_another_pipeline_does_not_clear_the_bound(self):
+        gate = ["python -c \"assert len(a)==3\" && head -n 5 g | grep -c x   # expect 1"]
+        self.assertEqual(_pairs(self._check(gate)), [(68, "WARNING")])
+
+    def test_good_len_comparison_in_the_same_pipeline_clears_the_bound(self):
+        gate = ["head -n 5 g | python -c \"import sys; assert len(sys.stdin.readlines()) == 5\"   # expect exit 0"]
+        self.assertEqual(self._check(gate), [])
+
+    def test_good_parsed_length_note_stays_a_command_level_clearer(self):
+        gate = ["python -c \"assert len(a)==3\" && head -n 5 g | grep -c x   # expect 1 (parsed length asserted)"]
+        self.assertEqual(self._check(gate), [])
+
+    def test_good_line_labelled_wrong(self):
+        gate = [self.HEAD.replace("# expect 15 lines", "# WRONG: the bound hides the tail")]
+        self.assertEqual(self._check(gate), [])
+        extra = self.CRITERIA + "WRONG: Read  file_path='ddl.sql'  limit=200\n\n"
+        self.assertEqual(self._check(QUIET, extra=extra), [])
+
+
 class TestRegistrationContract(unittest.TestCase):
     def test_every_check_is_registered_once(self):
         for check in verify_module.CHECKS:
@@ -485,7 +663,7 @@ class TestRegistrationContract(unittest.TestCase):
             names,
             [
                 "check30", "check31", "check32", "check33", "check35", "check36", "check37", "check38",
-                "check63", "check64", "check65",
+                "check63", "check64", "check65", "check68",
             ],
         )
 

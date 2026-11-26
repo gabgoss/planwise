@@ -31,9 +31,9 @@ not intended.
 | `shape_08_grep_tool_escaped_pipe/` | 8 | 3 | WARNING |
 | `shape_09_dollar_anchor_crlf/` | 9 | 1 | WARNING (the absent-target arm; the CRLF ERROR and LF silent arms are built in a temp directory by the suite) |
 | `shape_10_single_term_coverage/` | 10 | 1 | WARNING |
-| `shape_11_verdict_emphasis_dropped/` | 11 | 1 | ERROR |
-| `shape_12_heading_substring/` | 12 | 1 | WARNING |
-| `shape_13_bare_numeric_literal/` | 13 | 1 | WARNING |
+| `shape_11_verdict_emphasis_dropped/` | 11, plus 66 | 1 + 1 | ERROR + ERROR (the Before gate expects 1 and measures 0) |
+| `shape_12_heading_substring/` | 12, plus 66 | 1 + 1 | WARNING + ERROR (the Before gate expects 0 and measures 2) |
+| `shape_13_bare_numeric_literal/` | 13, plus 66 | 1 + 1 | WARNING + ERROR (the After gate states `pre-edit: 0` and measures 2) |
 | `shape_14_context_window_counted/` | 14 | 1 + 1 refusal | WARNING + UNCERTAIN (the pipeline is refused whole by the executor) |
 | `shape_15_anchored_aggregate_threshold/` | 15 | 1 | WARNING |
 | `shape_16_unscoped_suite_gate/` | 16 | 1 + 1 refusal | WARNING + UNCERTAIN (`python` is not on the allowlist) |
@@ -66,10 +66,13 @@ not intended.
 
 ## Group A — Shape Fixtures (one per check)
 
-Each shape fixture is tuned so that **exactly one** check fires. Every After-gate
-except `shape_02`'s carries a pre-edit annotation whose recorded value equals the
-fixture tree's live measured value, so neither Check 2 (missing annotation) nor Check
-1's re-measure clause (recorded disagrees with measured) fires as a side effect.
+Each shape fixture is tuned so that its own check fires. Most fixtures fire only that
+check. Shapes 11, 12 and 13 also carry one Check 66 ERROR, because each states a value
+that its own tree contradicts: shape_11's Before gate expects 1 and measures 0,
+shape_12's Before gate expects 0 and measures 2, and shape_13's After gate states
+`pre-edit: 0` and measures 2. Every After-gate except `shape_02`'s carries a pre-edit
+annotation, so Check 2 (missing annotation) does not fire as a side effect. Each of
+those pre-edit values equals the live measured value, except shape_13's.
 
 | Fixture | Measured fact the tree makes true |
 |---------|-----------------------------------|
@@ -84,11 +87,11 @@ fixture tree's live measured value, so neither Check 2 (missing annotation) nor 
 | `shape_08_grep_tool_escaped_pipe` | Three native `Grep` calls whose patterns write alternation as `a\|b`: one in a table row (line 12), one in a fenced block (line 19), and one in a row whose output cell carries `{...}` template slots (line 28). Check 8 reads markdown lines, so no call needs to be an extracted command. The line-12 call is the real gate that first showed the defect, and the line-28 row is verbatim from a finished plan. |
 | `shape_09_dollar_anchor_crlf` | A `$`-anchored exact-sentence gate whose target `Outputs/deliverable.md` does not exist yet, so its line endings are unknown: WARNING. No checked-in file carries the CRLF bytes, because a checkout under `core.autocrlf` rewrites them; the suite builds the CRLF (ERROR) and LF (silent) targets in a temp directory. |
 | `shape_10_single_term_coverage` | `grep -ci 'intersection' design.md` against `expect >= 2`, where `design.md` covers every clause in one paragraph. Check 1 executes and measures **1**, which does not satisfy the threshold, so only Check 10 fires. |
-| `shape_11_verdict_emphasis_dropped` | A Before gate `grep -c 'Gate: PASS' Outputs/snapshot.md` where the snapshot writes `**Gate:** PASS`. The target carries the bold form, so the literal is absent and Check 11 is ERROR. The gate expects 1, so Check 6 stays silent. |
-| `shape_12_heading_substring` | A pre-write Before gate `grep -c '## Index Notes' plan.md # expect 0` where `plan.md` quotes the heading twice in prose and carries no heading. The substring count measures **2**; Check 12 fires on the missing `^`. The After gate is marked `invariant:` so Check 1 stays silent. |
-| `shape_13_bare_numeric_literal` | `grep -rn '40000' config/` where `config/limits.md` holds `40000` and `400000`. Check 1 executes and measures **2** lines against `expect 1`, so only Check 13 fires. |
+| `shape_11_verdict_emphasis_dropped` | A Before gate `grep -c 'Gate: PASS' Outputs/snapshot.md` where the snapshot writes `**Gate:** PASS`. The target carries the bold form, so the literal is absent and Check 11 is ERROR. The gate expects 1, so Check 6 stays silent. The gate measures **0** against that expectation, so Check 66 also fires at ERROR. |
+| `shape_12_heading_substring` | A pre-write Before gate `grep -c '## Index Notes' plan.md # expect 0` where `plan.md` quotes the heading twice in prose and carries no heading. The substring count measures **2**; Check 12 fires on the missing `^`. The measured 2 contradicts the gate's own `expect 0`, so Check 66 also fires at ERROR. The After gate is marked `invariant:` so Check 1 stays silent. |
+| `shape_13_bare_numeric_literal` | `grep -rn '40000' config/` where `config/limits.md` holds `40000` and `400000`. Check 1 executes and measures **2** lines against `expect 1`, so Check 1 stays silent and Check 13 fires. The gate states `pre-edit: 0` and measures **2**, so Check 66 also fires at ERROR. |
 | `shape_14_context_window_counted` | `grep -B1 'AskUserQuestion' handlers/review.md \| grep -c 'AUTO-MODE:'` as an After gate. The executor refuses the pipeline whole (one UNCERTAIN refusal); Check 14 reads the two stages and fires on the counted context window. |
-| `shape_15_anchored_aggregate_threshold` | `grep -cE '^\[(BLOCKER\|ERROR\|WARNING\|INFO)\]' report.md` against `expect >= 54`, where `report.md` holds three line-start tags and one mid-sentence tag. Check 1 measures **3**, unsatisfied; `-E` keeps Check 3 silent; Check 15 fires. |
+| `shape_15_anchored_aggregate_threshold` | `grep -cE '^.(BLOCKER\|ERROR\|WARNING\|INFO).' report.md` against `expect >= 54`, where `report.md` holds three line-start tags and one mid-sentence tag. Check 1 measures **3**, unsatisfied; `-E` keeps Check 3 silent; Check 15 fires. The pattern holds no backslash: on Windows the executor starts Git's `grep` from an argument list, and that path drops a backslash before `[`. With no backslash, the shell and the executor both read **3**, which equals `pre-edit: 3`, so Check 66 stays silent on every platform. |
 | `shape_16_unscoped_suite_gate` | `python -m pytest -q` as a task file's After gate with no path argument. `python` is refused by the allowlist (one UNCERTAIN refusal); Check 16 fires. |
 
 ---

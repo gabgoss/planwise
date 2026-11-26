@@ -2,7 +2,9 @@
 """Lint checks that read one task file's gate text, registered into the linter.
 
 Checks 63 to 65 read other lines too: a checkbox criterion in any plan file, and
-a spec line in a task or Orchestration file.
+a spec line in a task or Orchestration file. Check 68 also reads the lines of a
+task file, for a native ``Read`` call with a literal ``limit``, in its
+Verification Commands and Success Criteria sections only.
 
 ``lint_verification_gates`` imports ``CHECKS`` from this module and extends its
 ``CHECK_REGISTRY`` with it. This module imports nothing from the linter: the
@@ -18,7 +20,10 @@ heuristic, because what counts as a gate anchor, a status gate, a documenting
 sentence or an extraction step is a judgment, so they report at WARNING and
 never decide a verdict alone. Checks 63 to 65 are heuristic in the same way,
 because each reads a line shape and cannot trace the claim through the real
-structure.
+structure. Check 68 is heuristic too: it reads a literal bound and cannot see a
+bound held in a variable or a length asserted in a later command. It follows
+gate-input-set-and-compared-window.md, the section "An Extraction Is Bounded by
+Markers and Asserts Its Parsed Length".
 """
 
 import re
@@ -131,6 +136,35 @@ _FIRST_WRITE_RE = re.compile(
     r"\bbefore (the |their |its )?([\w.`-]+['’]s )?(first|any)\b[^\n]{0,30}\bwrites?\b"
 )
 _WRITES_IN_ORDER_RE = re.compile(r"(?i)writes in (execution )?order")
+
+# A literal extraction bound. A slice with an integer stop on a read result, and
+# a native Read call with a literal limit. A slice on anything else is skipped.
+_READ_SLICE_RE = re.compile(
+    r"\.read(?:_text|_bytes|lines)?\([^()]*\)\s*\[\s*\d*\s*:\s*\d+\s*\]"
+)
+_READ_LIMIT_RE = re.compile(r"\bRead\b(?=[^\n]*\bfile_path\s*=)[^\n]*?\blimit\s*=\s*\d+")
+_WRONG_LABEL_RE = re.compile(r"^\s*(?:>\s*)?WRONG\b")
+# The sections whose lines a native Read call is read from: a paged read in an
+# instruction step is a read, not a gate.
+_READ_SCAN_SECTION_RE = re.compile(r"^(#{1,6})\s+(?:Verification Commands|Success Criteria)\b", re.IGNORECASE)
+_LENGTH_COUNT_LONG_OPTIONS = frozenset({"--lines", "--bytes"})
+_INTEGER_RE = re.compile(r"^\d+$")
+_HEAD_TAIL_COUNT_RE = re.compile(r"^(?:-[nc]\d+|-\d+|--(?:lines|bytes)=\d+)$")
+_GREP_MAX_COUNT_RE = re.compile(r"^(?:-[A-Za-z]*m\d+|--max-count=\d+)$")
+# A length assertion: ``len(...)`` beside a comparison operator, or the note.
+_LENGTH_COMPARISON_RE = re.compile(
+    r"\blen\([^()]*(?:\([^()]*\)[^()]*)*\)\s*(?:==|!=|>=|<=|>|<)|(?:==|!=|>=|<=|>|<)\s*len\("
+)
+_PARSED_LENGTH_NOTE_RE = re.compile(r"\bparsed[- ]length\b", re.IGNORECASE)
+_EXTRACTION_BOUND_MESSAGE = (
+    "This command cuts what it reads at a literal count ({shape}) and asserts no parsed "
+    "length. As the source grows the cut returns fewer items, so a count taken from it "
+    "passes more readily and reports nothing. Assert the length of the parsed result "
+    "(len(...) in a comparison, wc -l or wc -c directly after the cut, or a parsed length note), "
+    "or read the whole source "
+    "(gate-input-set-and-compared-window.md, the section \"An Extraction Is Bounded by "
+    "Markers and Asserts Its Parsed Length\")"
+)
 
 
 def _finding(*, check, severity, file, line, command, message) -> dict:
@@ -460,8 +494,10 @@ def _check35_absence_gate_over_mandated_prose(context) -> list:
 
 
 def _is_wrong(command) -> bool:
-    """True when the command or its note labels the line a deliberate WRONG example."""
-    return "WRONG" in f"{command.command} {command.comment} {command.annotation}"
+    """True when the command's note or annotation labels the line a deliberate
+    WRONG example, or the command text starts with the label. The word inside
+    the command, such as a pattern that counts WRONG labels, is not a label."""
+    return "WRONG" in f"{command.comment} {command.annotation}" or _WRONG_LABEL_RE.match(command.command) is not None
 
 
 def _digitless_class(text):
@@ -747,6 +783,175 @@ def _check65_first_write_placement_without_write_list(context) -> list:
     return findings
 
 
+def _count_after(tokens, index) -> bool:
+    """True when ``tokens[index]`` is a plain integer."""
+    return index < len(tokens) and _INTEGER_RE.match(tokens[index]) is not None
+
+
+def _literal_count_stage(stage) -> bool:
+    """True when a ``head`` or ``tail`` stage carries a literal count: ``-n N``,
+    ``-nN``, ``-N``, ``-c N``, ``-cN`` or the long forms. A ``tail -n +N`` start
+    offset and a ``-n -N`` negative count are not a literal count."""
+    index = 1
+    while index < len(stage):
+        token = stage[index]
+        if token == "--":
+            break
+        if token in ("-n", "-c", "--lines", "--bytes"):
+            if _count_after(stage, index + 1):
+                return True
+            index += 2
+            continue
+        if _HEAD_TAIL_COUNT_RE.match(token):
+            return True
+        index += 1
+    return False
+
+
+def _grep_max_count(stage) -> bool:
+    """True when a grep stage stops after a literal number of matches."""
+    for index, token in enumerate(stage[1:], start=1):
+        if token == "--":
+            break
+        if token in ("-m", "--max-count") and _count_after(stage, index + 1):
+            return True
+        if _GREP_MAX_COUNT_RE.match(token):
+            return True
+    return False
+
+
+def _extraction_shapes(command):
+    """Yield ``(kind, text, stages, position)`` for each literal extraction bound
+    in a command. ``stages`` and ``position`` locate the bounded stage in its
+    pipeline, and ``stages`` is None when the command does not tokenise. A
+    ``head`` or ``tail`` stage counts only when another stage follows it,
+    because a pipeline that ends in one is display."""
+    tokens = _tokens(command.command)
+    pipelines = _pipelines(tokens) if tokens else []
+    for stages in pipelines:
+        for position, stage in enumerate(stages):
+            if _READ_SLICE_RE.search(" ".join(stage)):
+                yield "slice", _READ_SLICE_RE.search(" ".join(stage)).group(0), stages, position
+            elif stage[0] in ("head", "tail") and position < len(stages) - 1 and _literal_count_stage(stage):
+                yield stage[0], " ".join(stage), stages, position
+            elif stage[0] == "grep" and _grep_max_count(stage):
+                yield "grep -m", " ".join(stage), stages, position
+    if not pipelines:
+        match = _READ_SLICE_RE.search(command.command)
+        if match is not None:
+            yield "slice", match.group(0), None, 0
+
+
+def _length_count_follows(stages, position) -> bool:
+    """True when the stage right after ``position`` is the last stage and is
+    ``wc -l`` or ``wc -c``. A stage between the cut and the ``wc`` makes the
+    ``wc`` count the filtered output, so it says nothing about the cut."""
+    if stages is None or position + 2 != len(stages):
+        return False
+    after = stages[position + 1]
+    return after[0] == "wc" and (
+        any(letter in _short_flags(after) for letter in "lc")
+        or _LENGTH_COUNT_LONG_OPTIONS.intersection(after[1:]) != set()
+    )
+
+
+def _asserts_parsed_length(command, stages, position) -> bool:
+    """True when a ``len(...)`` comparison in the bounded stage's own pipeline,
+    or in the command's note, asserts the length of what it parsed, when a
+    ``wc`` counts the cut's own output, or when the command, its comment or its
+    annotation carries a ``parsed length`` note. A ``len(...)`` comparison in
+    another pipeline of the same command does not clear this bound."""
+    notes = f"{command.comment} {command.annotation}"
+    scope = command.command if stages is None else " ".join(" ".join(stage) for stage in stages)
+    return bool(
+        _LENGTH_COMPARISON_RE.search(f"{scope} {notes}")
+        or _PARSED_LENGTH_NOTE_RE.search(f"{command.command} {notes}")
+        or _length_count_follows(stages, position)
+    )
+
+
+def _read_scan_lines(lines):
+    """Yield the index of each line inside a Verification Commands or Success
+    Criteria section. A heading is read only outside a fenced block, and a
+    section ends at the next heading of its own level or a higher one."""
+    level = None
+    for number, line, fenced in _fence_marked(lines):
+        heading = None if fenced else _HEADING_LINE_RE.match(line)
+        if level is not None and heading and len(heading.group(1)) <= level:
+            level = None
+        if level is None:
+            section = None if fenced else _READ_SCAN_SECTION_RE.match(line)
+            if section:
+                level = len(section.group(1))
+            continue
+        yield number - 1
+
+
+def _read_limit_calls(context):
+    """Yield ``(file, line, text, notes)`` for every native ``Read`` call whose
+    arguments carry a literal ``limit``, in the Verification Commands and
+    Success Criteria sections of a task file. A paged read in another section,
+    such as an Execution Step, is an instruction and is not read. The line after
+    the call is part of its notes, because a pre-edit comment sits there."""
+    for rel, lines in _task_files(context):
+        for index in _read_scan_lines(lines):
+            line = lines[index]
+            if "WRONG" in line:
+                continue
+            call = _READ_LIMIT_RE.search(line)
+            if call is None:
+                continue
+            following = lines[index + 1] if index + 1 < len(lines) else ""
+            yield rel, index + 1, call.group(0), f"{line} {following}"
+
+
+def _check68_literal_extraction_bound_without_length_assertion(context) -> list:
+    """Check 68 -- a verification command cuts what it reads at a literal count
+    and asserts no parsed length (gate-input-set-and-compared-window.md, the
+    section "An Extraction Is Bounded by Markers and Asserts Its Parsed Length").
+    A byte slice or a ``head`` bound returns fewer
+    columns as the file grows, so the assertion over the cut passes more readily
+    and reports nothing. A bound here is a slice with a literal integer stop on a
+    read result (``.read()[:9000]``), a ``head`` or ``tail`` stage with a literal
+    count that feeds another stage, ``grep -m N`` or ``--max-count=N``, and a
+    native ``Read`` call with ``limit=N`` in the Verification Commands or
+    Success Criteria section of a task file. ``len(...)`` in a comparison in the
+    pipeline that holds the bound, a ``parsed length`` note on the command or its
+    annotation, or ``wc -l``, ``wc -c``, ``wc --lines`` or ``wc --bytes`` as the
+    last stage directly after the bounded stage clears it. A WRONG label is read
+    from the command's note or annotation, never from its pattern argument. A stage between the cut and the ``wc`` does not, because the
+    ``wc`` then counts the filtered output. A pipeline whose last stage
+    is ``head`` or ``tail`` is display, and a slice on something that is not a
+    read result is not an extraction. Cannot see: a bound held in a variable, a
+    length asserted in a later command and a count that is correct by design.
+    Heuristic, so WARNING: it reports and never gates alone.
+    """
+    findings = []
+    for command in context.commands:
+        if command.is_placeholder or _is_wrong(command):
+            continue
+        shape = next(
+            (found for found in _extraction_shapes(command)
+             if not _asserts_parsed_length(command, found[2], found[3])),
+            None,
+        )
+        if shape is None:
+            continue
+        findings.append(_finding(
+            check=68, severity=SEVERITY_WARNING, file=command.file, line=command.line,
+            command=command.command,
+            message=_EXTRACTION_BOUND_MESSAGE.format(shape=f"{shape[0]} bound {shape[1]!r}"),
+        ))
+    for file, line, text, notes in _read_limit_calls(context):
+        if _LENGTH_COMPARISON_RE.search(notes) or _PARSED_LENGTH_NOTE_RE.search(notes):
+            continue
+        findings.append(_finding(
+            check=68, severity=SEVERITY_WARNING, file=file, line=line, command=text,
+            message=_EXTRACTION_BOUND_MESSAGE.format(shape=f"Read bound {text!r}"),
+        ))
+    return findings
+
+
 CHECKS = [
     _check30_gate_anchor_without_verified_marker,
     _check31_status_gate_names_no_artifact,
@@ -759,4 +964,5 @@ CHECKS = [
     _check63_count_pin_without_instrument,
     _check64_two_sided_spec_without_removed_cell,
     _check65_first_write_placement_without_write_list,
+    _check68_literal_extraction_bound_without_length_assertion,
 ]

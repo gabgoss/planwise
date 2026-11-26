@@ -255,7 +255,7 @@ Without the recorded value, vacuity is **unknowable** from the artifact, so the 
   6. A gate whose subject is a report the same work produces: if it greps a bare token the report's own template emits, rather than the machine-readable verdict line or the status-cell row pattern → WARNING.
   7. A gate target other sprints' work regenerates (a shared target, §10.1.2) that pins an absolute magnitude from plan time, or a halt message that names another session instead of the write-set test → ERROR. Fix: derive BEFORE in the same invocation and assert `AFTER == BEFORE + {n}`.
   8. A gate that counts rows by a stored task id with no second key, or whose Before was not measured on the live table → ERROR. Fix: add a session-date bound or a session-unique key prefix, and re-measure the Before (§10.1.2).
-- **Enforced by script:** steps 2, 3 and 5 are tested by Checks 2, 1 and 7 of `scripts/lint_verification_gates.py`. Steps 7 and 8 have no script check. The reviewer reads them.
+- **Enforced by script:** steps 2, 3 and 5 are tested by Checks 2, 1 and 7 of `scripts/lint_verification_gates.py`. Step 5 is also tested by Check 66, which compares an After gate's `invariant:` and `pre-edit:` integers and a Before gate's expectation with the live measurement, in a session the Master Plan marks NOT STARTED or does not track. Steps 7 and 8 have no script check. The reviewer reads them.
 - **Finding template:**
 ```
 [ERROR] Verification gate is vacuous — pre-edit value already satisfies its expectation
