@@ -122,6 +122,10 @@ class TestFeedbackBlock(FeedbackFixture):
         # Ids appear in the card's own row order, which is file-name order.
         self.assertIn("the card listed 3 queued draft(s) (d-0002, d-0001, d-0003)", nxt)
         self.assertIn("posting state (absent)", nxt)
+        # The card names the target repository, and the per-draft question repeats it.
+        self.assertIn("Target repository: gabgoss/planwise", lines[:next_at])
+        question = next(ln for ln in lines[next_at:] if ln.startswith("- Per-draft question:"))
+        self.assertIn("`gabgoss/planwise`", question)
         self.assertIn("`--post <id>`", nxt)
         self.assertIn("If the id is not one of d-0002, d-0001, d-0003, say that no queued draft has that id and stop.", nxt)
         self.assertIn("`--drafts` without `--all`: ask the user one question per queued draft, for 3 question(s)", nxt)
@@ -138,11 +142,26 @@ class TestFeedbackBlock(FeedbackFixture):
         self.assertTrue(Path(config_value.group(1)).samefile(self.root / "planwise" / "config.yaml"))
 
     def test_enabled_state_names_no_enable_step(self):
-        nxt = "\n".join(skill_preflight.feedback_next_lines(1, ["d-0001"], "enabled", SCRIPTS_DIR, Path("cfg/config.yaml")))
+        nxt = "\n".join(skill_preflight.feedback_next_lines(1, ["d-0001"], "enabled", "gabgoss/planwise", SCRIPTS_DIR, Path("cfg/config.yaml")))
         self.assertNotIn("enable-posting", nxt)
         self.assertNotIn("Posting state is", nxt)
         self.assertIn(f'"{SCRIPTS_DIR / "feedback_post.py"}" post --config "{Path("cfg/config.yaml")}"', nxt)
         self.assertIn(f'"{SCRIPTS_DIR / "feedback_drafts.py"}" discard <id> --config "{Path("cfg/config.yaml")}"', nxt)
+
+    def test_the_question_names_only_the_repository_it_is_given(self):
+        # A neutral scripts folder: a real checkout path may itself hold the default name.
+        lines = skill_preflight.feedback_next_lines(1, ["d-0001"], "enabled", "other-owner/other-repo", Path("scripts"), Path("cfg/config.yaml"))
+        question = next(ln for ln in lines if ln.startswith("- Per-draft question:"))
+        self.assertIn("`other-owner/other-repo`", question)
+        self.assertNotIn("gabgoss/planwise", " ".join(lines))
+
+    def test_a_configured_repository_reaches_the_question(self):
+        (self.root / "planwise" / "config.yaml").write_text(CONFIG_YAML + "feedback:\n  repo: other-owner/other-repo\n", encoding="utf-8")
+        self.queue_three()
+        lines = run_router(["feedback"], self.root).stdout.splitlines()
+        self.assertIn("Target repository: other-owner/other-repo", lines)
+        question = next(ln for ln in lines if ln.startswith("- Per-draft question:"))
+        self.assertIn("`other-owner/other-repo`", question)
 
     def test_post_and_drafts_tokens_print_the_same_block(self):
         self.queue_three()
@@ -193,6 +212,16 @@ class TestFeedbackBlock(FeedbackFixture):
         with mock.patch.object(skill_preflight.subprocess, "run", return_value=fake):
             block = skill_preflight.feedback_block(self.root)
         self.assertTrue(block[1].startswith(FALLBACK))
+
+    def test_a_card_without_the_repository_line_prints_the_fallback_line(self):
+        card = ("Queued drafts (1) in X:", "d-0001\tbug\tt\t1d", "Posting state: enabled")
+        fake = SimpleNamespace(returncode=0, stdout="".join(f"{line}\n" for line in card), stderr="")
+        with mock.patch.object(skill_preflight.subprocess, "run", return_value=fake):
+            block = skill_preflight.feedback_block(self.root)
+        fallback = [ln for ln in block if ln.startswith(FALLBACK)]
+        self.assertEqual(len(fallback), 1)
+        self.assertIn("target repository line", fallback[0])
+        self.assertNotIn("NEXT:", block)
 
     def test_the_branch_writes_no_file_and_changes_no_byte(self):
         self.queue_three()
@@ -265,7 +294,7 @@ class TestNextBlockMatchesTheCardRoute(unittest.TestCase):
     """The NEXT block's claims hold against the card route the handler and Part 2 describe."""
 
     def setUp(self):
-        self.next_lines = skill_preflight.feedback_next_lines(2, ["d-0002", "d-0001"], "absent", SCRIPTS_DIR, CONFIG)
+        self.next_lines = skill_preflight.feedback_next_lines(2, ["d-0002", "d-0001"], "absent", "gabgoss/planwise", SCRIPTS_DIR, CONFIG)
         handler = HANDLER_MD.read_text(encoding="utf-8")
         part2 = PART2_MD.read_text(encoding="utf-8")
         self.handler_route = _section(handler, "#### Card Route for `--drafts` and `--post`")
@@ -318,6 +347,7 @@ class TestNextBlockMatchesTheCardRoute(unittest.TestCase):
                 self.assertIn("ARGUMENTS:", route)
                 self.assertIn("PLANWISE_FEEDBACK_FALLBACK:", route)
                 self.assertIn("**Keep**", route)
+                self.assertIn("Target repository:", route)
 
     def test_next_block_commands_match_the_card_route(self):
         joined = "\n".join(self.next_lines)
