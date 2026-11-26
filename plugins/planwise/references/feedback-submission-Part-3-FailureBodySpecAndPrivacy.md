@@ -239,7 +239,7 @@ Every placeholder used in the three parts of this engine, for the four call site
 | `{title}` | The issue title, supplied by the caller. |
 | `{draft_path}` | `{planwise_root}/{feedback_dir}/{YYYY-MM-DD}-{kind}-{slug}.md`. |
 | `{planwise_root}` | The consumer's configured planwise root directory. |
-| `{feedback_dir}` | The consumer's configured directory for feedback drafts, resolved under `{planwise_root}`; defaults to `Feedback/Feedback-Drafts`. |
+| `{feedback_dir}` | The consumer's configured directory for feedback drafts, resolved under `{planwise_root}`; defaults to `Feedback/Feedback-Drafts`. In a linked git worktree, it resolves under the main checkout's copy of `{planwise_root}`, in every `{planwise_root}/{feedback_dir}` path too. |
 | `{YYYY-MM-DD}` | The date the draft is written. |
 | `{kind}` | `bug`, `lesson`, or `idea` — selects the body variant. |
 | `{label}` | The single `gh issue create --label` value for `{kind}`: `bug` → `bug`; `lesson` or `idea` → `enhancement`. Mirrors the repo's own Issue Forms labels so a CLI-filed report is categorized identically to a web-filed one. |
