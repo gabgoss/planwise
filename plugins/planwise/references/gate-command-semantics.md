@@ -176,6 +176,8 @@ python -B "<plugin_root>/scripts/<script>.py" ...
 
 **The `Grep` tool dialect.** The native `Grep` tool uses ripgrep. Ripgrep reads a backslash-pipe as a literal pipe, so an alternation written that way matches the text `alpha|beta` and returns 0. Write alternation as a bare `|`. A bare `|` inside a markdown table cell splits the cell, so no alternation pattern goes in a table cell. Put the call in a fenced block and let the cell point to it. `scripts/lint_verification_gates.py` Check 8 (`_check8_grep_tool_escaped_pipe_alternation`) flags the backslash-pipe form.
 
+**A pattern does not move between the two dialects unchanged.** A basic `grep` pattern reads a leading `+`, `*` or `?` as a literal character, so `grep -c '^??'` counts untracked rows and `grep -v '^+++'` removes diff headers. The native `Grep` tool reads the same characters as repetitions, and `^??` and `^+++` then match every line. In a `Grep` call, write `^\?\?` and `^\+\+\+`. Name the tool beside a pinned pattern, and run the pattern once in that tool before pinning it.
+
 ```
 WRONG:   Grep pattern='alpha\|beta'    -> 0 hits    (a literal pipe)
 CORRECT: Grep pattern='alpha|beta'     -> hits on either word
