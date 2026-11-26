@@ -186,7 +186,7 @@ Handing figures down is a genuine efficiency and should continue. [`read-confirm
 > # For added-lines-only gates the equivalent pair is: grep '^\+' | grep -v '^+++'
 > ```
 
-**In basic syntax `\+` is a repetition operator.** GNU `grep` reads a pattern as basic syntax unless `-E` is given. A header filter written `grep -v '^\+\+\+'` therefore matches every line, and `-v` deletes every line. Write the header filter as `grep -Ev '^\+\+\+'` or `grep -v '^+++'`. Never put `\+` inside a basic pattern.
+**In basic syntax `\+` is a repetition operator.** GNU `grep` reads a pattern as basic syntax unless `-E` is given. A header filter written `grep -v '^\+\+\+'` therefore matches every line that starts with `+`, and `-v` deletes every added line. Write the header filter as `grep -Ev '^\+\+\+'` or `grep -v '^+++'`. Never put `\+` inside a basic pattern.
 
 ```bash
 printf '+++ b/x.py\n+leak <id> here\n+clean line\n' | grep -v  '^\+\+\+'   # prints nothing, exit 1
@@ -697,9 +697,11 @@ Grep  pattern=' \| OFF[[:space:]]*$'  path='<task>-Verify.md'  output_mode='coun
 ```
 CORRECT — a tolerant anchor, and a positive control from the same family over the same file:
 ```
-Grep  pattern='\| *OFF *\|? *$'  path='<task>-Verify.md'  output_mode='count'   # the absence count
-Grep  pattern='\| *ON *\|? *$'   path='<task>-Verify.md'  output_mode='count'   # control: MUST be > 0, or the gate saw no rows
+Grep  pattern='\| *OFF *\|? *\r?$'  path='<task>-Verify.md'  output_mode='count'   # the absence count
+Grep  pattern='\| *ON *\|? *\r?$'   path='<task>-Verify.md'  output_mode='count'   # control: MUST be > 0, or the gate saw no rows
 ```
+
+The `\r?` matters on a file with CRLF line endings. The native `Grep` tool does not match `$` before a carriage return, so the same two rows without it both read 0, and the control then reports a blind gate.
 
 A count of a token by its position in a line is a claim about the row format. The row format belongs to whoever writes the rows.
 

@@ -37,7 +37,7 @@ The defect is systemic rather than per-plan: one audit found 109 diff-scoped gat
 
 **This section is the definition site for `$..._BASE`.** [measurement-discipline.md](measurement-discipline.md) §8.7 governs the *input-set* half of the same gate — untracked-file registration (`git add -N`), the input-set assertion, the unfiltered on-disk sweep, and the known-bad dry-run — and its examples consume `$BASE` without defining it. The two halves are complementary and neither restates the other: §8.7 asks *did the gate inspect anything*, this section asks *did it inspect the right tree state*. An empty result means nothing until both are answered.
 
-Throughout this section `$BASE` stands for the sprint's own recorded `{ABBREV}_S{NN}_BASE` (or `{ABBREV}_SERIES_BASE` where a whole-series view is meant). It is a **recorded value**: pinned once from the live repo, then carried as the resolved SHA. Never copy it from another sprint, and never re-derive it from a later `HEAD`.
+Throughout this section `$BASE` stands for the sprint's own recorded `{ABBREV}_S{NN}_BASE` (or `{ABBREV}_SERIES_BASE` where a whole-series view is meant). It is a **recorded value**: pinned once from the live repo, then carried as the resolved SHA. Never copy it from another sprint, and never re-derive it from a later `HEAD`. `$BASE` is notation, not a shell variable to rely on. A session keeps no variable between two shell calls, and a session isolated in a git worktree may refuse a git command that holds a `$` expansion. Type the resolved SHA into the command.
 
 **The executed gate carries the base in the same call.** The Bash tool keeps no shell state between calls, so a `BASE=` assignment made in one call is unset in the next. An unset `$BASE` drops out of `git diff $BASE -- <paths>`, and the command then becomes a working-tree-against-index diff that still prints plausible counts. Write the recorded SHA as a literal, or set the variable in the same command: `BASE=<recorded SHA>; git -C <repo> diff "${BASE:?unset}" -- <paths>`. The `${BASE:?unset}` form stops with an error when the variable is empty. `$BASE` in this file is notation for the recorded value.
 
@@ -260,7 +260,7 @@ A delta gate reads "the file gains 2 lines". An unrelated commit that already ad
 > ```
 > CORRECT — a state assertion over the end state:
 > ```
-> Grep  pattern='^{line}$'  path='<file>'  output_mode='count'   # expect 1
+> Grep  pattern='^{line}\r?$'  path='<file>'  output_mode='count'   # expect 1; `\r?` lets the anchor past a CRLF line ending
 > ```
 
 ### 8.7 A base is a recorded value: recover it by carrying it, never by re-minting it
