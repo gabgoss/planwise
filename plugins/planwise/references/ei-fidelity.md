@@ -160,11 +160,12 @@ Fix: Reconcile per references/ei-fidelity.md §3 | Confidence: HIGH
 ### 3.1 Algorithm-Sprint Retention-Band Calibration
 
 > [!constraint] Algorithm-sprint EIs are calibrated against an algorithm-specific retention band; retention >100% MUST be checked against the legitimate-driver checklist BEFORE it is flagged as bloat
-> Retention is EI tokens ÷ source tokens, measured over the whole EI. It is the
-> cross-tier fidelity signal for an Execution Input. The generic 80–120% band is
-> sprint-type-agnostic:
+> Retention is (EI tokens + Deferred log tokens) ÷ primary source tokens. Reference
+> sources are excluded from the denominator, and their tokens are reported, never
+> graded. It is the cross-tier fidelity signal for an Execution Input. The generic
+> 80–120% band is sprint-type-agnostic:
 >
-> | Retention (tokens, whole EI) | Verdict |
+> | Retention (tokens, EI + Deferred over primary sources) | Verdict |
 > |------------------------------|---------|
 > | below 0.80 | BLOCKER — investigate as a GAP; content likely lost |
 > | 0.80 to below 0.95 | WARNING |
@@ -213,7 +214,7 @@ Fix: Reconcile per references/ei-fidelity.md §3 | Confidence: HIGH
 > duplicate formula tables are legitimate drivers → PASS. Only a non-legitimate
 > driver (reworded verbatim source) converts the result to a bloat finding.
 
-**Script:** `scripts/lint_execution_input.py` rule `retention-band-class` runs this check. It cannot see a band declared below Part 1's first `##` heading or in another Part, or an Objective that names the work with other words, and "model" also matches unrelated uses. Rule `retention-threshold` in the same script reads the Part 1 `Retention:` figure against this section's token bands. It does not recompute the figure, so it cannot see whether the figure is tokens over the whole EI.
+**Script:** `scripts/lint_execution_input.py` rule `retention-band-class` runs this check. It cannot see a band declared below Part 1's first `##` heading or in another Part, or an Objective that names the work with other words, and "model" also matches unrelated uses. Rule `retention-threshold` in the same script reads the Part 1 `Retention:` figure against this section's token bands. It does not recompute the figure, so it cannot see whether the figure uses primary source tokens.
 
 #### Reviewer Check 003 — EI Algorithm-Sprint Retention Band Calibration
 

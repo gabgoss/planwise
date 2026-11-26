@@ -98,6 +98,36 @@ AGENT_READS = (
     ("EI_SECTION_MAP", SCAFFOLDER),
 )
 
+# Every Execution Input lint rule, classified by the agent whose output it grades.
+# A rule added to the lint fails test_every_lint_rule_is_classified until it is
+# classified here. Every owner of a rule names it, in backticks, in its own file.
+# A rule whose sites span the EI and the plan files has two owners.
+OWNED_LINT_RULES = {
+    "cross-tier-note": (EXTRACTOR,),
+    "cross-tier-propagation": (EXTRACTOR,),
+    "retention-threshold": (EXTRACTOR,),
+    "cross-sprint-touch": (SCAFFOLDER,),
+}
+RULE_OWNERS = {
+    "severity-vocabulary": (EXTRACTOR,),
+    "four-site-caveat": (EXTRACTOR, SCAFFOLDER),
+    "hedge-preservation": (EXTRACTOR,),
+    "spec-citation-pair": (EXTRACTOR,),
+    "repoint-cluster": (EXTRACTOR,),
+    "repair-covers-verify": (EXTRACTOR,),
+    "retention-band-class": (SCAFFOLDER,),
+    "threshold-alignment": (SCAFFOLDER,),
+    "count-claim": (SCAFFOLDER,),
+    "token-reconciliation": (SCAFFOLDER,),
+    "verbatim-line-range": (SCAFFOLDER,),
+    "size-band-derivation": (SCAFFOLDER,),
+    "pre-extraction-step": (SCAFFOLDER,),
+}
+RULES_OUT_OF_SCOPE = {
+    "body-citation-presence": "grades the Consolidated Context parts a discovery consolidation writes; "
+    "the extractor only reads them and the scaffolder never does",
+}
+
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -326,6 +356,21 @@ class ScaffoldingAgentContractTests(unittest.TestCase):
         self.assertIn("`MUST NOT run concurrently`", rule)
         # the step the rule describes is one the lint's first-step pattern selects
         self.assertTrue(lint_plan.FIRST_STEP_RE.match("1. Grep the prior sprint's marker"))
+
+    def test_every_lint_rule_is_classified_and_named_by_its_owner(self):
+        """Agent output that passes its own reconcile can still fail a lint rule its body
+        never names. Every live rule is owned, classified to an agent, or out of scope."""
+        live = {rule.word for rule in lint_ei.RULES}
+        self.assertEqual(live, set(OWNED_LINT_RULES) | set(RULE_OWNERS) | set(RULES_OUT_OF_SCOPE))
+        texts = {EXTRACTOR: _read(EXTRACTOR), SCAFFOLDER: _read(SCAFFOLDER)}
+        owners = {**OWNED_LINT_RULES, **RULE_OWNERS}
+        for name in sorted(owners):
+            for owner in owners[name]:
+                with self.subTest(rule=name, owner=owner.name):
+                    self.assertTrue(f"`{name}`" in texts[owner], f"{owner.name} does not name `{name}`")
+        for name in sorted(RULES_OUT_OF_SCOPE):
+            with self.subTest(rule=name):
+                self.assertTrue(RULES_OUT_OF_SCOPE[name].strip())
 
 
 class PlanAuthorContractTests(unittest.TestCase):

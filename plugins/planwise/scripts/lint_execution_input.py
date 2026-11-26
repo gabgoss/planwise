@@ -46,10 +46,10 @@ Rules, by word id:
                           paragraph in the same Part naming every source.
                           BLOCKER.
     retention-threshold   references/ei-citation-and-token-reconciliation.md §5.
-                          The Part 1 ``Retention:`` figure, tokens over the whole
-                          EI: 0.95 or more passes, 0.80 to below 0.95 is a
-                          WARNING, below 0.80 is a BLOCKER. Above 1.20 prints an
-                          ADVISORY line.
+                          The Part 1 ``Retention:`` figure, (EI + Deferred tokens)
+                          over primary source tokens: 0.95 or more passes, 0.80
+                          to below 0.95 is a WARNING, below 0.80 is a BLOCKER.
+                          Above 1.20 prints an ADVISORY line.
     spec-citation-pair    references/ei-citation-and-token-reconciliation.md §7.
                           Every ``Spec #N`` token on the ``Extracted from:`` line
                           and in a Cross-References Source cell is followed by
@@ -845,8 +845,8 @@ def check_cross_tier_note(ctx: Context) -> RuleResult:
 def check_retention_threshold(ctx: Context) -> RuleResult:
     """The Part 1 Retention figure against the 0.95 and 0.80 token bands.
 
-    Cannot see: whether the stated figure was measured in tokens over the whole
-    EI; the rule reads the figure, it does not recompute it.
+    Cannot see: whether the stated figure was measured as (EI + Deferred tokens)
+    over primary source tokens; the rule reads the figure, it does not recompute it.
     """
     result = RuleResult()
     for ei in ctx.eis:
