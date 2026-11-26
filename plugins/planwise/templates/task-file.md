@@ -156,6 +156,25 @@ Missing Schema Pin for SQL-emitting tasks = BLOCKER at `/planwise review`.
 2. {Step 2 - specific action}
 3. {Step 3 - specific action}
 
+> [!constraint] A Brief That Prescribes a Deferred Tool States the Invariant and a Scoped Fallback
+> A deferred tool may not load in the dispatched runner. A step that names such a tool, for example `NotebookEdit`, states the invariant the tool protects: this literal, in this location, nothing else changes. The step names the tool as preferred. It permits a scoped fallback script that asserts one occurrence before the edit and exactly one changed unit after it. A runner that takes the fallback returns the deviation as a `KEY_FINDINGS` bullet. A sequential runner also writes it in Recovery `## Key Findings`. In a parallel layer, the orchestrator copies it there. The run handler's closeout carries Key Findings into the session Summary's `Context Notes`. When the sprint has a Sprint Signoff, its author copies each such deviation into `## Sign-off Notes`. A Success Criterion quotes the invariant, never "N tool calls".
+>
+> WRONG — the brief names the tool and gives no sanctioned path when it does not load:
+> ```
+> Step 3: Use NotebookEdit to change the threshold in cell 7.
+> Criterion: 1 NotebookEdit call made.
+> ```
+> CORRECT — the invariant, the preferred tool, and a scoped fallback with its two assertions:
+> ```
+> Step 3: Invariant: the literal 0.75 in cell id a1b2 becomes 0.80, and nothing else changes.
+>         Preferred: NotebookEdit. Fallback: a script scoped to cell a1b2 that asserts one
+>         occurrence of 0.75 before the edit and exactly one changed cell after it.
+>         A fallback run returns a KEY_FINDINGS bullet, and Recovery Key Findings records it.
+>         Closeout carries Key Findings to the Summary's Context Notes. A Sprint Signoff's
+>         author copies the deviation into Sign-off Notes.
+> Criterion: cell a1b2 reads 0.80 where it read 0.75, and no other cell changed.
+> ```
+
 ### Cross-Sprint Prerequisite Grep Gate (Required when this task edits a file already edited by a prior sprint)
 
 When this task edits a file that an earlier sprint of the same plan also edited (per the Sprint Plan's `## Cross-Sprint File Touches` section), Step 1 MUST be a grep gate that verifies the prior sprint's delta marker is present in the file. The gate makes the cross-sprint dependency mechanical: the executor cannot proceed against an outdated baseline.

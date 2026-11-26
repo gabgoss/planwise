@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_on": "2026-11-25",
+  "generated_on": "2026-11-26",
   "normalization": "read as utf-8-sig (BOM stripped), CRLF -> LF, paths: and consult-when: keys removed, sha256 hex (rule_divergence.rule_history_digest)",
   "purpose": "Every body each installed, de-scoped and style rule reference has ever shipped with. rule_divergence._classify_diverged returns SUBSET at exact confidence for an installed body matching any listed digest, so an unedited older rule is adopted without a transfer. Regenerate with tools/gen_rule_history.py after editing a listed reference; tests/test_rule_history.py enforces it.",
   "rules": {
@@ -366,6 +366,7 @@
       "d5375c48e18f3ec0beda37184560c471203a971c40c0dfff558cd1af8b2e0f21",
       "e17ac0a711519a6fbb1873e11b303b26583084c289825d350ab4efe3648f8b6a",
       "f7f115a123a55ab09f28a049f7c6a719d3e56189bc7c4cd98579dc4bd1ca10ea",
+      "f8ce43bb89ebac8506d7e6dff9c7880b3dc17dfe941f0b7ec44a2381c4b639c5",
       "fe57d371d8f049df7ab6c659d64a9c99aab6939d841ab46fcee7a49a52bafdd6"
     ],
     "verification-gates.md": [
@@ -409,6 +410,7 @@
       "afd297b32b5d09dfb0ddc0d1b598ddb4967fc4a02e7ca62948c2af1acc2a3147",
       "b29192fb28a89ed8297cefd2e1ade267defa50afd6097b7957fa3bfb419824fb",
       "dced44bd795bc7c83c21ec88f8816c9ef7975a9dde6184a4d5dbeb4df532a416",
+      "e04447ad856a8244119329b2b3e59a22ccf0e794f871423c5997862597e807ac",
       "f1d3a6eba932e2057077533b893a7a8b695811fd38657ae6d475ecc7d3a1a504",
       "f672a04cd89aeecbd240af6ac4d060b250f7387c03637c40ae3d021629485811",
       "f9679844924eca2518bd31cf9e2c846663fdf9fbf23ef785a3d4dca2aa94e35b"
