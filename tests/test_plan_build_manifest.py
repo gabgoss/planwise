@@ -5,6 +5,7 @@ Shared helpers live in `tests/test_plan_build.py`.
 
 import hashlib
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -20,12 +21,17 @@ import plan_build as pb
 import scaffold_plan as sp
 from test_plan_build import (
     MANIFEST,
+    SCHEMA_PIN,
+    SUMMARY_RE,
+    TASK_DOC,
     TEMPLATES,
     Build,
     _write_spec,
+    add_keys,
     bodies_set,
     index_of,
     make_spec,
+    spec_with_omits,
 )
 
 
@@ -297,3 +303,172 @@ def test_write_failure_in_the_first_manifest_write_exits_3(tmp_path, capsys, ind
     assert code == 3, out
     assert f"after {len(rendered)} of {len(rendered)} files (OSError: disk full)" in out
     assert set(pb.read_manifest(build.manifest)) == set(rendered)
+
+
+# ---- the marker record: a marker that is new since the last build
+
+OBJECTIVE = "2-3 sentences describing what this session accomplishes"  # a token of the real Orchestration template, which the spec fills
+GAINED = "Marker a later release adds"
+ORCH_DOCS = ("S01-01-ORCH", "S01-02-ORCH")
+ADDED_TAIL = "(new since the last build: the template or the spec added it)"
+
+
+def templates_copy(tmp_path):
+    """A byte copy of the shipped templates, so a test can change one the way a release does."""
+    copy = tmp_path / "templates"
+    shutil.copytree(TEMPLATES, copy)
+    return copy
+
+
+def gain_markers(templates, *names):
+    """Add one brace token per name to the Orchestration template, under the session objective's own token."""
+    path = templates / "orchestration.md"
+    data = path.read_bytes()
+    eol = b"\r\n" if b"\r\n" in data else b"\n"
+    anchor = f"{{{OBJECTIVE}}}".encode()
+    assert data.count(anchor) == 1
+    added = b"".join(eol + eol + f"{{{name}}}".encode() for name in names)
+    path.write_bytes(data.replace(anchor, anchor + added))
+
+
+def lint(build, *extra):
+    code = pb.main(["lint", "--spec", str(build.spec), "--bodies-dir", str(build.bodies), *extra])
+    return code, build.capsys.readouterr().out
+
+
+def rewrite_bodies(build, bodies):
+    for name, text in bodies.items():
+        (build.bodies / name).write_bytes(text.encode("utf-8"))
+
+
+def test_markers_the_first_build_records_every_marker_name_of_every_doc(tmp_path, capsys, index):
+    build = Build(tmp_path, capsys, bodies_set(index))
+    assert build.run()[0] == 0
+    assert pb.read_markers(build.manifest) == {doc: sorted({m[0] for m in info["markers"]}) for doc, info in index.items()}
+
+
+def test_markers_a_marker_the_template_gains_prints_added(tmp_path, capsys, index):
+    build = Build(tmp_path, capsys, bodies_set(index))
+    templates = templates_copy(tmp_path)
+    code, out = build.run("--templates", str(templates))
+    assert code == 0, out
+    code, out = lint(build, "--templates", str(templates))
+    assert code == 0 and "ADDED:" not in out, out  # control: the unchanged copy lints clean
+    gain_markers(templates, GAINED)
+    code, out = lint(build, "--templates", str(templates))
+    lines = out.splitlines()
+    assert code == 1, out
+    for doc in ORCH_DOCS:
+        assert f"ADDED: doc={doc} marker={GAINED} [1] {ADDED_TAIL}" in lines, out
+        assert any(ln.startswith(f"MISSING: doc={doc} marker={GAINED} [1] under ") for ln in lines), out
+    assert "added_since_build=2" in lines
+    assert SUMMARY_RE.fullmatch(lines[-1]), out  # the summary lines stay last
+    assert "holds no marker record" not in out
+
+
+def test_markers_added_lines_are_capped_per_group(tmp_path, capsys, index, monkeypatch):
+    build = Build(tmp_path, capsys, bodies_set(index))
+    templates = templates_copy(tmp_path)
+    assert build.run("--templates", str(templates))[0] == 0
+    gain_markers(templates, GAINED, "A second marker the release adds")
+    monkeypatch.setattr(pb, "DETAIL_LIMIT", 1)
+    _code, out = lint(build, "--templates", str(templates))
+    lines = out.splitlines()
+    assert lines.count("ADDED: +1 more") == len(ORCH_DOCS), out
+    assert "added_since_build=4" in lines
+
+
+def first_marker(index, doc=ORCH_DOCS[0]):
+    return index[doc]["markers"][0][0]
+
+
+def test_markers_a_marker_unwritten_at_the_first_build_prints_missing_only(tmp_path, capsys, index):
+    unwritten = first_marker(index)
+    build = Build(tmp_path, capsys, bodies_set(index, skip={(ORCH_DOCS[0], unwritten)}))
+    code, out = build.run()
+    assert code == 1, out
+    assert "ADDED:" not in out
+    code, out = lint(build)
+    assert code == 1, out
+    assert any(ln.startswith(f"MISSING: doc={ORCH_DOCS[0]} marker={unwritten} [1] under ") for ln in out.splitlines()), out
+    assert "ADDED:" not in out and "added_since_build=" not in out and "holds no marker record" not in out
+
+
+def test_markers_a_rebuild_keeps_an_unwritten_added_marker_added_until_it_has_a_body(tmp_path, capsys, index):
+    bodies = bodies_set(index)
+    build = Build(tmp_path, capsys, bodies)
+    templates = templates_copy(tmp_path)
+    assert build.run("--templates", str(templates))[0] == 0
+    gain_markers(templates, GAINED)
+    code, out = build.run("--templates", str(templates))
+    assert code == 1, out
+    for doc in ORCH_DOCS:
+        assert f"ADDED: doc={doc} marker={GAINED} [1] {ADDED_TAIL}" in out.splitlines(), out
+    assert "added_since_build=2" in out.splitlines()
+    assert out.rstrip().endswith("exit=1")
+    assert all(GAINED not in names for names in pb.read_markers(build.manifest).values())
+    code, out = lint(build, "--templates", str(templates))
+    assert code == 1 and "added_since_build=2" in out.splitlines(), out
+    for doc in ORCH_DOCS:
+        bodies = add_keys(bodies, doc, f"<!-- fill: {GAINED} -->\n\nBody for the new marker.\n")
+    rewrite_bodies(build, bodies)
+    code, out = lint(build, "--templates", str(templates))
+    assert code == 0, out
+    assert "ADDED:" not in out and "added_since_build=" not in out
+    code, out = build.run("--templates", str(templates))
+    assert code == 0, out
+    assert "ADDED:" not in out
+    recorded = pb.read_markers(build.manifest)
+    assert all(GAINED in recorded[doc] for doc in ORCH_DOCS)
+
+
+def test_markers_a_manifest_with_no_record_prints_the_note_and_no_added_line(tmp_path, capsys, index):
+    build = Build(tmp_path, capsys, bodies_set(index))
+    templates = templates_copy(tmp_path)
+    assert build.run("--templates", str(templates))[0] == 0
+    data = json.loads(build.manifest.read_text(encoding="utf-8"))
+    del data["markers"]  # the shape every build before the marker record wrote
+    build.manifest.write_text(json.dumps(data), encoding="utf-8")
+    code, out = lint(build, "--templates", str(templates))
+    assert code == 0 and "NOTE:" not in out, out  # nothing is missing, so there is nothing to explain
+    gain_markers(templates, GAINED)
+    code, out = lint(build, "--templates", str(templates))
+    lines = out.splitlines()
+    assert code == 1, out
+    assert "ADDED:" not in out and "added_since_build=" not in out
+    assert [ln for ln in lines if ln.startswith("NOTE: ")] == [ln for ln in lines if "holds no marker record" in ln]
+    assert sum("holds no marker record" in ln for ln in lines) == 1, out
+    assert SUMMARY_RE.fullmatch(lines[-1]), out
+
+
+def test_markers_lint_with_no_manifest_prints_neither_line(tmp_path, capsys, index):
+    build = Build(tmp_path, capsys, bodies_set(index, skip={(ORCH_DOCS[0], first_marker(index))}))
+    code, out = lint(build)
+    assert code == 1, out
+    assert "ADDED:" not in out and "NOTE:" not in out
+
+
+def test_markers_a_task_the_spec_gains_prints_missing_only(tmp_path, capsys):
+    short = make_spec()
+    short["sprints"][0]["sessions"][1]["tasks"].pop()
+    build = Build(tmp_path, capsys, bodies_set(index_of(tmp_path, short)), short)
+    code, out = build.run()
+    assert code == 0, out
+    _write_spec(tmp_path, make_spec())
+    code, out = lint(build)
+    lines = out.splitlines()
+    assert code == 1, out
+    assert any(ln.startswith("MISSING: doc=S01-02-02 ") for ln in lines), out
+    assert not any(ln.startswith("ADDED: doc=S01-02-02 ") for ln in lines), out
+    assert "holds no marker record" not in out
+
+
+def test_markers_a_section_the_spec_restores_prints_added(tmp_path, capsys):
+    omitted = spec_with_omits(task_omits=(SCHEMA_PIN,))
+    build = Build(tmp_path, capsys, bodies_set(index_of(tmp_path, omitted)), omitted)
+    code, out = build.run()
+    assert code == 0, out
+    _write_spec(tmp_path, make_spec())
+    code, out = lint(build)
+    assert code == 1, out
+    assert any(ln.startswith(f"ADDED: doc={TASK_DOC} marker=") and ln.endswith(ADDED_TAIL) for ln in out.splitlines()), out
