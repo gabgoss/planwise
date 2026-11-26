@@ -46,7 +46,7 @@ Use this template when generating the session summary at session closeout, writt
 | Build | Pass | No errors |
 | Tests (if applicable) | Pass / N/A | {notes} |
 | Manual verification | Pass | {what was tested} |
-| Destructive-diff adversarial review | Pass / N/A | If the diff adds/widens a delete/overwrite/migrate/prune/sweep disposition: pre-commit adversarial review run as a gate distinct from script verification, findings fixed, regression tests added, and each fix round's diff reviewed again until a round confirmed no destructive finding. N/A if no destructive disposition. |
+| Destructive-diff adversarial review | One state per diff, keyed by source: `this diff: {state}; upstream {session} diff: {state}`. Each state is SATISFIED / DEFERRED (user action required): run {command}, routed to {session} / N/A | States defined in `references/destructive-change-requirements.md` §10.4. The run handler's Step 4.5 writes this row. DEFERRED gives the reason, and needs a downstream session. SATISFIED cites the `/code-review ultra` findings and the fix diff. N/A if the diff adds or widens no delete/overwrite/migrate/prune/sweep disposition. |
 
 ---
 
