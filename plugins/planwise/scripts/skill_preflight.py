@@ -38,7 +38,10 @@ words after `plan` are ignored.
 prints its output between `<!-- planwise:feedback:begin -->` and
 `<!-- planwise:feedback:end -->`, followed by a NEXT block. The NEXT block
 branches on the `ARGUMENTS:` line the model reads: `--post <id>`, `--drafts`, or
-any other form. When the card lists no queued draft, nothing prints, so the
+any other form. It names the resolved `post` and `discard` commands, and the
+`enable-posting` command when posting is not enabled, each with its exit-code
+replies, so the card branches read no handler or reference. When the card
+lists no queued draft, nothing prints, so the
 handler's own route runs. A non-zero card exit, a missing config or any other
 failure prints one `PLANWISE_FEEDBACK_FALLBACK: <cause>` line and the end
 marker.
@@ -228,9 +231,25 @@ def plan_gate(root: Path) -> tuple[list[str], Path | None, dict | None, str | No
     return lines, path, config, plans_path
 
 
-def feedback_next_lines(count: int, ids: list[str], state: str) -> list[str]:
-    """The NEXT block. Every "done" claim names a value the card computed in this run."""
+def feedback_next_lines(count: int, ids: list[str], state: str, scripts_dir: Path, config_path: Path) -> list[str]:
+    """The NEXT block. Every "done" claim names a value the card computed in this run.
+
+    The block also names each command the card route runs, with the scripts folder and the
+    config path resolved, so the `--post` and `--drafts` branches read no handler or reference.
+    """
     listed = ", ".join(ids)
+    post_script = scripts_dir / "feedback_post.py"
+    drafts_script = scripts_dir / "feedback_drafts.py"
+    post = f'python -B "{post_script}" post --config "{config_path}" --draft-id <id> --consent review'
+    discard = f'python -B "{drafts_script}" discard <id> --config "{config_path}"'
+    enable = f'python -B "{drafts_script}" enable-posting --config "{config_path}"'
+    enable_lines = (
+        []
+        if state == "enabled"
+        else [
+            f"- Posting state is {state}, not `enabled`. Before the first draft, ask once: `Posting to GitHub is off in this project: config.yaml does not set feedback.enabled to true. Enable posting and continue to the post, or keep only the draft?` **Enable posting (Recommended)** runs `{enable}` and prints its one line. **Keep the draft only**, or an exit 1 from that command, reviews the drafts with posting off. While posting is off, the Post option text adds `(this sets feedback.enabled to true in config.yaml)`, and Post first runs `{enable}`. On its exit 1, print its stderr line and stop."
+        ]
+    )
     return [
         "NEXT:",
         f"- Done by this block: the card listed {count} queued draft(s) ({listed}), read the posting state ({state}) and printed each queued draft's body above. Do not list, check the state or read a draft again.",
@@ -238,6 +257,10 @@ def feedback_next_lines(count: int, ids: list[str], state: str) -> list[str]:
         f"  - `--post <id>`: use that draft's body from the card above. If the id is not one of {listed}, say that no queued draft has that id and stop.",
         f"  - `--drafts` without `--all`: ask the user one question per queued draft, for {count} question(s), naming each draft by id and title from the card above.",
         "  - any other `feedback` form, `--drafts --all` included: ignore this block and follow the feedback handler.",
+        "- Per-draft question: show the draft's id, title and body verbatim from the card. Say that Post publishes the shown body with no further question. Offer **Post**, **Discard** and **Keep** (pre-selected). Any other or unparseable answer is Keep.",
+        *enable_lines,
+        f"- On Post, run `{post}` once. Exit 0 or 3: print its last stdout line. Exit 4: print `Posting stays off. The draft was saved, and the next feedback flow asks again.` Any other exit: print its last stderr line, and the draft stays queued.",
+        f"- On Discard, run `{discard}` once. Exit 1: print `Model draft <id> was not found.` On Keep, run nothing.",
         "- Do not Read the feedback handler on the `--post` and `--drafts` branches. Do not run `list`. Do not Read a draft file. Do not run `promote`. Do not call `gh`.",
     ]
 
@@ -280,7 +303,7 @@ def feedback_block(root: Path) -> list[str] | None:
             ids.append(line.split("\t", 1)[0])
         if state is None or len(ids) != count:
             raise ValueError("card output rows do not match its header count or lack the posting state line")
-        return [FEEDBACK_BEGIN, *lines, "", *feedback_next_lines(count, ids, state), FEEDBACK_END]
+        return [FEEDBACK_BEGIN, *lines, "", *feedback_next_lines(count, ids, state, Path(__file__).resolve().parent, path), FEEDBACK_END]
     except Exception as exc:  # noqa: BLE001 - contract: one fallback line, exit 0
         return [FEEDBACK_BEGIN, f"{FEEDBACK_FALLBACK} {type(exc).__name__}: {_one_line(exc)}", FEEDBACK_END]
 

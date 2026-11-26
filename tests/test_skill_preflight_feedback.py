@@ -128,6 +128,21 @@ class TestFeedbackBlock(FeedbackFixture):
         self.assertIn("any other `feedback` form, `--drafts --all` included: ignore this block and follow the feedback handler", nxt)
         for forbidden in ("Do not Read the feedback handler", "Do not run `list`", "Do not Read a draft file", "Do not run `promote`", "Do not call `gh`"):
             self.assertIn(forbidden, nxt)
+        # The block names each card-route command with the scripts folder and the config path resolved.
+        self.assertIn(f'"{SCRIPTS_DIR / "feedback_post.py"}" post --config "', nxt)
+        self.assertIn(f'"{SCRIPTS_DIR / "feedback_drafts.py"}" discard <id> --config "', nxt)
+        self.assertIn("enable-posting", nxt)  # the fixture's posting state is absent
+        self.assertIn("**Post**, **Discard** and **Keep**", nxt)
+        config_value = re.search(r'feedback_post\.py" post --config "([^"]+)"', nxt)
+        self.assertIsNotNone(config_value, nxt)
+        self.assertTrue(Path(config_value.group(1)).samefile(self.root / "planwise" / "config.yaml"))
+
+    def test_enabled_state_names_no_enable_step(self):
+        nxt = "\n".join(skill_preflight.feedback_next_lines(1, ["d-0001"], "enabled", SCRIPTS_DIR, Path("cfg/config.yaml")))
+        self.assertNotIn("enable-posting", nxt)
+        self.assertNotIn("Posting state is", nxt)
+        self.assertIn(f'"{SCRIPTS_DIR / "feedback_post.py"}" post --config "{Path("cfg/config.yaml")}"', nxt)
+        self.assertIn(f'"{SCRIPTS_DIR / "feedback_drafts.py"}" discard <id> --config "{Path("cfg/config.yaml")}"', nxt)
 
     def test_post_and_drafts_tokens_print_the_same_block(self):
         self.queue_three()
@@ -226,6 +241,15 @@ DO_NOT_CALLS = {
     "run `promote`": "promote",
     "call `gh`": "`gh issue",
 }
+# The config path the NEXT block is built with, and each command the Part 2 card route
+# names, keyed by a marker its backticked span holds and mapped to its script (None when
+# the span names no script).
+CONFIG = Path("fixture/planwise/config.yaml")
+CARD_ROUTE_COMMANDS = {
+    'feedback_post.py" post': "feedback_post.py",
+    'feedback_drafts.py" discard': "feedback_drafts.py",
+    "enable-posting --config": None,
+}
 
 
 def _section(text: str, heading: str) -> str:
@@ -241,7 +265,7 @@ class TestNextBlockMatchesTheCardRoute(unittest.TestCase):
     """The NEXT block's claims hold against the card route the handler and Part 2 describe."""
 
     def setUp(self):
-        self.next_lines = skill_preflight.feedback_next_lines(2, ["d-0002", "d-0001"], "absent")
+        self.next_lines = skill_preflight.feedback_next_lines(2, ["d-0002", "d-0001"], "absent", SCRIPTS_DIR, CONFIG)
         handler = HANDLER_MD.read_text(encoding="utf-8")
         part2 = PART2_MD.read_text(encoding="utf-8")
         self.handler_route = _section(handler, "#### Card Route for `--drafts` and `--post`")
@@ -294,6 +318,23 @@ class TestNextBlockMatchesTheCardRoute(unittest.TestCase):
                 self.assertIn("ARGUMENTS:", route)
                 self.assertIn("PLANWISE_FEEDBACK_FALLBACK:", route)
                 self.assertIn("**Keep**", route)
+
+    def test_next_block_commands_match_the_card_route(self):
+        joined = "\n".join(self.next_lines)
+        spans = re.findall(r"`([^`\n]+)`", self.part2_route)
+        found_total = 0
+        for marker, script in CARD_ROUTE_COMMANDS.items():
+            with self.subTest(command=marker):
+                found = [s for s in spans if marker in s]
+                # Exactly one span per command, so a Part 2 rewording fails here instead of matching nothing.
+                self.assertEqual(len(found), 1, f"Part 2 card route spans holding {marker!r}: {found}")
+                found_total += 1
+                tail = found[0].split(f'{script}" ', 1)[1] if script else found[0]
+                tail = tail.replace('"{planwise_root}/config.yaml"', f'"{CONFIG}"').replace("{draft_id}", "<id>")
+                self.assertIn(tail, joined)
+                if script:
+                    self.assertIn(f'"{SCRIPTS_DIR / script}" ' + tail, joined)
+        self.assertEqual(found_total, len(CARD_ROUTE_COMMANDS))
 
 
 class TestSkillWiringUnchanged(unittest.TestCase):
