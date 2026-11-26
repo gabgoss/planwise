@@ -170,9 +170,9 @@ The handler cannot see whether a re-entry was armed. When it was not, the dialog
 Steps:
 
 1. Run `--mark --phase acting`, then summarize the item's context.
-2. Call `EnterPlanMode`. The hooks module answers its consent dialog.
+2. Call `EnterPlanMode`. A local session usually shows no dialog here. The hooks module answers one that appears.
 3. Explore and design with foreground agents only. Write the plan-mode plan file. Do not end the turn: a finished turn disarms the module.
-4. Call `ExitPlanMode`. The module answers it, and the session lands in `acceptEdits`.
+4. Call `ExitPlanMode`. The module answers it without a mode change, so the session returns to the mode it had before plan mode.
 5. Implement the plan in this session, as Route B does. Then run Phase 5 with the loop's defaults.
 6. If a dialog is declined, or either call returns an error, take the documented skip with `--needs-plan`.
 
@@ -182,9 +182,8 @@ Limits:
 - **Few measurements.** Each behavior rests on single runs. Entering plan mode this way is the less measured half.
 - **Managed installs.** Where an organization manages Claude Code, these hooks may not run in a plugin a person installs. The dialog then renders.
 - **Only approver.** Inside a loop run the module is the only approver, and its answer replaces yours. It answers only in an iteration it re-entered itself whose next queued item has disposition `plan`, read from the run file at the marker. A missing or unreadable run file means it answers nothing. If that item is skipped for an open blocker or another reason, the item taken instead in the same turn is still covered. It also answers the next message after `/planwise plan --plan-mode`, but only when that message starts within 5 minutes. Any message sent in that time is covered, whatever it says. It never answers for a subagent.
-- **Off your machine.** In a cloud or SSH session the mode change does not stand. The session leaves plan mode without landing in `acceptEdits`.
-
-A session left in `acceptEdits` stays there after the iteration. The module does not restore an earlier mode. A loop started in a mode that asks less often than `acceptEdits`, such as `auto` or `bypassPermissions`, asks more often after the first planned item.
+- **Off your machine.** A cloud or SSH session is not tested.
+- **Permission prompts.** The module answers plan dialogs only. A loop started in `auto` returns to `auto` when auto mode is still available. A loop started in manual mode returns to manual and asks before each edit and command that no allow rule covers.
 
 A resume you type by hand is not armed until the module next re-enters the loop. A Route C item in that first iteration shows the dialog, and you answer it.
 

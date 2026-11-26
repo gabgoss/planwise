@@ -4,11 +4,10 @@ import { ENTER_DECISION, EXIT_DECISION } from './names.ts'
 
 export type PlanContext = 'none' | 'loop' | 'plan-session'
 
-/** A decision literal as the engine takes it: plain mutable arrays, no readonly tuple. */
+/** A decision literal as the engine takes it. It carries no permission update, so no answer changes the mode. */
 export type PlanDecision = {
   behavior: 'allow'
   updatedInput: Record<string, unknown>
-  updatedPermissions?: { type: 'setMode'; mode: 'acceptEdits'; destination: 'session' }[]
 }
 
 export type PlanAnswer = { action: 'answer'; decision: PlanDecision } | { action: 'next' }
@@ -19,9 +18,7 @@ export type PlanAnswer = { action: 'answer'; decision: PlanDecision } | { action
  */
 export const decide = (input: { tool: string; context: PlanContext }): PlanAnswer => {
   if (input.context !== 'loop' && input.context !== 'plan-session') return { action: 'next' }
-  if (input.tool === 'ExitPlanMode') {
-    return { action: 'answer', decision: { ...EXIT_DECISION, updatedInput: {}, updatedPermissions: [...EXIT_DECISION.updatedPermissions] } }
-  }
+  if (input.tool === 'ExitPlanMode') return { action: 'answer', decision: { ...EXIT_DECISION, updatedInput: {} } }
   if (input.tool === 'EnterPlanMode') return { action: 'answer', decision: { ...ENTER_DECISION, updatedInput: {} } }
   return { action: 'next' }
 }

@@ -256,9 +256,9 @@ test('finding 6: a catch handler whose hook already called next replays next(e)'
 // The plan-exit answer. A loop marker that ends its answer is eligible, and only the boundary arms.
 const FINAL = 'Item closed.\n' + MARKER
 const PLAN_MARKER = 'PLANWISE PLAN-MODE: command=plan policy=auto'
-const EXIT_LITERAL = { behavior: 'allow', updatedInput: {}, updatedPermissions: [{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }] }
+const EXIT_LITERAL = { behavior: 'allow', updatedInput: {} }
 const ENTER_LITERAL = { behavior: 'allow', updatedInput: {} }
-const EXIT_LINE = 'plan exit: answered ExitPlanMode (context=loop, mode=acceptEdits)'
+const EXIT_LINE = 'plan exit: answered ExitPlanMode (context=loop, mode=previous)'
 const EXPIRY_MS = 300000
 const LEFT_LINE = 'plan exit: dialog left to the user (no planwise context)'
 

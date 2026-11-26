@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { decide, nextIsPlanItem } from '../../plugins/planwise/hooks/plan-exit/decide.ts'
 
-const EXIT = { behavior: 'allow', updatedInput: {}, updatedPermissions: [{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }] }
+const EXIT = { behavior: 'allow', updatedInput: {} }
 const ENTER = { behavior: 'allow', updatedInput: {} }
 
 test('decide: ExitPlanMode in a loop context answers with the exit literal', () => {
@@ -16,8 +16,18 @@ test('decide: EnterPlanMode in a loop context answers with the enter literal', (
 test('decide: ExitPlanMode in a plan session answers with the exit literal, as a fresh copy each call', () => {
   const first = decide({ tool: 'ExitPlanMode', context: 'plan-session' })
   assert.deepEqual(first, { action: 'answer', decision: EXIT })
-  if (first.action === 'answer') first.decision.updatedPermissions?.pop()
+  if (first.action === 'answer') first.decision.updatedInput.changed = true
   assert.deepEqual(decide({ tool: 'ExitPlanMode', context: 'plan-session' }), { action: 'answer', decision: EXIT })
+})
+
+test('decide: no answer carries a permission update, so the tool restores the earlier mode and its allow rules', () => {
+  for (const tool of ['ExitPlanMode', 'EnterPlanMode']) {
+    for (const context of ['loop', 'plan-session'] as const) {
+      const answer = decide({ tool, context })
+      assert.equal(answer.action, 'answer', `${tool} ${context}`)
+      if (answer.action === 'answer') assert.equal('updatedPermissions' in answer.decision, false, `${tool} ${context}`)
+    }
+  }
 })
 
 test('decide: EnterPlanMode in a plan session answers with the enter literal', () => {
