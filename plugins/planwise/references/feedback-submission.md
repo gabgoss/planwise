@@ -335,12 +335,18 @@ new report. So the scan names at most one **comment target**, and every route th
 comment uses it.
 
 The engine reads the ranked candidates in order. A candidate is the comment target only when
-all three conditions hold:
+all four conditions hold:
 
 1. Its `best_key_score` is 3 or more. A match on title words alone never takes a comment.
 2. A live read confirms that the issue is open.
 3. The same reply carries none of the tracker's lifecycle labels: `intake`, `resolved` and
    `wontfix`.
+4. Its title shares a word stem with the draft title, after the words of the identifier keys it
+   matched are removed from both. A word stem is the first 4 characters of a word of 4 or more
+   characters, stopwords excluded. A shared file name says two reports touch the same file, not
+   that they report the same problem.
+
+A candidate that fails condition 4 gets no live read. It can still be the related issue.
 
 The live read is one call for each candidate:
 
@@ -348,7 +354,7 @@ The live read is one call for each candidate:
 "{gh_path}" issue view {NN} -R {feedback.repo} --json number,state,labels
 ```
 
-The first candidate that meets all three conditions is the target. Three rules bound the search:
+The first candidate that meets all four conditions is the target. Three rules bound the search:
 
 - A candidate that the scan already lists as closed gets no live read.
 - At most 3 candidates get a live read.
@@ -408,7 +414,7 @@ is asked. The engine applies these rules in order and stops at the first that ma
    through the comment route under [The Unattended Post Path](#the-unattended-post-path). The
    posted marker records `route: comment`.
 3. **No comment target.** The scan is CLEAR, or every candidate is closed, already taken in,
-   not confirmed, or matched on title words alone. The report goes as a new issue through the
+   not confirmed, on a different subject, or matched on title words alone. The report goes as a new issue through the
    issue route. It names the related issue when the scan has one. A weak clear counts as CLEAR,
    because its listed issues are recent issues, not matches.
 4. **UNKNOWN.** The scan did not complete. The report goes as a new issue through the issue route.
