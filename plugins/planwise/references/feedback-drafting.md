@@ -73,7 +73,9 @@ A missing or unreadable config counts as `off`. So does a missing key.
 
 ## Which tree the draft goes to
 
-The draft goes to `{feedback_dir}` under the session's current project root. Read that root when you write the draft, not once at session start. In a git worktree the current root is the worktree's tree, not the main checkout. The draft file, the config that the review card edits and the path in the notice line all name that same tree. The hooks module re-reads the root on every call, so the `draft_feedback` tool follows a session that moves into a worktree.
+The draft goes to the main checkout's feedback folder, which is `{feedback_dir}` under the main checkout's copy of `{planwise_root}`. In a plain checkout, that folder is the current tree's. In a linked git worktree, it is not the worktree's folder, so removing the worktree keeps the draft. Read the session's current project root when you write the draft, not once at session start. The hooks module re-reads the root on every call, so the `draft_feedback` tool follows a session that moves into a worktree.
+
+The review card edits the config of the tree the session is in. The path in the notice line is relative to the main checkout's copy of the project root.
 
 ## Do not announce
 
@@ -125,7 +127,11 @@ Map the issue to a kind, then write that kind's body headings in this order:
 
 Run these steps in order. If any step fails, stop drafting and continue the user's task.
 
-1. Resolve `{planwise_root}/{feedback_dir}` from the config.
+1. Ask the helper for the feedback directory. Do not build the path yourself:
+   ```
+   python -B "{plugin_root}/scripts/feedback_drafts.py" feedback-dir --config "{planwise_root}/config.yaml"
+   ```
+   Its one output line is `{abs feedback dir}`. A non-zero exit means do not draft.
 2. Call `Glob` with pattern `*` and `path` set to that absolute directory. A `Directory does not exist` error means the directory is absent: do not draft. "No files found" means it exists and is empty.
 3. Compose the filename `{YYYY-MM-DD}-draft-{kind}-{slug}.md`. Build the slug from the title: lowercase it, turn each run of non-alphanumerics into one hyphen, and trim hyphens from both ends. Cut it to 40 characters, strip a trailing hyphen the cut exposes, and use `untitled` if it is empty. `Glob` the name in the directory. On a hit, add `-2` to `-9` before `.md`. If all are taken, do not draft.
 4. `Write` the file with the frontmatter below, then the body headings for the kind.

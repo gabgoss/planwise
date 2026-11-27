@@ -1,6 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { register as registerLoader } from 'node:module'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { NOTICE_TEXT, relativeDraftPath } from '../../plugins/planwise/hooks/feedback/names.ts'
 
 // draft-feedback.ts value-imports the engine's `claude-code` module, which has no node runtime.
@@ -75,6 +79,23 @@ const world = (files: Record<string, string>) => {
   return { engine, state, writes, runs, logs, drafts }
 }
 
+/** The same fake engine with its file calls on the real file system, for a real git worktree. */
+const realWorld = (root: string) => {
+  const w = world({})
+  w.state.root = root
+  w.engine.fs = {
+    read: async (path: string) => readFileSync(path, 'utf8'),
+    write: async (path: string, text: string) => {
+      mkdirSync(dirname(path), { recursive: true })
+      writeFileSync(path, text)
+      w.writes.push(path)
+    },
+    list: async (path: string) => readdirSync(path, { withFileTypes: true }).map((entry) => ({ name: entry.name, kind: entry.isDirectory() ? 'dir' : 'file' })),
+    exists: async (path: string) => existsSync(path),
+  }
+  return w
+}
+
 /** Registers the module against a fake `on` and returns the one tool.call hook it adds. */
 const capture = (): Hook => {
   let hook: Hook | undefined
@@ -131,6 +152,35 @@ test('draftfeedback a worktree config that turns drafting off denies the call an
   assert.match(out.deny, /the tool is not active in this session/)
   assert.equal(w.writes.length, 0)
   assert.equal(w.runs.length, 0)
+})
+
+test('draftfeedback a call made while another call re-resolves the root never uses a half-set record', async () => {
+  const w = world({ [MAIN + '/planwise/config.yaml']: NOTIFY })
+  w.state.root = 'C:/work/elsewhere'
+  await onSessionStart(hostOf(w.engine as never))
+  w.state.root = MAIN
+  const hook = capture()
+  // Hold the first lookup of a .git folder, so the first call stops in the middle of resolution.
+  const exists = w.engine.fs.exists
+  let release = () => {}
+  let held = () => {}
+  const reached = new Promise<void>((resolve) => (held = resolve))
+  let holding = false
+  w.engine.fs.exists = async (path: string) => {
+    if (!holding && path.endsWith('/.git/HEAD')) {
+      holding = true
+      held()
+      await new Promise<void>((resolve) => (release = resolve))
+    }
+    return exists(path)
+  }
+  const first = call(hook, w.engine)
+  await reached
+  await call(hook, w.engine)
+  release()
+  await first
+  assert.equal(w.writes.length, 2)
+  for (const path of w.writes) assert.ok(path.startsWith(MAIN + '/planwise/Feedback/Feedback-Drafts/'), path)
 })
 
 test('draftfeedback a root that moves to a tree with no config denies the call', async () => {
@@ -230,4 +280,49 @@ test('draftfeedback session start offers nothing when drafting is off', async ()
   const w = world({ [MAIN + '/planwise/config.yaml']: OFF, [DRAFTS + '/' + REAL_NAME]: REAL_DRAFT })
   await onSessionStart(hostOf(w.engine as never))
   assert.equal(w.drafts.length, 0)
+})
+
+test('draftfeedback a draft from a real linked worktree outlives it and is offered in the main checkout', async () => {
+  const temp = realpathSync.native(mkdtempSync(join(tmpdir(), 'draft-wt-'))).replace(/\\/g, '/')
+  try {
+    const main = temp + '/main'
+    const tree = main + '/.claude/worktrees/wt'
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: temp, stdio: 'pipe' })
+    git('init', '-q', 'main')
+    mkdirSync(main + '/planwise', { recursive: true })
+    writeFileSync(main + '/planwise/config.yaml', NOTIFY)
+    git('-C', 'main', 'add', '-A')
+    git('-C', 'main', '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'init')
+    git('-C', 'main', 'worktree', 'add', '-q', '.claude/worktrees/wt')
+
+    const w = realWorld(tree)
+    await onSessionStart(hostOf(w.engine as never))
+    const steps = `read ${main}/planwise/config.yaml and ${tree}/notes.md`
+    const out = (await capture()(w.engine, { tool: 'mcp__planwise__draft_feedback', ...INPUT, what_happened: steps }, () => undefined)) as { result: string }
+    assert.equal(typeof out.result, 'string')
+
+    const dir = main + '/planwise/Feedback/Feedback-Drafts'
+    assert.equal(w.writes.length, 1)
+    const written = w.writes[0]!
+    assert.ok(written.startsWith(dir + '/'), written)
+    // Neither the main checkout's path nor the worktree's reaches the file or the card.
+    const text = readFileSync(written, 'utf8')
+    assert.ok(text.includes('read {project}/planwise/config.yaml and {project}/notes.md'), text)
+    assert.equal((w.drafts[0] as { preview: string }).preview, 'read {project}/planwise/config.yaml and {project}/notes.md')
+    const argv = w.runs[0]!
+    assert.equal(argv[argv.indexOf('--feedback-dir') + 1], dir)
+    // Matched on the text only, because earlier cases spend the transcript notices.
+    assert.ok(w.logs.some((line) => line.text === NOTICE_TEXT(relativeDraftPath(main, written))), JSON.stringify(w.logs))
+
+    git('-C', 'main', 'worktree', 'remove', '--force', '.claude/worktrees/wt')
+    assert.ok(existsSync(written), 'the draft is gone with the worktree')
+
+    const after = realWorld(main)
+    await onSessionStart(hostOf(after.engine as never))
+    assert.equal(after.drafts.length, 1)
+    const id = /^draft_id: "([^"]+)"/m.exec(readFileSync(written, 'utf8'))?.[1]
+    assert.equal((after.drafts[0] as { draftId: string }).draftId, id)
+  } finally {
+    rmSync(temp, { recursive: true, force: true })
+  }
 })

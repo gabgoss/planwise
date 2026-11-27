@@ -265,7 +265,7 @@ pipeline in Part 1, from gate 1, on the promoted file.
 
 A `{model draft}` is a `*.md` file directly in `{planwise_root}/{feedback_dir}`
 (non-recursive) whose name matches `{model_draft_name}` and whose frontmatter carries
-`drafted_by: model`. Resolve the set with the helper. `list` reports a queued draft past the expiry limit as `expired` and writes nothing. Only the helper's `expire` and `admit` commands write `status: expired`:
+`drafted_by: model`. In a linked git worktree, `{planwise_root}/{feedback_dir}` is the main checkout's feedback folder, and the helper resolves it from the session's own `--config`. Resolve the set with the helper. `list` reports a queued draft past the expiry limit as `expired` and writes nothing. Only the helper's `expire` and `admit` commands write `status: expired`:
 
 ```
 python "{plugin_root}/scripts/feedback_drafts.py" list --json --config "{planwise_root}/config.yaml"

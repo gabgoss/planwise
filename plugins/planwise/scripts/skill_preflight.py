@@ -82,6 +82,7 @@ FEEDBACK_FALLBACK = "PLANWISE_FEEDBACK_FALLBACK:"
 BLOCKED_NOTICE = "planwise: {n} feedback draft(s) were blocked by the privacy check — review with /planwise feedback --status"
 CARD_HEADER_RE = re.compile(r"^Queued drafts \((\d+)\) in ")
 CARD_STATE_PREFIX = "Posting state:"
+CARD_REPO_PREFIX = "Target repository:"
 
 
 def normalise(argv: list[str]) -> list[str]:
@@ -231,7 +232,7 @@ def plan_gate(root: Path) -> tuple[list[str], Path | None, dict | None, str | No
     return lines, path, config, plans_path
 
 
-def feedback_next_lines(count: int, ids: list[str], state: str, scripts_dir: Path, config_path: Path) -> list[str]:
+def feedback_next_lines(count: int, ids: list[str], state: str, repo: str, scripts_dir: Path, config_path: Path) -> list[str]:
     """The NEXT block. Every "done" claim names a value the card computed in this run.
 
     The block also names each command the card route runs, with the scripts folder and the
@@ -257,7 +258,7 @@ def feedback_next_lines(count: int, ids: list[str], state: str, scripts_dir: Pat
         f"  - `--post <id>`: use that draft's body from the card above. If the id is not one of {listed}, say that no queued draft has that id and stop.",
         f"  - `--drafts` without `--all`: ask the user one question per queued draft, for {count} question(s), naming each draft by id and title from the card above.",
         "  - any other `feedback` form, `--drafts --all` included: ignore this block and follow the feedback handler.",
-        "- Per-draft question: show the draft's id, title and body verbatim from the card. Say that Post publishes the shown body with no further question. Offer **Post**, **Discard** and **Keep** (pre-selected). Any other or unparseable answer is Keep.",
+        f"- Per-draft question: show the draft's id, title and body verbatim from the card. Say that Post publishes the shown body to the GitHub repository `{repo}` with no further question, and name no other repository. Offer **Post**, **Discard** and **Keep** (pre-selected). Any other or unparseable answer is Keep.",
         *enable_lines,
         f"- On Post, run `{post}` once. Exit 0 or 3: print its last stdout line. Exit 4: print `Posting stays off. The draft was saved, and the next feedback flow asks again.` Any other exit: print its last stderr line, and the draft stays queued.",
         f"- On Discard, run `{discard}` once. Exit 1: print `Model draft <id> was not found.` On Keep, run nothing.",
@@ -296,14 +297,18 @@ def feedback_block(root: Path) -> list[str] | None:
             return None
         ids: list[str] = []
         state = None
-        for line in lines[1:]:
+        repo = ""
+        for at, line in enumerate(lines[1:], start=1):
             if line.startswith(CARD_STATE_PREFIX):
                 state = line[len(CARD_STATE_PREFIX):].strip()
+                # The card prints the repository line directly after the state line.
+                if at + 1 < len(lines) and lines[at + 1].startswith(CARD_REPO_PREFIX):
+                    repo = lines[at + 1][len(CARD_REPO_PREFIX):].strip()
                 break
             ids.append(line.split("\t", 1)[0])
-        if state is None or len(ids) != count:
-            raise ValueError("card output rows do not match its header count or lack the posting state line")
-        return [FEEDBACK_BEGIN, *lines, "", *feedback_next_lines(count, ids, state, Path(__file__).resolve().parent, path), FEEDBACK_END]
+        if state is None or not repo or len(ids) != count:
+            raise ValueError("card output rows do not match its header count or lack the posting state or target repository line")
+        return [FEEDBACK_BEGIN, *lines, "", *feedback_next_lines(count, ids, state, repo, Path(__file__).resolve().parent, path), FEEDBACK_END]
     except Exception as exc:  # noqa: BLE001 - contract: one fallback line, exit 0
         return [FEEDBACK_BEGIN, f"{FEEDBACK_FALLBACK} {type(exc).__name__}: {_one_line(exc)}", FEEDBACK_END]
 
