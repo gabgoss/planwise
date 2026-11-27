@@ -100,8 +100,8 @@ Write-Set (`writeset-*`) and the Master Plan Write-Sets (`master-*`). Each
 output line names its level first. It prints one `MISMATCH` line per pair that
 differs by more than 10% (3% for `task-self`). Any difference prints at the exact
 levels `surface-rows`, `surface-files`, `master-count` and `master-files`. It also
-prints one `UNREAD` line per figure it could not parse, and
-a last line `estimates: sessions={n} mismatches={n} unread={n}`.
+prints one `UNREAD` line per figure it could not parse, and per task `Role` cell
+that holds no role (`task-role`), and a last line `estimates: sessions={n} mismatches={n} unread={n}`.
 
 Exit 0 means no mismatch. Exit 1 means at least one `MISMATCH` line, and it is
 a normal result, not a failed run. Exit 2 means a usage or read error.

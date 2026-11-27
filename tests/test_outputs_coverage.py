@@ -239,3 +239,42 @@ def test_orchestration_template_states_exit_semantics_and_terminal_slot():
     assert "producer run exits 0" in low and "exits 1" in low
     assert "receiver run always exits 0" in low
     assert "exit 2 means the gate did not run" in low
+
+
+def test_comma_glued_tasks_exit_two_and_name_the_separator(tmp_path):
+    out = _outputs(tmp_path, ["a.md"])
+    a = _task(tmp_path / "t1.md", ["a.md"])
+    b = _task(tmp_path / "t2.md", ["a.md"])
+    # an unquoted "a, b" keeps the comma on the first token, a quoted one is a single token
+    for tasks in ([f"{a},", str(b)], [f"{a}, {b}"]):
+        for argv in (
+            ["named", "--outputs", str(out), "--side", "producer", "--tasks", *tasks],
+            ["count", "--outputs", str(out), "--tasks", *tasks],
+        ):
+            r = _run(*argv)
+            assert r.returncode == 2, r.stdout
+            assert "not commas" in r.stdout
+            assert "[Errno" not in r.stdout
+            assert "Traceback" not in r.stderr
+
+
+def test_space_separated_tasks_are_accepted(tmp_path):
+    out = _outputs(tmp_path, ["a.md"])
+    a = _task(tmp_path / "t1.md", ["a.md"])
+    b = _task(tmp_path / "t2.md", ["a.md"])
+    r = _run("named", "--outputs", str(out), "--tasks", str(a), str(b), "--side", "producer")
+    assert r.returncode == 0, r.stdout
+    assert "task files: 2" in r.stdout.splitlines()[0]
+
+
+def test_existing_task_path_with_comma_is_not_refused(tmp_path):
+    out = _outputs(tmp_path, ["a.md"])
+    t = _task(tmp_path / "a,b.md", ["a.md"])
+    r = _run("named", "--outputs", str(out), "--tasks", str(t), "--side", "producer")
+    assert r.returncode == 0, r.stdout
+
+
+def test_orchestration_template_states_the_tasks_separator():
+    text = ORCHESTRATION_TEMPLATE.read_text(encoding="utf-8")
+    line = next(ln for ln in text.splitlines() if "outputs_coverage.py" in ln and " named " in ln)
+    assert "with spaces, never commas" in line

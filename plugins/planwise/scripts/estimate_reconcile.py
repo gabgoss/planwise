@@ -14,6 +14,8 @@ Command (run with `python -B`):
         folder for a standard pass. Every `*-Orchestration.md` under PATH (outside
         `Outputs/`) defines one session: its folder holds the session's task files,
         and the one `*-Sprint-Plan.md` in the folder above is the session's Sprint Plan.
+        A plan folder nested in another plan's folder is not checked, except that
+        plan's own `Exec-` or `Meta-` half. Name a nested plan as PATH to check it.
         --config names the config file that gives the project root, which the paths in
         a table resolve against. Without it, the write-back's own config search runs:
         it walks up from the working directory, and when it finds no config there, it
@@ -35,6 +37,10 @@ Pairs compared, per session:
                           threshold is 3%, not 10%, and the drift ignores the 0.05 KiB
                           the cell loses by printing one decimal. A task with no such
                           row, or a row with no figure, is an UNREAD line
+    task-role             each Required Context `Role` cell is `READ`, `EDIT` or
+                          `CREATE`, alone or followed by `(plan-time estimate)`.
+                          Another value, such as a literal `{Role}`, is an UNREAD
+                          line. A table with no `Role` column is silent
     orchestration-cell   each `## Session Task List` row's token cell against the
                           header of the task whose Task ID ends in the row's `#`
     orchestration-total   `**Total Estimated:**` against the sum of the task-list cells
@@ -52,9 +58,10 @@ and once per Sprint Plan:
 The levels below read the cells that the build and the write-back derive. Each one is
 silent when its table, heading or line is absent, as in a plan built before that cell
 existed. `exact` means no drift is allowed. The other limits are 10%. No level reads a
-`Role` cell or a size of the Orchestration or Recovery file. A Write-Set row that no
-task cites is not compared, but a cell of it with no figure is an UNREAD line. A total
-line whose table is absent or lacks the columns is an UNREAD line.
+`Role` cell of a Session Surface or Write-Set table, or a size of the Orchestration or
+Recovery file. A Write-Set row that no task cites is not compared, but a cell of it with
+no figure is an UNREAD line. A total line whose table is absent or lacks the columns is
+an UNREAD line.
 
 Per Orchestration with a `## Session Surface` table:
 
@@ -103,7 +110,8 @@ is rounding and prints nothing, except at an exact level, which has no limit. Th
 `task-self` level has its own limit of 3%. A `KiB` cell prints as
 `declared <a> KiB expected <b> KiB (<pct>%)`, and an exact level prints plain numbers.
 An UNREAD line names a figure the script could not
-parse, such as a `~?K` placeholder or a missing row, and does not change the exit code.
+parse, such as a `~?K` placeholder or a missing row, or a `Role` cell that holds no
+role. It does not change the exit code.
 
 Exit codes: 0 clean, or every drift at or under 10%. 1 one or more MISMATCH lines.
 2 a usage error, PATH missing or not a folder, or a plan file unreadable or not
@@ -127,37 +135,40 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import config_loader
 import scaffold_plan as sp
-from token_saver_scan import config_project_root
-from token_saver_writeback import (
-    _K_TERM_RE,
+from token_saver_derived import (
     _KIB_CELL_RE,
     _MASTER_LABEL,
     _SURFACE_LABEL,
-    _TOKEN_HEADERS,
     _WRITE_SET_COLUMNS,
-    _Buffers,
-    _cells,
-    _col,
-    _fmt_k,
-    _fmt_kib,
     _identity,
     _is_orchestration,
-    _parse_token_cell,
-    _required_context_table,
     _section_bounds,
-    _split_eol,
     _sprint_plan_rows,
     _surface_key,
     _surface_tasks,
-    _table_rows,
     _token_tables,
     _write_set_table,
     keyed_write_set,
     path_figures,
     surface_entries,
+    unknown_roles,
     write_set_sums,
     write_set_total,
     writeset_figures,
+)
+from token_saver_scan import config_project_root
+from token_saver_writeback import (
+    _K_TERM_RE,
+    _TOKEN_HEADERS,
+    _Buffers,
+    _cells,
+    _col,
+    _fmt_k,
+    _fmt_kib,
+    _parse_token_cell,
+    _required_context_table,
+    _split_eol,
+    _table_rows,
 )
 
 THRESHOLD_PCT = Decimal(10)
@@ -355,11 +366,17 @@ class Checker:
         raw = raw.replace("\\", "/")
         return bool(raw) and " " not in raw and raw.rsplit("/", 1)[-1] == path.name
 
+    def task_role(self, path, lines):
+        """Name each Required Context row whose Role cell holds no role."""
+        for _, r, cell, _ in unknown_roles(lines):
+            self.miss("task-role", path, f"Role cell {cell!r} is not READ, EDIT or CREATE", r)
+
     def task(self, path):
         """(task number, header tokens or None) after checking header against subtotal."""
         lines = self.lines(path)
         self.task_reads(path, lines)
         self.task_self(path, lines)
+        self.task_role(path, lines)
         task_id = next((m.group(1) for ln in lines if (m := TASK_ID_RE.match(ln))), "")
         num = re.search(r"-(\d+)\s*$", task_id.replace("`", "").replace("*", "").strip())
         num = int(num.group(1)) if num else None

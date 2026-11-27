@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_on": "2026-11-26",
+  "generated_on": "2026-11-27",
   "normalization": "read as utf-8-sig (BOM stripped), CRLF -> LF, paths: and consult-when: keys removed, sha256 hex (rule_divergence.rule_history_digest)",
   "purpose": "Every body each installed, de-scoped and style rule reference has ever shipped with. rule_divergence._classify_diverged returns SUBSET at exact confidence for an installed body matching any listed digest, so an unedited older rule is adopted without a transfer. Regenerate with tools/gen_rule_history.py after editing a listed reference; tests/test_rule_history.py enforces it.",
   "rules": {
@@ -45,6 +45,7 @@
       "6f39e9b1418cf46493727397ebc8e49eb68da8f2f7eb8df053f4ba20aab2bfcf",
       "730446074099ce4298678f8dd5683d29e4dd98d7427c7ea2ab24f07dffebf63c",
       "78561b096c347c624fb5d5655c2f6a6a9d251456c722f321176b9a97e29da0cd",
+      "8d87c1d61de6047242ed61fa281efc52ed1f07ceff7c610f7f7fcd167a5bccb7",
       "92e0b58bb99ed314ca9d7eda5b87b474d66fe5cd3812b298ead1f8ff82a4d37c",
       "a1663f5b4630bbd38435b3b37c4f6c15921d1eddb99795bd88bce4b807f0c367",
       "ae062c729fd506c449582759390eb5b1aaa367752bbefc1d7ff680bccf22a58e",
@@ -130,6 +131,7 @@
     "ei-fidelity.md": [
       "21943f1b6da285708b62aff8b81a1057cfdaea058a8e3b42002fe96629e5d82c",
       "238194735a8d3ea0cf36ca800f315cdcb80a23ce0c120c5877656f146ae640eb",
+      "2560dc9496d49732354128ede3ab125ae1915798686939cc579e48b6454695df",
       "3e253f03c82078af41cd54b6866b04379aa9e7d501e63709226c336128f51548",
       "407450a8e70ae80ec4a7694cd429ab2d50110ec91f2df83eb7e687ccc3ab54b2",
       "4b51afbb9ad82c795c0f4884a69a487d3c3d39ce4f2f98aaed530c764e1dcd9a",
@@ -190,6 +192,7 @@
       "62662ce8287e2978ef5725a05402802ee24c8e2859d6d889de725e84c1e49629",
       "6958863a30420445d283de506a0207cd5df4db6425321bb91d1a5b99cb02ed00",
       "6d33b34df1327e2f6bf2bc5930d819747ee97181367ab7268a735a21f572d9dc",
+      "7a457068289886ebb2c7f7576844f1db152e0ab9189e5e9e5bf780b6dae94c0b",
       "7c04ec37939959c2f82a0881cc1df36043d490efbba1f769633e6d4f094a62e9",
       "846b1be24baa604b92711eb32e3707f7f4b055ce5977248c972707b0eac74f5a",
       "938e02d6fd46b9a028671b37dfca5f6b26f2a810966b1e47e5a89857b3b3f76b",
@@ -218,6 +221,7 @@
       "e8e23796a1e5c8a8af70c3d280519476c9ffef3b231136df39ed9fc1921ba67a"
     ],
     "session-context-budget.md": [
+      "006d30c439f96e9e0b8dfa331bfcd84ea0366e66be2ea986f1bfd3f18088a77d",
       "008c9190c1fba195f061d8fc2d0aad5e79ce32a12dd36ae92f490ecf08818add",
       "21d9f6e40e3f6b2ceeb77526412ac966a2c3da0c985c02c8dbfc9efb3761b381",
       "238a7c7acd57c64b8745dcd13317933b0f100f2e1f8ae58922ce550b901a8e7b",
@@ -259,6 +263,7 @@
       "392728bd8df791474d584c696e790eb5c92afe1d956a7c2ea6e43255faae4008",
       "3ad227b61edcd7990007e0296dc818256e7a137b0e256945c32f52ee34539975",
       "3b0c0df2cde544963300e7255e1f4c15171c48b38498d827b7b2c42608c6b0d4",
+      "3fe5cdde219510fa832abe092ddcd9ff28a08aa29504b1f444c48e10ef43cdb1",
       "44917829756226b62e51633fe807047ca4d8fc3e8740fd4428b9c99a35766bb3",
       "501e5a39cd164e27d8579fd4e97e0eac78f24a712cd567bc91a89ab7fd99cf7d",
       "508ad4fd02070f6d374f2244cc74bf5602d57e2d44f53b80624aa3215bb6244a",
@@ -354,6 +359,7 @@
       "80e5fb9cd9f635f55af82971cef853f07dabf1aa37041d195eb8288fa3203367",
       "82d912d5197d94640c7e3a94330667bea72e0d3d38db806a6dc62ce7d2b94abf",
       "864d24e0776c841af90bc4c5ab25aa92b3ed8bea33186e8de28fdfe59750871f",
+      "90bd4f8c81ed290a828825631db56f60727ad3ed9afb162eef3b8209ed2f52e1",
       "92618fe92c6c38c38222c2998dcee0c212d7cf31ad004fa2a7b370a64857b74c",
       "94a84443f5ce2f480e93471b0e151e3aa44109d8b9b4e2fae3539f58f1a400cf",
       "9ed3007c9a73066857d258d880f17d18ba258b2898cd01eb73f2a910dbded67b",

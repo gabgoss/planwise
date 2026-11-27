@@ -607,6 +607,196 @@ class TestCheck62SharedNearCapFileWithoutBudget(unittest.TestCase):
         self.assertRegex(err, r"Check 62: output paths examined \d+, resolved 2, near-cap 2")
 
 
+# Real lines from authored task files, copied byte for byte. Each one is the known-bad
+# arm of one check.
+REAL_UNLABELLED_CEILING = (
+    "- [ ] Lint clean; `recovery_surfaces.py` stays under 6 KiB <!-- ceiling: ≤ 6,144 bytes, "
+    "floor: `def classify_backup_pair` = 1 -->; `artifact_upgrade.py` and `doctor_cli.py` each "
+    "grow by at most 300 tokens from the figure recorded at Step 9 <!-- ceiling: start + 300, "
+    "floor: the `classify_backup_pair` import present; wiring lines only. Headroom for later "
+    "sprints: `doctor_cli.py` measured 20,395 tokens (53,025 bytes) on 2026-10-07, which is "
+    "1,605 under the 22,000 read warn. This task's ceiling leaves at least 1,305. Sprint-04 "
+    "Task 01 and Sprint-05 (about 2,200 bytes, roughly 850 tokens) draw on the rest, so record "
+    "the end figure in `## File Sizes` -->"
+)
+REAL_GATE_FIGURE_CEILING = (
+    "- [ ] `measure_files.py` on `Outputs/BGD-S02-01-01-MeasuredAndPasteReady.md` reports level "
+    "OK (under 22K tokens, 240 KiB and 2,000 lines)"
+)
+REAL_FIXED_SIBLING_OUTPUT = (
+    "**Output:** `Meta-RFH/Outputs/RFH-Consolidated-Context-Part-9-StructuralControls.md` "
+    "(projected ~18K tokens), plus a declared "
+    "`RFH-Consolidated-Context-Part-9b-StructuralControls-<Topic>.md` sibling only if Step 5 "
+    "splits it"
+)
+REAL_COST_BOUND = (
+    "2. **Row 2, cost.** For each sample path, compare the `COST` token figure in "
+    "`loadcost-after.txt` with `S1OUT/loadcost-before.txt`. PASS when no figure rises by more "
+    "than 200."
+)
+OVERFLOW_PROCEDURE = (
+    "Overflow: move the largest section to the next sibling Part, re-measure, and repeat until "
+    "every Part measures OK."
+)
+BOUND_WITH_EXCLUSIONS = (
+    "No sample path's COST rises by more than 200 tokens beyond the planned additions\n"
+    "(the new paragraph, the description line); report per-rule deltas."
+)
+
+
+def _plan_task(body, output="**Output:** `out/result.md`"):
+    return f"# Task: Fixture\n\n{output}\n\n## Success Criteria\n\n{body}\n"
+
+
+class TestCheck69UnlabelledSizeCeiling(unittest.TestCase):
+    def test_bad_real_criterion_with_no_gate_label(self):
+        findings = _lint(69, _plan_task(REAL_UNLABELLED_CEILING))
+        self.assertEqual([(f["check"], f["severity"], f["line"]) for f in findings],
+                         [(69, "WARNING", 7)])
+        self.assertIn("§8.15", findings[0]["message"])
+
+    def test_good_repaired_with_a_guards_label_or_an_estimate(self):
+        for line in (
+            "- [ ] doctor_cli.py grows by at most 300 tokens <!-- guards: the 22,000-token Read warn -->",
+            "- [ ] recovery_surfaces.py: estimated ~6 KiB (not a gate; stays under the page cap)",
+            "- [ ] recovery_surfaces.py stays under 6 KiB (not a gate)",
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(_lint(69, _plan_task(line)), [])
+
+    def test_good_gate_figure_control_is_silent(self):
+        for line in (
+            REAL_GATE_FIGURE_CEILING,
+            "- [ ] The file stays below 19,800 tokens",
+            "- [ ] The file is at most 25K tokens",
+            "- [ ] The file stays under 256 KiB",
+            "- [ ] The file is <= 262,144 bytes",
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(_lint(69, _plan_task(line)), [])
+
+    def test_one_unlabelled_figure_beside_a_gate_figure_still_warns(self):
+        line = "- [ ] grows by at most 300 tokens and stays under 22,000 tokens"
+        self.assertEqual(len(_lint(69, _plan_task(line))), 1)
+
+    def test_good_silent_outside_a_criterion_line(self):
+        for body in (
+            "The file stays under 6 KiB.",
+            "```\n- [ ] the file stays under 6 KiB\n```",
+            "- [ ] WRONG: the file stays under 6 KiB",
+            "- [ ] The file measures 6 KiB",
+            "- [ ] The file stays under the warn line",
+        ):
+            with self.subTest(body=body):
+                self.assertEqual(_lint(69, _plan_task(body)), [])
+
+    def test_good_a_signoff_file_is_not_read(self):
+        signoff = f"# Sprint Signoff\n\n{REAL_UNLABELLED_CEILING}\n"
+        self.assertEqual(_lint(69, signoff, name="TASK-Sprint-Signoff.md"), [])
+
+
+class TestCheck70FixedOverflowSiblingCount(unittest.TestCase):
+    def test_bad_real_output_line_that_fixes_the_sibling_count(self):
+        findings = _lint(70, _plan_task("- [ ] done", output=REAL_FIXED_SIBLING_OUTPUT))
+        self.assertEqual([(f["check"], f["severity"], f["line"]) for f in findings],
+                         [(70, "WARNING", 3)])
+        self.assertIn("§8.15", findings[0]["message"])
+
+    def test_bad_each_trigger_alone(self):
+        for output in (
+            "**Output:** `out/Context-Part-2b-Topic.md`",
+            "**Output:** `out/a.md`, and a declared overflow sibling",
+            "**Output:** `out/a.md`, with a sibling file only if it overflows",
+        ):
+            with self.subTest(output=output):
+                self.assertEqual(len(_lint(70, _plan_task("- [ ] done", output=output))), 1)
+
+    def test_good_repaired_with_the_procedure_line(self):
+        text = _plan_task(OVERFLOW_PROCEDURE, output=REAL_FIXED_SIBLING_OUTPUT)
+        self.assertEqual(_lint(70, text), [])
+
+    def test_re_measure_without_repeat_still_warns(self):
+        text = _plan_task("Move the largest section and re-measure both.", output=REAL_FIXED_SIBLING_OUTPUT)
+        self.assertEqual(len(_lint(70, text)), 1)
+
+    def test_good_silent_without_a_sibling_on_the_output_line(self):
+        for text in (
+            _plan_task("- [ ] done", output="**Output:** `out/Context-Part-9-Topic.md`"),
+            _plan_task("A declared `Part-9b` sibling holds the overflow."),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(_lint(70, text), [])
+
+
+class TestCheck71UnbudgetedCostBound(unittest.TestCase):
+    def test_bad_real_step_with_one_number_for_every_branch(self):
+        findings = _lint(71, _plan_task(REAL_COST_BOUND))
+        self.assertEqual([(f["check"], f["severity"], f["line"]) for f in findings],
+                         [(71, "WARNING", 7)])
+        self.assertIn("§8.15", findings[0]["message"])
+
+    def test_good_repaired_with_planned_additions_and_per_rule_deltas(self):
+        self.assertEqual(_lint(71, _plan_task(BOUND_WITH_EXCLUSIONS)), [])
+
+    def test_each_half_of_the_repair_alone_still_warns(self):
+        for body in (
+            "No load figure grows by at most 200 tokens beyond the planned additions.",
+            "No load figure increases by no more than 200 tokens; report per-file deltas.",
+        ):
+            with self.subTest(body=body):
+                self.assertEqual(len(_lint(71, _plan_task(body))), 1)
+
+    def test_good_silent_control(self):
+        for body in (
+            "No figure rises by more than 200.",
+            "The cost of the run was 2 USD.",
+            "```\nno COST rises by more than 200 tokens\n```",
+            "WRONG: no COST rises by more than 200 tokens",
+        ):
+            with self.subTest(body=body):
+                self.assertEqual(_lint(71, _plan_task(body)), [])
+
+
+class TestCeilingOverflowCostEdges(unittest.TestCase):
+    """Cases the line shapes above do not reach: where a silencer may sit, modal verbs,
+    unit spelling and words that only look like a trigger."""
+
+    def test_a_fenced_or_wrong_labelled_line_silences_nothing(self):
+        for check, text in (
+            (70, _plan_task(f"```\n{OVERFLOW_PROCEDURE}\n```", output=REAL_FIXED_SIBLING_OUTPUT)),
+            (70, _plan_task("WRONG: re-measure once, do not repeat", output=REAL_FIXED_SIBLING_OUTPUT)),
+            (71, _plan_task(
+                "No load grows by at most 200 tokens beyond the planned additions.\n"
+                "```\nreport per-rule deltas\n```"
+            )),
+        ):
+            with self.subTest(check=check, text=text[-60:]):
+                self.assertEqual(len(_lint(check, text)), 1)
+
+    def test_bad_a_modal_verb_states_the_same_bound(self):
+        for line in ("No cost may rise by more than 200.", "No COST figure may grow by no more than 200."):
+            with self.subTest(line=line):
+                self.assertEqual(len(_lint(71, _plan_task(line))), 1)
+
+    def test_good_a_growth_clause_with_no_figure_is_not_a_cost_bound(self):
+        line = "The load test passes when memory grows by at most the stated amount."
+        self.assertEqual(_lint(71, _plan_task(line)), [])
+
+    def test_bad_ceiling_words_and_unit_spellings(self):
+        for line in (
+            "- [ ] the file grows by no more than 300 tokens",
+            "- [ ] the file stays under 6 kb",
+            "- [ ] the file stays under 300 Tokens",
+            "- [ ] `estimate_tokens` reads under 6,144 bytes",
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(len(_lint(69, _plan_task(line))), 1)
+
+    def test_good_declared_and_sibling_in_separate_clauses(self):
+        output = "**Output:** `a.md` (declared in the Write-Set; the sibling task writes `b.md`)"
+        self.assertEqual(_lint(70, _plan_task("- [ ] done", output=output)), [])
+
+
 class TestRegistrationContract(unittest.TestCase):
     def test_every_check_is_registered_once(self):
         for check in measure_module.CHECKS:
@@ -614,7 +804,7 @@ class TestRegistrationContract(unittest.TestCase):
 
     def test_check_numbers(self):
         names = [check.__name__.split("_")[1] for check in measure_module.CHECKS]
-        self.assertEqual(names, [f"check{number}" for number in (48, 49, 50, 51, 52, 53, 61, 62)])
+        self.assertEqual(names, [f"check{number}" for number in (48, 49, 50, 51, 52, 53, 61, 62, 69, 70, 71)])
 
     def test_severity_constants_match_the_linter(self):
         for name in ("SEVERITY_ERROR", "SEVERITY_WARNING", "SEVERITY_UNCERTAIN"):

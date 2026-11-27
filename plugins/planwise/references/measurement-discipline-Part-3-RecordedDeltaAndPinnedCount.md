@@ -1,12 +1,12 @@
 ---
-description: Recorded-figure discipline continued — a recorded delta states both endpoints and says whether it is net or set size, with the figure stated on both sides of any transform (§8.10), and a pinned count names the artifact and version it was read from, carries the commit sha, matches a pytest summary with a suffix-tolerant pattern and copies the exact command into a dry-run annotation, with the diff-gate header-line corollary (§8.11), and a byte pin names its instrument because blob bytes and checkout bytes differ by the line count under `core.autocrlf` (§8.12), and a size estimate for a compress, collapse or split has three terms, fixed overhead, keep orders and added pairs, which a flat per-heading figure leaves out (§8.13), and a task that grows a near-cap file measures it before and after against a stated ceiling with a HALT, while tasks that share one near-cap file split one budget line whose terms sum below the headroom (§8.14). Split out of measurement-discipline.md when that file crossed the Read-tool token gate. Part 3 of 3. Part 1 of 3 is measurement-discipline.md.
-consult-when: Writing a spec delta, a test assertion copied from a spec, or a pinned count — record both endpoints beside a "+A/-R" delta and say whether it is net or set size, state the figure on both sides of a transform, write the artifact and version beside a pinned count, stamp it with the commit sha, match a pytest summary with a suffix-tolerant pattern, copy the exact command into a dry-run annotation, and count diff lines with a filter anchored on the sign alone that removes the `---` and `+++` header lines by name; a byte count from a blob and one from the checkout differ by the line count under `core.autocrlf`, so name the instrument beside every byte pin; sizing a compress, collapse or split of a reference library, or any savings forecast built from heading counts, takes three terms (fixed overhead, keep orders, added pairs) read from the live file; writing or reviewing a task that edits a file near a Read gate (0.9 of the token warn, the line cap or the byte warn) — measure it before and after against a stated ceiling with a HALT, and when two or more tasks of one session edit it, give the Orchestration one budget line whose terms sum below the headroom; carries §8.10, §8.11, §8.12, §8.13 and §8.14 of `measurement-discipline.md`
+description: Recorded-figure discipline continued — a recorded delta states both endpoints and says whether it is net or set size, with the figure stated on both sides of any transform (§8.10), and a pinned count names the artifact and version it was read from, carries the commit sha, matches a pytest summary with a suffix-tolerant pattern and copies the exact command into a dry-run annotation, with the diff-gate header-line corollary (§8.11), and a byte pin names its instrument because blob bytes and checkout bytes differ by the line count under `core.autocrlf` (§8.12), and a size estimate for a compress, collapse or split has three terms, fixed overhead, keep orders and added pairs, which a flat per-heading figure leaves out (§8.13), and a task that grows a near-cap file measures it before and after against a stated ceiling with a HALT, while tasks that share one near-cap file split one budget line whose terms sum below the headroom (§8.14), and a size ceiling names its gate or says it is an estimate, an overflow rule repeats until every part measures OK, and a cost bound names the planned additions it excludes (§8.15). Split out of measurement-discipline.md when that file crossed the Read-tool token gate. Part 3 of 3. Part 1 of 3 is measurement-discipline.md.
+consult-when: Writing a spec delta, a test assertion copied from a spec, or a pinned count — record both endpoints beside a "+A/-R" delta and say whether it is net or set size, state the figure on both sides of a transform, write the artifact and version beside a pinned count, stamp it with the commit sha, match a pytest summary with a suffix-tolerant pattern, copy the exact command into a dry-run annotation, and count diff lines with a filter anchored on the sign alone that removes the `---` and `+++` header lines by name; a byte count from a blob and one from the checkout differ by the line count under `core.autocrlf`, so name the instrument beside every byte pin; sizing a compress, collapse or split of a reference library, or any savings forecast built from heading counts, takes three terms (fixed overhead, keep orders, added pairs) read from the live file; writing or reviewing a task that edits a file near a Read gate (0.9 of the token warn, the line cap or the byte warn) — measure it before and after against a stated ceiling with a HALT, and when two or more tasks of one session edit it, give the Orchestration one budget line whose terms sum below the headroom; writing a size ceiling, an overflow rule or a cost bound in a plan — label the ceiling as a guard or an estimate, state the overflow rule as a repeat procedure, and name the planned additions a cost bound excludes; carries §8.10 to §8.15 of `measurement-discipline.md`
 paths: {planwise_root}/{plans_dir}/**
 ---
 
 # Measurement Discipline, Part 3 — Recorded Delta and Pinned Count
 
-**Purpose:** §8.10, §8.11, §8.12, §8.13 and §8.14, split out of [measurement-discipline.md](measurement-discipline.md) when that file crossed the Read-tool token gate. §8.1–§8.7 and §8.9 stay on that anchor, which keeps the original filename, and §8.8 lives in [measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md). All five sections extend §8.9 sub-rule A, which re-measures a recorded figure at execution time.
+**Purpose:** §8.10, §8.11, §8.12, §8.13, §8.14 and §8.15, split out of [measurement-discipline.md](measurement-discipline.md) when that file crossed the Read-tool token gate. §8.1–§8.7 and §8.9 stay on that anchor, which keeps the original filename, and §8.8 lives in [measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md). §8.10 to §8.14 extend §8.9 sub-rule A, which re-measures a recorded figure at execution time. §8.15 covers a figure that an author writes before anything is measured.
 
 ---
 
@@ -223,3 +223,93 @@ Two checks of `scripts/lint_gate_checks_measure.py` read the plan for both cases
 Both checks print `output paths examined E, resolved R, near-cap K` to stderr. An Output path that resolves to no file counts as examined and never as measured, so a run from the wrong folder shows `resolved 0` and not a clean pass.
 
 Applies to any task that edits a file at or above the near-cap readings, and to any session where two tasks name one such file.
+
+## 8.15 A size or cost figure names its gate, its overflow procedure or its exclusions
+
+A plan author can write a size or cost figure from a guess, from projected inputs, or from a bound set before the plan's own text exists. The figure then binds a runner to a number nobody measured. It is plan prose, so no hooked tool call reads it.
+
+Three checks of `scripts/lint_gate_checks_measure.py` read task files for these cases. Each one warns and exits 1, and none blocks the plan. Each skips a fenced block and a line that holds the word `WRONG`.
+
+### A size ceiling names the gate it guards, or says it is an estimate
+
+A ceiling with no named limit reads as a gate, even when the author guessed the figure.
+
+> [!constraint] Label every size ceiling as a guard or as an estimate
+> WRONG — a guessed figure written as a gate:
+> ```
+> - [ ] recovery_surfaces.py stays under 6 KiB <!-- ceiling: ≤ 6,144 bytes -->
+> ```
+> CORRECT — a real guard names the limit and the headroom:
+> ```
+> - [ ] doctor_cli.py grows by at most 300 tokens <!-- guards: the 22,000-token Read warn; start 20,395, later sprints need ~850 -->
+> ```
+> CORRECT — an estimate says that it is one:
+> ```
+> - [ ] recovery_surfaces.py: estimated ~6 KiB (not a gate; the governing limit is the 25K-token page cap)
+> ```
+
+**Check 69** warns on a checkbox criterion line that holds a ceiling word and a size figure. The ceiling words are `under`, `below`, `at most`, `no more than`, `never above`, `<=` and `≤`. The size units are KiB, KB, bytes and tokens. The check is silent when the line holds `guards:`, `estimat` or `not a gate` outside a code span. It is also silent when every size figure on the line equals a Read gate of `read_limits`: 19,800, 22,000 or 25,000 tokens, or 240 or 256 KiB. A checkbox that carries a §8.14 gate line takes the `guards:` label too, unless its ceiling is a Read gate.
+
+The check reads the whole line. It therefore also warns when `under` or `below` names a location beside a size figure.
+
+**Check 69 cannot see:**
+
+- a ceiling in an Expected Output budget or in a Verification Command, because neither is a checkbox line
+- a figure in a unit outside the list, such as lines
+- a criterion that wraps, with the ceiling word on one line and the figure on the next
+- a `guards:` label that names a limit which does not exist. The reviewer who reads the named gate is the control for this case
+
+### An overflow rule is a repeat-until procedure, not a fixed sibling count
+
+A sibling count fixed from projected inputs leaves the runner no legal exit when the inputs measure larger.
+
+> [!constraint] State the overflow procedure, and price the split from the measured inputs
+> WRONG — the sibling count is fixed at scaffold time from projected inputs:
+> ```
+> Output: Part-9 (plus a declared 9b only if Step 5 splits it)
+> inputs projected 4 × 8K → one sibling assumed enough → Part 9 OVER after the 9b move, no legal exit
+> ```
+> CORRECT — the procedure is stated, and the split comes from the measured inputs at the layer edge:
+> ```
+> Overflow: move the largest section to the next sibling Part, re-measure, and repeat until every Part measures OK.
+> re-price at the L1→L2 edge: inputs 41.9K measured
+> expected Part 9 ≈ inputs + headers and amendments > 22K, and > 44K is two siblings
+> → declare 9b, and 9c when (inputs − one moved section) still exceeds the warn line
+> ```
+
+In the measured case, a task consolidated four task outputs that it had to copy in full. Its overflow rule declared exactly one sibling. The inputs were projected at about 8,000 tokens each. Together they measured 41,853 tokens, 1.3 times the projected total. After the one declared move the Part still measured 27,003 tokens, over the cap.
+
+**Check 70** warns on an `**Output:**` line that declares a lettered sibling Part, such as `Part-9b`, or that holds `declared ... sibling` or `sibling ... only if` within one clause. The check is silent when one prose line of the task holds both `re-measure` and `repeat`. It also warns on a task that only edits an existing lettered Part.
+
+**Check 70 cannot see:**
+
+- whether anyone re-priced the sibling count from the measured inputs at the layer edge, because the inputs exist only after the upstream tasks run
+- an overflow rule that the task states outside its Output line
+- a sibling declared in other words
+
+### A cost bound excludes the plan's own planned additions
+
+One number set before the plan's text exists can fail content that the user already approved.
+
+> [!constraint] Name what the bound excludes, and report the growth per rule
+> WRONG — one number for every branch, set before the branch's text exists:
+> ```
+> no sample path's COST rises by more than 200 tokens
+> # the amend branch adds a paragraph plus approved rewording -> +299 -> FAIL on approved content
+> ```
+> CORRECT — the bound names what it excludes, and the report attributes growth per rule:
+> ```
+> no sample path's COST rises by more than 200 tokens beyond the planned additions
+> (the new paragraph, the description line); report per-rule deltas from measure_files.py --model opus
+> ```
+
+**Check 71** warns on a line that holds `cost` or `load` and then a form of `rise`, `grow` or `increase`, followed by `by more than`, `by at most` or `by no more than` and a figure. The check is silent when the line names `planned additions` and a prose line states per-file or per-rule deltas.
+
+**Check 71 cannot see:**
+
+- a planned addition that the exclusion list omits
+- a bound worded without `cost` or `load`
+- a figure written in words
+- a "report only" instrument that a later step promotes to a gate
+
+Applies to any size ceiling, overflow rule or cost bound that a plan states before the files it measures exist.

@@ -349,7 +349,7 @@ Fix: Add a pre-edit-derived conservation gate (`for s in '<coordinate>' '<exact 
 
 ### 8.8 After a behavior change, sweep the surfaces that describe and call it
 
-**Moved.** §8.8 and Reviewer Check 076 live in [measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md) §8.8.
+**Moved.** §8.8 and Reviewer Check 076 are held in [measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md) §8.8.
 
 ### 8.9 A gate's recorded figure needs its own verification, separate from its reading
 
@@ -472,7 +472,7 @@ Fix: Trace the figure to a measurement or to its origin sentence and inline the 
 
 ### 8.10 A recorded delta states both endpoints and says whether it is net or set size
 
-**Moved.** §8.10 lives in [measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md](measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md) §8.10.
+**Moved.** §8.10 is held in [measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md](measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md) §8.10.
 
 ### 8.11 A pinned count names the artifact and version it was read from
 

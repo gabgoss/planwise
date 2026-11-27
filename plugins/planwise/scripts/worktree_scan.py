@@ -55,10 +55,13 @@ def sibling_dirs(folder: Path) -> list[Path]:
     """Map `folder` into every other linked worktree of its repository.
 
     Returns the mapped folders that exist as directories. Returns [] on any
-    failure and for a repository with a single worktree.
+    failure and for a repository with a single worktree. `folder` itself need
+    not exist: git tracks no empty folder, so a fresh worktree can lack one
+    that another worktree holds. git then runs in the nearest folder that exists.
     """
     folder = Path(folder)
-    top_out = _git(folder, "rev-parse", "--show-toplevel")
+    anchor = next((path for path in (folder, *folder.parents) if path.is_dir()), folder)
+    top_out = _git(anchor, "rev-parse", "--show-toplevel")
     if top_out is None or not top_out.strip():
         return []
     try:
@@ -66,7 +69,7 @@ def sibling_dirs(folder: Path) -> list[Path]:
         relative = folder.resolve().relative_to(toplevel)
     except (OSError, ValueError):
         return []
-    listing = _git(folder, "worktree", "list", "--porcelain")
+    listing = _git(anchor, "worktree", "list", "--porcelain")
     if listing is None:
         return []
     found: list[Path] = []

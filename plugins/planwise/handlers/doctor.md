@@ -144,8 +144,9 @@ de-scoped rule under `.claude/rules/planwise/` against its shipped `references/`
 copy and recommends one of:
 
 - **REMOVABLE** (`~`) — identical to, or a stale subset of, the now-grown shipped
-  reference. The canonical rule is handler-loaded from `references/`; the
-  installed copy is dead always-on weight. A subset only qualifies as REMOVABLE
+  reference, or a match of an earlier shipped body in the rule-history manifest.
+  The canonical rule is handler-loaded from `references/`; the installed copy is
+  dead always-on weight. A subset only qualifies as REMOVABLE
   when its structural verdict carries an empty `notes` field — a subset where
   the matcher tolerated any installed-only content reports PRESERVE instead, so
   a genuine short customization is never silently deleted. *Remove with `/planwise doctor --prune-stale`.*
@@ -163,7 +164,7 @@ planwise doctor — stale de-scoped rule sweep (post-boundary)
 Stale de-scoped rules still installed under .claude/rules/planwise/:
   ~ {filename}.md   REMOVABLE
       size:    {N} lines (~{X} tokens)
-      reason:  {untouched leftover | stale subset of grown shipped reference}
+      reason:  {untouched leftover | stale subset of grown shipped reference | matched an earlier shipped body}
       action:  remove with /planwise doctor --prune-stale
   ! {filename}.md   PRESERVE
       size:    {N} lines (~{X} tokens)

@@ -32,6 +32,7 @@ from generate_lessons_index import (
     COL_DOMAIN,
     COL_FILE,
     COL_LANGUAGE,
+    COL_STATUS,
     COL_TECHNOLOGY,
     COLUMN_COUNT,
     LessonsGeneratorError,
@@ -105,6 +106,7 @@ class _GenerateLessonsIndexFixtureBase(unittest.TestCase):
             b'- applied\n'
             b'- rule\n'
             b'- orphaned\n'
+            b'- superseded\n'
         )
 
         # load_config() reads --config from sys.argv; inject it for the test.
@@ -134,6 +136,7 @@ class _GenerateLessonsIndexFixtureBase(unittest.TestCase):
         frontmatter_id: str | None = None,
         crlf: bool = False,
         suffix: str = "",
+        superseded_by: str | None = None,
     ) -> Path:
         target_dir = directory if directory is not None else self.lessons_dir
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -150,7 +153,8 @@ class _GenerateLessonsIndexFixtureBase(unittest.TestCase):
             f"domain: {domain}\n"
             f"source: {source}\n"
             f"status: {status}\n"
-            "---\n\n"
+            + ("" if superseded_by is None else f"superseded-by: {superseded_by}\n")
+            + "---\n\n"
             f"# LL-{number:03d}: {title}\n"
         )
         if crlf:
@@ -516,6 +520,112 @@ class TestLocationAnomaly(_GenerateLessonsIndexFixtureBase):
         hub_items, by_century = partition_lessons(result.items)
         self.assertEqual(hub_items, [])
         self.assertEqual([item["id"] for item in by_century[shard_for(230)]], [230])
+
+
+class TestSupersededByStatusCell(_GenerateLessonsIndexFixtureBase):
+    """The `superseded-by:` pointer renders as a Status-cell suffix."""
+
+    def _status_cell(self, path) -> str:
+        fields = _extract_fields(path, _read_frontmatter_map(path), self.valid_statuses)
+        row, _truncated = render_row(fields, self.archive_dir)
+        return split_row_cells(row)[COL_STATUS]
+
+    def test_landed_lesson_keeps_its_status_and_gains_the_suffix(self):
+        path = self.write_lesson(
+            301, status="rule", directory=self.archive_dir, superseded_by="LL-302"
+        )
+        self.assertEqual(self._status_cell(path), "rule, superseded by LL-302")
+
+    def test_superseded_status_is_not_repeated(self):
+        path = self.write_lesson(
+            303, status="superseded", directory=self.archive_dir, superseded_by='"304"'
+        )
+        self.assertEqual(self._status_cell(path), "superseded by LL-304")
+
+    def test_null_pointer_reads_as_no_pointer(self):
+        path = self.write_lesson(
+            305, status="rule", directory=self.archive_dir, superseded_by="null"
+        )
+        self.assertEqual(self._status_cell(path), "rule")
+
+    def test_template_comment_lines_after_the_pointer_are_ignored(self):
+        # templates/lesson.md closes its frontmatter on commented-out keys,
+        # and the line parser appends each one to the key above it.
+        path = self.write_lesson(
+            307,
+            status="rule",
+            directory=self.archive_dir,
+            superseded_by=(
+                "LL-308\n"
+                "# rule-as:                                    # DEPRECATED alias for applied-as"
+            ),
+        )
+        self.assertEqual(self._status_cell(path), "rule, superseded by LL-308")
+
+    def test_comment_only_and_uppercase_null_values_name_no_lesson(self):
+        for number, value in ((309, " # fill in when replaced"), (310, "NULL"), (311, "Null")):
+            with self.subTest(value=value):
+                path = self.write_lesson(
+                    number, status="rule", directory=self.archive_dir, superseded_by=value
+                )
+                self.assertEqual(self._status_cell(path), "rule")
+
+    def test_unreadable_pointer_refuses_and_names_the_key(self):
+        path = self.write_lesson(306, superseded_by="the-newer-one")
+        with self.assertRaisesRegex(LessonsGeneratorError, "superseded-by"):
+            _extract_fields(path, _read_frontmatter_map(path), self.valid_statuses)
+
+
+class TestSupersededByCheck(_GenerateLessonsIndexFixtureBase):
+    """`--check` reports a pointer that leads nowhere or in a circle, and
+    `--write` never refuses on either."""
+
+    def _write_then_check(self):
+        write_code, _out, write_err = self.run_main("--write")
+        self.assertEqual(write_code, 0, write_err)
+        code, out, _err = self.run_main("--check")
+        return code, out
+
+    def _archived(self, number, *, status="rule", superseded_by=None):
+        self.write_lesson(
+            number, status=status, directory=self.archive_dir, superseded_by=superseded_by
+        )
+
+    def test_pointer_to_a_scanned_lesson_is_clean(self):
+        self._archived(311, superseded_by="LL-312")
+        self._archived(312)
+        code, out = self._write_then_check()
+        self.assertEqual(code, 0, out)
+
+    def test_pointer_to_a_missing_lesson_is_dangling(self):
+        self._archived(313, superseded_by="LL-999")
+        code, out = self._write_then_check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("Anomalies (1):", out)
+        self.assertIn("[superseded-dangling] LL-313", out)
+        self.assertIn("LL-999", out)
+
+    def test_superseded_status_with_no_pointer_is_dangling(self):
+        self._archived(314, status="superseded")
+        code, out = self._write_then_check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("[superseded-dangling] LL-314", out)
+
+    def test_two_lesson_cycle_is_reported_once(self):
+        self._archived(315, superseded_by="LL-316")
+        self._archived(316, superseded_by="LL-315")
+        # Leads into the cycle without being on it.
+        self._archived(310, superseded_by="LL-316")
+        code, out = self._write_then_check()
+        self.assertEqual(code, 1, out)
+        self.assertEqual(out.count("[superseded-cycle]"), 1, out)
+        self.assertIn("[superseded-cycle] LL-315: LL-315 -> LL-316 -> LL-315", out)
+
+    def test_self_pointer_is_a_cycle(self):
+        self._archived(317, superseded_by="LL-317")
+        code, out = self._write_then_check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("[superseded-cycle] LL-317: LL-317 -> LL-317", out)
 
 
 class TestBudgetOnShippedBytes(unittest.TestCase):

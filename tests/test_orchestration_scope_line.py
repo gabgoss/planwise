@@ -14,6 +14,10 @@ holds no second prompt, and that the template skeleton's HARD CONSTRAINTS block
 carries the scope sentence, so the prompt the runner receives and the prompt
 review grades cannot drift apart again.
 
+It also pins the skeleton's return line (every Output-line file, not one file)
+and the one exception HARD CONSTRAINT 1 makes for the sequential-mode Recovery
+writes that `agents/task-runner.md` §5.A asks for.
+
 Run with:  python -m pytest tests/test_orchestration_scope_line.py -q
 """
 
@@ -94,6 +98,71 @@ class TestSkeletonCarriesTheScopeLine(unittest.TestCase):
         block = _skeleton_hard_constraints()
         self.assertNotIn("You are dispatched to execute ONE task", block)
         self.assertNotIn("Do NOT proceed to task", block)
+
+
+def _constraint_one(text: str, fence_pattern: re.Pattern) -> str:
+    """The `1. Modify ONLY` line of the first fenced block the pattern finds."""
+    match = fence_pattern.search(text)
+    if match is None:
+        raise AssertionError("no fenced block found -- parser regression")
+    for line in match.group(1).splitlines():
+        if line.strip().startswith("1. Modify ONLY"):
+            return line.strip()
+    raise AssertionError("the fenced block has no '1. Modify ONLY' line")
+
+
+def _read(relative: str) -> str:
+    return (PLUGIN_ROOT / relative).read_text(encoding="utf-8")
+
+
+# The reference copy is the first fenced block after its section 1.8 heading.
+_REFERENCE_SKELETON_RE = re.compile(
+    r"^## 1\.8 [^\n]*\n.*?^```markdown\n(.*?)^```", re.MULTILINE | re.DOTALL
+)
+# What a sequential runner writes in Recovery, as task-runner section 5.A names it.
+_RECOVERY_ENTRIES = ("Key Findings", "Files Modified", "Change Log", "Current Step")
+
+
+class TestSkeletonReturnAndCheckpoint(unittest.TestCase):
+    def test_return_line_names_every_output_file(self):
+        match = _SKELETON_RE.search(_read("templates/orchestration.md"))
+        self.assertIsNotNone(match)
+        skeleton = _flat(match.group(1))
+        self.assertIn("Return after writing every file on this task's Output line.", skeleton)
+        self.assertNotIn("single expected output file", skeleton)
+
+    def test_constraint_one_names_the_checkpoint_exception(self):
+        self.assertIn(
+            "Exception: in sequential mode you may also write this task's own Recovery row",
+            _skeleton_hard_constraints(),
+        )
+
+    def test_exception_covers_every_entry_the_runner_protocol_writes(self):
+        agent = _read("agents/task-runner.md")
+        start = agent.index("### 5.A ")
+        protocol = agent[start : agent.index("### 5.B ", start)]
+        line = _constraint_one(_read("templates/orchestration.md"), _SKELETON_RE)
+        for entry in _RECOVERY_ENTRIES:
+            with self.subTest(entry=entry):
+                self.assertIn(entry, protocol, "task-runner 5.A no longer names it")
+                self.assertIn(entry, line)
+        self.assertIn("Read that Recovery file", line)
+
+    def test_exception_names_its_mode_signal_and_beats_the_file_list(self):
+        """The runner must see which mode it is in, and that the list yields."""
+        self.assertIn("Recovery file: {", _read("handlers/run.md"))
+        line = _constraint_one(_read("templates/orchestration.md"), _SKELETON_RE)
+        self.assertIn("Sequential mode means this prompt has a `Recovery file:` line.", line)
+        self.assertIn("even though the Output line and the file list leave it out", line)
+
+    def test_reference_constraint_one_matches_the_template(self):
+        self.assertEqual(
+            _constraint_one(
+                _read("references/agent-orchestration-delegated.md"),
+                _REFERENCE_SKELETON_RE,
+            ),
+            _constraint_one(_read("templates/orchestration.md"), _SKELETON_RE),
+        )
 
 
 if __name__ == "__main__":

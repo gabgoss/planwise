@@ -885,7 +885,13 @@ def reconcile_route_hint(
     }
 
 
-def compute_route_signals(item: dict, frontmatter: dict, config: dict | None = None) -> dict:
+def compute_route_signals(
+    item: dict,
+    frontmatter: dict,
+    config: dict | None = None,
+    *,
+    open_blockers: list[str] | None = None,
+) -> dict:
     """The mechanical signal vector for one open item, plus the provisional
     route `decide_route` derives from it.
 
@@ -925,6 +931,11 @@ def compute_route_signals(item: dict, frontmatter: dict, config: dict | None = N
     (`scoped_rules_block` over the raw body, which strips the
     `SIGNAL_EXCLUDED_HEADINGS` sections itself, `## Open Questions`
     included); without it, `scoped_rules` is None and no file is read.
+
+    `open_blockers` is the caller's entry from `parse_backlog.open_blocker_map`.
+    The result repeats it and sets `routable` to False when it names an id.
+    Both are None when the caller passes nothing. The gate never changes the
+    route letter.
     """
     raw_body = frontmatter.get("_body") or ""
     loop_body, _ = strip_loop_sections(raw_body)
@@ -1056,6 +1067,8 @@ def compute_route_signals(item: dict, frontmatter: dict, config: dict | None = N
         "route": route,
         "large_scope": large_scope,
         "branch": branch,
+        "open_blockers": open_blockers,
+        "routable": None if open_blockers is None else not open_blockers,
         "hint": hint,
         "scoped_rules": (
             None
@@ -1083,8 +1096,9 @@ ROUTE_LEGEND = (
     "  rules = scoped_rules verdict: i = inject the matched rules, p = placement decision needed, - = none.\n"
     "  ref = the item's refined frontmatter (y/n); a refined item's steps come from ## Resolution, and "
     "--id N prints its shape gate.\n"
-    "The scoped-rule gate is computed here (rules column); the pivot check and the other pre-routing gates "
-    "are judgment, and this report does not run them."
+    "  blk = the count of open blockers, - = none; an item with one is NOT ROUTABLE, whatever its route.\n"
+    "The scoped-rule gate (rules column) and the open-blocker gate (blk column) are computed here; the pivot "
+    "check and the other pre-routing gates are judgment, and this report does not run them."
 )
 
 
@@ -1111,7 +1125,8 @@ def format_route_line(signals: dict, score: int) -> str:
         f"ms={len(signals['multi_sprint_hits'])} arch={len(signals['architectural_hits'])} "
         f"ign={len(signals['architectural_ignored'])} "
         f"h2={signals['h2_count']} steps={signals['step_count']} "
-        f"ref={'y' if signals['shape']['refined'] else 'n'} files={signals['file_count']} "
+        f"ref={'y' if signals['shape']['refined'] else 'n'} "
+        f"blk={len(signals['open_blockers'] or []) or '-'} files={signals['file_count']} "
         f"rules={rules} "
         f"| hint {hint_text}"
     )
@@ -1164,6 +1179,17 @@ CLEAR_FIX_CANDIDATE_NOTE = (
 )
 
 
+def _format_open_blockers(blockers: list[str] | None) -> str:
+    """The `open_blockers:` line of the `--route --id N` detail."""
+    if blockers is None:
+        text = "(not computed)"
+    elif not blockers:
+        text = "none"
+    else:
+        text = f"{', '.join(blockers)} -> NOT ROUTABLE until each blocker closes"
+    return f"  open_blockers:     {text}"
+
+
 def format_route_detail(signals: dict, score: int) -> str:
     """The full signal vector for one item (`--route --id N`)."""
     yes_no = lambda flag: "yes" if flag else "no"
@@ -1171,6 +1197,7 @@ def format_route_detail(signals: dict, score: int) -> str:
         (f"{signals['id']}  route {signals['route']}  LARGE_SCOPE {yes_no(signals['large_scope'])}"
          f"  (score {score})"),
         f"  branch:            {signals['branch']}",
+        _format_open_blockers(signals["open_blockers"]),
         f"  abbrev/is_bug:     {signals['abbrev']} / {yes_no(signals['is_bug'])}",
         (f"  line_count/short:  {signals['line_count']} / {yes_no(signals['is_short'])}"
          f"  (< {SHORT_ITEM_LINES}; {signals['excluded_lines']} loop-written and open-question lines excluded)"),
@@ -1306,7 +1333,11 @@ def main():
 
     # Local import: a module-level one closes the cycle described in the
     # `parse_index_table` docstring.
-    from parse_backlog import duplicate_row_ids, duplicate_row_ids_message
+    from parse_backlog import (
+        duplicate_row_ids,
+        duplicate_row_ids_message,
+        open_blocker_map,
+    )
 
     duplicates = duplicate_row_ids(items)
     if duplicates:
@@ -1316,6 +1347,16 @@ def main():
     if not items:
         print("No items found in backlog index.", file=sys.stderr)
         sys.exit(1)
+
+    # Read once for both `--route` branches. The other modes never need it.
+    # The map keys and values are normalized, so each blocker is turned back
+    # into its row's id: the report then spells every id the same way.
+    blocked_by = open_blocker_map(config) if args.route else {}
+    row_ids = {normalize_id(i["id"]): i["id"] for i in items}
+    blocked_by = {
+        key: [row_ids.get(blocker, blocker) for blocker in blockers]
+        for key, blockers in blocked_by.items()
+    }
 
     if args.id:
         target = normalize_id(args.id)
@@ -1329,7 +1370,9 @@ def main():
             sys.exit(1)
         if args.route:
             fm = frontmatters.get(matched_item["id"], {})
-            signals = compute_route_signals(matched_item, fm, config=config)
+            signals = compute_route_signals(
+                matched_item, fm, config=config, open_blockers=blocked_by.get(target, [])
+            )
             print(format_route_detail(signals, breakdown.total))
             if args.json:
                 print(f"JSON: {write_route_json({**signals, 'score': breakdown.total})}")
@@ -1354,7 +1397,12 @@ def main():
         print(f"Backlog Route Signals ({len(open_items)} open items)")
         print("=" * 60)
         for item in open_items:
-            signals = compute_route_signals(item, frontmatters.get(item["id"], {}), config=config)
+            signals = compute_route_signals(
+                item,
+                frontmatters.get(item["id"], {}),
+                config=config,
+                open_blockers=blocked_by.get(normalize_id(item["id"]), []),
+            )
             score = _score_total(scores.get(item["id"]))
             rows.append({**signals, "score": score})
             print(format_route_line(signals, score))

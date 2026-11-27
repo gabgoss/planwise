@@ -123,6 +123,20 @@ class BacklogAuthoringAgentContractTests(unittest.TestCase):
             with self.subTest(status_field=field):
                 self.assertRegex(status_block, rf"(?m)^{field}:")
 
+    def test_sub_item_refined_rule_is_stated(self):
+        # A DECOMPOSE sub-item's `refined` value, and the sources of the sections
+        # the shape gate reads, are stated where each side reads them.
+        pins = (
+            (AUTHOR, "### Mapping From Inputs to the Item", "a sub-item gets `refined: true` when"),
+            (AUTHOR, "### Mapping From Inputs to the Item", "sub-item filed refined: false --"),
+            (AUTHOR, "### Mapping From Inputs to the Item", "as one `# user-run:` line, as the"),
+            (PLANNER, "## 4. WRITE", "A line with no check is filed `refined: false`"),
+            (PLUGIN / PROCESS_REFERENCE, "## 6.", "each filed `refined: true` when the `SUB_ITEMS` line yields"),
+        )
+        for path, heading, literal in pins:
+            with self.subTest(file=path.name, literal=literal):
+                self.assertIn(literal, _section(_read(path), heading))
+
     def test_no_agent_names_the_question_tool_or_plan_mode(self):
         for path in ALL_AGENTS:
             text = _read(path)

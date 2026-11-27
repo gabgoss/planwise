@@ -369,7 +369,7 @@ Every DELEGATED spawn prompt MUST include a HARD CONSTRAINTS section and a SCOPE
 
 ```markdown
 ## HARD CONSTRAINTS (non-negotiable)
-1. Modify ONLY the files named on this task's Output line. Every other Required Context file is read-only.
+1. Modify ONLY the files named on this task's Output line. Every other Required Context file is read-only. Exception: in sequential mode you may also write this task's own Recovery row, and add this task's Change Log, Key Findings and Files Modified entries and update Current Step in that file. Sequential mode means this prompt has a `Recovery file:` line. You may write that file even though the Output line and the file list leave it out. Read that Recovery file to do it. In parallel mode never touch Recovery.
 2. Do NOT read files not listed in Required Context
 3. Do NOT spawn sub-agents or create teams
 4. If you encounter an ambiguity requiring a file not in Required Context, STOP and report it; do NOT expand scope. Finish every item that does not depend on it, write no placeholder for the held item, and return PARTIAL with one `QUESTION:` line in ISSUES. Never ask by SendMessage and keep working
@@ -655,7 +655,7 @@ Reviewer rule: a parallel layer whose task files each instruct a Recovery read i
 
 ---
 
-**Continues in:** [Part 2 — Dispatch Mechanics and Returns](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) (§1.14–§1.22) · [Part 3 — Cross-Cutting Dispatch Discipline](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) (§1.23–§1.28) · [Part 4 — Delivery, Liveness and Remediation](agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md) (§1.29–§1.32)
+**Sections §1.14–§1.32 are held in:** [Part 2 — Dispatch Mechanics and Returns](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) (§1.14–§1.22) · [Part 3 — Cross-Cutting Dispatch Discipline](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) (§1.23–§1.28) · [Part 4 — Delivery, Liveness and Remediation](agent-orchestration-delegated-Part-4-DeliveryLivenessAndRemediation.md) (§1.29–§1.32)
 
 *Originally extracted from [`agent-orchestration.md`](agent-orchestration.md) §11-§12 (DELEGATED Dispatch Discipline + Verify-Before-Acting on LSP Diagnostics); §1.19–§1.22 folded from `handlers/run.md`'s Delegated Execution Protocol (2026-08-10). `agent-orchestration.md` now carries only a short §11 pointer stub back to this file. Split into three topical parts (2026-09-06) because the combined text exceeded the Read-tool page cap; section numbers were frozen across the split.*
 *Cross-reference: [agent-orchestration.md](agent-orchestration.md), [agent-authoring.md](agent-authoring.md), [skill-authoring.md](skill-authoring.md)*

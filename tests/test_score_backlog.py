@@ -2437,8 +2437,8 @@ class TestRouteReportMode(unittest.TestCase):
         out, _err, code = self.run_score(["--route"])
         self.assertIsNone(code)
         self.assertIn("Backlog Route Signals (3 open items)", out)
-        self.assertRegex(out, r"ID 004 \| B \|.* steps=2 ref=y files=\d+ ")
-        self.assertRegex(out, r"ID 001 \| A \|.* ref=n files=\d+ ")
+        self.assertRegex(out, r"ID 004 \| B \|.* steps=2 ref=y blk=- files=\d+ ")
+        self.assertRegex(out, r"ID 001 \| A \|.* ref=n blk=- files=\d+ ")
         self.assertIn("ref = the item's refined frontmatter", out)
 
 

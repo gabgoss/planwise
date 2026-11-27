@@ -18,6 +18,14 @@ except ImportError:
     HAS_YAML = False
 
 try:
+    import config_loader
+except ImportError as exc:
+    raise ImportError(
+        "config_loader is required for artifact_upgrade's drafts-folder rule; "
+        "the scripts/ directory appears to be partially installed"
+    ) from exc
+
+try:
     from config_gen import (
         InitConfig,
         _apply_feedback_keys,
@@ -322,9 +330,10 @@ def upgrade_artifacts(
       untracked: list of destination paths found in the install dirs but NOT in the manifest allowlist
       refreshed_subsets: subset of `refreshed` whose entries were auto-adopted because the
         installed body was a stale SUBSET of the (grown) shipped body (rules: any confidence;
-        agents: exact/contained, or reorg-confidence via the frontmatter-preservation guard) —
-        surfaced separately so the caller can print a "N were stale subsets, auto-adopted
-        shipped" banner sub-line
+        agents: exact/contained, or reorg-confidence via the frontmatter-preservation guard),
+        or (rules) matched an earlier shipped body in the rule-history manifest —
+        surfaced separately so the caller can print a "N were stale subsets or earlier shipped
+        bodies, auto-adopted shipped" banner sub-line
       transferred: list of (destination_path, transfer_path) tuples — a customization-bearing
         verdict (HAS_UNIQUE or notes-flagged subset) whose content was VERIFIED-written to
         `transfer_path` (a dormant preservation file under
@@ -843,7 +852,8 @@ def _apply_feedback_dir(cfg: "InitConfig", config_path: Path) -> None:
         print(notice)
 
     feedback_rel = _configured_feedback_rel(cfg, config_path)
-    feedback_dir_path = cfg.project_root / cfg.planwise_root / feedback_rel
+    feedback_dir_path = config_loader.resolve_feedback_dir(
+        cfg.project_root / cfg.planwise_root, feedback_rel)
     already_present = feedback_dir_path.is_dir()
     feedback_dir_path.mkdir(parents=True, exist_ok=True)
     state = "already present" if already_present else "created"
@@ -1284,7 +1294,8 @@ def _run_upgrade(
             print(f"Refreshed: {len(refreshed)}")
             if refreshed_subsets:
                 print(
-                    f"  ({len(refreshed_subsets)} were stale subsets, auto-adopted shipped)"
+                    f"  ({len(refreshed_subsets)} were stale subsets or earlier shipped bodies, "
+                    "auto-adopted shipped)"
                 )
             for r in refreshed:
                 print(f"  + {r}")

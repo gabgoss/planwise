@@ -100,6 +100,31 @@ Commands (run with `python -B`):
         runs no gate, and leaves a manifest of the files that landed. A manifest
         rewrite that fails after the gates also exits 3.
 
+    add-sessions --spec SPEC.json --bodies-dir DIR --out PLAN_DIR --config FILE
+          --session SXX-YY [--session ...] [--date YYYY-MM-DD] [--skip-index] [--templates DIR]
+        Render only the named sessions into a plan that `build` already wrote, after the
+        spec and the bodies gained them. The lint covers the named sessions and the plan
+        bodies. The run writes no existing path, so it has no --force. It refuses a
+        rendered path that exists (`EXISTS: <path>`), a session the plan already holds,
+        and a spec that renames, renumbers or drops a built session (`MOVED: <path>`).
+        The manifest gains the new files and keeps every earlier hash. The five gates
+        run. The estimates, headings and deviations lines are cut to those that name a
+        new file or report a failed call, and `outside=<n>` counts the rest. The scan
+        and index lines stay whole. A gate line's figures still count the cut lines, so
+        estimates reads `failed=1` while the Sprint Plan holds no row for the new
+        session. A gate that rewrites an existing file gets its bytes put back, and a
+        `KEPT: <path>` line says so. The run edits no Sprint Plan and no Master Plan.
+        It prints their new lines as
+          ADD-ROW: <path>: <line>     each line that names a session id, or its sprint
+                                      and session folders
+          BLOCK: <path>: <line>       each named session's `## Session Details` block,
+                                      or the whole Sprint Plan of a new sprint
+          SESSIONS: sprint=<n> plan=<n>
+        `sprint=` holds one count for each sprint with a named session, in sprint order.
+        The Master Plan totals, such as its Write-Sets rows, are not printed. A printed
+        line that still holds a FILL marker adds one `NOTE:` line and exit 1. The report
+        ends as `build` does.
+
 Document ids: `MASTER`, `S01` (Sprint Plan), `S01-01-ORCH`, `S01-01-RECOVERY`, and
 `S01-01-03` (task 3 of session 01 of sprint 01).
 
@@ -148,8 +173,11 @@ past its count; a section heading absent from the doc; an H2 line outside a fenc
 a key outside a document block; a key given twice in one doc; a doc id given twice;
 a fence still open at the end of a file; a body inside the span of a section body;
 a body for a footer section that restates the file footer.
+A fill for a run-time placeholder (`plugin_root`, `census:<name>`) with no marker is
+not an error. The build ignores it and keeps the literal, and `lint` and `build` print
+one `NOTE:` line for each one that holds text.
 
-Two rendered files with one doc id refuse all three commands. A task named `Recovery`
+Two rendered files with one doc id refuse every command. A task named `Recovery`
 or `Orchestration` does this, because `scaffold_plan.file_kind` reads the file suffix.
 
 `keys_missing` counts marker occurrences with no body, so it equals the markers a
@@ -162,7 +190,7 @@ lint error. A name is a heading without its `#` marks and without its trailing m
 comment or `(Required ...)` tail. Only a template `##` or `###` heading whose marker
 comment says CONDITIONAL, or whose text ends in `(Required when ...)` or
 `(Required for ...)`, can be omitted, and `omittable_names` reads that list from the
-templates at run time. Any other name is a lint error, and all three commands refuse
+templates at run time. Any other name is a lint error, and every command refuses
 it. A cut runs from the heading to the next heading of equal or higher level, so an
 H2 takes its H3 sections and its trailing `---` with it. An H3 keeps the `---` that
 closes its parent. A cut of a section that runs to end of file stops at the footer's
@@ -181,7 +209,7 @@ file below it, so a reading or measuring task drops them in one setting. The bui
 leaves one OMITTED line for each name, as `omit_sections` does, so reviewer Check 131
 reads them as authorized. Verification Commands and Comparison-Task Coverage Row are
 not in the set, because a reading or measuring task still uses them. A value that is
-neither true nor false is a lint error, and all three commands refuse it. A task that
+neither true nor false is a lint error, and every command refuses it. A task that
 names one of these headings in its own `omit_sections` is cut once.
 
 Manifest guard: the manifest maps each written path to its sha256. A rebuild reads it
@@ -251,7 +279,7 @@ The same renames apply to every link and text, bodies included. A path under
 abbreviation. A longer name such as `<ABBREV>-Master-Plan-Notes.md` stays too. The
 rename runs after the bodies go in, so `keys`, `lint` and the doc ids keep the plain
 names (`MASTER`, `S01`). The manifest paths and the five gates read the meta root.
-All three commands refuse a session whose mode is not DELEGATED and a session
+Every command refuses a session whose mode is not DELEGATED and a session
 `Outputs/` file that lacks the prefix `<ABBREV>-META-S<XX>-<YY>-`. An output under
 the plan-level `Meta-<ABBREV>/Outputs/` folder is exempt from the prefix. A relative
 output reads from its session folder, so `../../Outputs/<name>` is that folder too.
@@ -884,7 +912,9 @@ def key_errors(doc, body, info):
     for name, k in body["fills"]:
         label = _key_label(name, k)
         if name not in counts:
-            errors.append(f"doc={doc} key={label}: the marker occurs nowhere in this doc")
+            # An older render marked the run-time placeholders, so an older bodies file may still fill one.
+            if not sp.RUNTIME_NAME_RE.fullmatch(name):
+                errors.append(f"doc={doc} key={label}: the marker occurs nowhere in this doc")
         elif k is not None and not 1 <= k <= counts[name]:
             errors.append(f"doc={doc} key={label}: the marker occurs {counts[name]} time(s) in this doc")
     errors.extend(f"doc={doc} key=section: {heading}: the heading is absent from this doc"
@@ -1007,6 +1037,20 @@ def lint_bodies(index, docs, load_errors=(), session=None, known=None):
     rows = [{"group": g, "keys_missing": len(groups[g]), "missing": groups[g], "added": added.get(g, []),
              "errors": sum(1 for e, _m in errors if e == g)} for g in wanted]
     return lines, rows
+
+
+def ignored_report(docs, index, session=None):
+    """One `NOTE:` line per run-time fill with text and no marker, so no run drops an author's text in silence."""
+    lines = []
+    for doc, body in docs.items():
+        if doc not in index or session not in (None, session_of(doc)):
+            continue
+        names = {name for name, _h2, _h3 in index[doc]["markers"]}
+        lines.extend(f"NOTE: doc={doc} key={_key_label(name, k)}: the run fills this name, so the build ignores "
+                     "this body and keeps the literal. Fix: delete the body from the bodies file."
+                     for (name, k), text in body["fills"].items()
+                     if text and name not in names and sp.RUNTIME_NAME_RE.fullmatch(name))
+    return lines
 
 
 def added_report(rows, manifest, unrecorded=False):
@@ -1311,7 +1355,8 @@ def cmd_lint(args):
             print(f"MISSING: {line}")
         if len(row["missing"]) > DETAIL_LIMIT:
             print(f"MISSING: +{len(row['missing']) - DETAIL_LIMIT} more")
-    for line in added_report(rows, manifest, unrecorded):  # before the summary lines, which stay last
+    # Both reports go before the summary lines, which stay last.
+    for line in ignored_report(docs, index, args.session) + added_report(rows, manifest, unrecorded):
         print(line)
     for row in rows:
         if row["group"] == PLAN_GROUP:
@@ -1586,7 +1631,7 @@ def cmd_build(args):
         print(f"SURVIVING: {rel}: {', '.join(names)}")
     for rel in stale:
         print(f"STALE: {rel}")
-    for line in added_report(rows, path):
+    for line in ignored_report(docs, index) + added_report(rows, path):
         print(line)
     gates = run_chain(args, files, core["abbrev"])
     print_gates(gates, len(files))
@@ -1629,8 +1674,23 @@ def main(argv=None):
     b.add_argument("--force", action="store_true", help="overwrite files that differ from the manifest")
     b.add_argument("--skip-index", action="store_true", help="do not run generate_plans_index.py --write")
     b.add_argument("--templates", default=str(sp.DEFAULT_TEMPLATES))
+    a = sub.add_parser("add-sessions", help="render only the named sessions into an existing built plan, "
+                       "and print the plan rows to add")
+    a.add_argument("--spec", required=True)
+    a.add_argument("--bodies-dir", required=True)
+    a.add_argument("--out", required=True)
+    a.add_argument("--config", required=True,
+                   help="the project config: its plan_names block sets the name caps and its project is the root")
+    a.add_argument("--session", dest="sessions", action="append", required=True,
+                   help="a session to add, such as S01-02; repeat the flag for more")
+    a.add_argument("--date", help="YYYY-MM-DD for every date placeholder (default: the spec's created)")
+    a.add_argument("--skip-index", action="store_true", help="do not run generate_plans_index.py --write")
+    a.add_argument("--templates", default=str(sp.DEFAULT_TEMPLATES))
     args = ap.parse_args(argv)
-    return {"keys": cmd_keys, "lint": cmd_lint, "build": cmd_build}[args.cmd](args)
+    # Imported here, because that module imports this one.
+    from plan_add_sessions import cmd_add_sessions
+
+    return {"keys": cmd_keys, "lint": cmd_lint, "build": cmd_build, "add-sessions": cmd_add_sessions}[args.cmd](args)
 
 
 if __name__ == "__main__":

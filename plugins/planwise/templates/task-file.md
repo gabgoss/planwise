@@ -39,8 +39,8 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 
 <!-- Every row needs numbers, not only the Context subtotal (references/task-content-fidelity.md §9.A.2). An em-dash,
      `~?` or blank in a row's KiB or ~Tokens cell fails review, even when the subtotal below is correct.
-     The only exception is §9.A.6: input that a generator produces by walking ≥100 files, or a tree of ≥10K lines,
-     takes one generator row in place of per-file rows. Below that threshold, measure every file row. -->
+     The only exception is §9.A.6: a file that only a generator walks gets no row. The generator and its output
+     take the rows instead. Measure every file the task itself reads, at any count. -->
 <!-- Row-grain measurement (per references/task-content-fidelity.md §9.A.14) — every row's figure is measured
      against the span THAT ROW cites, in a sweep at scaffold close, after all task files exist:
      - Span row (`§X`–`§Y`): resolve BOTH headings in the live file and measure the range they bound. Where the

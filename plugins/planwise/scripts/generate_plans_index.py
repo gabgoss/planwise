@@ -44,7 +44,6 @@ detection) are imported through the `generate_backlog_index` facade.
 
 import argparse
 import json
-import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -67,6 +66,7 @@ from generate_backlog_index import (
     detect_line_ending,
 )
 from parse_plans import (
+    _GENERATED_LINE_RE,
     detect_index_shape,
     enumerate_master_plans,
     parse_index_table,
@@ -121,8 +121,6 @@ PLAN_STATUS_MEANINGS = {
     "COMPLETE": "All sprints and sessions finished",
     "CLOSED": "Archived — no further work expected",
 }
-
-_GENERATED_LINE_RE = re.compile(r"^Generated:.*$", re.MULTILINE)
 
 
 def _finding(kind: str, message: str, **extra) -> dict:
@@ -458,7 +456,7 @@ def _shape_findings(disk: str, table, render: PlansRender, rows_clean: bool) -> 
 def _legacy_message(index_path: Path) -> str:
     return (
         f"Error: {index_path} is a hand-authored plans index — run /planwise upgrade to migrate it "
-        "before reading it as generated"
+        "before auditing it"
     )
 
 

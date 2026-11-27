@@ -55,7 +55,8 @@ cells. Exit codes in this mode: 0 when the run succeeds (with or without
 changes), 2 on a usage error (a `--task` that is not UTF-8 included), 3 when
 a file write fails or a plan file the run must rewrite is not UTF-8. The
 write is all-or-nothing: on any error no file is replaced. The write-back code
-lives in `token_saver_writeback`, which `main()` imports only in this mode.
+lives in `token_saver_writeback`, which `main()` imports only in this mode, and
+in `token_saver_derived`, which a write imports for the figures it derives.
 
 Why there is no band here
 -------------------------

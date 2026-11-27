@@ -8,9 +8,8 @@ import re
 import subprocess
 import sys
 import tempfile
-import time
-from contextlib import contextmanager
 from dataclasses import dataclass
+from fnmatch import fnmatch
 from pathlib import Path
 
 # Fix Windows cp1252 stdout encoding
@@ -326,28 +325,111 @@ def collect_all_known_ids(config: dict) -> list[str]:
     return ids
 
 
+def iter_disk_item_ids(backlog_dir: Path, archive_dir: Path, index_path: Path):
+    """Yield (path, item_id, from_name) for every on-disk item file.
+
+    The one id reading the allocator and the duplicate guard share, so the two
+    can never drift. The frontmatter id wins. When the frontmatter cannot be
+    read, or carries no id, `from_name` is True and the id comes from a file
+    name matching `_ITEM_FILE_RE`. A frontmatter id with no number, such as an
+    unfilled `NNN`, also yields to a matching file name. `item_id` is None when
+    neither source gives an id. Reads through the generator's own item-file
+    iterator, so a "00-" file and a generated index file are never counted as
+    items.
+
+    For counting ids only. A caller that modifies a file must not use the
+    file-name fallback to pick it.
+    """
+    for path in _iter_item_files(backlog_dir, archive_dir, index_path):
+        yield (path, *_read_item_id(path))
+
+
+def _read_item_id(path: Path) -> tuple[str | None, bool]:
+    """Return (item_id, from_name) for one item file, as `iter_disk_item_ids` reads it."""
+    try:
+        item_id = frontmatter_item_id(_read_frontmatter_map(path))
+    except (GeneratorError, OSError, UnicodeDecodeError):
+        item_id = None
+    match = _ITEM_FILE_RE.match(path.name)
+    if item_id and (id_number(item_id) is not None or not match):
+        return item_id, False
+    return normalize_id(match.group(2)) if match else None, True
+
+
 def collect_disk_item_ids(config: dict) -> list[str]:
-    """Every id an on-disk item file's OWN frontmatter carries, in `Backlog/`
-    and `Archive/`.
+    """Every id an on-disk item file holds, in `Backlog/` and `Archive/`.
 
     `collect_all_known_ids` reads only generated index files, and those change
     only when `generate_backlog_index.py --write` runs. An item file filed
     between two index writes has no row anywhere, so the index read alone
-    prints its id again. Reads through the generator's own item-file iterator
-    and frontmatter reader, so a "00-" file and a generated index file are
-    never counted as items. A file whose frontmatter cannot be read, or that
-    carries no id, is skipped and never guessed at.
+    prints its id again. `iter_disk_item_ids` says where each id comes from.
+    Prints one stderr warning per file with no readable frontmatter id.
     """
     ids: list[str] = []
-    for path in _iter_item_files(config["_backlog_dir"], config["_archive_dir"], config["_index_path"]):
-        try:
-            fm_map = _read_frontmatter_map(path)
-        except (GeneratorError, OSError, UnicodeDecodeError):
-            continue
-        item_id = frontmatter_item_id(fm_map)
+    for path, item_id, from_name in iter_disk_item_ids(
+        config["_backlog_dir"], config["_archive_dir"], config["_index_path"]
+    ):
+        if from_name:
+            _warn_unreadable_id(path, item_id)
         if item_id:
             ids.append(item_id)
     return ids
+
+
+def _warn_unreadable_id(path: Path, item_id: str | None) -> None:
+    """Name on stderr an item file whose id could not come from its frontmatter."""
+    outcome = (
+        f"counted id {item_id} from its file name."
+        if item_id
+        else "no id could be taken from its file name, so the next id may repeat its id."
+    )
+    print(f"WARNING: no readable frontmatter id in {path}; {outcome}", file=sys.stderr)
+
+
+def sibling_item_ids(backlog_dir: Path, archive_dir: Path, index_path: Path) -> dict[str, str]:
+    """Map each id held by an item file that only another linked worktree has
+    to the path of one such file.
+
+    An item filed in another worktree has no row there until that worktree
+    regenerates its index, so `collect_all_known_ids` cannot see it yet. Only
+    a file name that this worktree's folders do not hold is opened. The local
+    copy of a shared name is already counted, and opening every sibling file
+    would hold the creation lock past its timeout on a large backlog. The
+    folders are listed directly for the same reason: resolving each path, as
+    `_iter_item_files` does, costs more than the rest of the scan. A folder
+    that cannot be listed is named on stderr and skipped, and so is a file with
+    no readable frontmatter id, as in this worktree.
+    """
+    folders = sibling_dirs(backlog_dir) + sibling_dirs(archive_dir)
+    if not folders:
+        return {}
+    naming = _index_naming(index_path)
+    local_names = {
+        path.name for folder in (backlog_dir, archive_dir) for path in folder.glob("*.md")
+    }
+    found: dict[str, str] = {}
+    for folder in folders:
+        try:
+            # `iterdir`, not `glob`: `glob` swallows a listing error.
+            listed = sorted(path for path in folder.iterdir() if fnmatch(path.name, "*.md"))
+        except OSError as exc:
+            print(
+                f"WARNING: could not read all item files in linked worktree folder {folder}: {exc}",
+                file=sys.stderr,
+            )
+            continue
+        for path in listed:
+            name = path.name
+            if name in local_names or name.startswith("00-"):
+                continue
+            if is_generated_index_file(name, naming):
+                continue
+            item_id, from_name = _read_item_id(path)
+            if from_name:
+                _warn_unreadable_id(path, item_id)
+            if item_id:
+                found.setdefault(item_id, str(path))
+    return found
 
 
 def frontmatter_item_id(fm_map: dict) -> str | None:
@@ -382,93 +464,16 @@ def warn_if_no_numeric_id(all_ids: list[str]) -> None:
 
 def next_free_id(config: dict) -> tuple[int, list[str]]:
     """Return the next free id as an int, with the union of index ids and
-    on-disk item-file ids it was derived from. The next id is the highest
-    numeric component plus one, or 1 when no id carries a number.
+    item-file ids it was derived from, other linked worktrees included. The
+    next id is the highest numeric component plus one, or 1 when no id carries
+    a number.
     """
     all_ids = collect_all_known_ids(config) + collect_disk_item_ids(config)
+    all_ids += sibling_item_ids(
+        config["_backlog_dir"], config["_archive_dir"], config["_index_path"]
+    )
     numbers = [n for n in (id_number(i) for i in all_ids) if n is not None]
     return max(numbers, default=0) + 1, all_ids
-
-
-# Seconds `creation_lock` waits for another `--create` to release the lock.
-CREATE_LOCK_TIMEOUT = 10.0
-
-# Seconds the lock's release retries a removal that Windows refuses because
-# another process holds the file open.
-LOCK_RELEASE_TIMEOUT = 2.0
-
-
-class CreationLockTimeout(Exception):
-    """Raised when the backlog creation lock stays held past the timeout."""
-
-
-def _release_creation_lock(lock: Path) -> None:
-    """Remove the lock file. On Windows the removal raises PermissionError
-    while another process holds the file open, so retry briefly. A lock that
-    stays gets a warning, never an exception: the item file may already be
-    written, and the caller still has to print its id.
-    """
-    deadline = time.monotonic() + LOCK_RELEASE_TIMEOUT
-    while True:
-        try:
-            lock.unlink(missing_ok=True)
-            return
-        except PermissionError as e:
-            if time.monotonic() >= deadline:
-                print(
-                    f"WARNING: could not remove the backlog creation lock at {lock}: "
-                    f"{e.strerror}. Delete it before the next update_backlog.py --create.",
-                    file=sys.stderr,
-                )
-                return
-            time.sleep(0.05)
-
-
-@contextmanager
-def creation_lock(backlog_dir: Path, timeout: float | None = None):
-    """Hold `{backlog_dir}/.backlog-create.lock` for the body of a `with`.
-
-    Two `--create` calls that compute the next id and then write the item
-    file must not interleave, or both take the same id. O_CREAT|O_EXCL
-    succeeds for exactly one caller, so the lock file serialises them.
-    `timeout` defaults to `CREATE_LOCK_TIMEOUT`, read at call time. A timeout
-    raises `CreationLockTimeout` and never deletes the lock, because another
-    caller holds it. The lock is removed when the body exits, even on error.
-    A refused removal is retried, then warned about (`_release_creation_lock`).
-    """
-    if timeout is None:
-        timeout = CREATE_LOCK_TIMEOUT
-    backlog_dir = Path(backlog_dir)
-    backlog_dir.mkdir(parents=True, exist_ok=True)
-    lock = backlog_dir / ".backlog-create.lock"
-    deadline = time.monotonic() + timeout
-    while True:
-        try:
-            fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except (FileExistsError, PermissionError) as e:
-            # On Windows a lock file another process is still deleting
-            # raises PermissionError, not FileExistsError: retry it the same.
-            if time.monotonic() >= deadline:
-                if isinstance(e, PermissionError) and not lock.exists():
-                    raise CreationLockTimeout(
-                        f"could not create the backlog creation lock at {lock}: "
-                        f"{e.strerror}. Check that the folder is writable."
-                    ) from None
-                raise CreationLockTimeout(
-                    f"could not take the backlog creation lock at {lock} "
-                    f"within {timeout:g}s. If no other update_backlog.py "
-                    f"--create is running, delete the lock file."
-                ) from None
-            time.sleep(0.05)
-            continue
-        # This call created the lock file, so from here on every exit path,
-        # an interrupt included, removes it.
-        try:
-            os.close(fd)
-            yield lock
-        finally:
-            _release_creation_lock(lock)
-        return
 
 
 def resolve_closed_item_shard(item_id: str, config: dict) -> tuple[Path | None, bool]:

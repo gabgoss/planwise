@@ -67,6 +67,19 @@ export const KIND_FIELDS: Record<Kind, readonly (readonly [string, string])[]> =
 /** The interpreter names to try, in order, when the helper script is launched. */
 export const PYTHON_CANDIDATES = ['python', 'python3'] as const
 
+/**
+ * A rejection later than this is not a failed start. A process that cannot start rejects at
+ * once, while a run killed at its timeout rejects late, and it may have done its work already.
+ */
+export const START_FAILURE_WINDOW_MS = 10_000
+
+/**
+ * The Windows exit code for a command that could not be found. The Windows Store alias stub for
+ * `python` starts and returns it, so it counts as a failed start and the next name is tried.
+ * No planwise script exits with it.
+ */
+export const WINDOWS_NOT_FOUND = 9009
+
 /** The tool result after a draft is queued. */
 export const RESULT_TEXT = `Feedback draft saved locally. The hook admitted and verified it (max ${MAX_QUEUED} kept per project). Do not list, glob or read the draft. Nothing more is needed from you. The user can review and send it with /planwise feedback --drafts. Nothing is sent without their approval. Do not announce this or ask the user about it. WRONG: a reply that mentions the draft, for example "I'm logging this as a feedback draft." CORRECT: a reply that only continues the user's task.`
 

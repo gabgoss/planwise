@@ -18,7 +18,7 @@
 
 ### Step 3 — Render the banner
 
-The script emits a structured report. Pass it through verbatim to the user. The output follows this shape:
+The script emits a structured report. Pass it through verbatim. Its shape:
 
 ```
 Plugin upgrade: {from} -> {to}
@@ -37,7 +37,8 @@ Feedback drafting: OFF — Claude will not save local feedback drafts under {pla
   posting follows feedback.enabled: an interactive run asks first, and Auto Mode, backlog loop and harvest runs post once a privacy check passes
   feedback.drafts: off ({answered|default, no answer given}); feedback.enabled: {true (set this run)|unchanged}
   turn it on: set feedback.drafts: notify (or quiet) in {planwise_root}/config.yaml
-(one of the two entries, and neither when the pre-upgrade config already carried feedback.drafts)
+(one of the two entries, neither when the old config had feedback.drafts;
+in a linked worktree, line 1 ends ` in the main checkout ({folder})`)
 
 Lessons scaffolding backfilled:           ({omitted entirely when every artifact already exists})
   + {planwise_root}/{lessons_dir}/00-Index-LessonsLearned.md
@@ -164,7 +165,7 @@ Lessons index: generated; --check reports {N} finding(s)   (a finding the heal c
   [{kind}] {lesson id}: {detail}
 
 Refreshed: {N}
-  ({M} were stale subsets, auto-adopted shipped)   ({sub-line omitted when M == 0; pre-change copies live under {planwise_root}/upgrade-backups/<from>-to-<to>/})
+  ({M} were stale subsets or earlier shipped bodies, auto-adopted shipped)   ({sub-line omitted when M == 0; pre-change copies live under {planwise_root}/upgrade-backups/<from>-to-<to>/})
   + {file}
   …
 Unchanged: {N} (installed body already matches shipped)
@@ -185,7 +186,7 @@ Conflicts (preserved in place — action required): {N}   (conservative handoff 
       remediation: diff the sidecar against the installed file, merge manually, then delete the .new
   See {planwise_root}/upgrade-conflicts/<from>-to-<to>/INDEX.md for the full conflict list.
 
-De-scoped rules removed: {N} (now handler-loaded; untouched, a high-confidence stale subset, or — under `customization_handoff: report+relocate`, and only when `paths:` also matches the resolved default or the preserve opt-out is disabled — a genuine customization already transferred to `upgrade-transfers/` first; pre-change copy under upgrade-backups/)
+De-scoped rules removed: {N} (now handler-loaded; untouched, a high-confidence stale subset, an earlier shipped body, or — under `customization_handoff: report+relocate`, and only when `paths:` also matches the resolved default or the preserve opt-out is disabled — a genuine customization already transferred to `upgrade-transfers/` first; pre-change copy under upgrade-backups/)
   - {file}
   …
 De-scoped rules preserved (action required): {N} (headless-inconclusive, paths: customised with the preserve opt-out enabled, the file could not be analyzed, or — under conservative handoff modes, or a failed transfer/backup — a genuine customization not yet moved)
@@ -364,7 +365,7 @@ Under `upgrade.customization_handoff: report+relocate`, upgrade.md's Step 2.4 wr
 
    | `status` | Meaning | Action |
    |---|---|---|
-   | `now-upstream` | The shipped file contains the preserved body | Use Grep to find each title in `recorded_unique_blocks` inside the shipped file the review compared (`{plugin_root}/agents/{filename}` for an agent transfer, `{plugin_root}/references/{filename}` otherwise). Quote the matching shipped headings. Then `AskUserQuestion` per file: "Delete the transfer file `{path}`? The shipped file now carries its content." |
+   | `now-upstream` | The shipped file or an earlier release holds the body | If `source` is `shipped-history`, skip the Grep and ask: "Delete the transfer file `{path}`? It holds an earlier shipped body with no edits." Otherwise Grep each `recorded_unique_blocks` title in the compared file (`{plugin_root}/agents/{filename}` for an agent, else `{plugin_root}/references/{filename}`). Quote the matching headings. Then `AskUserQuestion` per file: "Delete the transfer file `{path}`? The shipped file now carries its content." |
    | `still-unique` | Part of the preserved body is not in the shipped file | List every entry in `unique_blocks`. Mark each entry that is also in `unique_blocks_titled_in_shipped` as "title exists upstream — likely revised, read the shipped section". Then offer the case A promotion for this file, or keep it. Never offer plain deletion. |
    | `no-counterpart` | The shipped file no longer exists | Report the file and its `recorded_unique_blocks`. Keep it. Never offer deletion. |
    | `not-a-transfer` or `unreadable` | The file lacks the wrapper, or the script could not read it | Report the path. Keep it. Never offer deletion. |

@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import sys
 from pathlib import Path
 
@@ -23,6 +24,7 @@ import upgrade_card_project as ucp
 import upgrade_preflight
 import upgrade_run
 import verdict_sanitize
+from test_feedback_dir_worktree import _make_pair
 
 PAIR = ucp.PAIR
 
@@ -72,11 +74,12 @@ def test_full_run_with_stdin_verdicts(tmp_path, capsys, monkeypatch):
     assert config["plugin_version"] == ucp.TO
     assert Path(config["plugin_root"]).resolve() == ucp.PLUGIN_ROOT.resolve()
     assert (verdicts_file(root).parent / "verdicts.json.consumed").is_file()
-    assert f"Refreshed: {len(entries)}" in out and f"({len(entries)} were stale subsets, auto-adopted shipped)" in out
+    sub_line = f"({len(entries)} were stale subsets or earlier shipped bodies, auto-adopted shipped)"
+    assert f"Refreshed: {len(entries)}" in out and sub_line in out
     changes = section(out, "CONFIG CHANGES", "CHAT SUMMARY")
     assert f"plugin_version: {ucp.FROM} → {ucp.TO}" in changes
     assert re.findall(r"^  (\S+): ", changes, re.MULTILINE) == ["plugin_version"]
-    assert f"Stale subsets adopted:    {len(entries)}" in out
+    assert f"Stale or earlier adopted: {len(entries)}" in out
     assert "Comparator verdicts:" not in out  # the model prints that line, from the card's count rule
     offers = section(out, "OFFERS")
     assert "prune:safe-to-discard" in offers and "prune:inert" in offers
@@ -147,7 +150,7 @@ def test_summary_passes_calibration_lines_through(capsys):
     assert "Token Saver recalibrated:\n  Runner overhead:       0 → 12345" in summary
     assert "Token Saver calibration skipped (--no-calibrate)" in summary
     assert "Comparator verdicts:" not in summary and "Unrelated banner line" not in summary
-    assert "Rules refreshed:          3" in summary and "Stale subsets adopted:    1" in summary
+    assert "Rules refreshed:          3" in summary and "Stale or earlier adopted: 1" in summary
     assert not any("Comparator" in prefix for prefix in upgrade_run.PASS_THROUGH)
 
 
@@ -339,6 +342,40 @@ def test_drafts_banner_states_unattended_posting():
     template = (Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "handlers"
                 / "upgrade-Part-3-BannerAndConflictResolution.md").read_text(encoding="utf-8")
     assert template.count(f"\n{POSTING_LINE}\n") == 2
+
+
+def _banner_path_line(config_path, value):
+    """The first line of the banner a real upgrade prints for `config_path`."""
+    lines = config_gen._apply_feedback_keys(config_path, "no-block", value, None, planwise_root="planwise",
+                                            feedback_dir="Feedback/Feedback-Drafts", plugin_root=Path("."))
+    assert len(lines) == 1
+    return lines[0].splitlines()[0]
+
+
+ORIGINAL_PATH = os.environ.get("PATH", "")  # `_isolate` narrows PATH, and the worktree fixture needs git
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+@pytest.mark.parametrize("value", ["off", "notify"])
+def test_drafts_banner_in_a_worktree_names_the_main_checkouts_folder(tmp_path, monkeypatch, value):
+    monkeypatch.setenv("PATH", ORIGINAL_PATH)
+    main_config, wt_config = _make_pair(tmp_path)
+    line = _banner_path_line(wt_config, value)
+    head, clause, folder = line.partition(" in the main checkout (")
+    assert head.endswith(" under planwise/Feedback/Feedback-Drafts/")
+    assert clause and folder.endswith(")"), line
+    named = Path(folder[:-1])
+    assert named.is_absolute()
+    assert named.resolve() == (main_config.parent / "Feedback" / "Feedback-Drafts").resolve()
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+@pytest.mark.parametrize("value", ["off", "notify"])
+def test_drafts_banner_in_a_plain_checkout_names_no_main_checkout(tmp_path, monkeypatch, value):
+    monkeypatch.setenv("PATH", ORIGINAL_PATH)
+    main_config, _ = _make_pair(tmp_path)
+    line = _banner_path_line(main_config, value)
+    assert line.endswith(" under planwise/Feedback/Feedback-Drafts/"), line
 
 
 def test_flip_offers_screened_by_the_writer_checks(tmp_path):

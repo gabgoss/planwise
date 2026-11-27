@@ -16,6 +16,9 @@ The load-bearing property is still NOT the rewrite. It is the REFUSALS:
     an earlier status, even when the caller's map says so — a landed lesson
     that a stale map wants to un-land is a caller bug, and silently obeying
     it destroys the audit trail the Rule Promotion Log depends on;
+  * a flip to `superseded` is refused from any status outside `HUB_STATUSES`
+    (`documented` / `orphaned`) — an owned or landed lesson is already out of
+    the hub, so it keeps its status;
   * a file with no parseable `status:` line inside its frontmatter bounds
     is reported rather than skipped in silence.
 
@@ -74,6 +77,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 from config_loader import load_config
 from generate_lessons_index import _strip_quotes
+from lessons_index_schema import HUB_STATUSES
 from parse_lessons import format_id, lesson_files
 from reconcile_common import (
     read_text_preserving_newlines,
@@ -230,6 +234,21 @@ def main() -> int:
         current, spliced = result
         if current == want:
             skipped.append((lid, f"already {want}"))
+            continue
+        # Ahead of the LANDED rule, so a landed lesson gets this reason too.
+        if want == "superseded" and current not in HUB_STATUSES:
+            reason = (
+                f"REFUSED: will not flip {current!r} -> 'superseded' — only a documented "
+                "or orphaned lesson takes that status"
+            )
+            if current in ("promoted", *LANDED):
+                reason += (
+                    ". A promoted, applied or rule lesson keeps its status and gains "
+                    "only the `superseded-by:` pointer"
+                )
+            else:
+                reason += " — check its status: line by hand"
+            skipped.append((lid, reason))
             continue
         if current in LANDED and want not in LANDED:
             skipped.append((lid, f"REFUSED: will not downgrade landed {current!r} -> {want!r}"))

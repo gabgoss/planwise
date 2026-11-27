@@ -162,6 +162,59 @@ class ResolveNextSessionTests(unittest.TestCase):
         self.assertEqual(lines[0], "NEXT: none")
         self.assertTrue(lines[1].startswith("Coverage:"))
 
+    # Sessions 05 to 07 were added later and run while 01 to 04 were still open.
+    EARLIER_OPEN_ROWS = (
+        ("Sprint-01", "Session-01-Work1", "🔄 IN PROGRESS"),
+        ("Sprint-01", "Session-02-Work2", "⏳ NOT STARTED"),
+        ("Sprint-01", "Session-03-Work3", "⏳ NOT STARTED"),
+        ("Sprint-01", "Session-04-Work4", "⏳ NOT STARTED"),
+        ("Sprint-01", "Session-05-Work5", "✅ COMPLETE"),
+        ("Sprint-01", "Session-06-Work6", "✅ COMPLETE"),
+        ("Sprint-01", "Session-07-Work7", "🔄 IN PROGRESS"),
+    )
+    EARLIER_OPEN_LINE = (
+        "Unfinished earlier: Sprint-01 Session-01-Work1; Sprint-01 Session-02-Work2; "
+        "Sprint-01 Session-03-Work3; Sprint-01 Session-04-Work4"
+    )
+
+    def test_earlier_unfinished_rows_are_named_after_next(self):
+        self.tree.master([*self.EARLIER_OPEN_ROWS,
+                          ("Sprint-02", "Session-01-Work1", "⏳ NOT STARTED")])
+        current = self.tree.orch(1, 7)
+        nxt = self.tree.orch(2, 1)
+        self.assertEqual(
+            self._resolve(current),
+            [f"NEXT: /planwise:planwise run @{self.tree.rel(nxt)}", self.EARLIER_OPEN_LINE],
+        )
+
+    def test_earlier_unfinished_rows_are_named_when_next_is_none(self):
+        self.tree.master(list(self.EARLIER_OPEN_ROWS))
+        current = self.tree.orch(1, 7)
+        self.assertEqual(self._resolve(current), ["NEXT: none", self.EARLIER_OPEN_LINE])
+
+    def test_closing_row_missing_from_table_still_names_earlier_rows(self):
+        self.tree.master(list(self.EARLIER_OPEN_ROWS[:-1]))
+        current = self.tree.orch(1, 7)
+        self.assertEqual(self._resolve(current), ["NEXT: none", self.EARLIER_OPEN_LINE])
+
+    def test_earlier_unfinished_rows_are_named_when_next_is_unscaffolded(self):
+        self.tree.master([*self.EARLIER_OPEN_ROWS,
+                          ("Sprint-02", "Session-01-Later", "⏳ NOT STARTED")])
+        current = self.tree.orch(1, 7)
+        self.assertEqual(
+            self._resolve(current),
+            ["NEXT_UNSCAFFOLDED: Sprint-02 Session-01-Later", self.EARLIER_OPEN_LINE],
+        )
+
+    def test_no_table_names_earlier_unfinished_session_before_coverage(self):
+        self.tree.master(None)
+        self.tree.orch(1, 1, "IN_PROGRESS")
+        current = self.tree.orch(1, 2, "IN_PROGRESS")
+        lines = self._resolve(current)
+        self.assertEqual(lines[0], "NEXT: none")
+        self.assertEqual(lines[1], "Unfinished earlier: Sprint-01 Session-01")
+        self.assertTrue(lines[2].startswith("Coverage:"))
+
     def test_cli_prints_outcome_and_exits_zero(self):
         (self.tree.root / "planwise" / "config.yaml").write_text(
             "project:\n  planwise_root: planwise\n  plans_dir: Plans\n", encoding="utf-8"
@@ -204,18 +257,22 @@ class CloseoutTextPins(unittest.TestCase):
         body = _section(self.run_md, "### Step 4.6: Output Completion")
         self.assertRegex(body, r"```\s*\n\s*/planwise:planwise run @\{path\}\s*\n\s*```")
         self.assertIn("Plan status:", body)
+        self.assertIn("\nUnfinished earlier: {", body)
         self.assertNotIn('"Sprint complete"', body)
 
     def test_step_4_1_calls_the_resolver(self):
         body = _section(self.run_md, "### Step 4.1: Generate Session Summary")
         self.assertIn("scripts/resolve_next_session.py", body)
         self.assertIn("--orchestration", body)
+        self.assertIn("Unfinished earlier:", body)
         self.assertNotIn("Sprint plan dependencies", body)
 
     def test_summary_template_carries_next_run(self):
         text = (PLUGIN_ROOT / "templates" / "summary-template.md").read_text(encoding="utf-8")
         section = text[text.index("## Next Session"):]
         self.assertIn("**Next run:**", section)
+        self.assertIn("**Unfinished earlier:**", section)
+        self.assertNotIn("plan sessions all complete", section)
         self.assertNotIn("Session-{YY+1}", text)
 
 

@@ -46,6 +46,7 @@ The spawn prompt supplies these fields:
 | `planwise_root` | Absolute path of the project's planwise directory, holding `config.yaml` |
 | `backlog_dir` | Absolute path of the backlog item directory |
 | candidates | `file` mode: one candidate block per candidate (label, claim, cited paths, criteria, source document). `refine` mode: the item ids |
+| `unlanded_blockers` | Optional. Ids of open blockers that carry `refined: true` but are not closed. Their design is written, and their changes are not in the tree. Read each blocker's item file. Prove every criterion against the tree as it is. Name in `NOTES`, within its line cap, each anchor or criterion that a blocker's `## Resolution` steps would change |
 
 In `refine` mode the candidate is the item file itself. Locate it with `Glob pattern='**/BB-{id}-*.md' path='{backlog_dir}'`, then read it with `Read`. Its `## Acceptance Criteria`, its cited `file:line` anchors and its claims are the candidate. An id with no item file is a stop condition (see Failure Semantics).
 

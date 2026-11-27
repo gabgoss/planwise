@@ -5,7 +5,7 @@
 import type { EngineInterface, On, PluginOptions, ToolSpec } from 'claude-code'
 
 import { isPlanwiseConfig, readScalar, resolvePlansDir } from './feedback/config-read.ts'
-import { PYTHON_CANDIDATES } from './feedback/names.ts'
+import { PYTHON_CANDIDATES, START_FAILURE_WINDOW_MS, WINDOWS_NOT_FOUND } from './feedback/names.ts'
 import { failureText } from './loop/boundary.ts'
 import { permit } from './permission.ts'
 
@@ -17,20 +17,6 @@ type Action = (typeof ACTIONS)[number]
 
 /** How long one plan_build.py run may take. The engine caps a run at ten minutes. */
 const RUN_TIMEOUT_MS = 540_000
-
-/**
- * A rejection later than this is not a failed start. A process that cannot start rejects at
- * once, while a run killed at its timeout rejects late, and retrying that run with the next
- * interpreter name would double the wait.
- */
-const START_FAILURE_WINDOW_MS = 10_000
-
-/**
- * The Windows exit code for a command that could not be found. The Windows Store alias stub for
- * `python` starts and returns it, so it counts as a failed start and the next name is tried.
- * plan_build.py itself exits 0 to 3 only.
- */
-const WINDOWS_NOT_FOUND = 9009
 
 const DESCRIPTION =
   'Build a planwise plan from a JSON build spec and Markdown bodies files by running scripts/plan_build.py. ' +

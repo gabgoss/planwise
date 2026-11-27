@@ -38,6 +38,7 @@ sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__py
 from config_loader import load_config
 from generate_plans_index import (
     PlansRender,
+    _legacy_message,
     diff_index_rows,
     index_matches_render,
     plans_index_path,
@@ -68,13 +69,6 @@ class LegacyIndexError(Exception):
 
 class WriteRefusedError(Exception):
     """The generator refused the write. The message names the refusal and nothing was written."""
-
-
-def _legacy_message(index_path: Path) -> str:
-    return (
-        f"Error: {index_path} is a hand-authored plans index — run /planwise upgrade "
-        "to migrate it before auditing it"
-    )
 
 
 def parse_plans_index(content: str) -> list[dict]:
@@ -120,14 +114,11 @@ def resolve_master_plan_path(config: dict, row: dict) -> Path:
 
 
 def _display_path(config: dict, file: Path) -> str:
-    """A portable display path: the configured plans directory name plus the file's place under it."""
-    project = config.get("project", {}) if isinstance(config.get("project"), dict) else {}
-    plans_rel = project.get("plans_dir", "Plans")
+    """A portable display path: the file's place under the planwise root."""
     try:
-        relative = file.relative_to(Path(config["_plans_dir"])).as_posix()
+        return file.relative_to(Path(config["_planwise_root"])).as_posix()
     except ValueError:
         return file.as_posix()
-    return f"{plans_rel}/{relative}"
 
 
 def _cell_or_none(value: str):

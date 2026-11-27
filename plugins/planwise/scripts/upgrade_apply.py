@@ -351,10 +351,12 @@ def apply_transfer_delete(ctx: Ctx, path_arg: str, pair: str, rows: list) -> int
         print(f"transfer-delete: {target} is still there")
         return 1
     print(f"transfer-delete: confirmed {target} is gone")
+    why = (f"body is an earlier shipped body of {source}" if row.get("source") == "shipped-history"
+           else f"body equals shipped {source}")
     try:
         with (ctx.logs / "TRANSFER-DELETES.md").open("a", encoding="utf-8", newline="\n") as log:
             log.write(f"{datetime.datetime.now().astimezone().date().isoformat()} | {target.as_posix()} | {digest} | "
-                      f"now-upstream, body equals shipped {source}\n")
+                      f"now-upstream, {why}\n")
     except OSError as exc:
         print(f"transfer-delete: {target} was removed (pre-image kept), but the log row could not be written: {exc}")
         return 1

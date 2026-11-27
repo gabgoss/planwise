@@ -199,6 +199,29 @@ Those two defaults are chosen operating points derived from measured accumulatio
 >
 > **Applies to** every delegated session whose orchestrator owns a user gate after a commit (a release decision, an issue close, a destructive approval). It also applies to every orchestrator step that changes repo state (commit, push, tag, worktree removal) while a question to the user is pending. The Session Commit Pin and the `GATE_PENDING` Change Log status are defined in [templates/recovery.md](../templates/recovery.md).
 
+### A Re-Entry Finds Out Who Is Acting Before It Dispatches
+
+> [!binding] An `IN_PROGRESS` session is owned until shown otherwise
+> A second run of one Orchestration can start while the first orchestrator is still working. Both then dispatch over the same files, and nothing raises an error. A re-entry that finds `Session Status: IN_PROGRESS` without an accepted `--resume` treats the session as owned.
+>
+> WRONG — read `IN_PROGRESS` as "interrupted" and go on:
+> ```
+> re-entry -> "Current State: IN_PROGRESS" -> "Ready to proceed?" -> dispatch Task 3
+>   (the first orchestrator is still running Task 3)
+> ```
+> CORRECT — find the owner first:
+> ```
+> re-entry -> print the Orchestrator line and the last Change Log row -> ask who owns the session
+>   -> user: take over -> write own Orchestrator line and an OWNER row -> dispatch
+> ```
+>
+> Two guards apply:
+>
+> 1. **At re-entry.** `handlers/run.md` Step 1.1g asks before anything is dispatched.
+> 2. **At each dispatch.** `handlers/run.md` Step 3.1 re-reads the `**Orchestrator:**` line and the last Change Log row, and stops on one this orchestrator did not write.
+>
+> An accepted `--resume` is the user's ownership answer. A compacted window that cannot recall its own token asks.
+
 ### Iteration Loop
 
 > [!checklist] Iteration Safety

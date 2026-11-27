@@ -141,7 +141,7 @@ Run these steps in order. If any step fails, stop drafting and continue the user
    ```
 6. Route on the exit code. No exit code blocks the user's task, and only exit 0 in `notify` prints anything.
    - `0`: admitted. In `notify`, print the one line. In `quiet`, print nothing.
-   - `1`: the file or the config could not be read. Print nothing.
+   - `1`: the file or the config could not be read, or the folder stayed locked. Print nothing.
    - `2`: not admitted, and the file is untouched. Causes include a name mismatch, a bad directory option, or a draft that is no longer pending. Print nothing.
    - `3`: refused, or expired or evicted on admission. The helper deletes a refused draft whose frontmatter parses as `drafted_by: model`. Print nothing.
 

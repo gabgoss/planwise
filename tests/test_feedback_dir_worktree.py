@@ -27,9 +27,11 @@ import pytest
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
+import artifact_upgrade
 import config_loader
 import doctor_probes as dp
 import feedback_drafts
+import init_project
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 
@@ -138,6 +140,54 @@ def test_legacy_layout_folders_in_a_worktree_still_name_a_legacy_config(tmp_path
     for config_path in (main_config, wt_config):
         config = config_loader.load_config(config_path=config_path)
         assert dp._legacy_layout_folders(config) == [(f"{old}/", "Feedback/Feedback-Drafts/")]
+
+
+def _init_cfg(config_path: Path) -> "init_project.InitConfig":
+    """The init settings for the project that holds `config_path`."""
+    return init_project.InitConfig(
+        project_name="Fixture",
+        project_root=config_path.parent.parent,
+        plugin_root=Path(init_project.__file__).resolve().parent.parent,
+        planwise_root="planwise",
+        plans_dir="Plans",
+        backlog_dir="Backlog",
+        lessons_dir="LessonsLearned",
+        feedback_dir=FEEDBACK_REL.as_posix(),
+        install_scope=init_project.InstallScope.PROJECT,
+        plan_tier="pro",
+        plugin_version="0.0.0",
+        token_saver=False,
+    )
+
+
+def test_create_directories_in_a_worktree_makes_the_main_checkouts_folder(tmp_path):
+    main_config, wt_config = _make_pair(tmp_path)
+    expected = (main_config.parent / FEEDBACK_REL).resolve()
+    created = init_project.create_directories(_init_cfg(wt_config))
+    assert expected.is_dir()
+    assert not (wt_config.parent / FEEDBACK_REL).exists()
+    assert expected in [Path(c).resolve() for c in created if Path(c).is_absolute()]
+
+
+def test_upgrade_in_a_worktree_makes_and_reports_the_main_checkouts_folder(tmp_path):
+    main_config, wt_config = _make_pair(tmp_path)
+    expected = (main_config.parent / FEEDBACK_REL).resolve()
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        artifact_upgrade._apply_feedback_dir(_init_cfg(wt_config), wt_config)
+    assert expected.is_dir()
+    assert not (wt_config.parent / FEEDBACK_REL).exists()
+    prefix = "Feedback directory: created ("
+    reported = [line for line in buf.getvalue().splitlines() if line.startswith(prefix)]
+    assert len(reported) == 1, buf.getvalue()
+    assert Path(reported[0][len(prefix):-1]).resolve() == expected
+
+
+def test_create_directories_in_a_plain_checkout_reports_a_relative_path(tmp_path):
+    main_config, _ = _make_pair(tmp_path)
+    created = init_project.create_directories(_init_cfg(main_config))
+    assert (main_config.parent / FEEDBACK_REL).is_dir()
+    assert Path("planwise") / FEEDBACK_REL in [Path(c) for c in created]
 
 
 def _feedback_dir_command(config_path: Path):

@@ -202,7 +202,7 @@ When a task surfaces a coordination flag during execution, the orchestrator adds
 
 #### A Key Finding That Names Another Session's File Is a Flag
 
-**Moved.** This subsection lives in [read-confirm-act-protocol-Part-2-FlagAuthoringSurfaces.md](read-confirm-act-protocol-Part-2-FlagAuthoringSurfaces.md), split out when this file neared the Read-tool token gate. The test for a flag is whether the observation names a file or task that a different session owns and that session must act on it. If so, re-file the `Key Findings` bullet as a `Cross-Task Coordination Flags` row at the moment it is written, because closeout propagates only that table.
+**Moved.** This subsection is held in [read-confirm-act-protocol-Part-2-FlagAuthoringSurfaces.md](read-confirm-act-protocol-Part-2-FlagAuthoringSurfaces.md), split out when this file neared the Read-tool token gate. The test for a flag is whether the observation names a file or task that a different session owns and that session must act on it. If so, re-file the `Key Findings` bullet as a `Cross-Task Coordination Flags` row at the moment it is written, because closeout propagates only that table.
 
 #### Checking the Lessons Index Before Recording
 

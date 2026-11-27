@@ -650,6 +650,21 @@ def test_counter_ahead_is_an_accepted_check_result(tmp_path):
     assert _ledger(lessons_dir)["generator"]["index_check_findings"] == ["counter_ahead"]
 
 
+def test_superseded_pointer_findings_are_accepted_check_results(tmp_path):
+    # `--write` heals neither one: a person fixes the pointer in the lesson file.
+    config, _index_path, lessons_dir = _build(tmp_path)
+    path = lessons_dir / "LL-001-PROC-One.md"
+    text = path.read_bytes().decode("utf-8")
+    path.write_bytes(text.replace("id: LL-001", "id: LL-001\nsuperseded-by: LL-001", 1).encode("utf-8"))
+    other = lessons_dir / "LL-003-PROC-Three.md"
+    text = other.read_bytes().decode("utf-8")
+    other.write_bytes(text.replace("id: LL-003", "id: LL-003\nsuperseded-by: LL-999", 1).encode("utf-8"))
+    assert _run(config, *_WRITE_ARGS) == 0
+    ledger = _ledger(lessons_dir)
+    assert ledger["generator"]["index_check_findings"] == ["superseded-cycle", "superseded-dangling"]
+    assert ledger["generator_verdict"] == "accepted"
+
+
 def test_healable_check_finding_still_fails_the_write(tmp_path, monkeypatch):
     config, _index_path, lessons_dir = _build(tmp_path)
     real = lessons_index_run._check_lessons_drift

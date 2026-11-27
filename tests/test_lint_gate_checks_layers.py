@@ -4,6 +4,9 @@ Check 54 gets one known-bad fixture that must produce a finding naming it (the
 mutation control) and the same fixture repaired, which must produce none for it (the
 positive control). The fixtures are built in temporary directories.
 
+Checks 72 to 74 size a single-task brief for the turn cap. Each has a known-bad arm built
+from real task lines, a repaired arm and a silent arm, on one-task temporary plans.
+
 Checks 57 and 58 read three layers of a rendered plan, so their fixture is a two-sprint
 plan that ``scaffold_plan.render_all`` renders, the real producer of all three layers.
 Each case copies that tree, changes one cell, and lints the copy. Checks 59 and 60 use the
@@ -11,6 +14,7 @@ same fixture, and the cross-session cases of Check 60 add a second session to sp
 """
 
 import copy
+import re
 import shutil
 import sys
 import tempfile
@@ -550,6 +554,197 @@ class TestCheck60CrossSession(_RenderedPlan):
         self.assertIn("has no 'cross-session: QZX-S01-01-01' entry", findings[0]["message"])
 
 
+def _turn_cap(check, text):
+    """The findings of one turn-cap check over a one-task plan."""
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / "TASK-01-Fixture.md").write_text(text, encoding="utf-8", newline="\n")
+        with redirect_stderr(StringIO()):
+            return [f for f in lint_plan(Path(tmp), execute=False) if f["check"] == check]
+
+
+def _brief(steps="1. Do the work.\n", output="**Output:** `out/result.md`", subtotal="", verification=""):
+    return (
+        f"# Task: Fixture\n\n{output}\n\n"
+        f"## Required Context\n\n{subtotal}\n\n"
+        f"## Execution Steps\n\n{steps}\n"
+        f"## Verification Commands\n\n{verification}\n"
+    )
+
+
+# The lines below are copied from real task files, so each pattern meets its real shape.
+UNPRICED_SUBTOTAL = (
+    "**Context subtotal:** ~76.3K (reads — the sum of the ~Tokens column) + ~14K (output: the Steps 4-8c "
+    "wiring, the other two edits, an optional fallback part, the Output) + ~22K (working: heading location "
+    "across `plan*.md`, the per-file size checks) = **~112K total**"
+)
+PRICED_SUBTOTAL = (
+    "**Context subtotal:** ~76K (reads) + ~14K (output) + ~22K (working) + ~42K (proof runs: 4 command smokes "
+    "x ~4K, 3 test runs x ~4K, battery ~8K, projections ~6K) = **~154K total**"
+)
+PROOF_STEP = (
+    "   - (a) It stays in place, below the script path, in the part that holds Steps 4-8c. Choose this when "
+    "the projection keeps that part OK with room for later edits.\n"
+)
+MANY_DELIVERABLES = (
+    "**Output:** `P/scripts/score_backlog.py` (`compute_route_signals`), `P/scripts/scoped_rules.py` "
+    "(a section-strip helper and `scoped_rules_block`), `P/handlers/backlog.md` (one table row, one sentence, "
+    "one cut), `tests/test_score_backlog.py`, `tests/test_scoped_rules.py`, `tests/test_context_floor.py` "
+    "(re-pin), `Outputs/ROUTES-before.txt`, `Outputs/ROUTES-after.txt`"
+)
+SUITE_FENCE = "> ```bash\n> python -B cloned-repos/planwise/tools/suite.py\n> ```\n"
+TERM_STEP = (
+    "2a. **Conservation re-run.** For each task Output's `## Conservation Terms`, count every listed term "
+    "over the edited file with the native `Grep` (`output_mode='count'`) and record the count.\n"
+)
+
+
+class TestCheck72ProofRunsUnpriced(unittest.TestCase):
+    def test_bad_proof_run_wording_with_an_unpriced_subtotal(self):
+        findings = _turn_cap(72, _brief(steps="2. Size gate.\n" + PROOF_STEP, subtotal=UNPRICED_SUBTOTAL))
+        self.assertEqual([f["severity"] for f in findings], ["WARNING"])
+        self.assertIn("(a) It stays in place", findings[0]["command"])
+        self.assertIn("agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md", findings[0]["message"])
+
+    def test_bad_fires_once_at_the_first_trigger_line(self):
+        steps = "1. Run each new command once.\n2. Compare the pair before and after.\n"
+        findings = _turn_cap(72, _brief(steps=steps, subtotal=UNPRICED_SUBTOTAL))
+        self.assertEqual([f["command"] for f in findings], ["1. Run each new command once."])
+
+    def test_bad_no_subtotal_line_prices_nothing(self):
+        self.assertEqual(len(_turn_cap(72, _brief(steps=PROOF_STEP))), 1)
+
+    def test_good_priced_addend(self):
+        self.assertEqual(_turn_cap(72, _brief(steps=PROOF_STEP, subtotal=PRICED_SUBTOTAL)), [])
+
+    def test_good_fenced_trigger_is_silent(self):
+        steps = "1. Copy the sample.\n```\nrun it once\n```\n"
+        self.assertEqual(_turn_cap(72, _brief(steps=steps, subtotal=UNPRICED_SUBTOTAL)), [])
+
+    def test_good_steps_with_no_proof_run_wording(self):
+        self.assertEqual(_turn_cap(72, _brief(subtotal=UNPRICED_SUBTOTAL)), [])
+
+    def test_good_priced_group_with_any_run_kind_and_a_range(self):
+        for group in ("2 before/after runs x ~4K", "4 runs x ~3-5K", "2 `pytest` runs x ~4K", "12 command x ~1.5K"):
+            with self.subTest(group=group):
+                subtotal = f"**Context subtotal:** ~10K (reads) + ~8K (proof runs: {group}) = **~18K total**"
+                self.assertEqual(_turn_cap(72, _brief(steps=PROOF_STEP, subtotal=subtotal)), [])
+
+    def test_bad_an_unlabelled_addend_prices_no_proof_run(self):
+        for addend in ("~88K (output: the ceiling, 4 Parts × 22K)", "~1K (proof runs: none)"):
+            with self.subTest(addend=addend):
+                subtotal = f"**Context subtotal:** ~10K (reads) + {addend} = **~98K total**"
+                self.assertEqual(len(_turn_cap(72, _brief(steps=PROOF_STEP, subtotal=subtotal))), 1)
+
+    def test_good_a_negated_proof_run_is_silent(self):
+        steps = "1. No smoke run is needed.\n2. Never run it once more.\n"
+        self.assertEqual(_turn_cap(72, _brief(steps=steps, subtotal=UNPRICED_SUBTOTAL)), [])
+
+    def test_bad_a_later_prohibition_does_not_hide_the_run(self):
+        steps = "1. Run the command once. Never edit its output.\n"
+        self.assertEqual(len(_turn_cap(72, _brief(steps=steps, subtotal=UNPRICED_SUBTOTAL))), 1)
+
+
+class TestCheck73DeliverablesPlusSuiteGate(unittest.TestCase):
+    def test_bad_many_deliverables_with_a_fenced_suite_line(self):
+        findings = _turn_cap(73, _brief(output=MANY_DELIVERABLES, verification=SUITE_FENCE))
+        self.assertEqual([(f["severity"], f["line"]) for f in findings], [("WARNING", 3)])
+
+    def test_bad_a_flag_span_does_not_hide_the_later_paths(self):
+        output = "**Output:** `a.py` (adds `--dry-run`), `b.py`, `c.py`, `d.py`, `e.py`, `f.py`"
+        self.assertEqual(len(_turn_cap(73, _brief(output=output, verification=SUITE_FENCE))), 1)
+
+    def test_good_flag_spans_do_not_count(self):
+        output = (
+            "**Output:** `P/scripts/backlog_loop.py` (the pre-flight, `--dry-run`, `--mark --check`, the summary), "
+            "`tests/test_backlog_loop_preflight.py` (new), `a.py`, `b.py`, `c.py`"
+        )
+        self.assertEqual(_turn_cap(73, _brief(output=output, verification=SUITE_FENCE)), [])
+
+    def test_good_split_task_with_two_deliverables(self):
+        output = "**Output:** `P/scripts/score_backlog.py`, `tests/test_score_backlog.py`"
+        self.assertEqual(_turn_cap(73, _brief(output=output, verification=SUITE_FENCE)), [])
+
+    def test_good_a_prohibition_or_a_comment_is_no_suite_gate(self):
+        for verification in (
+            "Never run `suite.py --full`; CI owns it.\n",
+            "```\npytest tests/test_x.py   # never the whole suite per task\n```\n",
+        ):
+            with self.subTest(verification=verification):
+                brief = _brief(output=MANY_DELIVERABLES, verification=verification)
+                self.assertEqual(_turn_cap(73, brief), [])
+
+    def test_bad_a_suite_command_with_a_comment_still_gates(self):
+        verification = "```\npython -B tools/suite.py   # never --full\n```\n"
+        self.assertEqual(len(_turn_cap(73, _brief(output=MANY_DELIVERABLES, verification=verification))), 1)
+
+    def test_good_many_deliverables_with_no_suite_gate(self):
+        output = (
+            "**Output:** `P/handlers/backlog-Part-2-LoopMode.md`, `P/handlers/backlog.md`, "
+            "`P/references/backlog-schema.md`, `P/templates/backlog-item.md`, `P/config.yaml.template`, "
+            "`P/references/auto-mode-policy.md`, the test pins these edits move (`tests/test_context_floor.py`, "
+            "`tests/test_shipped_markdown_budget.py`, `tests/test_section_citations.py`, "
+            "`tests/test_backlog_loop_handler.py`, `tests/test_backlog_loop_decision.py`, only where a pin fails), "
+            "`Outputs/ClauseRecord.md`"
+        )
+        self.assertEqual(_turn_cap(73, _brief(output=output)), [])
+
+
+class TestCheck74PerItemGateWithoutBudget(unittest.TestCase):
+    def test_bad_per_item_native_gate(self):
+        findings = _turn_cap(74, _brief(steps=TERM_STEP))
+        self.assertEqual([f["severity"] for f in findings], ["WARNING"])
+        self.assertIn("count every listed term", findings[0]["command"])
+
+    def test_bad_each_trigger_line_is_reported(self):
+        steps = TERM_STEP + "3. For each row, run the native Read over its file.\n"
+        self.assertEqual(len(_turn_cap(74, _brief(steps=steps))), 2)
+
+    def test_good_a_call_budget_line(self):
+        steps = TERM_STEP + "   up to 20 terms: one native Grep each\n"
+        self.assertEqual(_turn_cap(74, _brief(steps=steps)), [])
+
+    def test_good_ordinary_budget_wordings(self):
+        for budget in (
+            "at most 30 calls", "up to 20 calls", "no more than 20 calls", "up to 20 `Grep` calls",
+            "up to 20 items, one native call each", "up to 20 files: one Read each",
+            "above 20: one reader over the file",
+        ):
+            with self.subTest(budget=budget):
+                self.assertEqual(_turn_cap(74, _brief(steps=TERM_STEP + f"   {budget}\n")), [])
+
+    def test_bad_an_unrelated_size_limit_is_no_call_budget(self):
+        for line in ("Files above 256 KiB: Read with allow_large.", "A file of more than 300 lines is read in pages."):
+            with self.subTest(line=line):
+                self.assertEqual(len(_turn_cap(74, _brief(steps=TERM_STEP + f"3. {line}\n"))), 1)
+
+    def test_bad_the_per_item_phrase_may_follow_the_tool(self):
+        for step in (
+            "1. Count every conservation term with the native `Grep`, one call per term.\n",
+            "1. For every term, call the native Grep.\n",
+        ):
+            with self.subTest(step=step):
+                self.assertEqual(len(_turn_cap(74, _brief(steps=step))), 1)
+
+    def test_good_a_single_native_call(self):
+        steps = "1. Count the heading with the native `Grep`.\n"
+        self.assertEqual(_turn_cap(74, _brief(steps=steps)), [])
+
+    def test_good_fenced_trigger_is_silent(self):
+        steps = "1. Copy the sample.\n```\n" + TERM_STEP + "```\n"
+        self.assertEqual(_turn_cap(74, _brief(steps=steps)), [])
+
+
+class TestCheck73OnARenderedTaskFile(_RenderedPlan):
+    def test_good_the_scaffolded_boilerplate_is_no_suite_gate(self):
+        """The task template's own callouts name a whole-suite run, and every rendered task keeps them."""
+        task = next(p for p in sorted(self.template.rglob("*.md")) if p.read_text(encoding="utf-8").startswith("# Task:"))
+        text = task.read_text(encoding="utf-8")
+        self.assertIn("whole-suite", text)
+        text, replaced = re.subn(r"(?m)^\*\*Output:\*\*.*$", lambda _m: MANY_DELIVERABLES, text, count=1)
+        self.assertEqual(replaced, 1)
+        self.assertEqual(_turn_cap(73, text), [])
+
+
 class TestRegistrationContract(unittest.TestCase):
     def test_every_check_is_registered_once(self):
         for check in layers_module.CHECKS:
@@ -557,7 +752,10 @@ class TestRegistrationContract(unittest.TestCase):
 
     def test_check_numbers(self):
         names = [check.__name__.split("_")[1] for check in layers_module.CHECKS]
-        self.assertEqual(names, ["check54", "check57", "check58", "check59", "check60"])
+        self.assertEqual(
+            names,
+            ["check54", "check57", "check58", "check59", "check60", "check72", "check73", "check74"],
+        )
 
     def test_severity_constants_match_the_linter(self):
         self.assertEqual(layers_module.SEVERITY_WARNING, lint_module.SEVERITY_WARNING)

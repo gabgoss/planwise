@@ -35,6 +35,23 @@ at 0.9 of ``READ_TOKEN_WARN``, ``READ_LINE_CAP`` or ``READ_BYTE_WARN``.
 
 Each of the two writes ``output paths examined E, resolved R, near-cap K`` to stderr
 when a task file names at least one Output path.
+
+Checks 69 to 71 read the unfenced lines of task files that hold no ``WRONG`` label. They
+measure nothing, so each one reads only the plan text.
+
+- Check 69, predicate: a checkbox criterion holds a ceiling word and a size figure, and
+  holds none of ``guards:``, ``estimat`` and ``not a gate`` outside its code spans; a
+  figure that equals a Read gate is silent. Input: task files. Severity: WARNING. It cannot
+  see a ceiling outside a checkbox line, or a ``guards:`` label that names a limit which
+  does not exist.
+- Check 70, predicate: an Output line declares a lettered sibling Part, ``declared ...
+  sibling`` or ``sibling ... only if``, and no prose line of the task holds ``re-measure``
+  and ``repeat``. Input: task files. Severity: WARNING. It cannot see whether the count was
+  re-priced from the measured inputs.
+- Check 71, predicate: a line bounds how far a ``cost`` or ``load`` rises, and does not
+  name planned additions in a file that states per-file or per-rule deltas. Input: task
+  files. Severity: WARNING. It cannot see an addition the exclusion list omits, or a bound
+  worded without ``cost`` or ``load``.
 """
 
 import re
@@ -58,9 +75,16 @@ from lint_gate_checks_verify import (
     SEVERITY_WARNING,
     _finding,
     _task_files,
+    _unfenced,
 )
 from measure_files import measure_files
-from read_limits import READ_BYTE_WARN, READ_LINE_CAP, READ_TOKEN_WARN
+from read_limits import (
+    READ_BYTE_WARN,
+    READ_FILE_BYTE_CAP,
+    READ_LINE_CAP,
+    READ_PAGE_CAP_TOKENS,
+    READ_TOKEN_WARN,
+)
 
 # --- Check 48: a Required Context size figure against a fresh reading (measurement-discipline.md §8.1) ---
 _TOLERANCE = 0.20
@@ -806,6 +830,154 @@ def _check62_shared_near_cap_file_without_budget(context) -> list:
     return findings
 
 
+# --- Checks 69-71: a ceiling, an overflow rule and a cost bound (measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md §8.15) ---
+_CHECKBOX_LINE_RE = re.compile(r"^[\s>]*[-*+]\s+\[[ xX]\]")
+_CEILING_WORD_RE = re.compile(
+    r"\b(?:under|below|at most|never above|no more than)\b|<=|≤", re.IGNORECASE
+)
+# A figure, an optional K multiplier and a unit: ``6 KiB``, ``22,000-token``, ``25K tokens``.
+_SIZE_FIGURE_RE = re.compile(
+    r"(\d[\d,]*(?:\.\d+)?)(\s*K(?![A-Za-z]))?[\s-]*(KiB|KB|bytes?|tokens?)(?![A-Za-z])",
+    re.IGNORECASE,
+)
+_CEILING_LABEL_RE = re.compile(r"guards:|estimat|not a gate", re.IGNORECASE)
+_GATE_TOKEN_FIGURES = frozenset(
+    {READ_PAGE_CAP_TOKENS, READ_TOKEN_WARN, round(_NEAR_CAP_FRACTION * READ_TOKEN_WARN)}
+)
+_GATE_BYTE_FIGURES = frozenset({READ_FILE_BYTE_CAP, READ_BYTE_WARN})
+_SIBLING_PART_RE = re.compile(r"\bPart-\d+[b-z]\b")
+# ``[^;]`` keeps the two words of a phrase inside one clause.
+_SIBLING_PHRASE_RE = re.compile(
+    r"\bdeclared\b[^;]*\bsibling|\bsibling\b[^;]*\bonly if\b", re.IGNORECASE
+)
+_REMEASURE_RE = re.compile(r"\bre-?measure", re.IGNORECASE)
+_REPEAT_RE = re.compile(r"\brepeat", re.IGNORECASE)
+_COST_BOUND_RE = re.compile(
+    r"\b(?:costs?|loads?)\b.*\b(?:rises?|grows?|increases?)\s+by\s+"
+    r"(?:more than|at most|no more than)\s+[~*`]*\d",
+    re.IGNORECASE,
+)
+_PLANNED_ADDITIONS_RE = re.compile(r"\bplanned additions?\b", re.IGNORECASE)
+_PER_ITEM_DELTA_RE = re.compile(r"\bper-(?:file|rule)\s+deltas?\b", re.IGNORECASE)
+
+
+def _task_prose_lines(context):
+    """Yield ``(rel, prose, number, line)`` for each line of a task file that is outside a
+    fenced block and holds no ``WRONG`` label. ``prose`` is every such line of that file,
+    so a silencer reads the same lines a trigger does."""
+    for rel, lines in _task_files(context):
+        kept = [(number, line) for number, line in _unfenced(lines) if "WRONG" not in line]
+        prose = [line for _number, line in kept]
+        for number, line in kept:
+            yield rel, prose, number, line
+
+
+def _is_gate_figure(number: str, multiplier: str, unit: str) -> bool:
+    """True when the figure equals a Read-gate constant of ``read_limits``."""
+    value = float(number.replace(",", ""))
+    if multiplier:
+        value *= 1000
+    unit = unit.lower()
+    if unit.startswith("token"):
+        return value in _GATE_TOKEN_FIGURES
+    return (value if unit.startswith("byte") else value * 1024) in _GATE_BYTE_FIGURES
+
+
+def _check69_unlabelled_size_ceiling(context) -> list:
+    """Check 69 -- a checkbox criterion holds a ceiling word (``under``, ``below``, ``at
+    most``, ``no more than``, ``never above``, ``<=``, ``≤``) and a size figure in KiB, KB,
+    bytes or tokens, and outside its code spans the line holds none of ``guards:``,
+    ``estimat`` and ``not a gate``
+    (measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md §8.15). A line whose
+    every figure equals a Read gate (22,000, 25,000 or 19,800 tokens, 240 or 256 KiB) is
+    silent.
+    Input: the unfenced, non-``WRONG`` lines of task files, so a Signoff file is not read.
+    One finding per line. WARNING. It reads the whole line, so it also warns when ``under``
+    or ``below`` names a location beside a size figure. It cannot see a ceiling outside a
+    checkbox line, a figure in another unit or with no unit, a criterion that wraps between
+    the word and the figure, or a ``guards:`` label that names a limit which does not exist.
+    """
+    findings = []
+    for rel, _prose, number, line in _task_prose_lines(context):
+        if not _CHECKBOX_LINE_RE.match(line) or not _CEILING_WORD_RE.search(line):
+            continue
+        if _CEILING_LABEL_RE.search(_CODE_SPAN_RE.sub("", line)):
+            continue
+        figures = _SIZE_FIGURE_RE.findall(line)
+        if all(_is_gate_figure(*figure) for figure in figures):
+            continue
+        findings.append(_finding(
+            check=69, severity=SEVERITY_WARNING, file=rel, line=number, command=line.strip(),
+            message=(
+                "This criterion states a size ceiling and names no gate for it. A figure "
+                "written from a guess then binds the runner. Add 'guards: <the real limit and "
+                "the headroom>', or mark the figure as an estimate and 'not a gate' "
+                f"({_ANCHOR}, §8.15)"
+            ),
+        ))
+    return findings
+
+
+def _check70_fixed_overflow_sibling_count(context) -> list:
+    """Check 70 -- an ``**Output:**`` line declares a lettered sibling Part (``Part-9b``) or
+    holds ``declared ... sibling`` or ``sibling ... only if`` within one clause, and no
+    prose line of the task holds both ``re-measure`` and ``repeat``
+    (measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md §8.15). A sibling count
+    fixed from projected inputs leaves no legal exit when the inputs measure larger.
+    Input: task files. One finding per matching Output line. WARNING. It also warns on a
+    task that only edits an existing lettered Part. It cannot see whether the count was
+    re-priced from the measured inputs, an overflow rule stated outside the Output line, or
+    a sibling declared in other words.
+    """
+    findings = []
+    for rel, prose, number, line in _task_prose_lines(context):
+        if not _OUTPUT_LINE_RE.match(line):
+            continue
+        if not (_SIBLING_PART_RE.search(line) or _SIBLING_PHRASE_RE.search(line)):
+            continue
+        if any(_REMEASURE_RE.search(other) and _REPEAT_RE.search(other) for other in prose):
+            continue
+        findings.append(_finding(
+            check=70, severity=SEVERITY_WARNING, file=rel, line=number, command=line.strip(),
+            message=(
+                "This Output line fixes how many sibling files an overflow may create, and no "
+                "line of the task says to re-measure and repeat. Inputs larger than projected "
+                "then leave no legal exit. State the procedure: move the largest section to "
+                "the next sibling Part, re-measure, and repeat until every Part measures OK "
+                f"({_ANCHOR}, §8.15)"
+            ),
+        ))
+    return findings
+
+
+def _check71_unbudgeted_cost_bound(context) -> list:
+    """Check 71 -- a line holds ``cost`` or ``load``, then a form of ``rise``, ``grow`` or
+    ``increase`` with ``by more than``, ``by at most`` or ``by no more than``, then a figure
+    (measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md §8.15). It is silent when
+    the line names planned additions and a prose line states per-file or per-rule deltas.
+    Input: the unfenced, non-``WRONG`` lines of task files. One finding per line. WARNING.
+    It cannot see a planned addition the exclusion list omits, a bound worded without
+    ``cost`` or ``load``, a figure written in words, or a report-only instrument that a
+    later step promotes to a gate.
+    """
+    findings = []
+    for rel, prose, number, line in _task_prose_lines(context):
+        if not _COST_BOUND_RE.search(line):
+            continue
+        if _PLANNED_ADDITIONS_RE.search(line) and any(_PER_ITEM_DELTA_RE.search(other) for other in prose):
+            continue
+        findings.append(_finding(
+            check=71, severity=SEVERITY_WARNING, file=rel, line=number, command=line.strip(),
+            message=(
+                "This cost bound does not exclude the plan's own planned additions, or the "
+                "task states no per-file or per-rule delta. Approved new text can then fail "
+                "it. Name the planned additions the bound excludes, and report per-file or "
+                f"per-rule deltas ({_ANCHOR}, §8.15)"
+            ),
+        ))
+    return findings
+
+
 CHECKS = [
     _check48_required_context_size_mismatch,
     _check49_diff_matcher_without_counts,
@@ -815,4 +987,7 @@ CHECKS = [
     _check53_blob_bytes_against_checkout_pin,
     _check61_near_cap_output_without_gate,
     _check62_shared_near_cap_file_without_budget,
+    _check69_unlabelled_size_ceiling,
+    _check70_fixed_overflow_sibling_count,
+    _check71_unbudgeted_cost_bound,
 ]

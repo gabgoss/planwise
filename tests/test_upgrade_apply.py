@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import doctor_cli
 import doctor_sweeps
+import rule_divergence
 import transfer_review
 import upgrade_apply
 import upgrade_card_project as ucp
@@ -386,6 +387,8 @@ def test_apply_interaction_matrix(tmp_path, capsys, monkeypatch):
 
 def test_transfer_delete_guards(tmp_path, capsys, monkeypatch):
     box = ucp.upgraded(tmp_path)
+    # No rule history: the current body is listed there too, and it would answer before the compare under test.
+    monkeypatch.setattr(rule_divergence, "RULE_HISTORY_MANIFEST", tmp_path / "no-rule-history.json")
     logs = box / "planwise" / "upgrade-prune-logs"
     body = ucp.shipped(SOURCE)
     same = ucp.seed_transfer(box, OLD_PAIR, "same.md", body)
@@ -585,6 +588,36 @@ def test_prune_stale_runs_in_process_with_the_config(tmp_path, capsys, monkeypat
     code, out = apply(capsys, box, "--prune-stale")
     assert code == 0 and not (box / ucp.RULES / plain).exists(), out
     assert len(seen) == 1 and seen[0].feedback_dir == "Inbox", seen
+
+
+def test_a_shipped_history_transfer_is_offered_and_deleted(tmp_path, capsys, monkeypatch):
+    """A transfer holding an earlier shipped body differs from the current rule and is still offered."""
+    box = ucp.upgraded(tmp_path)
+    older = "# An earlier rule\n\nA sentence the current reference no longer carries.\n"
+    path = ucp.seed_transfer(box, OLD_PAIR, "older.md", older)
+    current = ucp.seed_transfer(box, OLD_PAIR, "current.md", ucp.shipped(SOURCE))
+    manifest = tmp_path / "rule-history.json"
+    monkeypatch.setattr(rule_divergence, "RULE_HISTORY_MANIFEST", manifest)
+
+    def offer_texts():
+        found = upgrade_run.build_offers(box.resolve(), ucp.config_path(box), PAIR, None, "")
+        return {Path(o["id"].removeprefix("transfer-delete:")).name: o["text"]
+                for o in found if o["id"].startswith("transfer-delete:")}
+
+    assert "older.md" not in offer_texts()  # control: no history entry, so the body reads as a customization
+    # The shipped manifest lists the current body too, so this one does as well.
+    digests = [rule_divergence.rule_history_digest(text) for text in (older, ucp.shipped(SOURCE))]
+    manifest.write_text(json.dumps({"schema_version": 1, "rules": {SOURCE: digests}}), encoding="utf-8")
+    texts = offer_texts()
+    assert texts["older.md"].endswith("(an earlier shipped body with no edits)"), texts
+    assert texts["current.md"] == f"{OLD_PAIR}/{SOURCE}", texts  # the offer names the source, with no note
+
+    log_path = box / "planwise" / "upgrade-prune-logs" / "TRANSFER-DELETES.md"
+    for target, why in ((path, f"body is an earlier shipped body of {SOURCE}"),
+                        (current, f"body equals shipped {SOURCE}")):
+        code, out = apply(capsys, box, "--transfer-delete", str(target), "--pair", PAIR)
+        assert code == 0 and not target.exists() and "confirmed" in out, out
+        assert log_path.read_text(encoding="utf-8").splitlines()[-1].endswith(why)
 
 
 def pair_files(box, pair):

@@ -663,15 +663,14 @@ def check_four_site_caveat(ctx: Context) -> RuleResult:
                 if not _key_in(ctx.task_files, key, TASK_SITE_TITLE_RE, checkbox_counts=False):
                     missing.append("task file Required Context or Success Criteria")
                 if missing:
-                    result.findings.append(
-                        Finding(
-                            "four-site-caveat",
-                            BLOCKER,
-                            part.path,
-                            index + 1,
-                            f"UNCONFIRMED claim '{key}' is absent from: {', '.join(missing)}",
+                    text = f"UNCONFIRMED claim '{key}' is absent from: {', '.join(missing)}"
+                    if "EI Data Quality Caveats" in missing:
+                        text += (
+                            "; add it to an existing Data Quality Caveats section that has room, or write one in "
+                            "the part with the most room under the size ceiling; "
+                            "a split keeps 'Data Quality Caveats' in each heading"
                         )
-                    )
+                    result.findings.append(Finding("four-site-caveat", BLOCKER, part.path, index + 1, text))
             for span, rows in zip(register_spans, register_rows):
                 if rows:
                     result.findings.append(

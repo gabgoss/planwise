@@ -124,8 +124,8 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 024 — Task Token-Estimate Arithmetic Gate → references/session-context-budget.md Token Estimate Reconciliation
 - Check 132 — Session and Sprint Token-Estimate Rollup Gate (reads the review discovery fact sheet's Estimate Reconciliation section) → references/session-context-budget.md Token Estimate Reconciliation
 - Check 025 — Task Re-Glob Live Counts Before Authoring → references/task-content-fidelity.md §9.A.4
-- Check 026 — Task Consolidation 1.5-2× Budgeting → references/task-content-fidelity.md §9.A.5
-- Check 027 — Task Generator-Script Pattern (≥100-file Walks) → references/task-content-fidelity.md §9.A.6
+- Check 026 — Task Consolidation Read-Overhead Factor → references/task-content-fidelity.md §9.A.5
+- Check 027 — Task Generator-Script Pattern (Walked File Sets) → references/task-content-fidelity.md §9.A.6
 - Check 028 — Task Multi-Artifact Pre-Split Shape → references/task-content-fidelity.md §9.A.7
 - Check 029 — Task Measured Output-Size Pre-COMPLETE Gate → references/verify-before-cite.md §9.B.8
 - Check 030 — Task USED-Helper Enumeration → references/verify-before-cite.md §9.B.7

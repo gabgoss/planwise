@@ -90,7 +90,7 @@ Read `$1`. Five modes, mutually exclusive:
 | `--status` | **status** | Takes no further argument. |
 | `--sweep` | **sweep** | Takes no further argument. |
 | `--drafts` | **drafts** | Takes no `kind`. Takes `--all` (read from `$2`) as its only optional argument, and passes it to the engine. Without `--all`, it takes the card route below when the preflight block is present. |
-| `--post <draftId>` | **post-draft** | Takes exactly one value, read from `$2`: the `draft_id` of a queued model draft. Takes no `kind`. The name `post-draft` keeps it distinct from the default **post** mode. It takes the card route below when the preflight block is present. |
+| `--post <draftId>` | **post-draft** | Takes exactly one value, read from `$2`: the `draft_id` of a queued or a blocked model draft. Takes no `kind`. The name `post-draft` keeps it distinct from the default **post** mode. It takes the card route below when the preflight block is present. |
 | `--post` with no value | none | Reject: `--post needs a draft id. Run /planwise feedback --drafts to list the queued drafts.` Do nothing, exit 0. |
 | any two of `--status`, `--sweep`, `--drafts`, `--post` | none | Reject: `--status, --sweep, --drafts and --post cannot be combined. Run one at a time.` Do nothing, exit 0. |
 | a mode flag plus a `kind` | none | Reject: `--status, --sweep, --drafts and --post take no kind argument.` Do nothing, exit 0 — a `kind` is meaningless to all four, and silently ignoring it would hide a typo. |
@@ -106,7 +106,8 @@ not ask for.
 While model drafts are queued, the skill's preflight prints a block between
 `<!-- planwise:feedback:begin -->` and `<!-- planwise:feedback:end -->`. It holds the queued
 rows, a `Posting state:` line, a `Target repository:` line and each draft's body under
-`--- draft {id}: {title} ---`. The card route runs when that block is present with no
+`--- draft {id}: {title} ---`. While a blocked draft waits, the block holds only a fallback
+line. The card route runs when that block is present with no
 `PLANWISE_FEEDBACK_FALLBACK:` line, and the `ARGUMENTS:` line is `--post <draftId>` or
 `--drafts` without `--all`:
 
@@ -176,7 +177,8 @@ Planwise may **draft** a local feedback file during any `/planwise` work, per
 `references/feedback-drafting.md` or through the hooks-module tool when function hooks are
 enabled. Drafting is not filing. In an interactive session, Planwise posts a model draft
 through `--drafts` or `--post <draftId>`. On those typed routes, the per-draft question is the
-consent, and gate 5 is not asked. The duplicate-scan outcome follows Unattended Routing with no
+consent, and gate 5 is not asked. A blocked draft is the exception: it asks gate 5 on its fixed
+text. The duplicate-scan outcome follows Unattended Routing with no
 question, as on a card press. A press on the draft card's **Post** button is the consent for
 that draft, and no question follows it. In an unattended context with `feedback.enabled: true`,
 the engine posts it through its unattended post path. Detecting a possible bug, lesson, or idea

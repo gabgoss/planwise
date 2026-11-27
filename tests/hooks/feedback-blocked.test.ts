@@ -39,12 +39,58 @@ const fake = (steps: Step[]): Fake => {
       f.logs.push({ text, to })
     },
     pluginRoot: () => ROOT,
+    exists: async () => true,
     setBlocked: (state) => {
       f.stored.push(state)
     },
   }
   return f
 }
+
+/** A run that stays open until the test answers it. */
+const held = (): { run: () => Promise<BlockedRunResult>; answer: (result: BlockedRunResult) => void } => {
+  let answer: (result: BlockedRunResult) => void = () => {}
+  const result = new Promise<BlockedRunResult>((resolve) => (answer = resolve))
+  return { run: () => result, answer: (value) => answer(value) }
+}
+
+const tick = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+
+test('recount: a drafts folder that does not exist runs nothing and stores a count of 0', async () => {
+  const f = fake([])
+  f.host.exists = async () => false
+  await recountBlocked(f.host, DIR)
+  assert.equal(f.runs.length, 0)
+  assert.deepEqual(f.stored, [{ count: 0, feedbackDir: DIR }])
+  assert.equal(f.logs.length, 0)
+})
+
+test('recount: an older count that returns after a newer one is dropped', async () => {
+  const slow = held()
+  const older = fake([])
+  older.host.run = slow.run
+  const first = recountBlocked(older.host, DIR)
+  await tick()
+  const newer = fake([ok(0, '[]')])
+  await recountBlocked(newer.host, DIR)
+  slow.answer(ok(0, '[{"draft": "a"}]'))
+  await first
+  assert.deepEqual(newer.stored, [{ count: 0, feedbackDir: DIR }])
+  assert.deepEqual(older.stored, [])
+})
+
+test('recount: a count that started before a successful dismiss never brings the banner back', async () => {
+  const slow = held()
+  const counting = fake([])
+  counting.host.run = slow.run
+  const pending = recountBlocked(counting.host, DIR)
+  await tick()
+  const dismissing = fake([ok(0, 'dismissed 1 blocked draft(s)\n')])
+  await pressDismiss(dismissing.host, DIR)
+  slow.answer(ok(0, '[{"draft": "a"}]'))
+  await pending
+  assert.deepEqual(counting.stored, [])
+})
 
 const props: BannerProps = { hasSurvey: false, isWorking: false, maxRows: 24, bodyColumns: 80 }
 const some: BlockedState = { count: 2, feedbackDir: DIR }

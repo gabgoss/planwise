@@ -9,21 +9,24 @@ then maps that row to its orchestration file on disk, so the run can end
 with a copy-ready command even when the next session sits in the next
 sprint.
 
-This script is non-mutating: it reads files and prints one outcome line.
+This script is non-mutating: it reads files and prints its result lines.
 
 Usage (placeholder forms only):
     python resolve_next_session.py --config {planwise_root}/config.yaml \\
         --orchestration {session-folder}/{Abbrev}-S{XX}-{YY}-Orchestration.md
 
-Output: exactly one of these lines.
+Output: the first line is exactly one of these.
     NEXT: /planwise:planwise run @{project-relative orchestration path}
     NEXT_UNSCAFFOLDED: {Sprint cell} {Session cell}
     NEXT: none
+When a session ordered before the closing one is not COMPLETE, an
+`Unfinished earlier: {label}; {label}` line follows and names each one. It
+never changes the first line.
 When the tracking table or the Master Plan is absent, a `Coverage:` line
-follows and names the fallback used. Session order then comes from the
+comes last and names the fallback used. Session order then comes from the
 orchestration file names, and status from each orchestration's `Status:`.
 
-Exit code: always 0. The outcome line carries the result.
+Exit code: always 0. The first line carries the result.
 """
 
 import argparse
@@ -108,8 +111,17 @@ def display_path(path: Path, project_root: Path) -> str:
         return resolved.as_posix()
 
 
+def _open_rows(rows: list[tuple]) -> list[tuple[tuple[int, int], str]]:
+    """Return (key, label) for each tracking-table row that is not COMPLETE."""
+    return [
+        (key, f"{sprint} {session}")
+        for key, sprint, session, status in rows
+        if not is_complete(status)
+    ]
+
+
 def resolve(orchestration: Path, project_root: Path) -> list[str]:
-    """Return the output lines: one outcome line, plus any coverage line."""
+    """Return the outcome line, then any unfinished-earlier and coverage lines."""
     match = _ORCH_RE.search(orchestration.name)
     if match is None or not orchestration.is_file():
         return [
@@ -141,14 +153,13 @@ def resolve(orchestration: Path, project_root: Path) -> list[str]:
                 keyed.append((key, cells[0].strip(), cells[1].strip(), cells[2]))
         positions = [i for i, row in enumerate(keyed) if row[0] == current]
         if positions:
+            earlier = keyed[:positions[0]]
             later = keyed[positions[0] + 1:]
         else:
+            earlier = [row for row in keyed if row[0] < current]
             later = [row for row in keyed if row[0] > current]
-        candidates = [
-            (key, f"{sprint} {session}")
-            for key, sprint, session, status in later
-            if not is_complete(status)
-        ]
+        candidates = _open_rows(later)
+        unfinished = [label for _, label in _open_rows(earlier)]
     else:
         reason = "no Master Plan" if master_plan is None else (
             f"no Session Completion Tracking table in {master_plan.name}"
@@ -157,19 +168,23 @@ def resolve(orchestration: Path, project_root: Path) -> list[str]:
             f"Coverage: {reason}; sessions ordered by orchestration file name, "
             "status read from each orchestration's Status: line."
         )
-        candidates = [
+        open_sessions = [
             (key, f"Sprint-{key[0]:02d} Session-{key[1]:02d}")
             for key in sorted(on_disk)
-            if key > current and not is_complete(_orchestration_status(on_disk[key]))
+            if key != current and not is_complete(_orchestration_status(on_disk[key]))
         ]
+        candidates = [row for row in open_sessions if row[0] > current]
+        unfinished = [label for key, label in open_sessions if key < current]
 
+    notes = [f"Unfinished earlier: {'; '.join(unfinished)}"] if unfinished else []
+    notes += coverage
     if not candidates:
-        return ["NEXT: none", *coverage]
+        return ["NEXT: none", *notes]
     key, label = candidates[0]
     path = on_disk.get(key)
     if path is None:
-        return [f"NEXT_UNSCAFFOLDED: {label}", *coverage]
-    return [f"NEXT: {RUN_PREFIX}{display_path(path, project_root)}", *coverage]
+        return [f"NEXT_UNSCAFFOLDED: {label}", *notes]
+    return [f"NEXT: {RUN_PREFIX}{display_path(path, project_root)}", *notes]
 
 
 def main() -> None:

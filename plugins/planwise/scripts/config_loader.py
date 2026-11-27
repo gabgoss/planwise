@@ -835,15 +835,23 @@ def load_config(script_path: Path | None = None, *, config_path: Path | None = N
         config["_lessons_dir"] = None
         config["_lessons_index"] = None
 
-    # Resolve feedback path. A project in a linked worktree keeps its drafts in the
-    # main checkout, so removing the worktree does not delete them. `_feedback_rel`
-    # holds the relative value for readers that build a path from it.
+    # Resolve feedback path. `_feedback_rel` holds the relative value for readers
+    # that build a path from it.
     feedback_rel = _nonempty_str(project.get("feedback_dir")) or PROJECT_DIR_DEFAULTS["feedback_dir"]
-    feedback_base = main_checkout_root(planwise_root) or planwise_root
-    config["_feedback_dir"] = feedback_base / feedback_rel
+    config["_feedback_dir"] = resolve_feedback_dir(planwise_root, feedback_rel)
     config["_feedback_rel"] = feedback_rel
 
     return config
+
+
+def resolve_feedback_dir(planwise_root, feedback_rel) -> Path:
+    """The drafts folder for a planwise root and a `project.feedback_dir` value.
+
+    A project in a linked worktree keeps its drafts in the main checkout, so
+    removing the worktree does not delete them. Creates nothing.
+    """
+    base = main_checkout_root(planwise_root) or Path(planwise_root)
+    return base / feedback_rel
 
 
 def get_scoring_weights(config: dict) -> dict:

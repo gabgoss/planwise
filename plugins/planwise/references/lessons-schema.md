@@ -129,14 +129,19 @@ A lesson is moved to `Archive/` when **fully captured** — either single-promot
 
 ## Pointer Fields — Authoritative Definition
 
-Two frontmatter fields answer two different questions. This table is the single source of truth for their meaning; every other document that mentions them defers here rather than restating the semantics.
+Three frontmatter fields answer three different questions. This table is the single source of truth for their meaning; every other document that mentions them defers here rather than restating the semantics.
 
 | Field | Answers | Value form | Written when |
 |-------|---------|-----------|--------------|
 | `promoted-to:` | **Who owns the work?** | Backlog item id(s) — `BB-{NNN}`, listing every owner when a lesson decomposed across several items | At capture-archive, when the lesson becomes owned |
 | `applied-as:` | **Where did it land?** | Path(s) to the artifact(s) actually created — a scalar, or a YAML list when a lesson landed in several files | At landing, replacing `null` or a `PENDING:BB-{NNN}` marker |
+| `superseded-by:` | **What replaced this lesson?** | One lesson id — `LL-{NNN}` | When a newer lesson replaces it |
 
 `applied-as:` is the artifact pointer for **both** terminal statuses (`rule` and `applied`) — the `status:` field, not a second pointer key, records which kind of landing it was.
+
+A replaced lesson takes one of two routes. A `documented` or `orphaned` lesson takes the `superseded` status, which keeps it out of the hub, and names its replacement in `superseded-by:`. A `promoted`, `applied` or `rule` lesson keeps its status and gains only the pointer.
+
+The index shows the pointer after the status (`rule, superseded by LL-{NNN}`), or alone when the status is `superseded`. `--check` reports `superseded-dangling` for a pointer that names no lesson file, and for a `superseded` lesson with no pointer. It reports `superseded-cycle` for pointers that lead back to a lesson already on the path. Neither one stops `--write`.
 
 > [!constraint] `rule-as:` is deprecated — read it, never write it
 > An older scheme inverted these two fields: `applied-as:` held the owning backlog item and a separate `rule-as:` held the artifact. That scheme is superseded. Tooling MUST still **read** `rule-as:` so pre-existing lessons keep resolving, but MUST NOT **write** it, and MUST NOT treat its presence as an error.

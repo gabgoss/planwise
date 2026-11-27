@@ -19,6 +19,7 @@ from pathlib import Path
 
 try:
     from rule_divergence import (
+        _HISTORY_VERDICT_SOURCE,
         _classify_diverged,
         _destructively_removable,
         _verdict_not_analyzed,
@@ -123,6 +124,7 @@ def _row(pair: str, path: Path, status: str, **extra) -> dict:
         "unique_blocks_titled_in_shipped": [],
         "recorded_unique_blocks": [],
         "shipped": None,
+        "source": "",  # the verdict's source; "shipped-history" marks an unedited body of an earlier release
     }
     row.update(extra)
     return row
@@ -150,8 +152,12 @@ def _review_one(cfg, pair: str, path: Path) -> dict:
     except (OSError, UnicodeDecodeError):
         return _row(pair, path, STATUS_NO_COUNTERPART, filename=source,
                     recorded_unique_blocks=recorded)
-    verdict = _classify_diverged(
-        normalize_rule_for_diff(body), normalize_rule_for_diff(shipped_raw))
+    body_norm, shipped_norm = normalize_rule_for_diff(body), normalize_rule_for_diff(shipped_raw)
+    verdict = _classify_diverged(body_norm, shipped_norm)
+    # The history manifest lists current bodies too. A body equal to the current file is not an earlier one.
+    source_tag = getattr(verdict, "source", "")
+    if source_tag == _HISTORY_VERDICT_SOURCE and body_norm == shipped_norm:
+        source_tag = ""
     if _verdict_not_analyzed(verdict):
         status = STATUS_STILL_UNIQUE
     elif _destructively_removable(verdict):
@@ -167,6 +173,7 @@ def _review_one(cfg, pair: str, path: Path) -> dict:
         unique_blocks_titled_in_shipped=_labels_in_shipped(unique, shipped_raw),
         recorded_unique_blocks=recorded,
         shipped=shipped.relative_to(cfg.plugin_root).as_posix(),
+        source=source_tag,
     )
 
 
