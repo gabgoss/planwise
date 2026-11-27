@@ -53,12 +53,18 @@ python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yam
 | Selectable, with a `# user-run:` line inside its `## Verification` fence | No, listed as excluded | `user-run verification` |
 | Selectable, with an unanswered question under `## Open Questions` | No, listed as excluded | `open questions unanswered` |
 | Blocked by an open dependency, and every open blocker is queued in this run | Yes, behind its blockers, with the disposition its own state gives | none. `--mode specific` adds a `note:` line when a blocker was named after it |
-| Blocked by an open dependency, and a blocker is not queued in this run | No | `blocked by <ids> (open)` in `--mode specific`. The other modes print no line |
+| Blocked by an open dependency, and a blocker is not queued in this run | No | `blocked by <ids> (open)` in `--mode specific`. Modes `all` and `n` list the item, with the ids it waits for, under `Waiting (a blocker is not in this run):` in the `--init` report. An item that only the `--n` limit passes over gets no line |
 | Held (`BLOCKED`) or closed | No | held: `on hold (status BLOCKED)`. Closed: not selectable |
 
 Queue order is highest score first, then item id, and an unblocked `plan` item comes after every other item. Mode `specific` keeps the user's order and drops an ineligible id with a warning line. In every mode a blocker moves ahead of the item that waits for it, and every other item keeps its place. Mode `n` takes the first N of that order. It takes an item together with its blockers, or it passes the item over.
 
-A queued item that waits for a blocker runs only when every blocker is closed at its turn. Otherwise `--next` skips it with the note `blocker-open`, records the open blockers, and leaves the item untouched for a later run. An unrefined blocker ends its turn as `refined; review before run`, so the items behind it wait for the next run. An item that runs behind its blocker works on the blocker's changes in the same working tree, before anyone reviewed them. Items in a `blocks:` cycle are never queued.
+A queued item that waits for a blocker runs only when every blocker is closed at its turn. Otherwise `--next` skips it with the note `blocker-open`, records the open blockers, and leaves the item untouched for a later run.
+
+An unrefined blocker whose refine step returns `REFINED` is built and verified in its own turn, so an item behind it runs in the same loop run once that blocker closes `COMPLETE`. A refine step that closes the blocker releases it too. After any other refine result the blocker stays open, and no item behind it is built in this run.
+
+One kind of blocked item is designed ahead of its blockers instead. It was queued as `refine`. It reads `refined: false` and has no numbered `## Resolution` step. Every open blocker up its chain passes the shape gate, and this run worked none of them. `--next` pops it with disposition `refine` and lists those blockers as `unlanded_blockers`. A blocker that this run refined and did not go on to work counts. A numbered `## Resolution` is already a design, so a decomposed parent behind its sub-items is still skipped. A blocked item is never popped as `run`.
+
+An item that runs behind its blocker works on the blocker's changes in the same working tree, before anyone reviewed them. Items in a `blocks:` cycle are never queued.
 
 Refining is opt-in. `--init --refine-max N` (default 0) queues up to N unrefined items for the refine step, highest score first. The cap goes to unblocked items first, and an item that waits for a blocker takes a slot only from what is left. `--mode specific` refines every named unrefined item. One exception sits outside the cap: an item whose questions are all answered is always queued as `refine`, so the answers are folded into `## Resolution` before anything runs it.
 
@@ -84,7 +90,7 @@ Each session handles exactly one item. The numbered steps run in order.
 4. `{"next": null, ...}` means the queue is empty. Run `--boundary` and finish at Phase 9.
 5. Set only the popped item IN_PROGRESS, regenerate the index, then run `--mark --phase selected --run {run-id} --id {item-id}`.
 
-   5a. When `--next` reported disposition `refine`, run § Refine step before Phase 3. An item with disposition `run` skips it. A refine result of `REFINED` ends the iteration there, and a later run queues the item as `run`.
+   5a. When `--next` reported disposition `refine`, run § Refine step before Phase 3. An item with disposition `run` skips it. A refine result of `REFINED` continues to Phase 3 in the same iteration, with no stop for design approval, unless § Refine step skips it for an open blocker or a failed check. Every other refine result ends the iteration through the Phase 6 table.
 6. Phase 3 RESOLVE. Re-run `score_backlog.py --route --id {item-id}` and note any divergence from `route_at_init` in `Reason:`.
 7. Phase 4 ACT. Ask nothing. Take the recommended route when it is A or B. A Route C result is a documented skip (see § No questions after setup), except for an item with disposition `plan`, which follows § Route C in a loop run. Run `--mark --phase acting --run {run-id} --id {item-id}` before the Route A or B dispatch.
 8. Phase 5 VERIFY. Run `--mark --phase verifying --run {run-id} --id {item-id}` before the gates. Ask nothing. After the gates, run the `build_commands.verify` list (§ Verification is in scope). Apply the Phase 5 default in § No questions after setup.
@@ -95,10 +101,11 @@ Each session handles exactly one item. The numbered steps run in order.
    | Every gate passed, or task list done | `COMPLETE`, with no `--resolution-file`; a worked item is never an unattended close |
    | Every acceptance criterion already met (Phase 3 step 5) | `COMPLETE`, with `--resolution-file` (§ Unattended close); Phases 4 and 5 are skipped for the item |
    | A decision is needed, or a gate failed | `SKIPPED`, with `--decision` |
+   | Phase 3 open-blocker gate names a blocker | `SKIPPED`, with `--note "blocker-open: {ids}"` |
    | Route C re-assessed in Phase 4, for an item without disposition `plan` | `SKIPPED`, with `--needs-plan` and `--decision` |
    | Halted item skipped at the HALT question | `SKIPPED`, with `--note halted-mid-item` |
    | Refine step returned `QUESTIONS` (§ Refine step) | `SKIPPED`, with `--note "open questions"` |
-   | Refine step returned `REFINED` | `SKIPPED`, with `--note "refined; review before run"`; the design waits in the item for the user to read |
+   | Refine step returned `REFINED` | Not an outcome. The iteration continues at Phase 3, and the rows above map the result |
    | Refine step returned `DECOMPOSE` | `SKIPPED`, with `--note "decomposed: {ids}"` |
    | Refine step returned `NEEDS_PLAN` | `SKIPPED`, with `--note "needs plan"` |
    | Refine step returned `ALREADY_MET` | `COMPLETE`, with `--note "already met"` |
@@ -113,7 +120,7 @@ Each session handles exactly one item. The numbered steps run in order.
 
 ## Refine step
 
-**Purpose:** Turn an unrefined item into one the loop can run. The step runs when `--next` reported disposition `refine`, before Phase 3. An item with `disposition: run` skips this section. A `REFINED` design ends the iteration: the user reads it, and a later run queues the item as `run`.
+**Purpose:** Turn an unrefined item into one the loop can run. The step runs when `--next` reported disposition `refine`, before Phase 3. An item with `disposition: run` skips this section. A `REFINED` design continues to Phase 3 in the same iteration. The loop builds and verifies it with no stop for design approval, because starting the loop run is the approval.
 
 The refine step asks nothing. A `QUESTIONS` design is written into the item. In loop mode the question round-trip of `references/backlog-creation-process.md` does not run.
 
@@ -131,13 +138,15 @@ Make three dispatches, in the foreground and one at a time. `references/backlog-
 2. For a `HOLDS` sheet, dispatch `planwise:backlog-planner` under the name `planner-{item-id}`. Read the `DESIGN` field of its status block. An `ALREADY_MET` sheet skips the planner and goes straight to the author.
 3. Dispatch `planwise:backlog-author` once, in `refine` mode, with the sheet and the design file. It edits the item in place and reports `ITEMS_REWRITTEN`, `ITEMS_ALREADY_MET` and `ITEMS_RETIRED`. After it returns, with or without a status block, run the post-author index check, `generate_backlog_index.py --config {planwise_root}/config.yaml --check`, then `--write` on exit 1, per `references/backlog-creation-process.md` § 7 Constraints.
 
+When the `--next` JSON line carries `unlanded_blockers`, pass that list to the preflight and planner dispatches, per `references/backlog-creation-process.md` § 4. Such an item is only designed, and the loop builds nothing while a blocker is open. On a `REFINED` design, run `--mark --refined REFINED`, then `--mark --outcome SKIPPED --note "blocker-open: {ids}"`, and regenerate the index. On an `ALREADY_MET` sheet or a `DECOMPOSE` design, dispatch no author. Run `--mark --outcome SKIPPED --note "blocker-open: {ids}"`, and record no refine outcome. The item stays eligible once its blockers close.
+
 An item that still holds a legacy `## Loop Decision Needed` section never reaches the refine step. `--init` excludes it as `decision pending`, and `--mode specific` drops it with a warning. Fold its question into `## Open Questions` with `backlog_questions.py --fold`, then answer it with `/planwise backlog --answer`.
 
 Then map the result to the loop action:
 
 | Planner or preflight result | Loop action |
 |---|---|
-| `REFINED` | `--mark --refined REFINED`. Run `--mark --outcome SKIPPED --note "refined; review before run"`. Regenerate the index. Continue to Phase 7. The item now carries `refined: true`, so a later run queues it as `run` once the user has read `## Resolution` or the item's diff |
+| `REFINED` | `--mark --refined REFINED`. Regenerate the index. Run the checks on a new design below this table. Then continue to Phase 3 in the same iteration, with no stop for design approval. The item now carries `refined: true` and takes the route Phase 3 gives it. A Route C result is the documented skip with `--needs-plan`. An item with `unlanded_blockers` takes the paragraph above this table instead |
 | `QUESTIONS` | `--mark --refined QUESTIONS`. Run `--mark --outcome SKIPPED --note "open questions"`. Regenerate the index. Continue to Phase 7 |
 | `ALREADY_MET` | The author writes the close record. Run `update_backlog.py --status=COMPLETE`, then regenerate the index. Run `--mark --refined ALREADY_MET`, then `--mark --outcome=COMPLETE --note "already met"` |
 | `DECOMPOSE` | The author files the sub-items with `blocks: [{parent}]` and adds each ordered dependent's id to its prerequisite sibling's `blocks:`. Run `--mark --refined DECOMPOSE --sub-items {ids}`, then `--mark --outcome SKIPPED --note "decomposed: {ids}"`. Regenerate the index |
@@ -147,6 +156,8 @@ Then map the result to the loop action:
 | `PREMISE_FAILS` (refine path) | The author writes one `### Q` block that states the absent target and the options re-target, retire and keep. Run `--mark --refined QUESTIONS`, then `--mark --outcome SKIPPED --note "open questions"`. Regenerate the index |
 | Any of the three agents returns `BLOCKED` or `PARTIAL` | Resume the same agent once, naming the missing piece. On a second `BLOCKED` or `PARTIAL`, record no refine outcome. Run `--mark --outcome SKIPPED --note "refine blocked: {agent}: {reason}"`. The item stays `refined: false` and is eligible on the next run |
 | `--next` reported `disposition: run` | No refine step. Continue at Phase 3. The item carries no `refine` record, and the end summary's `Refine` column shows `-` |
+
+**Checks on a new design.** `--init` never saw a design written this iteration, so check it before Phase 3, and again on a Retry. A `# user-run:` line inside the item's `## Verification` fence means only the user can run that step: run `--mark --outcome SKIPPED --note "user-run verification"`. A `shape gate: FAIL` line from `score_backlog.py --route --id {item-id}` means the design cannot run as written: run `--mark --outcome SKIPPED --note "refined; shape gate failed"`. After either skip, regenerate the index and continue to Phase 7.
 
 A refine skip uses `--note`, never `--decision`. The `QUESTIONS` skip needs no `## Loop Decision Needed` section, because the question already sits in the item's `## Open Questions`.
 
@@ -202,7 +213,7 @@ Q1, Q2, Q3 and the HALT question are the only questions in loop mode. Every othe
 | Phase 3 acceptance criteria already met | Unattended close (§ Unattended close): every criterion's proving command is run, the record is written under `## Resolution`, and the item is closed `COMPLETE`; the refine step closes an item whose preflight proved every criterion MET the same way, with the close record under `## Resolution` |
 | Phase 3 conditional check resolves to close | Documented skip. The evidence is the item's `Conditional:` lines. Never an unattended close: a resolved conditional is not a met criterion |
 | Refine step returns `QUESTIONS` | Written into `## Open Questions`; skip with the short note; no `--decision` |
-| Refine step returns `REFINED` | Skip with the note `refined; review before run`; no `--decision`. The user reads `## Resolution` or the item's diff before a later run executes it |
+| Refine step returns `REFINED` | Continue to Phase 3 in the same iteration; no skip note and no `--decision`. There is no stop for design approval. An item with `unlanded_blockers` is skipped as `blocker-open` (§ Refine step) |
 | Phase 4 route | Take the recommended route when it is A or B. A `plan` item that still routes to C follows § Route C in a loop run. Any other Route C result is a documented skip that also writes `needs_plan: true` (`--needs-plan`) |
 | Route A fix-agent returns `BLOCKED` | Documented skip. The evidence is the agent's blocker |
 | Phase 5 gates pass | Mark `COMPLETE` |
@@ -317,7 +328,7 @@ Ask each question in its own call, and ask the next only after the previous one 
 
 <!-- AUTO-MODE: convenience -->
 <!-- Default: per references/auto-mode-policy.md § Inference Defaults, row "Loop opt-in (backlog.md Phase 2 Q1)". -->
-**Q1.** Use `AskUserQuestion`: "Loop through the backlog this run? Each session triages one item, then the plugin's hooks module compacts and re-enters `/planwise backlog`. Looping needs the plugin's hooks module; without it this run ends after the first item and you can continue by hand. With it, starting the loop also approves the in-session plans of Route C items with no large-scope signal: they are designed in plan mode and implemented without a plan dialog."
+**Q1.** Use `AskUserQuestion`: "Loop through the backlog this run? Each session triages one item, then the plugin's hooks module compacts and re-enters `/planwise backlog`. Looping needs the plugin's hooks module; without it this run ends after the first item and you can continue by hand. Starting the loop approves the designs the refine step writes: they are built and verified without a stop for your review. With the module, starting the loop also approves the in-session plans of Route C items with no large-scope signal: they are designed in plan mode and implemented without a plan dialog."
 - Option 1: No, single session (default)
 - Option 2: Yes, loop
 
@@ -357,7 +368,7 @@ The run file is the record. `--next` reads it and decides.
 <!-- AUTO-MODE: critical -->
 **HALT question.** Use `AskUserQuestion`: "Item {item-id} stopped in phase {phase} with no outcome. What now?"
 - Skip: mark it `SKIPPED` with the note `halted-mid-item` and continue
-- Retry: run Phases 3-9 again on the same item
+- Retry: run Phases 3-9 again on the same item. When the HALT line carries `unlanded_blockers`, first run the Refine step again with that list
 - Abort: run `--end --run {run-id}` and stop the loop
 
 The exit codes are 0 ok, 1 usage or config error, 2 run file missing or unparseable, 3 ambiguous resume.
@@ -368,7 +379,7 @@ The exit codes are 0 ok, 1 usage or config error, 2 run file missing or unparsea
 
 The loop ends in one of three ways:
 
-- The queue is empty. `--boundary` applies `--end` and prints the cross-run summary table above the marker. The summary groups excluded items by reason and lists items marked for a planning session and items closed unattended under their own headings. Below the table, `Skipped (by reason):` groups the skipped items by their note, and a `blocker-open` item shows the blockers it waits for. `Warnings at init:` repeats the warning and note lines of `--init`. `Checks:` prints `{item-id}: {passed}/{run} passed` per item with checks, then each failing command.
+- The queue is empty. `--boundary` applies `--end` and prints the cross-run summary table above the marker. The summary groups excluded items by reason and lists items marked for a planning session and items closed unattended under their own headings. Below the table, `Skipped (by reason):` groups the skipped items by their note, and a `blocker-open` item shows the blockers it waits for. `Warnings at init:` repeats the warning and note lines of `--init`. `Waiting (a blocker is not in this run):` repeats the items that `--init` left out because a blocker was not in the run. `Checks:` prints `{item-id}: {passed}/{run} passed` per item with checks, then each failing command.
 - The user chooses Abort at the HALT question. `--end` prints the same summary.
 - The run file is missing. Exit 2 ends the loop, as in the Resume model.
 

@@ -7,6 +7,7 @@ rule. Fixtures are built under tmp_path. The base fixture is clean on all rules.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -350,6 +351,29 @@ def test_four_site_caveat_repaired_is_clean(tmp_path, capsys):
     assert "four-site-caveat: 2 subject(s), 0 finding(s)" in out
 
 
+def test_four_site_caveat_missing_caveats_names_placement(tmp_path, capsys):
+    code, out = run(tmp_path, capsys, **{**FOUR_SITES, PART_1_KEY: PART_1_CLAIM})
+    assert code == 1
+    lines = finding_lines(out, "four-site-caveat")
+    assert len(lines) == 1 and "the part with the most room under the size ceiling" in lines[0]
+    assert "existing Data Quality Caveats section" in lines[0]
+    assert "'Data Quality Caveats' in each heading" in lines[0]
+
+
+def test_four_site_caveat_other_site_omits_placement(tmp_path, capsys):
+    code, out = run(tmp_path, capsys, **{**FOUR_SITES, ORCH_KEY: ORCHESTRATION})
+    assert code == 1
+    lines = finding_lines(out, "four-site-caveat")
+    assert len(lines) == 1 and "most room" not in lines[0]
+
+
+def test_four_site_caveat_split_caveats_in_another_part_is_clean(tmp_path, capsys):
+    split = PART_2 + "\n### Data Quality Caveats (Parts 1-2)\n\n`api_flag` is UNCONFIRMED: do not ship it.\n"
+    code, out = run(tmp_path, capsys, **{**FOUR_SITES, PART_1_KEY: PART_1_CLAIM, PART_2_KEY: split})
+    assert code == 0, out
+    assert all_findings(out) == []
+
+
 def test_four_site_caveat_fires_on_practice_callout(tmp_path, capsys):
     callout = "\n> [!practice] Caveat\n> The `api_flag` field is UNCONFIRMED.\n"
     part = PART_1_CLAIM_REPAIRED.replace("## Data Quality Caveats", callout + "\n## Data Quality Caveats")
@@ -671,6 +695,36 @@ def test_retention_threshold_missing_line_warns(tmp_path, capsys):
     code, out = run(tmp_path, capsys, **{PART_1_KEY: part})
     assert code == 2
     assert "no 'Retention:' line" in out
+
+
+def retention_bands_section() -> str:
+    """Section 3.1 of the reference that is the one home of the retention bands."""
+    reference = SCRIPTS.parent / "references" / "ei-fidelity.md"
+    text = reference.read_text(encoding="utf-8")
+    return text.split("### 3.1 ", 1)[1].split("#### Reviewer Check 003", 1)[0]
+
+
+def test_retention_thresholds_match_the_band_table():
+    section = retention_bands_section()
+    assert f"| below {lint.BLOCK_RATIO:.2f} | BLOCKER" in section
+    assert f"| {lint.BLOCK_RATIO:.2f} to below {lint.PASS_RATIO:.2f} | WARNING" in section
+    assert f"| {lint.PASS_RATIO:.2f} or more | PASS" in section
+    assert f"| above {lint.INVESTIGATE_RATIO:.2f} | ADVISORY" in section
+
+
+def test_both_band_tables_name_the_formula():
+    headers = [line for line in retention_bands_section().splitlines() if "EI + Deferred over primary" in line]
+    assert [line.split("|")[1].strip() for line in headers] == [
+        "Retention (tokens, EI + Deferred over primary sources)",
+        "Sprint type",
+    ]
+
+
+def test_no_sprint_type_band_starts_below_the_blocker_line():
+    section = retention_bands_section()
+    lows = [int(low) for low in re.findall(r"^> \| [^|]+\| (\d+)–\d+%", section, re.MULTILINE)]
+    assert len(lows) == 4
+    assert min(lows) >= round(lint.BLOCK_RATIO * 100)
 
 
 # --------------------------------------------------------------------------- spec-citation-pair (exit 1)

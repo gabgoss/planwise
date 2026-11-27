@@ -27,6 +27,7 @@ sys.path.insert(0, str(SCRIPTS))
 import doctor_cli
 import init_project as ip
 import transfer_review
+import upgrade_run
 from upgrade_io import _transfer_customization
 
 from conftest import _MigrationFixtureBase
@@ -266,6 +267,15 @@ class TestCommandLineFlag(unittest.TestCase):
         (row,) = json.loads(result.stdout)
         self.assertEqual(row["status"], transfer_review.STATUS_NOW_UPSTREAM)
         self.assertEqual(row["pair"], "1.0.5-to-1.0.5.1")
+
+    def test_the_delete_check_reads_an_agent_transfer_against_agents(self):
+        shipped = (SCRIPTS.parent / "agents" / "fix-agent.md").read_text(encoding="utf-8")
+        path = _transfer_customization(
+            self.cfg, "fix-agent.md", "agent", shipped, _verdict(), "1.0.5", "1.0.5.1")
+
+        reason, _raw, source = upgrade_run.transfer_check(self.cfg, path)
+
+        self.assertEqual((reason, source), ("", "fix-agent.md"))
 
     def test_upgrade_pair_skips_this_runs_own_folder(self):
         _transfer_customization(

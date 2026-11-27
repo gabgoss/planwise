@@ -983,7 +983,7 @@ class TestWriteEstimates(unittest.TestCase):
             "import contextlib, io, sys\n"
             f"sys.path.insert(0, {str(scripts)!r})\n"
             "import token_saver_scan\n"
-            "assert 'token_saver_writeback' not in sys.modules\n"
+            "assert not {'token_saver_writeback', 'token_saver_derived'} & set(sys.modules)\n"
             "with contextlib.redirect_stdout(io.StringIO()):\n"
             "    token_saver_scan.main(sys.argv[1:])\n"
             "print('token_saver_writeback' in sys.modules)\n"
@@ -1106,6 +1106,148 @@ class TestWriteEstimates(unittest.TestCase):
             "qualified row (text after the path is not a span form)",
         ])
         self.assertEqual(self._row_cells(2)[2:4], ["2.0", "~0.8K"])
+
+    def _price_guide_rows(self, *cells):
+        """Price one `kit/guide.md` row per cell. Returns (guide lines, report)."""
+        self.task.write_text(_wb_task(
+            "\n".join(f"| {n} | {cell} | 1.0 | ~0.3K | span list |"
+                      for n, cell in enumerate(cells, 1)),
+            SUBTOTAL), encoding="utf-8")
+        lines = (self.project / "kit" / "guide.md").read_bytes().splitlines(keepends=True)
+        return lines, self._run()
+
+    def test_two_line_ranges_are_priced_on_both(self):
+        lines, _report = self._price_guide_rows(
+            "`kit/guide.md` lines 4-43 (first body) and lines 45-104 (second body)")
+        both = tsw._fmt_kib(sum(map(len, lines[3:43] + lines[44:104])))
+        self.assertEqual(self._row_cells(1)[2], both)
+        self.assertNotEqual(both, tsw._fmt_kib(sum(map(len, lines[44:104]))))
+
+    def test_line_range_list_is_priced_on_every_range(self):
+        lines, _report = self._price_guide_rows("`kit/guide.md` lines 4-23, 45-84 and 140-169")
+        spans = lines[3:23] + lines[44:84] + lines[139:169]
+        self.assertEqual(self._row_cells(1)[2], tsw._fmt_kib(sum(map(len, spans))))
+
+    def test_comma_list_without_a_space_is_not_one_large_number(self):
+        # `23,100` has the shape of a thousands group, but a dash follows it.
+        _lines, report = self._price_guide_rows("`kit/guide.md` lines 4-23,100-169")
+        self.assertEqual(report["left"], [])
+        self.assertIn("lines 4-23, 100-169 = 90 lines", report["spans"][0]["resolved"])
+
+    def test_two_sections_are_priced_on_both(self):
+        self._price_guide_rows("`kit/guide.md` §1 (first), §3 (third)",
+                               "`kit/guide.md` — §1 (first), §3 (third)")
+        path = self.project / "kit" / "guide.md"
+        both = tsw._fmt_kib(tsw._section_span(path, "1", "1")[2]
+                            + tsw._section_span(path, "3", "3")[2])
+        self.assertEqual([self._row_cells(1)[2], self._row_cells(2)[2]], [both, both])
+
+    def test_overlapping_ranges_are_priced_once(self):
+        lines, _report = self._price_guide_rows("`kit/guide.md` lines 4-43 and 30-60")
+        self.assertEqual(self._row_cells(1)[2], tsw._fmt_kib(sum(map(len, lines[3:60]))))
+
+    def test_a_section_listed_with_its_subsection_is_priced_once(self):
+        self._price_guide_rows("`kit/guide.md` §2, §2.1")
+        path = self.project / "kit" / "guide.md"
+        parent, sub = (tsw._section_span(path, key, key)[2] for key in ("2", "2.1"))
+        self.assertEqual(self._row_cells(1)[2], tsw._fmt_kib(parent))
+        self.assertNotEqual(tsw._fmt_kib(parent), tsw._fmt_kib(parent + sub))
+
+    def test_overlapping_sections_past_the_last_line_are_reported(self):
+        # A lone carriage return is a line break to the heading parser only.
+        (self.project / "kit" / "cr.md").write_bytes(b"## 1. A\nx\ry\rz\rw\rv\n## 2. B\nbody\n")
+        _lines, report = self._price_guide_rows("`kit/cr.md` §1, §1")
+        self.assertEqual([item["reason"] for item in report["left"]],
+                         ["span sections end past the last line of the file"])
+
+    def test_prose_before_one_span_is_a_qualified_row(self):
+        _lines, report = self._price_guide_rows("`kit/guide.md` — paged: lines 4-43",
+                                                "`kit/guide.md` — paged: §1")
+        self.assertEqual([item["reason"] for item in report["left"]],
+                         ["qualified row (text after the path is not a span form)"] * 2)
+
+    def test_span_list_with_other_text_is_left_and_reported(self):
+        _lines, report = self._price_guide_rows("`kit/guide.md` — §1 D19 (x), §3 (y)",
+                                                "`kit/guide.md` lines 4-43 and §3")
+        self.assertEqual([item["reason"] for item in report["left"]],
+                         ["qualified row (text between the spans is not a span list)"] * 2)
+        for n in (1, 2):
+            self.assertEqual(self._row_cells(n)[2:4], ["1.0", "~0.3K"])
+
+    def test_span_list_range_out_of_range_is_reported(self):
+        # The report names the authored range, even where a merge would hide it.
+        _lines, report = self._price_guide_rows("`kit/guide.md` lines 4-43 and 300-310",
+                                                "`kit/guide.md` lines 4-60 and 50-40",
+                                                "`kit/guide.md` lines 4-43 and 30-900")
+        self.assertEqual([item["reason"] for item in report["left"]],
+                         ["span lines 300-310 out of range", "span lines 50-40 out of range",
+                          "span lines 30-900 out of range"])
+        for n in (1, 2, 3):
+            self.assertEqual(self._row_cells(n)[2:4], ["1.0", "~0.3K"])
+
+    def _price_part_rows(self, *rows):
+        """Write a 45,000-byte `kit/part.md`, then price one task row per (cell, purpose)."""
+        part = self.project / "kit" / "part.md"
+        part.write_bytes(b"part body line\n" * 3000)
+        self.task.write_text(_wb_task(
+            "\n".join(f"| {n} | {cell} | 1.0 | ~0.3K | {purpose} |"
+                      for n, (cell, purpose) in enumerate(rows, 1)),
+            SUBTOTAL), encoding="utf-8")
+        return part, self._run()
+
+    def test_purpose_line_range_row_is_repriced_whole(self):
+        part, _report = self._price_part_rows(("`kit/part.md`", "read lines 10-40 of the part"))
+        self.assertEqual(self._row_cells(1)[2], tsw._fmt_kib(part.stat().st_size))
+
+    def test_dash_separated_lines_span_is_priced(self):
+        _part, report = self._price_part_rows(
+            ("`kit/part.md` — lines 10-40", "span"),
+            ("`kit/part.md` -- lines 10-40", "span"),
+        )
+        span = tsw._fmt_kib(31 * len(b"part body line\n"))
+        self.assertEqual(self._row_cells(1)[2], span)
+        self.assertEqual(self._row_cells(2)[2], span)
+        self.assertEqual(sum("lines 10-40 = 31 lines" in s["resolved"] for s in report["spans"]), 2)
+
+    def test_dash_separated_section_span_is_priced(self):
+        _part, report = self._price_part_rows(("`kit/guide.md` — §2", "span"))
+        data = (self.project / "kit" / "guide.md").read_bytes()
+        section = data.index(b"## 3. Third") - data.index(b"## 2. Second")
+        self.assertEqual(self._row_cells(1)[2], tsw._fmt_kib(section))
+        self.assertTrue(any("§2 at :" in s["resolved"] for s in report["spans"]))
+
+    def test_range_qualified_row_is_not_reported_missing(self):
+        cells = (
+            "`kit/part.md` (lines 10-40)",
+            "`kit/part.md`:10-40",
+            "`kit/part.md` L10-L40",
+            "`kit/part.md`:L10-L40",
+            "`kit/part.md`#L10-L40",
+            "`kit/part.md`, lines 10-40",
+            "`kit/part.md` - lines 10-40",
+            "`kit/part.md` – §2",
+        )
+        _part, report = self._price_part_rows(*((cell, "narrower") for cell in cells))
+        self.assertEqual([item["reason"] for item in report["left"]],
+                         ["qualified row (text after the path is not a span form)"] * len(cells))
+        for n in range(1, len(cells) + 1):
+            self.assertEqual(self._row_cells(n)[2:4], ["1.0", "~0.3K"])
+
+    def test_absent_spaced_path_is_not_read_as_a_qualified_shorter_file(self):
+        (self.project / "kit" / "My").write_bytes(b"line\n" * 5)
+        _part, report = self._price_part_rows(
+            ("`kit/My Notes.md`", "absent, and `kit/My` exists"),
+            ("`kit/My` (lines 1-2)", "a range on a file with no extension"),
+        )
+        self.assertEqual([item["reason"] for item in report["left"]],
+                         ["missing", "qualified row (text after the path is not a span form)"])
+
+    def test_range_qualifier_on_an_absent_file_still_reads_missing(self):
+        _part, report = self._price_part_rows(
+            ("`kit/absent.md` (lines 1-2)", "control"),
+            ("`kit/absent.md` — lines 1-2", "control"),
+        )
+        self.assertEqual([item["reason"] for item in report["left"]], ["missing", "missing"])
 
     def test_table_without_kib_column_is_untouched(self):
         self.task.write_text(_wb_task(

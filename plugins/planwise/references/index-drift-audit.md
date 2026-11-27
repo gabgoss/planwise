@@ -200,6 +200,8 @@ Example: an index row reads `IN_PROGRESS` and its Master Plan reads `READY_TO_EX
   | `duplicate-id` | Two lesson files claim one id, or one id has two rows | No — `--write` refuses (exit 2) until resolved; deciding which file is correct needs a human. Resolve it with `reconcile_lessons.py --renumber OLD NEW --file NAME` (see [Renumbering an id](#renumbering-an-id--reconcile_lessonspy--reconcile_backlogpy---renumber)) |
   | `id-mismatch` | A lesson file's filename number disagrees with its own frontmatter `id:` | No — `--write` refuses (exit 2) until resolved. A renumber that a crash left half applied lands here; finish it by hand or with `--renumber` |
   | `row-shape` | A row's cell count disagrees with the header | No — reported only |
+  | `superseded-dangling` | `superseded-by:` names no lesson file, or a `superseded` lesson has no pointer | No — reported only; `--write` still runs |
+  | `superseded-cycle` | The `superseded-by:` pointers lead back to a lesson already on the path | No — reported only; `--write` still runs |
   | `location-anomaly` | A lesson's directory disagrees with its status | No — location is never a routing input; the generator never moves a file |
   | `legacy-shape` | The index is still hand-authored | No — the generator exits 2 in every mode, and the fix is `/planwise upgrade`, which migrates the index |
 

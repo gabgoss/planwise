@@ -111,6 +111,8 @@ EXCLUDED_REASON = "plans deferred in loop mode"
 NO_LONGER_SELECTABLE = "no-longer-selectable"
 # At its turn the item still waits for a blocker that has not closed.
 BLOCKER_OPEN_NOTE = "blocker-open"
+# Heads the blocked items a mode `all` or `n` run leaves out, at init and at end.
+WAITING_HEADING = "Waiting (a blocker is not in this run):"
 NO_ELIGIBLE = "No eligible items for the loop."
 DECISION_HEADING = "## Loop Decision Needed"
 REFINE_OUTCOMES = ("REFINED", "QUESTIONS", "ALREADY_MET", "DECOMPOSE", "NEEDS_PLAN")
@@ -356,6 +358,44 @@ def open_blockers_now(config: dict, rows_by_norm: dict, item_id: str, cache: dic
     return still_open
 
 
+def live_shape(config: dict, rows_by_norm: dict, item_id: str) -> dict:
+    """The shape of the item's file as it is now. A file that is not found reads unrefined."""
+    path, _status = item_status_of(config, rows_by_norm, item_id)
+    return compute_item_shape(read_item_frontmatter(path) if path else {})
+
+
+def upstream_blockers(config: dict, rows_by_norm: dict, waits_for: list[str], cache: dict) -> list[str]:
+    """The open blockers in `waits_for`, then every open blocker further up their chains."""
+    found = list(waits_for)
+    index = 0
+    while index < len(found):
+        for deeper in open_blockers_now(config, rows_by_norm, found[index], cache):
+            if deeper not in found:
+                found.append(deeper)
+        index += 1
+    return found
+
+
+def may_design_ahead(
+    config: dict, run: dict, rows_by_norm: dict, item_id: str, info: dict, upstream: list[str]
+) -> bool:
+    """True when a blocked item may be designed before its blockers land.
+
+    The item was queued to be refined and carries no design yet. A numbered
+    `## Resolution` without `refined` is a design too, such as a decomposed
+    parent's. Every open blocker up the chain has a design that passes the
+    shape gate. None was worked by this run, which can leave half its changes.
+    """
+    if info.get("disposition_at_init") != "refine":
+        return False
+    own = live_shape(config, rows_by_norm, item_id)
+    if own["refined"] or own["resolution_steps"]:
+        return False
+    if any(item_was_worked(run, blocker) for blocker in upstream):
+        return False
+    return all(live_shape(config, rows_by_norm, blocker)["shape_ok"] for blocker in upstream)
+
+
 def marked_needs_plan(frontmatter: dict) -> bool:
     """True when the item's frontmatter carries `needs_plan` true.
 
@@ -384,6 +424,15 @@ def filed_during_run(run: dict, config: dict) -> list[dict]:
     return [
         row for row in _read_hub_family_items(config["_index_path"], config["_backlog_dir"])
         if normalize_id(row["id"]) not in known
+    ]
+
+
+def waiting_lines(waiting: list[dict]) -> list[str]:
+    """The Waiting section for the init report and the end summary; empty for none."""
+    if not waiting:
+        return []
+    return [WAITING_HEADING] + [
+        f"  {entry['id']}  (waits for {', '.join(entry['blocked_by'])})" for entry in waiting
     ]
 
 
@@ -445,6 +494,8 @@ def summary_lines(run: dict, config: dict) -> list[str]:
     if init_warnings:
         lines.append("Warnings at init:")
         lines.extend(f"  {line}" for line in init_warnings)
+    # A run file from before this key has no waiting items to show.
+    lines.extend(waiting_lines(run.get("waiting") or []))
     needs_plan =[key for key, rec in run["items"].items() if rec.get("needs_plan")]
     if needs_plan:
         lines.append("Marked for a planning session:")
@@ -653,6 +704,8 @@ def cmd_init(args, config: dict) -> int:
         return False
 
     warnings: list[str] = []
+    # Mode `specific` names its dropped items in the warnings instead.
+    waiting: list[dict] = []
     if args.mode == "specific":
         held_by_norm = {normalize_id(h["id"]): h for h in held}
         known_norm = {normalize_id(i["id"]) for i in items}
@@ -717,9 +770,16 @@ def cmd_init(args, config: dict) -> int:
             key=lambda pair: (pair[2] == "plan", *by_score(pair)),
         )
         base = [normalize_id(pair[0]["id"]) for pair in ranked]
-        queue_keys, _left_out = order_with_blockers(
+        queue_keys, left_out = order_with_blockers(
             base, blocked_by, accept, limit=args.n if args.mode == "n" else None
         )
+        # An item its own gate refused is already listed under `Excluded:`.
+        refused = {normalize_id(entry["id"]) for entry in excluded}
+        waiting = [
+            {"id": shown_id.get(k, k), "blocked_by": [shown_id.get(b, b) for b in blocked_by.get(k, [])]}
+            for k in left_out
+            if k not in refused
+        ]
     queue_pairs = [pair_of[key] for key in queue_keys]
     if args.plan_exit and queue_pairs and queue_pairs[0][2] == "plan":
         warnings.append(
@@ -760,6 +820,7 @@ def cmd_init(args, config: dict) -> int:
         for entry in excluded:
             scope = " (large scope)" if entry["large_scope"] else ""
             report.append(f"  {entry['id']}  route {entry['route'] or '-'}  {entry['reason']}{scope}")
+    report.extend(waiting_lines(waiting))
     if pending_hint:
         report.append(DECISION_PENDING_HINT)
     if placement_hint:
@@ -781,11 +842,14 @@ def cmd_init(args, config: dict) -> int:
         ],
         "excluded": excluded,
         "warnings": warnings,
+        **({"waiting": waiting} if waiting else {}),
     }
     counts = f"mode={args.mode} queue={len(queue)} excluded={len(excluded)}"
     if not queue:
         if not args.dry_run:
-            raise LoopExit(EXIT_USAGE, NO_ELIGIBLE, warnings=warnings)
+            raise LoopExit(
+                EXIT_USAGE, NO_ELIGIBLE, warnings=warnings, **({"waiting": waiting} if waiting else {})
+            )
         # A dry run still shows why nothing queued, then exits as the real run would.
         emit(
             [f"Loop dry run: {counts} (no run file written)", *report, NO_ELIGIBLE],
@@ -817,6 +881,7 @@ def cmd_init(args, config: dict) -> int:
         "refine_max": args.refine_max,
         "excluded": excluded,
         "warnings": warnings,
+        "waiting": waiting,
         "queue": queue,
         "queue_meta": queue_meta,
         "known_ids_at_init": [item["id"] for item in items],
@@ -849,6 +914,12 @@ def run_n_text(args) -> str:
     return str(args.n) if args.mode == "n" else "-"
 
 
+def unlanded_payload(record: dict) -> dict:
+    """The JSON key for a popped item that is designed before its blockers land."""
+    waiting = record.get("unlanded_blockers")
+    return {"unlanded_blockers": waiting} if waiting else {}
+
+
 def cmd_next(args, config: dict) -> int:
     path = resolve_run_path(config, args.run)
     run = load_run(path)
@@ -866,7 +937,7 @@ def cmd_next(args, config: dict) -> int:
         phase = record.get("phase")
         if record.get("outcome") is None:
             lines = [f"HALT: item {current} has no outcome (phase {phase or 'none'}). Nothing was written."]
-            emit(lines, {"halt": True, "item": current, "phase": phase, **base_payload})
+            emit(lines, {"halt": True, "item": current, "phase": phase, **unlanded_payload(record), **base_payload})
             return EXIT_AMBIGUOUS
 
     rows_by_norm: dict | None = None
@@ -911,12 +982,16 @@ def cmd_next(args, config: dict) -> int:
             skip(item_id, record, NO_LONGER_SELECTABLE)
             continue
         # An item queued behind a blocker runs only once every blocker is
-        # closed. The item is not touched yet, so nothing is restored.
+        # closed. It may still be designed while every open blocker is refined.
+        # A skipped item is not touched yet, so nothing is restored.
         waits_for = open_blockers_now(config, rows_by_norm, item_id, live_blockers)
         if waits_for:
-            record["blocked_by"] = waits_for
-            skip(item_id, record, BLOCKER_OPEN_NOTE)
-            continue
+            upstream = upstream_blockers(config, rows_by_norm, waits_for, live_blockers)
+            if not may_design_ahead(config, run, rows_by_norm, item_id, info, upstream):
+                record["blocked_by"] = waits_for
+                skip(item_id, record, BLOCKER_OPEN_NOTE)
+                continue
+            record["unlanded_blockers"] = upstream
         # The status before this loop touched the item, so a documented skip can
         # hand the item back the way it was found.
         item_path, status_now = item_status_of(config, rows_by_norm, item_id)
@@ -958,6 +1033,7 @@ def cmd_next(args, config: dict) -> int:
         "disposition": disposition,
         "pre_status": run["items"][popped].get("pre_status"),
         "skipped": skipped,
+        **unlanded_payload(run["items"][popped]),
     })
     return EXIT_OK
 

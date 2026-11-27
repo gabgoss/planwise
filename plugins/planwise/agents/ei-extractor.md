@@ -152,7 +152,7 @@ One exemption applies. A source used only for background, and the source of no e
 **Other lint rules.** The lint also grades the EI by these rules:
 
 - `severity-vocabulary`: a bracketed tag such as `[BLOCKER]` needs a `## Severity Vocabulary` heading in some Part.
-- `four-site-caveat`: each bare `UNCONFIRMED` claim has a specific subject phrase or code span, which Data Quality Caveats restates. No practice callout carries one.
+- `four-site-caveat`: each bare `UNCONFIRMED` claim has a specific subject phrase or code span, which Data Quality Caveats restates. No practice callout carries one. Place the Data Quality Caveats section by measured size, never by habit in the last part. Add a claim to an existing caveats section whose part has room. Otherwise put one in the part with the most room under the split rule's 22,000-token ceiling, and keep that part inside every other read gate the script reports. A caveats block that is not an `ei_sections` row is a `###` heading inside a section, so it adds no `##` line. When no one part can take the block, split it and put each piece in a part with room. Each later piece is a `###` heading inside a section there, and a numbered block keeps its `## Section {n}` heading on the first piece only. Every heading contains `Data Quality Caveats` and names the parts it covers, and the first piece names where the others sit. Measure every part again after placing them.
 - `hedge-preservation`: an EI line that copies a hedged source sentence keeps the hedge or a dated measurement.
 - `spec-citation-pair`: every `Spec #{N}` token is followed by `({filename.md})`, paired as the Global Source Map pairs it.
 - `repoint-cluster`: a repoint map holds a row for every line an audit table cites for each cluster.

@@ -1,11 +1,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { register as registerLoader } from 'node:module'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { NOTICE_TEXT, relativeDraftPath } from '../../plugins/planwise/hooks/feedback/names.ts'
+import type { Kind } from '../../plugins/planwise/hooks/feedback/names.ts'
+import { draftFileName, slugOf } from '../../plugins/planwise/hooks/feedback/slug.ts'
 
 // draft-feedback.ts value-imports the engine's `claude-code` module, which has no node runtime.
 // This loader hook resolves it to a stub, the way register-logic.test.ts does.
@@ -38,6 +41,7 @@ const world = (files: Record<string, string>) => {
   const store = new Map(Object.entries(files))
   const writes: string[] = []
   const runs: (readonly string[])[] = []
+  const stdins: string[] = []
   const logs: { text: string; to: string }[] = []
   const drafts: unknown[] = []
   const state = { root: MAIN }
@@ -66,9 +70,21 @@ const world = (files: Record<string, string>) => {
     tool: { register: async () => undefined, check: async () => ({ decision: 'allow' }) },
     ui: { log: (text: string, init: { to: string }) => void logs.push({ text, to: init.to }) },
     process: {
-      run: async (argv: readonly string[]) => {
+      // Stands in for the helper's create command: it names the draft from the text on stdin,
+      // writes it through this engine's own fs, and prints the line the helper prints.
+      run: async (argv: readonly string[], init?: { stdin?: string }): Promise<{ exitCode: number; stdout: string; stderr: string }> => {
         runs.push(argv)
-        return { exitCode: 0, stderr: '' }
+        const text = init?.stdin ?? ''
+        stdins.push(text)
+        const value = (key: string): string => new RegExp(`^${key}: "([^"]*)"`, 'm').exec(text)![1]!
+        const dir = argv[argv.indexOf('--feedback-dir') + 1]!
+        for (let n = 1; n <= 9; n++) {
+          const name = draftFileName(value('created_at').slice(0, 10), value('kind') as Kind, slugOf(value('title')), n)
+          if (await engine.fs.exists(dir + '/' + name)) continue
+          await engine.fs.write(dir + '/' + name, text)
+          return { exitCode: 0, stdout: `admitted ${value('draft_id')} ${name}\n`, stderr: '' }
+        }
+        return { exitCode: 3, stdout: '', stderr: 'feedback draft refused: no free file name\n' }
       },
     },
     state: {
@@ -76,7 +92,7 @@ const world = (files: Record<string, string>) => {
       set: async (_ref: unknown, draft: unknown) => void drafts.push(draft),
     },
   }
-  return { engine, state, writes, runs, logs, drafts }
+  return { engine, state, writes, runs, stdins, logs, drafts }
 }
 
 /** The same fake engine with its file calls on the real file system, for a real git worktree. */
@@ -96,14 +112,14 @@ const realWorld = (root: string) => {
   return w
 }
 
-/** Registers the module against a fake `on` and returns the one tool.call hook it adds. */
-const capture = (): Hook => {
+/** Registers a module against a fake `on` and returns the one tool.call hook it adds. */
+const capture = (registerModule: (on: never, options: never) => void = register): Hook => {
   let hook: Hook | undefined
   const on = (_name: string, _match: unknown, run: Hook) => {
     hook = run
     return { catch: () => undefined }
   }
-  register(on as never, {} as never)
+  registerModule(on as never, {} as never)
   assert.ok(hook !== undefined)
   return hook
 }
@@ -133,7 +149,9 @@ test('draftfeedback a root that moves after session start moves the draft, the c
   assert.equal(w.runs.length, 1)
   const argv = w.runs[0]!
   assert.equal(argv[argv.indexOf('--feedback-dir') + 1], dir)
-  assert.equal(argv[argv.indexOf('admit') + 1], w.writes[0])
+  assert.ok(argv.includes('create'), argv.join(' '))
+  assert.equal(w.stdins[0], await w.engine.fs.read(w.writes[0]!))
+  assert.ok(w.stdins[0]!.includes(`title: "${INPUT.title}"`), w.stdins[0])
 
   assert.equal(w.drafts.length, 1)
   const draft = w.drafts[0] as { feedbackDir: string; configPath: string }
@@ -190,6 +208,117 @@ test('draftfeedback a root that moves to a tree with no config denies the call',
   const out = (await call(capture(), w.engine)) as { deny: string }
   assert.match(out.deny, /the tool is not active in this session/)
   assert.equal(w.writes.length, 0)
+})
+
+test('draftfeedback a call writes the draft itself only when no python starts', async () => {
+  const w = world({ [MAIN + '/planwise/config.yaml']: NOTIFY })
+  await onSessionStart(hostOf(w.engine as never))
+  w.engine.process.run = async (argv: readonly string[]) => {
+    w.runs.push(argv)
+    throw new Error('spawn ENOENT')
+  }
+  const out = (await call(capture(), w.engine)) as { result: string }
+  assert.equal(typeof out.result, 'string')
+  assert.equal(w.runs.length, 2)
+  assert.equal(w.writes.length, 1)
+  assert.match(w.writes[0]!, /\/\d{4}-\d{2}-\d{2}-draft-bug-root-follows-the-session\.md$/)
+  assert.equal(w.drafts.length, 0)
+  assert.ok(w.logs.some((line) => line.text.includes('no python could start')), JSON.stringify(w.logs))
+})
+
+test('draftfeedback a create that fails denies the call and writes nothing', async () => {
+  const w = world({ [MAIN + '/planwise/config.yaml']: NOTIFY })
+  await onSessionStart(hostOf(w.engine as never))
+  w.engine.process.run = async () => ({ exitCode: 1, stdout: '', stderr: 'feedback_drafts: another command holds the lock, nothing written: x\n' })
+  const out = (await call(capture(), w.engine)) as { deny: string }
+  assert.match(out.deny, /another command holds the lock/)
+  assert.equal(w.writes.length, 0)
+  assert.equal(w.drafts.length, 0)
+})
+
+test('draftfeedback the Windows not-found exit is a failed start, so the next name is tried', async () => {
+  const w = world({ [MAIN + '/planwise/config.yaml']: NOTIFY })
+  await onSessionStart(hostOf(w.engine as never))
+  const helper = w.engine.process.run
+  w.engine.process.run = async (argv: readonly string[], init?: { stdin?: string }) =>
+    argv[0] === 'python' ? { exitCode: 9009, stdout: '', stderr: 'Python was not found' } : helper(argv, init)
+  const out = (await call(capture(), w.engine)) as { result: string }
+  assert.equal(typeof out.result, 'string')
+  assert.deepEqual(w.runs.map((argv) => argv[0]), ['python3'])
+  assert.equal(w.writes.length, 1)
+  assert.equal(w.drafts.length, 1)
+})
+
+test('draftfeedback a run stopped late is not retried and not written again', async (t) => {
+  const w = world({ [MAIN + '/planwise/config.yaml']: NOTIFY })
+  await onSessionStart(hostOf(w.engine as never))
+  let clock = Date.now()
+  t.mock.method(Date, 'now', () => clock)
+  w.engine.process.run = async (argv: readonly string[]) => {
+    w.runs.push(argv)
+    clock += 30_000
+    throw new Error('process timed out')
+  }
+  const out = (await call(capture(), w.engine)) as { deny: string }
+  assert.match(out.deny, /did not finish/)
+  assert.equal(w.runs.length, 1)
+  assert.equal(w.writes.length, 0)
+})
+
+test('draftfeedback an exit 0 that names no file is not reported as saved', async () => {
+  const w = world({ [MAIN + '/planwise/config.yaml']: NOTIFY })
+  await onSessionStart(hostOf(w.engine as never))
+  w.engine.process.run = async () => ({ exitCode: 0, stdout: '', stderr: '' })
+  const out = (await call(capture(), w.engine)) as { deny: string }
+  assert.match(out.deny, /did not confirm a saved draft/)
+  assert.equal(w.drafts.length, 0)
+})
+
+const PLUGIN_ROOT = fileURLToPath(new URL('../../plugins/planwise', import.meta.url)).replace(/\\/g, '/')
+
+/** `$.process.run` on a real child: it resolves on any exit and rejects when none could start. */
+const spawnRun = (argv: readonly string[], init?: { stdin?: string }) =>
+  new Promise<{ exitCode: number; stdout: string; stderr: string }>((resolve, reject) => {
+    const child = spawn(argv[0]!, argv.slice(1), { env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.setEncoding('utf8').on('data', (chunk: string) => (stdout += chunk))
+    child.stderr.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk))
+    child.on('error', reject)
+    child.on('close', (code) => resolve({ exitCode: code ?? 1, stdout, stderr }))
+    child.stdin.on('error', () => undefined)
+    child.stdin.end(init?.stdin ?? '')
+  })
+
+test('draftfeedback two sessions with one title queue one draft through the real helper', async () => {
+  const temp = realpathSync.native(mkdtempSync(join(tmpdir(), 'draft-two-'))).replace(/\\/g, '/')
+  try {
+    mkdirSync(temp + '/planwise', { recursive: true })
+    writeFileSync(temp + '/planwise/config.yaml', NOTIFY)
+    // A second instance of the module has its own memory, as a second session does.
+    const instance = async (suffix: string) => {
+      const mod = await import(target + suffix)
+      const w = realWorld(temp)
+      w.engine.plugin.root = PLUGIN_ROOT
+      w.engine.process.run = spawnRun
+      await mod.onSessionStart(mod.hostOf(w.engine as never))
+      return { w, hook: capture(mod.register) }
+    }
+    const sessions = [await instance('?a'), await instance('?b')]
+    const outs = (await Promise.all(sessions.map(({ w, hook }) => call(hook, w.engine)))) as { result?: string; deny?: string }[]
+
+    assert.equal(outs.filter((out) => out.result !== undefined).length, 1, JSON.stringify(outs))
+    assert.match(outs.find((out) => out.deny !== undefined)?.deny ?? '', /duplicate title/)
+    const dir = temp + '/planwise/Feedback/Feedback-Drafts'
+    const names = readdirSync(dir)
+    assert.equal(names.length, 1, names.join(', '))
+    // The session that got a result put the id its file holds on the card.
+    const cards = sessions.flatMap(({ w }) => w.drafts) as { draftId: string }[]
+    assert.equal(cards.length, 1)
+    assert.equal(cards[0]!.draftId, /^draft_id: "([^"]+)"/m.exec(readFileSync(dir + '/' + names[0], 'utf8'))?.[1])
+  } finally {
+    rmSync(temp, { recursive: true, force: true })
+  }
 })
 
 // A draft file as the producer wrote it on CLI 2.1.330 (the update banner smoke, row 7), copied
@@ -308,6 +437,7 @@ test('draftfeedback a draft from a real linked worktree outlives it and is offer
     // Neither the main checkout's path nor the worktree's reaches the file or the card.
     const text = readFileSync(written, 'utf8')
     assert.ok(text.includes('read {project}/planwise/config.yaml and {project}/notes.md'), text)
+    assert.equal(w.stdins[0], text)
     assert.equal((w.drafts[0] as { preview: string }).preview, 'read {project}/planwise/config.yaml and {project}/notes.md')
     const argv = w.runs[0]!
     assert.equal(argv[argv.indexOf('--feedback-dir') + 1], dir)

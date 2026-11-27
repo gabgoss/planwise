@@ -76,6 +76,22 @@ def test_fill_invariant_clean_render(rendered):
             assert sp.unmasked_braces(text) == [], rel
 
 
+def test_run_time_placeholders_render_literal(rendered):
+    """The run fills these names at dispatch, so the author gets no marker for them."""
+    marker = re.compile(r"<!-- FILL: \{(census:[^}]*|plugin_root)\} -->")
+    for rel, text in rendered.items():
+        if rel.endswith(".md"):
+            assert marker.findall(text) == [], rel
+    sprint = [text for rel, text in rendered.items() if sp.file_kind(rel) == "sprint"]
+    orchestrations = [text for rel, text in rendered.items() if sp.file_kind(rel) == "orchestration"]
+    assert (len(sprint), len(orchestrations)) == (1, 2)
+    assert "{census:<Name>}" in sprint[0]
+    for text in orchestrations:
+        assert "{plugin_root}" in text
+        assert "{census:<name>}" in text
+    assert sp.unmasked_braces("run `{plugin_root}/x` with {census:n}\n") == []
+
+
 def test_task_cell_starts_with_the_name_the_write_back_reads(rendered):
     """Each Orchestration and Sprint Plan task row names the file's name segment before the title."""
     sprint = next(text for rel, text in rendered.items() if sp.file_kind(rel) == "sprint")

@@ -70,7 +70,9 @@ _GENERATOR_EXIT_KEYS = ("index_write_exit", "companion_write_exit",
 # `--check` finding classes `--write` never heals: an index `--check` that
 # exits 1 with only these is the reading the lessons handler's own index
 # gate passes, so a migration ending there has succeeded.
-ACCEPTED_CHECK_CLASSES = frozenset({"location-anomaly", "counter_ahead"})
+ACCEPTED_CHECK_CLASSES = frozenset({
+    "location-anomaly", "counter_ahead", "superseded-dangling", "superseded-cycle",
+})
 
 _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 

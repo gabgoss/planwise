@@ -34,7 +34,9 @@ single consent site, distinct from the post pipeline's.
 A sweep candidate is a `*.md` file directly in `{planwise_root}/{feedback_dir}`
 (non-recursive) that has a sibling posted-marker sidecar — the draft's own path with
 `.posted` appended, exactly as Part 1's Marking a Posted Draft describes — and both files must exist. Nothing else is
-ever a candidate. **Age is never a candidacy criterion** and there is no age flag: an old
+ever a candidate. A candidate that was blocked before it was posted also has a `.blocked`
+sidecar, which is the draft's own path with `.blocked` appended. That sidecar goes with the
+draft. **Age is never a candidacy criterion** and there is no age flag: an old
 *unposted* draft is exactly what an age rule would catch first, and it is exactly the file
 this command must never touch. Non-recursive walking is load-bearing, not incidental — it is
 what stops a later `--sweep` run from re-sweeping the archive it just created.
@@ -43,18 +45,18 @@ ever posted and marked, so a model draft is never a candidate.
 
 ### Action
 
-Sweeping **archives; it never deletes.** A candidate's draft and its `.posted` sidecar move
-together, as an inseparable pair, into `{archive_dir}`. It never copies.
+Sweeping **archives; it never deletes.** A candidate's draft, its `.posted` sidecar and its
+`.blocked` sidecar, when one exists, move together into `{archive_dir}`. It never copies.
 
-- The pair moves **together or not at all**. If a move succeeds for one file and fails for
-  the other, the succeeded half is moved back and the pair is reported as skipped.
+- The files move **together or not at all**. If one move fails, the files already moved are
+  moved back and the candidate is reported as skipped.
 - If a candidate's filename already exists in `{archive_dir}`, that candidate is **skipped,
   left in place, and reported.** Nothing already in `{archive_dir}` is ever overwritten.
-- A draft with no sidecar is not a candidate. A sidecar with no draft is an orphan: reported
-  and left in place, never moved and never removed.
+- A draft with no `.posted` sidecar is not a candidate. A `.posted` or `.blocked` sidecar with
+  no draft is an orphan: reported and left in place, never moved and never removed.
 - `{archive_dir}` is created on first use only, after consent is given. A run that is
   cancelled, or that finds no candidates, creates no directory.
-- On success, each moved pair's new absolute path is printed, so the consumer holds a
+- On success, each moved file's new absolute path is printed, so the consumer holds a
   current path for every file that moved.
 
 **No `Delete` option exists, in the prompt or as a flag.** A consumer who wants the bytes
@@ -77,7 +79,8 @@ Print its stdout verbatim, before any consent call and before any question. The 
 read-only. It moves, writes and deletes nothing.
 
 Per candidate, the listing prints the draft's absolute path, its `posted:` date, `url:`, and
-`route:`; then one summary line: `{n} draft(s) already posted are eligible to archive.` With
+`route:`, then a `blocked sidecar:` line when the candidate has one. After the candidates it
+prints each orphan sidecar, then one summary line: `{n} draft(s) already posted are eligible to archive.` With
 no candidates: `No posted drafts to archive.`, exit 0 — no prompt is raised.
 
 ### Interaction Matrix
@@ -91,7 +94,7 @@ and names the exact count in the option label.
 | # | Branch | Offered as | What it does | Default | Files touched |
 |---|---|---|---|---|---|
 | 1 | Listing | not an option — runs unconditionally, before the prompt | Prints every candidate's absolute path, posted date, issue URL and route; then the count line | **Yes — always runs, and is all that runs unless branch 2 is explicitly chosen** | none |
-| 2 | Archive | `Archive {n} posted draft(s) to {archive_dir}` | Moves each draft + its sidecar into `{archive_dir}`; prints each new absolute path; skips and reports any collision or orphan | No | the `{n}` listed pairs only |
+| 2 | Archive | `Archive {n} posted draft(s) to {archive_dir}` | Moves each draft + its sidecars into `{archive_dir}`; prints each new absolute path; skips and reports any collision or orphan | No | the `{n}` listed drafts and their sidecars only |
 | 3 | Cancel | `Cancel — leave all {n} drafts where they are` | Nothing. Prints `Nothing was moved.` | **Yes — pre-selected** | none |
 | 4 | Non-answer / non-interactive — Auto Mode, auto-deny, an unanswered or interrupted prompt, or any state in which `AskUserQuestion` cannot return an answer | not offered; this branch is taken without a question | The listing stands as the complete output. Prints `Non-interactive session — {n} posted draft(s) listed above were not moved. Re-run /planwise feedback --sweep interactively to archive them.` Exit 0. | **Yes — this is the branch taken** | none |
 | 5 | Any other answer, an unparseable answer, or an error raising the prompt | — | Treated as branch 3 (Cancel) | — | none |
@@ -120,7 +123,8 @@ below **is** gated on it, because it does call the tracker. The asymmetry is del
    scaffolding, not at version change, not as a doctor stage, not after a successful post.
 4. **Never deletes.** No delete branch, no delete flag, no force flag. Archiving is the only
    disposition, and `{archive_dir}` is never swept, pruned, or emptied by this tool.
-5. **Never separates a draft from its marker.** The pair moves together or neither moves.
+5. **Never separates a draft from its sidecars.** The draft, its `.posted` marker and any
+   `.blocked` sidecar move together or none of them moves.
 6. **Never overwrites anything in `{archive_dir}`.** A name collision is skipped and
    reported.
 7. **Never acquires a machine-managed disposition.** No recovery-artifact disposition class,
@@ -213,19 +217,20 @@ reads each one's `status:` frontmatter directly. The group ends with `Review the
 ### Blocked Drafts
 
 A draft that the privacy check of an unattended post blocked gets its own group, headed
-`Blocked by the privacy check ({n})`. `--status` reads the group from one local call:
+`Blocked by the privacy check ({n})`. `--status` builds the group from one local call:
 
 ```
-python -B "{plugin_root}/scripts/feedback_drafts.py" blocked-list --config "{planwise_root}/config.yaml"
+python -B "{plugin_root}/scripts/feedback_drafts.py" blocked-list --json --all --config "{planwise_root}/config.yaml"
 ```
 
-Each printed row names the draft, its state, the class, the line number, the route and the
-date. `--status` prints the rows as they are. A row never holds the matched text. When the
-call prints `no blocked drafts`, leave the group out.
+The group holds each row whose `posted` is `false`. Its cells are the draft's file name, the
+class, the line number, the route and the dismissed date, with `—` for a row that was not
+dismissed. A row never holds the matched text. These drafts leave `Not known to have been
+posted`. With no such row, leave the group out.
 
-The group ends with one line: `Fix the named line and post the draft again, or clear the
-record with feedback_drafts.py dismiss-blocked.` The call is local, so every Degradation
-branch still prints this group.
+The group ends with one line: `Fix the named line, then post the draft with /planwise feedback
+--drafts, or clear the record with feedback_drafts.py dismiss-blocked. A dismissed draft is no
+longer offered.` The call is local, so every Degradation branch still prints this group.
 
 ### Degradation
 
@@ -265,7 +270,7 @@ pipeline in Part 1, from gate 1, on the promoted file.
 
 A `{model draft}` is a `*.md` file directly in `{planwise_root}/{feedback_dir}`
 (non-recursive) whose name matches `{model_draft_name}` and whose frontmatter carries
-`drafted_by: model`. In a linked git worktree, `{planwise_root}/{feedback_dir}` is the main checkout's feedback folder, and the helper resolves it from the session's own `--config`. Resolve the set with the helper. `list` reports a queued draft past the expiry limit as `expired` and writes nothing. Only the helper's `expire` and `admit` commands write `status: expired`:
+`drafted_by: model`. In a linked git worktree, `{planwise_root}/{feedback_dir}` is the main checkout's feedback folder, and the helper resolves it from the session's own `--config`. Resolve the set with the helper. `list` reports a queued draft past the expiry limit as `expired` and writes nothing. Only the helper's `expire`, `admit` and `create` commands write `status: expired`. `list` also reports a promoted draft as `blocked` when its promoted file has a `.blocked` sidecar with no dismissal and no post. The file on disk keeps `status: promoted`:
 
 ```
 python "{plugin_root}/scripts/feedback_drafts.py" list --json --config "{planwise_root}/config.yaml"
@@ -285,7 +290,8 @@ Every later helper call in this section takes the same `--config` option.
 ### Listing
 
 `--drafts` always prints the listing first, before any question. Rows are grouped
-`Queued ({n})`, then `Expired ({n})`, most recent `created_at` first. `--drafts --all` reads
+`Queued ({n})`, then `Blocked by the privacy check ({n})`, then `Expired ({n})`, most recent
+`created_at` first. `--drafts --all` reads
 `list --json --all` and adds `Discarded ({n})` and `Promoted ({n})`.
 
 The pipeline runs this command to build the listing:
@@ -317,20 +323,22 @@ exit 0. No question is asked.
 `draft_id` frontmatter value, the same id `discard` and `promote` take.
 
 **Card route.** While drafts are queued, the skill's preflight prints a block between
-`<!-- planwise:feedback:begin -->` and `<!-- planwise:feedback:end -->`. When that block is
+`<!-- planwise:feedback:begin -->` and `<!-- planwise:feedback:end -->`. While a blocked draft
+waits, that block holds only a fallback line. When that block is
 present with no `PLANWISE_FEEDBACK_FALLBACK:` line, take the id from the `ARGUMENTS:` line and
 look it up among the block's rows. The block never carries the id itself. On a match, ask the
 per-draft question of the card route below for that draft only, with the body from the block.
 When no row carries the id, print `Model draft {draft_id} was not found among queued drafts.`
 and stop.
 
-**Without the block.** An empty queue prints no block, and a failed preflight prints the
-fallback line. Resolve the id from `list --json`: the row whose `draft_id` equals it and whose
-`status` is `queued`. On a match,
-show that draft's full body, then ask the per-draft question for that draft only, with the
-same marker and the same three options. Otherwise print one line:
+**Without the block.** An empty queue prints no block, and a failed preflight or a blocked
+draft prints the fallback line. Resolve the id from `list --json`: the row whose `draft_id`
+equals it and whose `status` is `queued` or `blocked`. On a queued match, show that draft's
+full body, then ask the per-draft question for that draft only, with the same marker and the
+same three options. On a blocked match, follow [A Blocked Draft](#a-blocked-draft), taking the
+promoted file from the model draft's `promoted_to:` line. Otherwise print one line:
 
-`Model draft {draft_id} was not found among queued drafts ({reason}).`
+`Model draft {draft_id} was not found among queued or blocked drafts ({reason}).`
 
 `{reason}` is the row's `status` in `list --json --all`, or `unknown` when no row carries the
 id. The route then falls through to `--drafts`, starting at the Listing. It never skips the
@@ -384,7 +392,8 @@ there with no further question. Three options:
 
 An absent block, a block with the fallback line, and `--drafts --all` take this route. After
 the listing, `--drafts` asks the per-draft question once for each Queued draft, in
-listing order. An expired draft is listed only, and is never offered for posting.
+listing order. It then asks the question of [A Blocked Draft](#a-blocked-draft) for each
+Blocked draft. An expired draft is listed only, and is never offered for posting.
 
 <!-- AUTO-MODE: critical -->
 Before the first draft, the interactive review runs
@@ -426,6 +435,38 @@ On the `--post` and `--drafts` routes, the per-draft question is the consent for
    rules, and this step restates none of them. A failed post leaves the promoted draft on
    disk, as On Any Gate Failure or Post Failure (Part 3) specifies.
 
+#### A Blocked Draft
+
+A blocked draft is a model draft that `list --json` reports with `status` `blocked`. Its
+promoted file is the one its `promoted_to:` line names. Read the class and the line number from
+the row of this call whose `draft` is that file:
+
+```
+python -B "{plugin_root}/scripts/feedback_drafts.py" blocked-list --json --config "{planwise_root}/config.yaml"
+```
+
+<!-- AUTO-MODE: critical -->
+Ask one `AskUserQuestion` per blocked draft. It shows the draft's id and title, the class, the
+line number and the promoted file's absolute path. It never shows the matched text. It says
+that the user fixes the named line in that file before choosing Post. Three options:
+
+| Option | What it does |
+|---|---|
+| **Post** | The steps below. |
+| **Dismiss** | Runs `feedback_drafts.py dismiss-blocked --draft "{promoted file path}"`. The draft stays on disk and is no longer offered. |
+| **Keep** (pre-selected) | Nothing. The draft stays blocked. Any other or unparseable answer is Keep. |
+
+**Post** runs these steps. There is no promote step, because the promoted file exists:
+
+1. The unattended attempt may have left a last line that says no person reviewed the text. Make
+   the file's last line read
+   `Drafted by Claude via planwise feedback drafting; reviewed and approved by the user before posting.`
+2. Run the post pipeline from gate 1 on the promoted file, duplicate scan included. `{title}`
+   and `{kind}` come from the model draft's frontmatter.
+3. Ask gate 5 on the fixed text, as [Part 1](feedback-submission.md#gate-chain) states it. The
+   per-draft answer chose the draft, and gate 5 is the consent to post. A cancel or a failed
+   post leaves the draft blocked.
+
 ### Auto Mode
 
 A non-answer takes this branch: Auto Mode, auto-deny, or an unanswered or interrupted
@@ -452,7 +493,8 @@ not. On the card route, **Post** runs the driver's checks: the posting state, `g
 signed in, the duplicate scan with Unattended Routing, and `prepare-post` on the exact file it
 posts. On the fallback route, **Review and post** runs the post pipeline from gate 1 on the
 promoted file. On both routes, from `--post` and `--drafts` alike, the per-draft answer is the
-consent and gate 5 is not asked, so no route adds a consent site.
+consent and gate 5 is not asked, so no route adds a consent site. A blocked draft is the one
+exception. Its per-draft answer is a selection, and gate 5 is its consent.
 
 ---
 

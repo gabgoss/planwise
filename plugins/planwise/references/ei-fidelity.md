@@ -172,6 +172,13 @@ Fix: Reconcile per references/ei-fidelity.md §3 | Confidence: HIGH
 > | 0.95 or more | PASS unless other signals fire |
 > | above 1.20 | ADVISORY — likely bloat or duplicated source; investigate |
 >
+> These four lines grade the ratio above. An EI that copies all of its primary
+> sources verbatim reads about 1.00 or more, because its headings and its
+> Cross-References table add tokens. The Deferred log holds one line for each piece
+> left out, not the content. A large deferral therefore lowers the figure even when
+> the log names every piece, and so does content that two sources repeat and the EI
+> holds once. Check both before you call a low figure a loss.
+>
 > Algorithm sprints legitimately exceed 100% retention: preserved formula notes,
 > pseudocode, and cross-tier duplicate annotations all add lines without adding
 > drift. Applying the generic band alone to an algorithm-sprint EI auto-rejects
@@ -195,12 +202,17 @@ Fix: Reconcile per references/ei-fidelity.md §3 | Confidence: HIGH
 >
 > Sprint-type calibration:
 >
-> | Sprint type | Expected retention band |
-> |-------------|-------------------------|
+> | Sprint type | Expected retention band, EI + Deferred over primary sources |
+> |-------------|-------------------------------------------------------------|
 > | Schema / harmonization | 80–105% |
 > | Algorithm | 95–120% |
 > | Integration | 85–110% |
-> | Pure discovery | 70–95% (Discovery → EI compresses) |
+> | Pure discovery | 80–95% (Discovery → EI compresses) |
+>
+> Each range grades the same ratio as the four lines. Reference sources are outside
+> it, so a range describes what a sprint of that type does with its own sources. The
+> `retention-threshold` lint grades every sprint type by the four lines, and a type
+> range changes none of them. No range therefore starts below the 0.80 blocker line.
 >
 > WRONG — a fidelity-review task computes 112% retention for an algorithm-sprint
 > EI and flags it as bloat because it sits above 100%, without checking what drove
@@ -272,6 +284,7 @@ How to apply during scaffolding:
 - The EI-drafting task should scan the binning bins for verification-status markers and ensure each appears in ≥2 EI sections
 - The design task should route each caveated item to a specific session/task so the Orchestration / task-file authors can add the success criterion
 - The fidelity-review task should spot-check one UNCONFIRMED item and verify the four-site coverage
+- The EI-drafting task places the Data Quality Caveats subsection by measured part size, never by habit in the last part. It adds a claim to an existing caveats subsection that has room. Otherwise it writes one in the part with the most room under the split ceiling. When no one part can take the block, the task splits it, and each later piece is a `###` subsection inside a section of a part with room. Each heading contains `Data Quality Caveats` and names the parts it covers. A numbered section keeps its number on the first piece only, and that piece names where the others sit. The lint rule accepts a caveats subsection in any part.
 
 A source file that says "unverified" while the EI shows the field as normal is a red flag during review: the verification status was dropped.
 

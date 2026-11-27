@@ -1,12 +1,17 @@
-"""Tests for scripts/dispatch_preflight.py: the five preflight set checks."""
+"""Tests for scripts/dispatch_preflight.py: the six preflight set checks."""
 
+import re
 import sys
 from pathlib import Path
+
+import pytest
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 import dispatch_preflight as dp
+import scaffold_plan as sp
+from test_scaffold_plan import make_spec
 
 
 def _w(path: Path, text: str) -> Path:
@@ -91,7 +96,7 @@ def _plan_tree(tmp_path, prereq_line):
     root = tmp_path / "Exec"
     for n in (1, 2, 3, 5, 7, 8):
         (root / f"Sprint-{n:02d}-X").mkdir(parents=True)
-    plan = _w(root / "Sprint-07-X" / "plan.md", f"# Plan\n\n{prereq_line}\n")
+    plan = _w(root / "Sprint-07-X" / "plan.md", f"# Plan\n\n## Prerequisites\n\n{prereq_line}\n")
     return plan, root
 
 
@@ -181,6 +186,57 @@ def test_prereq_short_range_known_bad_and_repaired(tmp_path):
     assert dp.main(["prereq", "--sprint-plan", str(plan), "--sprint-folder", str(root)]) == 0
 
 
+def test_prereq_reads_only_the_prerequisites_section(tmp_path, capsys):
+    plan, root = _plan_tree(tmp_path, "- **Prerequisite:** all prior sprints: Sprints 01-03 and 05")
+    outside = (
+        "\n## Cross-Sprint File Touches\n\n"
+        "Every pair is ordered, so no pair runs concurrently. The S05 writer of each row opens with a"
+        " prerequisite grep gate.\n"
+        "\n## Change Log\n\n"
+        "| Date | Change |\n|---|---|\n"
+        "| 2026-11-20 | Every session re-estimated; the prerequisite total for Sprints 700K is final |\n"
+    )
+    _w(plan, plan.read_text(encoding="utf-8") + outside)
+    assert dp.main(["prereq", "--sprint-plan", str(plan), "--sprint-folder", str(root)]) == 0
+    out = capsys.readouterr().out
+    assert "prerequisite lines: 1" in out
+    assert "difference on:" not in out
+    assert "equal: every quantified enumeration matches its derived set" in out
+
+
+def test_prereq_without_prerequisites_section_is_not_run(tmp_path, capsys):
+    plan, root = _plan_tree(tmp_path, "unused")
+    _w(plan, "# Plan\n\n**Prerequisite:** Sprints 01-03, 05 and 08 ALL COMPLETE\n")
+    assert dp.main(["prereq", "--sprint-plan", str(plan), "--sprint-folder", str(root)]) == 2
+    out = capsys.readouterr().out
+    assert "not run: no Prerequisites section" in out
+    assert "equal:" not in out
+
+
+def test_prereq_title_naming_prerequisites_is_not_the_section(tmp_path, capsys):
+    # The title folds to a text that contains "prerequisites". A level-1 pick would read the whole plan.
+    plan, root = _plan_tree(tmp_path, "unused")
+    title = "# Sprint 07: PrerequisiteScope\n\n"
+    section = "## Prerequisites <!-- REQUIRED -->\n\n- **Prerequisite:** all prior sprints: Sprints 01-03 and 05\n\n"
+    log = "## Change Log\n\n| 2026-11-20 | the prerequisite total for all Sprints 700K is final |\n"
+    args = ["prereq", "--sprint-plan", str(plan), "--sprint-folder", str(root)]
+    _w(plan, title + section + log)
+    assert dp.main(args) == 0
+    assert "prerequisite lines: 1" in capsys.readouterr().out
+    _w(plan, title + log)
+    assert dp.main(args) == 2
+    assert "not run: no Prerequisites section" in capsys.readouterr().out
+
+
+def test_prereq_longer_heading_above_the_section_is_not_picked(tmp_path, capsys):
+    plan, root = _plan_tree(tmp_path, "unused")
+    other = "## Cross-Sprint Prerequisites\n\n- No prerequisite lists a sprint here.\n\n"
+    section = "## Prerequisites <!-- REQUIRED -->\n\n- **Prerequisite:** Sprints 01-03 ALL COMPLETE\n"
+    _w(plan, "# Plan\n\n" + other + section)
+    assert dp.main(["prereq", "--sprint-plan", str(plan), "--sprint-folder", str(root)]) == 1
+    assert "derived, not enumerated: [5, 8]" in capsys.readouterr().out
+
+
 # --- fences -----------------------------------------------------------------
 
 
@@ -249,6 +305,38 @@ def test_siblings_recoveries_none_is_the_empty_set(tmp_path, capsys):
 def test_paths_meet_needs_a_component_boundary():
     assert dp.paths_meet("a/b/shared.md", "b/shared.md")
     assert not dp.paths_meet("a/b/unshared.md", "shared.md")
+
+
+@pytest.mark.parametrize(
+    ("line", "met"),
+    [
+        ("- plugins/planwise/scripts/feedback_post.py, handlers/feedback.md", "handlers/feedback.md"),
+        ("- `plugins/planwise/scripts/feedback_post.py`, handlers/feedback.md", "handlers/feedback.md"),
+        ("- plugins/planwise/handlers/feedback.md -- added the route question", "plugins/planwise/handlers/feedback.md"),
+        ("- `plugins/planwise/scripts/feedback_post.py`, `handlers/feedback.md`", "handlers/feedback.md"),
+        ("| handlers/feedback.md | +12/-0 |", "handlers/feedback.md"),
+        ("- [the handler](plugins/planwise/handlers/feedback.md): two rows.", "plugins/planwise/handlers/feedback.md"),
+        ("- **handlers/feedback.md:** added the route question", "handlers/feedback.md"),
+        ('- "handlers/feedback.md".', "handlers/feedback.md"),
+        ("- [handlers/feedback.md]", "handlers/feedback.md"),
+    ],
+)
+def test_every_path_token_on_a_files_modified_line_is_read(line, met):
+    text = f"## Files Modified\n\n{line}\n"
+    edit = {"plugins/planwise/handlers/feedback.md"}
+    assert dp.intersect(dp.files_modified(text), edit) == {met}
+
+
+def test_siblings_two_path_bullet_meets_the_second_path(tmp_path, capsys):
+    rec = _w(
+        tmp_path / "rec.md",
+        "# Recovery\n\nDate: 2026-01-12\n\n## Files Modified\n\n"
+        "- plugins/planwise/scripts/feedback_post.py, handlers/feedback.md\n",
+    )
+    edit = _w(tmp_path / "edit.txt", "plugins/planwise/handlers/feedback.md\n")
+    args = ["siblings", "--since", "2026-01-10", "--recoveries", str(rec), "--edit-set", str(edit)]
+    assert dp.main(args) == 1
+    assert "  handlers/feedback.md" in capsys.readouterr().out
 
 
 # --- decomposition ----------------------------------------------------------
@@ -398,3 +486,281 @@ def test_upstream_unreadable_input_is_exit_two(tmp_path, capsys):
     bare = _w(tmp_path / "bare.md", "# Task\n\n## Objective\n\n`Outputs/ABC-S04-02-09-X.md`\n")
     assert dp.main(["upstream", "--candidate", str(bare), "--plan-root", args[4]]) == 2
     assert "no Required Context section" in capsys.readouterr().out
+
+
+# --- depends ----------------------------------------------------------------
+# Every tree is the one the renderer writes for test_scaffold_plan's sample spec:
+# session 1 task 02 depends on task 01, and each Recovery row starts PENDING.
+
+SESSION_1 = "Sprint-01-LedgerCore/Session-01-ReadPath"
+SESSION_2 = "Sprint-01-LedgerCore/Session-02-WritePath"
+RECOVERY_1 = f"{SESSION_1}/QZX-S01-01-Recovery.md"
+TASK_1_1 = f"{SESSION_1}/QZX-S01-01-01-Sonnet-ParseRows.md"
+TASK_1_2 = f"{SESSION_1}/QZX-S01-01-02-Opus-IndexRows.md"
+TASK_2_1 = f"{SESSION_2}/QZX-S01-02-01-Sonnet-WriteRows.md"
+
+
+@pytest.fixture
+def plan(tmp_path):
+    files, _rec = sp.render_all(make_spec(), sp.DEFAULT_TEMPLATES)
+    root = tmp_path / "plan"
+    sp.write_tree(files, root)
+    return root
+
+
+def _rewrite(path: Path, pattern: str, replacement: str) -> None:
+    """Replace one match, byte for byte, so the file keeps its line endings."""
+    text, count = re.subn(pattern, lambda _m: replacement, path.read_bytes().decode("utf-8"), count=1)
+    assert count == 1, pattern
+    path.write_bytes(text.encode("utf-8"))
+
+
+def _set_depends(root, task, value):
+    _rewrite(root / task, r"\*\*Depends On:\*\*[^\r\n]*", f"**Depends On:** {value}")
+
+
+def _set_status(root, step, status, recovery=RECOVERY_1):
+    path = root / recovery
+    row = re.search(rf"(?m)^(\| {step} \|[^|]*\|[^|]*\|) PENDING \|", path.read_bytes().decode("utf-8"))
+    assert row, step
+    _rewrite(path, re.escape(row.group(0)), f"{row.group(1)} {status} |")
+
+
+def _depends(capsys, root, task):
+    code = dp.main(["depends", "--candidate", str(root / task), "--plan-root", str(root)])
+    return code, capsys.readouterr().out.splitlines()
+
+
+def test_depends_pending_producer_stops(plan, capsys):
+    code, out = _depends(capsys, plan, TASK_1_2)
+    assert (code, out) == (1, ["depends-on entries: 1", "not-complete: 01 (PENDING)"])
+
+
+def test_depends_complete_producer_passes(plan, capsys):
+    _set_status(plan, 1, "COMPLETE")
+    code, out = _depends(capsys, plan, TASK_1_2)
+    assert (code, out) == (0, ["depends-on entries: 1", "complete: 01"])
+
+
+def test_depends_no_producer(plan, capsys):
+    assert _depends(capsys, plan, TASK_1_1) == (0, ["depends-on entries: 0"])
+
+
+@pytest.mark.parametrize("value", ["", "None", "n/a", "- (parallel group; cross-sprint gate in Step 1)"])
+def test_depends_empty_spellings_name_no_producer(plan, capsys, value):
+    _set_depends(plan, TASK_1_2, value)
+    assert _depends(capsys, plan, TASK_1_2) == (0, ["depends-on entries: 0"])
+
+
+def test_depends_missing_line_names_no_producer(plan, capsys):
+    _rewrite(plan / TASK_1_2, r"\*\*Depends On:\*\*[^\r\n]*\r?\n", "")
+    assert _depends(capsys, plan, TASK_1_2) == (0, ["depends-on entries: 0"])
+
+
+@pytest.mark.parametrize("value", ["1", "Task 01", "`01`", "01 (`RUN_BASE`; the row ledger)",
+                                   "01 <!-- the parser -->", "**01**", "01, 01"])
+def test_depends_same_session_spellings(plan, capsys, value):
+    _set_depends(plan, TASK_1_2, value)
+    code, out = _depends(capsys, plan, TASK_1_2)
+    assert (code, out[0]) == (1, "depends-on entries: 1")
+    assert out[1].startswith("not-complete: ")
+    _set_status(plan, 1, "COMPLETE")
+    code, out = _depends(capsys, plan, TASK_1_2)
+    assert code == 0, out
+
+
+@pytest.mark.parametrize("value", ["1-2", "1 to 2", "01–02", "Tasks 1 - 2"])
+def test_depends_range_names_every_task_in_it(plan, capsys, value):
+    _set_depends(plan, TASK_1_1, value)
+    _set_status(plan, 1, "COMPLETE")
+    code, out = _depends(capsys, plan, TASK_1_1)
+    assert code == 1, out
+    assert out[0] == "depends-on entries: 2"
+    assert any(ln.startswith("not-complete: ") and ln.endswith("(PENDING)") for ln in out), out
+    _set_status(plan, 2, "COMPLETE")
+    assert _depends(capsys, plan, TASK_1_1)[0] == 0
+
+
+@pytest.mark.parametrize("status", ["COMPLETE", "✅ COMPLETE", "**COMPLETE**", "COMPLETE (verified)", "Complete"])
+def test_depends_completion_cells_that_pass(plan, capsys, status):
+    _set_status(plan, 1, status)
+    code, out = _depends(capsys, plan, TASK_1_2)
+    assert code == 0, out
+
+
+@pytest.mark.parametrize("status", ["NOT COMPLETE", "PARTIALLY COMPLETE", "INCOMPLETE", "PARTIAL",
+                                    "IN_PROGRESS", "-"])
+def test_depends_completion_cells_that_stop(plan, capsys, status):
+    _set_status(plan, 1, status)
+    code, out = _depends(capsys, plan, TASK_1_2)
+    assert (code, out[1]) == (1, f"not-complete: 01 ({status})")
+
+
+def test_depends_latest_attempt_row_wins(plan, capsys):
+    _set_status(plan, 1, "PARTIAL")
+    _rewrite(plan / RECOVERY_1, r"(?m)^\| 2 \|", "| 1 (attempt 2) | ParseRows | Sonnet | COMPLETE | - |\n| 2 |")
+    code, out = _depends(capsys, plan, TASK_1_2)
+    assert code == 0, out
+
+
+def test_depends_missing_step_row(plan, capsys):
+    _set_depends(plan, TASK_1_2, "07")
+    code, out = _depends(capsys, plan, TASK_1_2)
+    assert (code, out[1]) == (1, "not-complete: 07 (no step row)")
+
+
+def test_depends_missing_recovery(plan, capsys):
+    (plan / RECOVERY_1).unlink()
+    code, out = _depends(capsys, plan, TASK_1_2)
+    assert (code, out[1]) == (1, "not-complete: 01 (no Recovery)")
+
+
+@pytest.mark.parametrize("value", ["cross-session: QZX-S01-01-02", "QZX-S01-01-02",
+                                   "cross-sprint: `QZX-S01-01-02`"])
+def test_depends_remote_producer(plan, capsys, value):
+    _set_depends(plan, TASK_2_1, value)
+    code, out = _depends(capsys, plan, TASK_2_1)
+    assert (code, out[1]) == (1, "not-complete: QZX-S01-01-02 (PENDING)")
+    _set_status(plan, 2, "COMPLETE")
+    code, out = _depends(capsys, plan, TASK_2_1)
+    assert (code, out[1]) == (0, "complete: QZX-S01-01-02")
+
+
+def test_depends_meta_plan_id(plan, capsys):
+    _set_status(plan, 2, "COMPLETE")
+    meta = plan / "Sprint-01-Discovery" / "QZX-META-S01-01-Recovery.md"
+    _w(meta, (plan / RECOVERY_1).read_text(encoding="utf-8"))
+    _set_depends(plan, TASK_2_1, "cross-sprint: QZX-META-S01-01-02")
+    code, out = _depends(capsys, plan, TASK_2_1)
+    assert (code, out[1]) == (0, "complete: QZX-META-S01-01-02")
+
+
+def test_depends_remote_producer_with_no_recovery_is_unresolved(plan, capsys):
+    _set_depends(plan, TASK_2_1, "cross-session: QZX-S01-09-02")
+    code, out = _depends(capsys, plan, TASK_2_1)
+    assert code == 1
+    assert out[1].startswith("unresolved: QZX-S01-09-02"), out
+
+
+def test_depends_two_recoveries_of_one_name_are_ambiguous(plan, capsys):
+    _set_status(plan, 2, "COMPLETE")
+    _w(plan / "Archive" / "QZX-S01-01-Recovery.md", (plan / RECOVERY_1).read_text(encoding="utf-8"))
+    _set_depends(plan, TASK_2_1, "cross-session: QZX-S01-01-02")
+    code, out = _depends(capsys, plan, TASK_2_1)
+    assert code == 1
+    assert out[1].startswith("ambiguous: QZX-S01-01-02"), out
+
+
+@pytest.mark.parametrize("value", ["01 and 02", "1 & 2", "QZX-S01-01-01 and QZX-S01-01-02"])
+def test_depends_joined_entries_are_two_producers(plan, capsys, value):
+    _set_depends(plan, TASK_2_1 if "QZX" in value else TASK_1_1, value)
+    task = TASK_2_1 if "QZX" in value else TASK_1_1
+    _set_status(plan, 1, "COMPLETE")
+    code, out = _depends(capsys, plan, task)
+    assert (code, out[0]) == (1, "depends-on entries: 2"), out
+    _set_status(plan, 2, "COMPLETE")
+    assert _depends(capsys, plan, task)[0] == 0
+
+
+def test_depends_an_id_whose_abbreviation_is_a_word_is_not_split(plan, capsys):
+    _set_depends(plan, TASK_2_1, "cross-session: AND-S01-09-02")
+    code, out = _depends(capsys, plan, TASK_2_1)
+    assert (code, out[1]) == (1, "unresolved: AND-S01-09-02 (no Recovery under the plan root)")
+
+
+@pytest.mark.parametrize("value", ["the ledger audit", "cross-session: QZX-S01-01", "3-1", "{task numbers}"])
+def test_depends_never_guesses(plan, capsys, value):
+    _set_status(plan, 1, "COMPLETE")
+    _set_depends(plan, TASK_1_2, value)
+    code, out = _depends(capsys, plan, TASK_1_2)
+    assert code == 1, out
+    assert out[1].startswith("unresolved: "), out
+
+
+@pytest.mark.parametrize("value", ["- (cross-sprint: QZX-S01-01-02 -- the index)",
+                                   "- (see (also QZX-S01-01-02))",
+                                   "- (reads QZX-S01-01-02-Index.md)"])
+def test_depends_a_producer_inside_parentheses_is_checked(plan, capsys, value):
+    _set_depends(plan, TASK_2_1, value)
+    code, out = _depends(capsys, plan, TASK_2_1)
+    assert (code, out) == (1, ["depends-on entries: 1", "not-complete: QZX-S01-01-02 (PENDING)"])
+    _set_status(plan, 2, "COMPLETE")
+    assert _depends(capsys, plan, TASK_2_1)[0] == 0
+
+
+def test_depends_a_listed_task_does_not_hide_a_parenthesised_one(plan, capsys):
+    _set_status(plan, 1, "COMPLETE")
+    _set_depends(plan, TASK_1_2, "01 (+ cross-session: QZX-S01-09-02)")
+    code, out = _depends(capsys, plan, TASK_1_2)
+    assert code == 1, out
+    assert out[2].startswith("unresolved: QZX-S01-09-02"), out
+
+
+def test_depends_a_session_id_inside_parentheses_is_unresolved(plan, capsys):
+    _set_depends(plan, TASK_2_1, "- (cross-session: QZX-S01-01 first)")
+    code, out = _depends(capsys, plan, TASK_2_1)
+    assert (code, out) == (1, ["depends-on entries: 1", "unresolved: cross-session: QZX-S01-01"])
+
+
+def test_depends_a_note_after_the_label_is_not_a_target(plan, capsys):
+    _set_depends(plan, TASK_2_1, "- (cross-sprint: consumes `parse()` from QZX-S01-01-02)")
+    code, out = _depends(capsys, plan, TASK_2_1)
+    assert (code, out) == (1, ["depends-on entries: 1", "not-complete: QZX-S01-01-02 (PENDING)"])
+    _set_depends(plan, TASK_2_1, "- (cross-sprint: session-entry gate only)")
+    assert _depends(capsys, plan, TASK_2_1) == (0, ["depends-on entries: 0"])
+
+
+def test_depends_a_sprint_folder_target_inside_parentheses_is_unresolved(plan, capsys):
+    _set_depends(plan, TASK_2_1, "- (cross-sprint: Sprint-01 COMPLETE)")
+    code, out = _depends(capsys, plan, TASK_2_1)
+    assert (code, out) == (1, ["depends-on entries: 1", "unresolved: cross-sprint: Sprint-01"])
+
+
+@pytest.mark.parametrize("header", ["**Agent:** Opus | **Depends On:** 01", "**Depends on:** 01",
+                                    "**Depends On**: 01"])
+def test_depends_header_shapes_are_read(plan, capsys, header):
+    _rewrite(plan / TASK_1_2, r"\*\*Depends On:\*\*[^\r\n]*", header)
+    code, out = _depends(capsys, plan, TASK_1_2)
+    assert (code, out) == (1, ["depends-on entries: 1", "not-complete: 01 (PENDING)"])
+
+
+@pytest.mark.parametrize("header", ["**Depends On:**\n- 01\n- 02", "**Depends On:** 01,\n02"])
+def test_depends_a_value_on_a_second_line_stops(plan, capsys, header):
+    _set_status(plan, 1, "COMPLETE")
+    _rewrite(plan / TASK_1_2, r"\*\*Depends On:\*\*[^\r\n]*", header)
+    code, out = _depends(capsys, plan, TASK_1_2)
+    assert code == 1, out
+    assert "unresolved: the Depends On value runs onto the next line" in out
+
+
+def test_depends_a_range_covers_lettered_steps(plan, capsys):
+    _set_status(plan, 1, "COMPLETE")
+    _set_status(plan, 2, "COMPLETE")
+    _rewrite(plan / RECOVERY_1, r"(?m)^\| 2 \|", "| 1b | Extra | Opus | PENDING | - |\n| 2 |")
+    _set_depends(plan, TASK_2_1, "1-2")
+    _w(plan / SESSION_2 / "QZX-S01-02-Recovery.md", (plan / RECOVERY_1).read_text(encoding="utf-8"))
+    code, out = _depends(capsys, plan, TASK_2_1)
+    assert (code, out) == (1, ["depends-on entries: 3", "complete: 01", "not-complete: 01b (PENDING)",
+                               "complete: 02"])
+
+
+def test_depends_reads_only_the_header(plan, capsys):
+    _set_depends(plan, TASK_1_2, "-")
+    _rewrite(plan / TASK_1_2, r"(?m)^## Objective[^\r\n]*", "## Objective\n\n**Depends On:** 07")
+    assert _depends(capsys, plan, TASK_1_2) == (0, ["depends-on entries: 0"])
+
+
+def test_depends_crlf_files(plan, capsys):
+    for rel in (TASK_1_2, RECOVERY_1):
+        path = plan / rel
+        path.write_bytes(path.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+    code, out = _depends(capsys, plan, TASK_1_2)
+    assert (code, out[1]) == (1, "not-complete: 01 (PENDING)")
+
+
+def test_depends_unreadable_input_is_exit_two(plan, capsys):
+    assert _depends(capsys, plan, f"{SESSION_1}/none.md")[0] == 2
+    code, out = _depends(capsys, plan, RECOVERY_1)
+    assert code == 2
+    assert "no **Task ID:** line" in out[0]
+    assert dp.main(["depends", "--candidate", str(plan / TASK_1_2), "--plan-root", str(plan / "absent")]) == 2

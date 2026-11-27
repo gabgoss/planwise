@@ -15,7 +15,9 @@ Every check here is advisory and reports at WARNING, except Check 57, which repo
 ERROR because three layers that state one dependency set and disagree cannot all be
 right, the first branch of Check 59, which reports at ERROR because the overlap
 check cannot see a write the Output line leaves out, and the first branch of Check 60,
-which reports at ERROR because Reviewer Checks 037 and 038 are BLOCKER. Each docstring states the
+which reports at ERROR because Reviewer Checks 037 and 038 are BLOCKER. Checks 72 to 74 read
+one task file for the three turn-cap counts: unpriced proof runs, many write deliverables with
+a suite gate, and a per-item native gate with no call budget. Each docstring states the
 predicate, the input and what the check cannot see.
 """
 
@@ -35,16 +37,12 @@ from lint_gate_checks_dispatch import (
 from lint_gate_checks_verify import (
     SEVERITY_ERROR,
     SEVERITY_WARNING,
+    _fence_marked,
     _finding,
     _task_files,
 )
-from token_saver_writeback import (
-    _cells,
-    _col,
-    _section_bounds,
-    _split_eol,
-    _token_tables,
-)
+from token_saver_derived import _section_bounds, _token_tables
+from token_saver_writeback import _cells, _col, _split_eol
 
 # --- Check 54: an Execution Step reads a path with no Required Context row (task-content-fidelity.md §9.A.17) ---
 _CODE_SPAN_RE = re.compile(r"`([^`]+)`")
@@ -741,10 +739,171 @@ def _check60_depends_on_mirrors_required_context_producers(context) -> list:
     return findings
 
 
+# --- Checks 72-74: a single-task brief sized for the turn cap (§1.23.1 of the delegated-dispatch Part 3) ---
+_TURN_CAP_DOCTRINE = (
+    "(agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md, "
+    "'Size a single-task brief for the turn cap at scaffold')"
+)
+_PROOF_RUN_RE = re.compile(
+    r"\b(smokes?|run (it |them |(?:each|the|this) [^\n]{0,40})?once|before and after|projections?)\b",
+    re.IGNORECASE,
+)
+_SUBTOTAL_LINE_RE = re.compile(r"^\s*\*\*Context subtotal:\*\*")
+# The doctrine's addend form: a figure inside the ``(proof runs: ...)`` group.
+_PRICED_RUN_RE = re.compile(r"proof runs?:[^)]*?[0-9]K\b", re.IGNORECASE)
+_SUITE_GATE_RE = re.compile(r"\bsuite\.py\b|\b(?:full|whole|entire)[- ]suite\b", re.IGNORECASE)
+# One more than four deliverables, plus one span of slack for a name that is not a path.
+_DELIVERABLE_SPANS = 6
+_PER_ITEM = r"every listed|each listed|for each|for every|one call per|per[- ](?:term|item|row|entry)"
+_NATIVE_TOOL = r"native `?(?:Grep|Read)\b"
+_PER_ITEM_NATIVE_RE = re.compile(
+    rf"\b(?:{_PER_ITEM})\b[^\n]{{0,100}}\b{_NATIVE_TOOL}"
+    rf"|\b{_NATIVE_TOOL}[^\n]{{0,100}}\b(?:one call per|per[- ](?:term|item|row|entry))\b",
+    re.IGNORECASE,
+)
+# A budget names calls, a reader or the tool itself, so a size limit on a ``Read`` is not one.
+_CALL_BUDGET_RE = re.compile(
+    r"\b(?i:up to|at most|above|more than) [0-9]+\b[^\n]{0,50}?"
+    r"(?:\b(?i:calls?|reader)\b|(?i:native) `?(?:Grep|Read)\b|\bGrep\b|\bRead each\b)"
+)
+_NEGATING_RE = re.compile(r"\b(?:WRONG|no|not|never)\b", re.IGNORECASE)
+_CLAUSE_END_RE = re.compile(r"[.;]\s")
+
+
+def _unfenced(lines):
+    """Yield ``(number, line)`` for each line outside a fenced block."""
+    for number, line, fenced in _fence_marked(lines):
+        if not fenced:
+            yield number, line
+
+
+def _asks_for(pattern, text: str) -> bool:
+    """``pattern`` matches ``text`` somewhere that its own clause does not negate."""
+    return any(
+        not _NEGATING_RE.search(_CLAUSE_END_RE.split(text[:match.start()])[-1])
+        for match in pattern.finditer(text)
+    )
+
+
+def _names_suite_gate(lines) -> bool:
+    """A suite gate is a command in a fence or a plain line. A fenced line is read up to its
+    ``#`` comment. An unfenced quote line is callout prose, which the task template carries
+    into every rendered task, so it is not read."""
+    for _number, line, fenced in _fence_marked(lines):
+        if fenced:
+            text = re.split(r"(?:^|\s)#", line.lstrip("> "), maxsplit=1)[0]
+        elif line.lstrip().startswith(">"):
+            continue
+        else:
+            text = line
+        if _asks_for(_SUITE_GATE_RE, text):
+            return True
+    return False
+
+
+def _check72_proof_runs_unpriced(context) -> list:
+    """Check 72 -- an Execution Step asks for a proof run and the ``**Context subtotal:**`` line
+    prices none (agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md,
+    "Size a single-task brief for the turn cap at scaffold", count 1). Predicate: an unfenced
+    Execution Steps line holds ``smoke``, ``run once`` (also ``run it once``, ``run them once``,
+    ``run the/this/each ... once``), ``before and after`` or ``projection`` in a clause that does
+    not negate it, and no unfenced Context subtotal line holds a figure inside a
+    ``(proof runs: ...)`` group. A task with no subtotal line prices nothing and is reported
+    too. Input: each task file. One finding per task, at the first such step line. WARNING. It
+    cannot see whether every run is priced (one figure satisfies the check), a run worded
+    another way, a plain suite run, or whether ``before and after`` speaks of a run at all.
+    """
+    findings = []
+    for rel, lines in _task_files(context):
+        trigger = next(
+            ((n, ln) for n, ln in _section_lines(lines, ("execution steps",)) if _asks_for(_PROOF_RUN_RE, ln)),
+            None,
+        )
+        if trigger is None or any(
+            _SUBTOTAL_LINE_RE.match(ln) and _PRICED_RUN_RE.search(ln) for _n, ln in _unfenced(lines)
+        ):
+            continue
+        findings.append(_finding(
+            check=72, severity=SEVERITY_WARNING, file=rel, line=trigger[0], command=trigger[1].strip(),
+            message=(
+                "This step asks for a proof run, and the Context subtotal line prices none. Each run costs "
+                "turns and tokens that the estimate leaves out. Add one addend such as "
+                f"'+ ~{{P}}K (proof runs: {{n}} {{kind}} x ~{{price}}K)' {_TURN_CAP_DOCTRINE}"
+            ),
+        ))
+    return findings
+
+
+def _check73_deliverables_plus_suite_gate(context) -> list:
+    """Check 73 -- a task writes more than four deliverables and also gates on the test suite
+    (agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md, "Size a
+    single-task brief for the turn cap at scaffold", count 2). Predicate: the first unfenced
+    ``**Output:**`` line holds six or more code spans, a span that starts with ``-`` being a
+    flag and not counted, and a fenced command or a plain line names ``suite.py`` or a full,
+    whole or entire suite (see ``_names_suite_gate``). The sixth span is slack for a span that
+    names no file. Input: each task file. One finding per task, at the Output line. WARNING. It
+    cannot see a suite gate worded another way, such as a bare ``pytest`` call over a folder or
+    an affected-suite run, or a gate stated only in a callout. It cannot see what kind each
+    deliverable is, a deliverable the Output line leaves out, or a path written without a code
+    span, and it counts a code span that is not a path.
+    """
+    findings = []
+    for rel, lines in _task_files(context):
+        output = next(((n, ln) for n, ln in _unfenced(lines) if _OUTPUT_LINE_RE.match(ln)), None)
+        if output is None:
+            continue
+        spans = [span for span in _CODE_SPAN_RE.findall(output[1]) if not span.startswith("-")]
+        if len(spans) < _DELIVERABLE_SPANS or not _names_suite_gate(lines):
+            continue
+        findings.append(_finding(
+            check=73, severity=SEVERITY_WARNING, file=rel, line=output[0], command=output[1].strip(),
+            message=(
+                f"The Output line holds {len(spans)} code spans and the task gates on the test suite. A brief "
+                "with more than about four write deliverables plus a suite gate does not fit a 50-turn cap. "
+                f"Split the task along its deliverable seams {_TURN_CAP_DOCTRINE}"
+            ),
+        ))
+    return findings
+
+
+def _check74_per_item_native_gate_without_budget(context) -> list:
+    """Check 74 -- a step gates each item of a list with a native tool call and the task states
+    no call budget (agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md,
+    "Size a single-task brief for the turn cap at scaffold", count 3). Predicate: an unfenced
+    Execution Steps line holds a per-item phrase (``every listed``, ``each listed``, ``for
+    each``, ``for every``, ``one call per``, ``per term/item/row/entry``) within 100 characters
+    before ``native Grep`` or ``native Read``, or that tool before ``one call per`` or ``per
+    term/item/row/entry``. No line of the file states a budget: ``up to``, ``at most``,
+    ``above`` or ``more than`` a number, then ``calls``, ``reader`` or the tool, such as ``up to
+    20 terms: one native Grep each``. Input: each task file. One finding per such step line.
+    WARNING. It cannot see whether the list is written by an earlier task, a gate worded without
+    ``native``, or a budget line that belongs to another step.
+    """
+    findings = []
+    for rel, lines in _task_files(context):
+        if any(_CALL_BUDGET_RE.search(ln) for ln in lines):
+            continue
+        for number, line in _section_lines(lines, ("execution steps",)):
+            if not _PER_ITEM_NATIVE_RE.search(line):
+                continue
+            findings.append(_finding(
+                check=74, severity=SEVERITY_WARNING, file=rel, line=number, command=line.strip(),
+                message=(
+                    "This step makes one native tool call per item and no line states a call budget. A list "
+                    "written by another task can be far longer than the turn cap allows. State the budget and "
+                    f"the batch form beside the gate {_TURN_CAP_DOCTRINE}"
+                ),
+            ))
+    return findings
+
+
 CHECKS = [
     _check54_step_reads_path_without_required_context_row,
     _check57_depends_on_layers_disagree,
     _check58_cross_sprint_read_without_refs_field,
     _check59_write_set_output_expected_output_agree,
     _check60_depends_on_mirrors_required_context_producers,
+    _check72_proof_runs_unpriced,
+    _check73_deliverables_plus_suite_gate,
+    _check74_per_item_native_gate_without_budget,
 ]

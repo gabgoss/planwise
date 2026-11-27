@@ -540,6 +540,58 @@ class TestBB210OrphanedStatus(FlipLessonStatusTestCase):
         self.assertEqual(target.read_bytes(), before)
 
 
+class TestSupersededFlipOnlyFromHubStatuses(FlipLessonStatusTestCase):
+    """Only a hub lesson (`documented` or `orphaned`) moves to `superseded`.
+    An owned or landed lesson is already out of the hub, so it keeps its
+    status. The two refusal cases assert the refusal's own text: the older
+    landed-downgrade refusal also rejects `rule -> superseded`, so exit 1
+    and "REFUSED" alone would pass without this rule."""
+
+    def _flip(self, number: int, status: str):
+        target = self.write_lesson(number, status)
+        before = target.read_bytes()
+        map_file = self._write_map(f"LL-{number:03d}: superseded\n")
+        code, out = self._run_main(self._argv(map_file))
+        return target, before, code, out
+
+    def _assert_flips(self, number: int, status: str):
+        target, _before, code, out = self._flip(number, status)
+
+        self.assertEqual(code, 0)
+        self.assertIn(f"LL-{number:03d}: {status} -> superseded", out)
+        self.assertIn(b"status: superseded", target.read_bytes())
+
+    def _assert_refused(self, number: int, status: str):
+        target, before, code, out = self._flip(number, status)
+
+        self.assertEqual(code, 1)
+        self.assertIn(f"REFUSED: will not flip {status!r} -> 'superseded'", out)
+        self.assertIn("keeps its status", out)
+        self.assertIn("superseded-by:", out)
+        self.assertEqual(target.read_bytes(), before)
+
+    def test_documented_flips_to_superseded(self):
+        self._assert_flips(230, "documented")
+
+    def test_orphaned_flips_to_superseded(self):
+        self._assert_flips(231, "orphaned")
+
+    def test_promoted_to_superseded_is_refused(self):
+        self._assert_refused(232, "promoted")
+
+    def test_rule_to_superseded_is_refused(self):
+        self._assert_refused(233, "rule")
+
+    def test_unrecognized_status_is_refused_without_the_owned_lesson_advice(self):
+        target, before, code, out = self._flip(234, "draft")
+
+        self.assertEqual(code, 1)
+        self.assertIn("REFUSED: will not flip 'draft' -> 'superseded'", out)
+        self.assertIn("check its status: line by hand", out)
+        self.assertNotIn("keeps its status", out)
+        self.assertEqual(target.read_bytes(), before)
+
+
 class TestF5IndexNeverTouchedAndRegenerateCommandPrinted(FlipLessonStatusTestCase):
     """F5 remediation (design review BIR-S05-03-05): the two properties the
     retargeted TestLastUpdatedHeaderBump ports never pinned -- the lessons

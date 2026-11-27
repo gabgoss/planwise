@@ -2,9 +2,9 @@
 """Shared fixtures for the backlog-index generator's test modules.
 
 This is a helper, not a test module: its name matches neither `test_*.py` nor
-`*_test.py`, so pytest never collects it. `test_generate_backlog_index.py` and
-the three test files that build an item or a hermetic planwise tree import
-these names from here, so no test module serves as another's fixture library.
+`*_test.py`, so pytest never collects it. The `test_generate_backlog_index*.py`
+modules and several other test files import these names from here, so no test
+module serves as another's fixture library.
 
 It holds the `sys.path` bootstrap to the shipped scripts, the config fixture,
 the pure in-memory backlog directory, the already-scanned item builder, and

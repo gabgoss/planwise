@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Dispatch preflight set checks: output overlap, prerequisites, siblings, decomposition, upstream Outputs.
+"""Dispatch preflight set checks: overlap, prerequisites, siblings, decomposition, upstream Outputs, Depends On.
 
-Five subcommands, each a set comparison that prints the number of subjects
+Six subcommands, each a set comparison that prints the number of subjects
 it saw before its verdict. Every subcommand exits 0 when its sets agree, 1
 when it lists a difference, and 2 on unreadable or missing input.
 
@@ -15,24 +15,32 @@ when it lists a difference, and 2 on unreadable or missing input.
     ``Outputs/x.md`` against a longer prefix of the same file) compare unequal.
 
 ``prereq --sprint-plan <plan.md> --sprint-folder <plan folder>``
-    A prerequisite line that names a quantifier (all, every, any) and also
-    enumerates sprints is compared with the member set the quantifier derives
-    from the folder listing: every ``Sprint-NN-*`` folder except the plan's
-    own, restricted to lower numbers when the line says prior, earlier,
-    preceding or before. Sets are compared, never counts. A listing that is
-    empty, or that lacks the plan's own Sprint-NN folder, is the wrong folder:
-    the check prints ``not run`` and exits 2. A valid listing with no
-    quantified line prints ``not checked`` and exits 0, never ``equal``. Cannot see: a
-    quantifier scoped by other words ("all dispatch sprints") derives the
-    whole listing, so its difference is a candidate for a human to read.
+    Reads only the lines under the plan's ``## Prerequisites`` heading that
+    name a prerequisite or depends on. A plan with no such heading prints
+    ``not run`` and exits 2. Such a line that names a quantifier (all, every,
+    any) and also enumerates sprints is compared with the member set the
+    quantifier derives from the folder listing: every ``Sprint-NN-*`` folder
+    except the plan's own, restricted to lower numbers when the line says prior,
+    earlier, preceding or before. Sets are compared, never counts. A listing
+    that is empty, or that lacks the plan's own Sprint-NN folder, is the wrong
+    folder: the check prints ``not run`` and exits 2. A valid listing with no
+    quantified line prints ``not checked`` and exits 0, never ``equal``. Cannot
+    see: a quantifier scoped by other words ("all dispatch sprints") derives the
+    whole listing, so its difference is a candidate for a human to read. Also a
+    quantified edge outside that section, and a Prerequisites bullet that never
+    says prerequisite or depends on.
 
 ``siblings --since <YYYY-MM-DD> --recoveries <file>... --edit-set <list file>``
     A sibling Recovery whose latest recorded date is on or after ``--since``
     lists, under ``## Files Modified``, a path that the edit or sweep set also
     names. ``--recoveries none`` is the empty set, for a session with no closed
     sibling yet. The list file holds one path per line. Paths match when equal or
-    when one ends with the other on a path-component boundary. Cannot see: a
-    Recovery that records no date is skipped and counted, never read as clean.
+    when one ends with the other on a path-component boundary. A Files Modified
+    line yields each code span, and each word outside the spans that holds a
+    slash or ends in an extension (words split at spaces, commas, semicolons and
+    parentheses). Cannot see: a Recovery that records no date is skipped and
+    counted, never read as clean, and a file named in prose with no slash and no
+    extension.
 
 ``decomposition --matrix <file> --output <file> [--column N] [--heading-level N] [--heading-prefix P]``
     The set of decomposition rows (column ``N`` of each table row in the
@@ -59,6 +67,24 @@ when it lists a difference, and 2 on unreadable or missing input.
     section. Cannot see: an Output named in prose or by a glob or a
     placeholder, a path outside Required Context, and changed content under an
     unchanged name.
+
+``depends --candidate <task file> --plan-root <dir>``
+    Each producer on the candidate's ``**Depends On:**`` header line is looked up
+    in the ``## Step Completion Status`` table of its session's Recovery. A task
+    number, or a range such as ``1-5``, names a task of the candidate's own
+    session, whose Recovery sits beside it. A full task id names a task whose
+    Recovery is found by file name under the plan root. Entries are separated by
+    commas, semicolons, ``&`` or the word "and". Text in parentheses is an
+    annotation, but a task id or a cross-session target in it still counts. A
+    value that runs onto the next line is ``unresolved:``. Prints ``depends-on entries: N``, then one line per
+    producer: ``complete:``, ``not-complete:``, ``unresolved:`` (the entry names
+    no task id, or no Recovery of that name exists) or ``ambiguous:`` (two or
+    more Recovery files share the name). A producer is complete when its Status
+    cell starts with the word COMPLETE. The later of two rows for one step
+    counts. Exit 0 when every producer is complete (also when N is 0), 1 on any
+    other line, 2 on an unreadable input, a candidate with no task id, or a plan
+    root that is not a folder. Cannot see: a bare task number or a session id
+    inside parentheses, and a COMPLETE row whose output was later deleted.
 """
 
 from __future__ import annotations
@@ -73,12 +99,18 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 
 from markdown_parser import split_row_cells
+from parse_plans import normalize_status
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)")
 _SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?\Z")
 _FENCE_OPEN_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)")
 _SPACE_RE = re.compile(r"\s+")
+_COMMENT_RE = re.compile(r"<!--.*?-->")
 _CODE_SPAN_RE = re.compile(r"`([^`]+)`")
+# The separators between two paths written outside code spans.
+_TOKEN_SPLIT_RE = re.compile(r"[\s,;()]+")
+# Bold, italic-star and quote marks around such a path. Underscores stay: ``__init__.py``.
+_TOKEN_WRAPPERS = "*\"'"
 _OUTPUT_LINE_RE = re.compile(r"^\s*\*\*Output:\*\*")
 _EXTENSION_RE = re.compile(r"\.[A-Za-z0-9]+\Z")
 _DATE_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
@@ -100,6 +132,25 @@ _SECTION_NUMBER_RE = re.compile(r"^\d+(?:\.\d+)*\.?\s+")
 # A task id: letters and digits, -S, sprint, session, task number, an optional letter, then a hyphen.
 _TASK_ID_RE = re.compile(r"^([A-Za-z0-9]+-S\d+-\d+-\d+[A-Za-z]?)-")
 _PLACEHOLDER_CHARS = frozenset("*?{}[]<>")
+# A Depends On value: the spellings that name no producer, and the shapes that name one.
+_NO_PRODUCER = frozenset({"", "-", "–", "—", "∅", "none", "n/a"})
+_PARENTHETICAL_RE = re.compile(r"\([^()]*\)")
+_ENTRY_SPLIT_RE = re.compile(r"[,;&]|\s+and\s+", re.IGNORECASE)
+_REMOTE_PREFIX_RE = re.compile(r"^cross-(?:session|sprint)\s*:\s*", re.IGNORECASE)
+# A session id such as ABC-S01-02, or ABC-META-S01-02 in a Meta-plan.
+_SESSION_ID = r"[A-Za-z0-9]+(?:-META)?-S\d+-\d+"
+_FULL_ID_RE = re.compile(rf"^({_SESSION_ID})-(\d+[A-Za-z]?)\Z")
+_LEADING_ID_RE = re.compile(rf"^({_SESSION_ID})-\d+[A-Za-z]?\b")
+_LOCAL_ENTRY_RE = re.compile(r"^(?:tasks?\s+)?(\d+[A-Za-z]?)\Z", re.IGNORECASE)
+_RANGE_ENTRY_RE = re.compile(r"^(?:tasks?\s+)?(\d{1,2})\s*(?:[–—-]|\bto\b)\s*(\d{1,2})\Z", re.IGNORECASE)
+_STEP_RE = re.compile(r"^(\d+)([A-Za-z]?)\Z")
+# What an annotation in parentheses can still name: a task id, or a cross-session target.
+_NOTED_ID_RE = re.compile(rf"(?<![\w-]){_SESSION_ID}-\d+[A-Za-z]?(?!\w)")
+_NOTED_TARGET_RE = re.compile(
+    r"cross-(?:session|sprint)\s*:\s*(?:Sprint-\d+|[A-Za-z0-9]+(?:-META)?-S\d+(?:-\d+)*[A-Za-z]?)", re.IGNORECASE
+)
+# The openings of a line that starts something new after a header value.
+_NOT_A_CONTINUATION = ("**", "#", "---", "<!--", "|", ">")
 
 
 # --- shared parsing ---------------------------------------------------------
@@ -148,18 +199,29 @@ def unfenced(lines: list[str]) -> list[str]:
     return out
 
 
-def section_lines(text: str, heading: str) -> list[str] | None:
-    """Lines under the first heading whose text contains ``heading``; ``None`` if absent."""
+def section_lines(text: str, heading: str, level: int | None = None) -> list[str] | None:
+    """Lines under the first heading whose text contains ``heading``; ``None`` if absent.
+
+    With ``level``, the heading has that depth and reads exactly ``heading``, its
+    section number and HTML comments aside. A title or a longer heading that holds
+    the same word then claims nothing.
+    """
     lines = unfenced(text.splitlines())
     want = normalise(heading)
     for i, line in enumerate(lines):
         m = _HEADING_RE.match(line)
-        if m and want in normalise(m.group(2)):
-            level = len(m.group(1))
+        if not m:
+            continue
+        depth = len(m.group(1))
+        if level is None:
+            found = want in normalise(m.group(2))
+        else:
+            found = depth == level and section_name(_COMMENT_RE.sub("", m.group(2))) == want
+        if found:
             out = []
             for rest in lines[i + 1:]:
                 n = _HEADING_RE.match(rest)
-                if n and len(n.group(1)) <= level:
+                if n and len(n.group(1)) <= depth:
                     break
                 out.append(rest)
             return out
@@ -297,8 +359,12 @@ def _cmd_prereq(args: argparse.Namespace) -> int:
         print(f"error: {exc}")
         return 2
     own = own_sprint(args.sprint_plan)
-    lines = [ln for ln in unfenced(text.splitlines()) if _PREREQ_LINE_RE.search(ln)]
+    section = section_lines(text, "Prerequisites", level=2)
     print(f"sprint folders listed: {len(listing)}")
+    if section is None:
+        print(f"not run: no Prerequisites section in {args.sprint_plan}")
+        return 2
+    lines = [ln for ln in section if _PREREQ_LINE_RE.search(ln)]
     print(f"prerequisite lines: {len(lines)}")
     if not listing or (own is not None and own not in listing):
         print("not run: --sprint-folder must be the plan folder that holds this plan's Sprint-NN folder")
@@ -346,13 +412,14 @@ def files_modified(text: str) -> set[str]:
     lines = section_lines(text, "Files Modified") or []
     paths = set()
     for line in lines:
-        spans = _CODE_SPAN_RE.findall(line)
-        if spans:
-            paths.update(normalise_path(s) for s in spans if looks_like_path(s))
-            continue
-        bare = line.strip().lstrip("-*").strip()
-        if looks_like_path(bare):
-            paths.add(normalise_path(bare))
+        paths.update(normalise_path(s) for s in _CODE_SPAN_RE.findall(line) if looks_like_path(s))
+        outside = _CODE_SPAN_RE.sub(" ", line).strip().lstrip("-*")
+        for token in _TOKEN_SPLIT_RE.split(outside):
+            token = token.rstrip(".:").strip(_TOKEN_WRAPPERS).rstrip(".:")
+            if token.startswith("[") and token.endswith("]"):
+                token = token[1:-1]  # a pair only: ``[id]/page.tsx`` keeps its bracket
+            if looks_like_path(token):
+                paths.add(normalise_path(token))
     return paths
 
 
@@ -556,6 +623,185 @@ def _cmd_upstream(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+# --- depends ----------------------------------------------------------------
+
+
+def header_field(text: str, name: str) -> tuple[str, str]:
+    """A ``**Name:**`` header value and the line after it; both empty when absent.
+
+    Reads above the first ``## `` heading. The field starts a line or follows a
+    ``|``. For an empty value, the line returned is the next non-blank one.
+    """
+    pattern = re.compile(rf"(?:^|\|)\s*\*\*{re.escape(name)}(?::\*\*|\*\*:)", re.IGNORECASE)
+    lines = unfenced(text.splitlines())
+    for i, line in enumerate(lines):
+        if line.startswith("## "):
+            break
+        m = pattern.search(line)
+        if not m:
+            continue
+        value = _COMMENT_RE.sub("", line[m.end() :]).split("| **")[0].strip()
+        rest = lines[i + 1 :]
+        after = rest[:1] if value else [ln for ln in rest if ln.strip()][:1]
+        return value, after[0] if after else ""
+    return "", ""
+
+
+def runs_on(following: str) -> bool:
+    """True when the line after a header value continues it: a list item or loose text."""
+    following = following.strip()
+    return bool(following) and not following.startswith(_NOT_A_CONTINUATION)
+
+
+def depends_entries(cell: str) -> list[str]:
+    """The entries of one Depends On value, empty spellings dropped.
+
+    Text in parentheses is an annotation. A task id or a ``cross-session:`` or
+    ``cross-sprint:`` target inside it still counts as an entry.
+    """
+    text = cell.replace("`", "").replace("**", "")
+    annotations: list[str] = []
+    found = 1
+    while found:  # inner brackets first, so a nested annotation goes too
+        annotations += _PARENTHETICAL_RE.findall(text)
+        text, found = _PARENTHETICAL_RE.subn("", text)
+    parts = [part.strip() for part in _ENTRY_SPLIT_RE.split(text)]
+    for note in annotations:
+        parts += _NOTED_ID_RE.findall(note)
+        parts += [hit for hit in _NOTED_TARGET_RE.findall(note) if not _NOTED_ID_RE.search(hit)]
+    return [part for part in parts if part.casefold() not in _NO_PRODUCER]
+
+
+def step_key(cell: str) -> tuple[int, str] | None:
+    """``(number, letter)`` of a task number or a Step cell, ``None`` when it holds neither."""
+    text = _PARENTHETICAL_RE.sub("", cell.replace("*", "").replace("`", "")).strip()
+    m = _STEP_RE.match(text)
+    return (int(m.group(1)), m.group(2).lower()) if m else None
+
+
+def named_producers(entry: str, own_steps=()) -> list[tuple[str, str | None, tuple[int, str]]]:
+    """``(label, session id or None, step key)`` per task the entry names; empty when it names none.
+
+    ``None`` as the session id means the candidate's own session. ``own_steps``
+    holds that session's step keys, so a range also covers its lettered steps.
+    """
+    bare = _REMOTE_PREFIX_RE.sub("", entry)
+    m = _FULL_ID_RE.match(bare)
+    if m:
+        return [(bare, m.group(1), step_key(m.group(2)))]
+    m = _LOCAL_ENTRY_RE.match(entry)
+    if m:
+        number, letter = step_key(m.group(1))
+        return [(f"{number:02d}{letter}", None, (number, letter))]
+    m = _RANGE_ENTRY_RE.match(entry)
+    if m:
+        low, high = int(m.group(1)), int(m.group(2))
+        keys = {key for key in own_steps if low <= key[0] <= high}
+        numbered = {number for number, _letter in keys}
+        keys |= {(n, "") for n in range(low, high + 1) if n not in numbered}
+        return [(f"{n:02d}{letter}", None, (n, letter)) for n, letter in sorted(keys)]
+    return []
+
+
+def step_statuses(text: str) -> dict[tuple[int, str], str]:
+    """Step key to Status cell from a Recovery's first Step Completion Status table.
+
+    A later row for one step replaces an earlier one, as a second attempt does.
+    """
+    block: list[str] = []
+    for line in section_lines(text, "Step Completion Status") or []:
+        if line.lstrip().startswith("|"):
+            block.append(line)
+        elif block:
+            break
+    if not block:
+        return {}
+    header = [normalise(cell.replace("*", "")) for cell in split_row_cells(block[0])]
+    step = next((header.index(name) for name in ("step", "#") if name in header), None)
+    if step is None or "status" not in header:
+        return {}
+    status = header.index("status")
+    out = {}
+    for row in table_rows(block):
+        if len(row) > max(step, status) and (key := step_key(row[step])):
+            out[key] = row[status].strip()
+    return out
+
+
+def recovery_index(plan_root: Path) -> dict[str, list[Path]]:
+    """Recovery file name to every file of that name under the plan root."""
+    index: dict[str, list[Path]] = {}
+    for dirpath, _dirs, files in os.walk(plan_root):
+        for name in files:
+            if name.endswith("-Recovery.md"):
+                index.setdefault(name, []).append(Path(dirpath) / name)
+    return index
+
+
+def producer_verdict(label: str, recovery: Path, key: tuple[int, str]) -> str:
+    """The report line for one producer whose Recovery path is known."""
+    if not recovery.is_file():
+        return f"not-complete: {label} (no Recovery)"
+    status = step_statuses(recovery.read_text(encoding="utf-8")).get(key)
+    if status is None:
+        return f"not-complete: {label} (no step row)"
+    if normalize_status(status.upper()) == "COMPLETE":
+        return f"complete: {label}"
+    return f"not-complete: {label} ({status})"
+
+
+def depends_report(cell: str, own_session: str, task_dir: Path, plan_root: Path) -> list[str]:
+    """One line per producer the Depends On value names, each producer once."""
+    index = recovery_index(plan_root)
+    own = task_dir / f"{own_session}-Recovery.md"
+    own_steps = step_statuses(own.read_text(encoding="utf-8")) if own.is_file() else {}
+    lines: list[str] = []
+    for entry in depends_entries(cell):
+        producers = named_producers(entry, own_steps)
+        if not producers:
+            lines.append(f"unresolved: {entry}")
+        for label, session, key in producers:
+            if session is None:
+                lines.append(producer_verdict(label, own, key))
+                continue
+            hits = index.get(f"{session}-Recovery.md", [])
+            if not hits:
+                lines.append(f"unresolved: {label} (no Recovery under the plan root)")
+            elif len(hits) > 1:
+                found = ", ".join(sorted(p.relative_to(plan_root).as_posix() for p in hits))
+                lines.append(f"ambiguous: {label} -> {found}")
+            else:
+                lines.append(producer_verdict(label, hits[0], key))
+    return list(dict.fromkeys(lines))
+
+
+def _cmd_depends(args: argparse.Namespace) -> int:
+    try:
+        text = args.candidate.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"error: {exc}")
+        return 2
+    if not args.plan_root.is_dir():
+        print(f"error: --plan-root is not a folder: {args.plan_root}")
+        return 2
+    own = _LEADING_ID_RE.match(header_field(text, "Task ID")[0].lstrip("`* "))
+    if not own:
+        print(f"error: no **Task ID:** line with a task id in {args.candidate}")
+        return 2
+    cell, following = header_field(text, "Depends On")
+    try:
+        lines = depends_report(cell, own.group(1), args.candidate.parent, args.plan_root)
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"error: {exc}")
+        return 2
+    if runs_on(following):
+        lines.append("unresolved: the Depends On value runs onto the next line")
+    print(f"depends-on entries: {len(lines)}")
+    for line in lines:
+        print(line)
+    return 1 if any(not line.startswith("complete: ") for line in lines) else 0
+
+
 # --- CLI --------------------------------------------------------------------
 
 
@@ -591,6 +837,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--candidate", required=True, type=Path)
     p.add_argument("--plan-root", required=True, type=Path)
     p.set_defaults(func=_cmd_upstream)
+
+    p = sub.add_parser("depends", help="Depends On producers against their Recovery step rows")
+    p.add_argument("--candidate", required=True, type=Path)
+    p.add_argument("--plan-root", required=True, type=Path)
+    p.set_defaults(func=_cmd_depends)
     return parser
 
 

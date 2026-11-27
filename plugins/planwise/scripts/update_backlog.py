@@ -46,6 +46,7 @@ if sys.stderr.encoding and sys.stderr.encoding.lower() != "utf-8":
 # Import shared config loader
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
+from backlog_create_lock import CreationLockTimeout, creation_lock
 from config_loader import load_config
 from constants import ARCHIVE_STATUSES, VALID_STATUSES
 from frontmatter_parser import parse_frontmatter_map
@@ -58,11 +59,11 @@ from generate_backlog_index import (
 )
 from markdown_parser import infer_predominant_id_form, normalize_id, render_id
 from parse_backlog import (
-    CreationLockTimeout,
     collect_all_known_ids,
-    creation_lock,
     frontmatter_item_id,
+    iter_disk_item_ids,
     next_free_id,
+    sibling_item_ids,
     warn_if_no_numeric_id,
 )
 from reconcile_common import (
@@ -446,9 +447,10 @@ def _frontmatter_id(fm_map: dict) -> str | None:
     `normalize_id` recognizes bare and prefixed forms alike and never
     raises. Returns None only when the file has no id value at all.
 
-    Delegates to `parse_backlog.frontmatter_item_id`, the reading the id
-    allocator also uses, so the duplicate guard and the allocator agree on
-    every id, an inline YAML comment after it included.
+    Delegates to `parse_backlog.frontmatter_item_id`, the reading
+    `iter_disk_item_ids` also starts from, so `_find_items_by_id` and the
+    existing-target check read an id as the allocator and the duplicate guard
+    do, an inline YAML comment after it included.
     """
     return frontmatter_item_id(fm_map)
 
@@ -457,9 +459,8 @@ def _scan_item_frontmatter(backlog_dir: Path, archive_dir: Path, index_path: Pat
     """Yield (path, fm_map) for every on-disk item file whose frontmatter
     can be read.
 
-    The one scan loop `_find_items_by_id` and `_known_ids_from_disk` both
-    build on, so the two can never drift on which files are skipped or how
-    frontmatter is parsed -- they repeated this loop verbatim before.
+    The scan `_find_items_by_id` builds on. A file whose frontmatter cannot
+    be read is left out, because the caller modifies the files it matches.
     """
     for path in _iter_item_files(backlog_dir, archive_dir, index_path):
         try:
@@ -494,23 +495,23 @@ def _find_items_by_id(
 def _known_ids_from_disk(
     backlog_dir: Path, archive_dir: Path, index_path: Path
 ) -> dict[str, str]:
-    """Map every id an on-disk item file's OWN frontmatter carries to that
-    file's path.
+    """Map every id an on-disk item file holds to that file's path.
 
     This is the union `--create`'s duplicate guard needs beyond
     `collect_all_known_ids`: a freshly created or freshly renamed item file
     has no row in the hub, an overflow leaf, or an Archive shard until the
-    next `--write`. Scans with the generator's own item-file iterator, so an
-    item already sitting in `Archive/` is visible too. A file whose
-    frontmatter cannot be read is skipped, never guessed at -- collision
-    detection is not the place to validate an unrelated file's frontmatter.
+    next `--write`. Reads ids through `iter_disk_item_ids`, as the allocator
+    does, so a file with no readable frontmatter id holds the id in its file
+    name. A frontmatter holder of an id is named before a file-name holder.
+    Prints nothing: `--id next` warns through the allocator, and a refusal
+    names the file.
     """
     locations: dict[str, str] = {}
-    for path, fm_map in _scan_item_frontmatter(backlog_dir, archive_dir, index_path):
-        file_id = _frontmatter_id(fm_map)
-        if file_id is None:
-            continue
-        locations.setdefault(file_id, str(path))
+    found = iter_disk_item_ids(backlog_dir, archive_dir, index_path)
+    # Stable sort on from_name: every frontmatter id claims its slot first.
+    for path, file_id, _from_name in sorted(found, key=lambda entry: entry[2]):
+        if file_id is not None:
+            locations.setdefault(file_id, str(path))
     return locations
 
 
@@ -843,7 +844,19 @@ def _create_under_lock(
                 "the backlog index -- the hub, a hub overflow leaf, or an "
                 "Archive shard"
             )
+    if existing_location is None and not allocate_next:
+        # A linked worktree's item file has no index row until that worktree
+        # regenerates. An allocated id already sits above every such file.
+        existing_location = sibling_item_ids(backlog_dir, archive_dir, index_path).get(key)
     if existing_location:
+        name_only = {
+            str(path)
+            for path, _id, from_name in iter_disk_item_ids(backlog_dir, archive_dir, index_path)
+            if from_name
+        }
+        if existing_location in name_only:
+            # The user opens that file and finds no readable id there.
+            existing_location += "; id taken from its file name, its frontmatter has no readable id"
         print(
             f"Error: Item ID '{item_id}' already exists ({existing_location}).",
             file=sys.stderr,

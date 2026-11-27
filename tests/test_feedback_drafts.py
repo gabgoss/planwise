@@ -1,9 +1,11 @@
 """Tests for scripts/feedback_drafts.py: every command, every branch, every delete."""
 
+import io
 import json
 import re
 import subprocess
 import sys
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -535,6 +537,169 @@ def test_malformed_config_yaml_exits_1_with_one_line(tmp_path, capsys):
     assert len(err.strip().splitlines()) == 1
     assert "cannot resolve the feedback directory" in err
     assert "Traceback" not in err
+
+
+# ---------------------------------------------------------------- create
+
+DUPLICATE = "duplicate title among queued drafts"
+
+
+def draft_bytes(scratch: Path, **fields) -> bytes:
+    """The text `create` reads on stdin."""
+    return make_draft(scratch, "source.md", **fields).read_bytes()
+
+
+def create(directory: Path, data: bytes) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, "-B", str(SCRIPTS_DIR / "feedback_drafts.py"), "create", "--feedback-dir", str(directory)], input=data, capture_output=True, check=False)
+
+
+def create_pair(directory: Path, first: bytes, second: bytes) -> list:
+    """Run two creates started at the same moment."""
+    barrier = threading.Barrier(2)
+    results = [None, None]
+
+    def one(index: int, data: bytes) -> None:
+        barrier.wait()
+        results[index] = create(directory, data)
+
+    threads = [threading.Thread(target=one, args=(index, data)) for index, data in enumerate((first, second))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return results
+
+
+def created_line(done: subprocess.CompletedProcess) -> "tuple[str, str]":
+    """The id and file name of a create that exited 0."""
+    assert done.returncode == 0, done.stderr.decode("utf-8", errors="replace")
+    word, draft_id, name = done.stdout.decode("ascii").split()
+    assert word == "admitted"
+    assert fd.DRAFT_NAME_RE.match(name)
+    return draft_id, name
+
+
+def test_concurrent_creates_with_one_title_leave_one_file(fdir, tmp_path):
+    first = draft_bytes(tmp_path / "a", draft_id="id-a", title="Same title")
+    second = draft_bytes(tmp_path / "b", draft_id="id-b", title="Same title")
+    results = create_pair(fdir, first, second)
+    assert sorted(done.returncode for done in results) == [0, 3]
+    winner, loser = sorted(results, key=lambda done: done.returncode)
+    draft_id, name = created_line(winner)
+    assert DUPLICATE in loser.stderr.decode("utf-8")
+    assert [p.name for p in fdir.iterdir()] == [name]  # one draft, and no lock file left behind
+    assert fm_value(fdir / name, "draft_id") == draft_id
+
+
+def test_concurrent_creates_sharing_a_slug_leave_two_files(fdir, tmp_path):
+    long = "A title long enough to be cut at forty chars"
+    created = iso(1)
+    first = draft_bytes(tmp_path / "a", draft_id="id-a", title=f"{long} first", created_at=created)
+    second = draft_bytes(tmp_path / "b", draft_id="id-b", title=f"{long} second", created_at=created)
+    made = dict(created_line(done) for done in create_pair(fdir, first, second))
+    stem = f"{created[:10]}-draft-bug-{fd.slugify(long + ' first')}"
+    assert fd.slugify(long + " first") == fd.slugify(long + " second")
+    assert sorted(made.values()) == [f"{stem}-2.md", f"{stem}.md"]
+    for draft_id, name in made.items():
+        assert fm_value(fdir / name, "draft_id") == draft_id
+
+
+def test_create_takes_the_next_name_past_a_discarded_draft(fdir, tmp_path):
+    created = iso(1)
+    stem = f"{created[:10]}-draft-bug-same-title"
+    discarded = make_draft(fdir, f"{stem}.md", draft_id="old", created_at=created, status="discarded", title="Same title")
+    before = discarded.read_bytes()
+    _, name = created_line(create(fdir, draft_bytes(tmp_path / "a", title="Same title", created_at=created)))
+    assert name == f"{stem}-2.md"
+    assert discarded.read_bytes() == before
+
+
+def test_create_keeps_non_ascii_text_byte_for_byte(fdir, tmp_path):
+    data = draft_bytes(tmp_path / "a", title="Crème brûlée – naïve ✓", body=BUG_BODY.replace("It broke.", "壊れた — naïve ✓"))
+    _, name = created_line(create(fdir, data))
+    assert (fdir / name).read_bytes() == data
+
+
+def test_a_held_lock_refuses_and_writes_nothing(fdir, tmp_path, capsys, monkeypatch):
+    data = draft_bytes(tmp_path / "a", title="Same title")
+    waiting = make_draft(fdir, "2026-01-01-draft-bug-waiting.md", draft_id="pending", created_at="pending", status="pending")
+    before = waiting.read_bytes()
+    monkeypatch.setattr(fd, "LOCK_WAIT_SECONDS", 0.2)
+    monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(data)))
+    with fd._dir_lock(fdir):
+        code, out, err = run(["create", "--feedback-dir", str(fdir)], capsys)
+        assert (code, out) == (1, "")
+        assert len(err.strip().splitlines()) == 1
+        assert "holds the lock" in err
+        # `admit` waits on the same lock, and a timeout leaves its file as written.
+        code, _, _ = run(["admit", str(waiting), "--feedback-dir", str(fdir)], capsys)
+        assert code == 1
+    assert waiting.read_bytes() == before
+    assert [p.name for p in fdir.iterdir()] == [waiting.name]
+
+
+HOLD_THE_LOCK = """
+import sys, time
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+import feedback_drafts as fd
+with fd._dir_lock(Path(sys.argv[2])):
+    print("held", flush=True)
+    time.sleep(60)
+"""
+
+
+def test_a_lock_its_process_died_holding_blocks_nobody(fdir, tmp_path):
+    holder = subprocess.Popen([sys.executable, "-B", "-c", HOLD_THE_LOCK, str(SCRIPTS_DIR), str(fdir)], stdout=subprocess.PIPE)
+    try:
+        assert holder.stdout.readline().strip() == b"held"
+    finally:
+        holder.kill()
+        holder.wait()
+        holder.stdout.close()
+    assert (fdir / fd.LOCK_NAME).exists()  # the dead process left its file
+    _, name = created_line(create(fdir, draft_bytes(tmp_path / "a")))
+    assert [p.name for p in fdir.iterdir()] == [name]
+
+
+def test_a_directory_that_refuses_the_lock_file_is_not_reported_as_locked(fdir, tmp_path, capsys, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr(fd, "LOCK_WAIT_SECONDS", 0.2)
+    monkeypatch.setattr(fd.os, "open", refuse)
+    monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(draft_bytes(tmp_path / "a"))))
+    code, _, err = run(["create", "--feedback-dir", str(fdir)], capsys)
+    assert code == 1
+    assert "could not write the draft" in err
+    assert "holds the lock" not in err
+
+
+def test_create_pads_an_early_year_in_the_name(fdir, tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(fd, "_upkeep", lambda directory, path: None)  # such a draft would expire at once
+    data = draft_bytes(tmp_path / "a", created_at="0999-01-01T00:00:00Z")
+    monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(data)))
+    code, out, _ = run(["create", "--feedback-dir", str(fdir)], capsys)
+    assert code == 0
+    assert out.split()[2].startswith("0999-01-01-draft-bug-")
+
+
+def test_create_makes_a_missing_directory(tmp_path):
+    directory = tmp_path / "planwise" / "Feedback" / "Feedback-Drafts"
+    _, name = created_line(create(directory, draft_bytes(tmp_path / "a")))
+    assert [p.name for p in directory.iterdir()] == [name]
+
+
+@pytest.mark.parametrize("data, reason", [
+    (b"no frontmatter\n", "malformed frontmatter"),
+    (b"\xff\xfe", "not UTF-8"),
+    (b"x" * (fd.MAX_BYTES + 1), "oversize"),
+], ids=["no-frontmatter", "not-utf8", "oversize"])
+def test_create_refuses_bad_input_and_writes_nothing(fdir, data, reason):
+    done = create(fdir, data)
+    assert done.returncode == 3
+    assert reason in done.stderr.decode("utf-8")
+    assert list(fdir.iterdir()) == []
 
 
 # ---------------------------------------------------------------- promote, discard

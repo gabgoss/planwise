@@ -34,7 +34,10 @@ The preflight's fact sheet is this agent's only evidence source. Re-read the liv
 
 The spawn prompt supplies the item id or candidate label, `handover_dir`, `plugin_root`, `planwise_root`, `backlog_dir`, and the path of the fact sheet (`{handover_dir}/preflight.md`). In refine mode it also supplies the item file path.
 
-The spawn prompt may carry one optional field, `answers`: the user's answers to an earlier `QUESTIONS` return, keyed by question number (`Q1`, `Q2`, …). A dispatch that carries `answers` is a fresh resume, and §5 governs it.
+The spawn prompt may carry two optional fields:
+
+- `answers`: the user's answers to an earlier `QUESTIONS` return, keyed by question number (`Q1`, `Q2`, …). A dispatch that carries `answers` is a fresh resume, and §5 governs it.
+- `unlanded_blockers`: ids of open blockers that carry `refined: true` but are not closed. Their design is written, and their changes are not in the tree. Read each blocker's item file for its `## Resolution`. §4 says what the design then records.
 
 1. Read the fact sheet and locate the block for this item or label.
 2. Consume these fields by name:
@@ -116,12 +119,14 @@ NEEDS_PLAN_REASON: {one line}
 Rules for the fields:
 
 - `APPROACH` names the chosen solution and, where §2 found one, the constraint that forced a narrower path.
+- With `unlanded_blockers` present, `APPROACH` also names what the design assumes of each unlanded blocker's `## Resolution`, even past its sentence count. Pin each `VERIFICATION` line on the state after the blockers land.
 - Each `STEPS` line names one file and one edit, and cites an anchor from the sheet's `ANCHORS` where one exists.
 - Write every path in `STEPS` relative to the project root, the root the rule `paths:` globs use. A sentence that rebases the paths onto a nested tree is invisible to the scoped-rule gate, which then labels every existing file `CREATE` and finds no rule.
 - Each `VERIFICATION` line is a command the author can copy and its expected output. One line covers each UNMET criterion.
 - A `VERIFICATION` line that pins a count, an absence or a literal over a file the `STEPS` edit is pinned from the post-edit file. Anchor the pattern to the target line, or apply every step to a scratch copy and pin the observed value. Run the pattern over each literal the steps add, fenced examples included. Take a literal operand from the edited line, never from a description of the edit. `references/gate-pinned-from-real-content.md` §11.6 holds the five failure shapes.
 - A step only the user can run, such as a live probe, an interactive slash command or a credentialed install, is not a command the author can copy. Write it as `user-run: {step} -> {expected}`, with no backticks and no other prefix.
 - Each `SUB_ITEMS` line must itself fit the step cap. A sub-item over the cap means the outcome is `NEEDS_PLAN`, not `DECOMPOSE`.
+- Write each `SUB_ITEMS` line so the author can file it executable. `{summary}` holds one `(n) {path} -- {edit}` part per step, each path relative to the project root. `{criteria}` holds each criterion with its check, in the `VERIFICATION` form `` `{command}` -> {expected} `` or `user-run: {step} -> {expected}`. A line with no check is filed `refined: false`.
 - The planner fills `{after}` for every sub-item that waits on a sibling, and writes `-` only for a sub-item that waits on none. `{after}` is the 1-based position, among this design file's `SUB_ITEMS` lines, of the one sibling this sub-item must land after. It is `-` when the sub-item waits on none. A position names an earlier `SUB_ITEMS` line only. A line never names itself or a later line. A sub-item waits on at most one sibling. Write a chain A, B, C as B after A and C after B. Sibling ids do not exist when this agent writes the line, so a position is the only reference the author can resolve. The author writes the dependent's id into the prerequisite's `blocks:`. Example: the second line ends in `| 1` when it must land after the first line, and the first line ends in `| -`.
 
 ## 5. RESUME

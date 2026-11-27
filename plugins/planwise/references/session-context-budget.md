@@ -376,6 +376,7 @@ Sprint Plan header Estimated Tokens
 |-------|---------|----------------|
 | Task reads | Sum of the Required Context `~Tokens` cells = the Context subtotal reads term | After writing each task file |
 | Task internal | Context subtotal = Task header `Estimated Tokens` | After writing each task file |
+| `task-role` | Required Context `Role` = `READ`, `EDIT` or `CREATE`, else `UNREAD` | After writing each task file |
 | Session total | Sum of task `Est. Tokens` = Orchestration `Total Estimated` | After writing orchestration |
 | Sprint total | Sum of session `Est. Tokens` = Sprint Plan header `Estimated Tokens` | After writing sprint plan |
 | `surface-tokens` | `~Tokens` = highest citing task row | After the build |

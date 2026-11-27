@@ -21,6 +21,7 @@ promotion-target: [rule|code|claude-md|agent|skill|settings]   # one or more tar
 origin: {planwise | owned-tool | foreign-tool | model-call | own-rules | own-code | other}   # the matched Resolution Matrix row
 enforced-by: "{kind}: {what fires when this failure recurs}"                                # or "none: {one-line reason}"; quoted, because the value holds a colon; kinds are lesson_check_kinds in config.yaml
 # promoted-to:                                                  # owning backlog item id(s), e.g. BB-{NNN}; set at capture-archive
+# superseded-by:                                                # the newer lesson's id, LL-{NNN}; set when a newer lesson replaces this one
 # rule-as:                                                      # DEPRECATED alias for applied-as — read for back-compat, never written
 ---
 

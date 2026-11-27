@@ -186,6 +186,8 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
 1. Get the item's file paths from the JSON data (the `files` array)
 2. Read each backlog item file (files have YAML frontmatter with `created`, `blocks`, and `status` fields)
 
+   **Open-blocker gate (before the refine offer and every later step).** Run step 6a's `--route --id` command. When its `open_blockers:` line names an id, the item is NOT ROUTABLE: stop for this item, name each blocker, restore the item's `status` from the Phase 1 JSON with `update_backlog.py --status`, regenerate the index, and tell the user to triage the blocker first. In loop mode, ask nothing and record the outcome from the open-blocker row of Part 2 § Per-iteration contract.
+
    **Refine offer.** Skip this block in loop mode and on `--loop-resume`. Read the `Answer:` lines under the item's `## Open Questions`.
    - An empty `Answer:` line: make no offer. Print one hint line: run `/planwise backlog --answer {item_id}` first.
    - Otherwise, when the item is `refined: false`, or `refined: true` with a filled `Answer:` line, make the offer below. A refined item with no filled `Answer:` line gets none.
@@ -696,6 +698,8 @@ Use this logic to determine the recommended route in Phase 3.
    and an explicit scope-confinement bound ("do NOT touch X"). Route on the
    *measured* edit scope, never on file length alone: a BB that is long only
    because it is thoroughly documented still has a clear, surgical fix.
+
+Open-blocker gate, before step 0. IF open_blockers (from --route) -> NOT ROUTABLE: name each blocker. Do NOT route.
 
 0.  Pivot check (High-priority / top-scoring / aged items only).
     IF pivot confirmed -> COHORT SWEEP: batch BLOCKED transition, shared rationale. Do NOT route.

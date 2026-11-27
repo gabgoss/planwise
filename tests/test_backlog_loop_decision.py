@@ -27,6 +27,7 @@ PLUGIN = Path(__file__).resolve().parent.parent / "plugins" / "planwise"
 BACKLOG_HANDLER = PLUGIN / "handlers" / "backlog.md"
 LOOP_PART2 = PLUGIN / "handlers" / "backlog-Part-2-LoopMode.md"
 AUTO_MODE_POLICY = PLUGIN / "references" / "auto-mode-policy.md"
+README = PLUGIN / "README.md"
 
 HEADING = "## Loop Decision Needed"
 QUESTIONS = "## Open Questions"
@@ -308,6 +309,44 @@ class TestNoQuestionsAfterSetup(unittest.TestCase):
         start = text.index("## Refine step")
         end = text.index("\n## ", start + 1)
         self.assertEqual(_question_lines(text[start:end]), [])
+
+    def test_refined_design_runs_in_the_same_iteration(self):
+        for path in (LOOP_PART2, AUTO_MODE_POLICY, README):
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(file=path.name):
+                self.assertIn("no stop for design approval", text)
+                for stale in (
+                    "refined; review before run",
+                    "A refined item stops there for review",
+                    "so the items behind it wait for the next run",
+                ):
+                    self.assertNotIn(stale, text)
+        loop = LOOP_PART2.read_text(encoding="utf-8")
+        self.assertIn("continues to Phase 3 in the same iteration", loop)
+        self.assertIn("runs in the same loop run once that blocker closes `COMPLETE`", loop)
+        # Starting the loop is the approval, so the opt-in question says so.
+        question = next(line for line in loop.splitlines() if line.startswith("**Q1.**"))
+        self.assertIn("approves the designs the refine step writes", question)
+
+    def test_a_new_design_is_checked_as_init_checks_one(self):
+        # `--init` never saw a design written this iteration, so the handler checks it.
+        text = LOOP_PART2.read_text(encoding="utf-8")
+        paragraph = next(
+            line for line in text.splitlines() if line.startswith("**Checks on a new design.**")
+        )
+        self.assertIn("`# user-run:`", paragraph)
+        self.assertIn('--note "user-run verification"', paragraph)
+        self.assertIn("`shape gate: FAIL`", paragraph)
+        self.assertIn('--note "refined; shape gate failed"', paragraph)
+
+    def test_a_design_behind_an_open_blocker_is_not_built(self):
+        text = LOOP_PART2.read_text(encoding="utf-8")
+        paragraph = next(
+            line for line in text.splitlines()
+            if line.startswith("When the `--next` JSON line carries `unlanded_blockers`")
+        )
+        self.assertIn("builds nothing while a blocker is open", paragraph)
+        self.assertIn("On a `REFINED` design, run `--mark --refined REFINED`", paragraph)
 
     def test_pin_discriminates_a_planted_question(self):
         planted = LOOP_PART2.read_text(encoding="utf-8") + "\nUse `AskUserQuestion`: route or skip?\n"

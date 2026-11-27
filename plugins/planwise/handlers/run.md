@@ -89,7 +89,7 @@ The annotations are inert during ordinary interactive runs — they guide Auto M
 ### Step 0.1: Parse Arguments
 
 Parse `$ARGUMENTS` to identify the orchestration file:
-- `$1` or `@file` syntax -- path to orchestration file or Master Plan
+- `$1` or `@file` syntax -- path to an orchestration file, a Master Plan, or one task file (a file with a `**Task ID:**` line). A task file runs that one task, and Step 0.2 item 6 says which orchestration the other items read.
 - `--resume` -- optional flag. Recorded for Step 1.3; it changes nothing in Phase 0.
 
 <!-- AUTO-MODE: critical -->
@@ -114,6 +114,20 @@ Example: /planwise run @Plans/MyPlan/Sprint-01/APM-S01-01-Orchestration.md
 3. Locate the recovery file in the same directory: `{Abbrev}-S{XX}-{YY}-Recovery.md`
 4. If recovery file does not exist, create it from [templates/recovery.md](../templates/recovery.md) using the orchestration's task list
 5. Locate or create `Outputs/` directory in the sprint folder
+6. **Task-file argument.** When `$1` is a task file, read this item before item 1. Check its producers, and stop before CONFIRM when one is not proven COMPLETE.
+   - Items 1 to 5 read the one `*-Orchestration.md` in the task file's folder. If that folder holds none or several, say so and stop.
+   - After item 5, run `python -B "{plugin_root}/scripts/dispatch_preflight.py" depends --candidate "{task file}" --plan-root "{plan folder}"`. `{plan folder}` holds the Master Plan.
+   - Exit 0: continue.
+   - Exit 1 with a `depends-on entries:` line: print every `not-complete:`, `unresolved:` and `ambiguous:` line verbatim. Do not go to CONFIRM.
+   - Any other non-zero exit means the check did not run. Print its output and stop.
+   - After exit 1, ask with `AskUserQuestion`, offering only the options below that apply. <!-- AUTO-MODE: critical -->
+     - **Run the whole session.** Offer it only when no `not-complete:` line names a full task id, because this session does not produce another session's task. It drops the task-file scope. Say that it does not check any `unresolved:` or `ambiguous:` line.
+     - **Run a producer first.** Offer it for `not-complete:` lines only. Restart at Step 0.1 with that producer's task file, lowest number first. Name the command that runs this task file again afterwards.
+     - **End the run.** Always offer it.
+7. **Task-file scope.** With a task-file argument, CONFIRM names that one task, and Phase 3 dispatches it alone.
+   - If its own Step Completion Status row already reads COMPLETE, CONFIRM says that approval runs it again. `--resume` does not skip that approval.
+   - Run Phase 4 only when every Step Completion Status row reads COMPLETE after the task's Step 3.3 update.
+   - Otherwise take no further task, whatever Step 3.3 item 8 or Step 3.4 offers. Route the task's coordination flags per Step 4.4. Report its result, the open rows and any uncommitted changes. Then end the run.
 
 ### Step 0.3: Check Master Plan Status
 
@@ -134,7 +148,7 @@ Read the Master Plan. Check the `Status:` field.
 Read these files completely (not skim):
 1. Orchestration file (already read in Phase 0)
 2. Recovery file -- check for resumption state. Distrust a `-` commit pin or missing `GATE_PENDING` row: check `git log`, fix Recovery first ([protocol](../references/session-execution-protocol.md))
-3. All task files listed in the Task Files table (read file headers, objectives, agents)
+3. All task files listed in the Task Files table (read file headers, objectives, agents). Then run `python -B "{plugin_root}/scripts/check_session_fill.py" "{session_dir}"`, where `{session_dir}` is the Orchestration's folder. Exit 1 with a `REFUSED:` line is a refusal, not a structural finding. Print every `UNFILLED:` line and the `REFUSED:` line verbatim. Tell the user to apply the fix that line names. Then stop before CONFIRM: end the run and run no later step. Any other non-zero exit means the check did not run: print its output and stop
 4. The measurements those task files assert. Re-run each task file's Before commands at the session base, at least one Before block per distinct command shape, before CONFIRM, then compare each reading with the task's `# pre-edit:` annotation and its "does not exist yet" claims. A changed reading is a Step 1.2a structural finding. See [gate-diff-baseline-pinning.md §8.6](../references/gate-diff-baseline-pinning.md#86-a-base-is-a-statement-about-one-moment-commits-after-it-inside-the-gates-paths-break-every-delta-gate)
 5. Run `Grep` for `^\*\*Split index:\*\*` over every Required Context file the task files list. When a task lists an index file and none of the sub-parts its `**Split index:**` line names, that is a Step 1.2a structural finding. The fix adds the sub-parts that hold the task's sections to its Required Context, before CONFIRM
 
@@ -213,6 +227,11 @@ Corollary — when an upstream contract SUPERSEDES an EI-verbatim block, the fla
 > - **Sibling plans.** For a plan authored before today, run `git log --oneline <authoring commit>..HEAD` over each write target and re-take each recorded hash. A foreign commit or a changed hash is a Step 1.2a finding.
 > - **Upstream commit pin.** For each `Prerequisite:` session, read its Recovery `Session Commit Pin`. A `-` pin under COMPLETE is an unmet "committed" prerequisite. Attribute the dirty paths through Step 1.1b, offer the three options, and pin the base after the decision.
 
+### Step 1.1g: LIVE-ORCHESTRATOR CHECK
+
+> [!binding] Find out who is acting before a re-entry dispatches
+> Run this step when the Recovery file reads `**Session Status:** IN_PROGRESS`. Print its `**Orchestrator:**` line and the last Change Log row (status and date) as a Step 1.2a structural finding. Ask the user who owns the session, and dispatch nothing until the user answers. On a takeover, write your own `**Orchestrator:**` line and a Change Log row with Status `OWNER` and both tokens in Notes. Skip this step only when `--resume` was passed and the three Step 1.3 conditions hold. See [session-execution-protocol.md §4, "A Re-Entry Finds Out Who Is Acting Before It Dispatches"](../references/session-execution-protocol.md#a-re-entry-finds-out-who-is-acting-before-it-dispatches).
+
 ### Step 1.2: CONFIRM
 
 Output the confirmation block. See [examples/confirmation-block.md](../examples/confirmation-block.md) for correctly formatted examples (standard, multiple files, fresh session, recovery, and structural-finding variants).
@@ -251,7 +270,7 @@ Only proceed after user approval. If Step 1.2a surfaced a structural finding, th
 > 2. the `## Session Boundary Note` section is present (see `templates/recovery.md`)
 > 3. `**Resume State:** complete`
 >
-> When all three hold: append `Resume: --resume accepted — {the Next Dispatch line}` to the Step 1.2 `CONTEXT LOADED` block, log a Recovery Change Log row `RESUMED (--resume)`, and proceed to Phase 2 with no question asked. Phase 0, Step 1.1, Step 1.1a, and Step 1.2 are NOT skipped — their reads are what a re-entry needs.
+> When all three hold: append `Resume: --resume accepted — {the Next Dispatch line}` to the Step 1.2 `CONTEXT LOADED` block, log a Recovery Change Log row `RESUMED (--resume)` and write this orchestrator's `**Orchestrator:**` line in the same Recovery write, and proceed to Phase 2 with no question asked. Phase 0, Step 1.1, Step 1.1a, and Step 1.2 are NOT skipped — their reads are what a re-entry needs.
 > When any condition fails: ignore the flag, append `Resume: --resume ignored — {the failing condition}` to the block, and ask as usual. A structural finding at Step 1.2a always asks, flag or no flag.
 
 ---
@@ -604,7 +623,7 @@ Resolve the next session once, here, before Step 4.3 marks this one COMPLETE. Th
 python {plugin_root}/scripts/resolve_next_session.py --config {planwise_root}/config.yaml --orchestration {orchestration path}
 ```
 
-It prints `NEXT: /planwise:planwise run @{path}`, `NEXT_UNSCAFFOLDED: {Sprint} {Session}`, or `NEXT: none`. Copy the value after the colon into the Summary's `**Next run:**` line.
+It prints `NEXT: /planwise:planwise run @{path}`, `NEXT_UNSCAFFOLDED: {Sprint} {Session}`, or `NEXT: none`. Copy the value after the colon into the Summary's `**Next run:**` line. When an `Unfinished earlier:` line follows, copy it below that line and add it to the Step 4.6 completion block.
 
 Write to: `Outputs/{Abbrev}-S{XX}-{YY}-Summary.md` in the sprint folder.
 
@@ -739,6 +758,7 @@ Summary: Outputs/{Abbrev}-S{XX}-{YY}-Summary.md
 Lessons: {N} captured (or "None")
 Backlog closed: {item ids closed in Step 4.3, or "none"; items held PLANNING behind a user-action gate are named here}
 Plan status: {the Master Plan Status: line that Step 4.3 wrote}
+Unfinished earlier: {the resolver's labels; omit this line when it printed none}
 Destructive-diff review: {one state per diff, e.g. "this diff: N/A; upstream {session} diff: SATISFIED"; DEFERRED (user action required) adds: run {command}, routed to {session}}
 ```
 
@@ -818,7 +838,7 @@ If you lose context mid-session:
 3. **(Track B) RE-HYDRATE** the task list -- run `TaskList`. If no `[{ABBREV}-` entry exists, a `/clear` started a new list: run Phase 2 Step 2.2's resume-or-re-hydrate branch. If entries exist, the boundary was a compaction: mark each status to match Recovery.
 4. **RESUME** from next incomplete task -- mark it IN_PROGRESS immediately
 5. **UPDATE** recovery after completing resumed task
-6. **RE-ENTER** with `/planwise run <orchestration> --resume` when the session was cleared and the Recovery note reads `Resume State: complete`; the flag skips only the Step 1.3 approval.
+6. **RE-ENTER** with `/planwise run <orchestration> --resume` when the session was cleared and the Recovery note reads `Resume State: complete`; the flag skips only the Step 1.1g ownership question and the Step 1.3 approval.
 
 ### Agent Escalation
 

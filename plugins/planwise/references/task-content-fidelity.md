@@ -12,7 +12,7 @@ consult-when: Checking Required Context fidelity in a task file — measured est
 ---
 
 > [!hazard] This reference is split across two files — §9.A.20 to §9.A.22 live in Part 2
-> This part carries §9.A.1 to §9.A.19. The derived-figure rules (a corrected figure re-derives the rules that cite it, a split count is checked per row, every count names its denominator) and Reviewer Check 140 live in [task-content-fidelity-Part-2-DerivedFigures.md](task-content-fidelity-Part-2-DerivedFigures.md).
+> This part carries §9.A.1 to §9.A.19. The derived-figure rules (a corrected figure re-derives the rules that cite it, a split count is checked per row, every count names its denominator) and Reviewer Check 140 are held in [task-content-fidelity-Part-2-DerivedFigures.md](task-content-fidelity-Part-2-DerivedFigures.md).
 
 ## 9.A Required Context Fidelity (BINDING)
 
@@ -195,15 +195,14 @@ Issue: Declared count "{N}" differs from live disk count "{actual_N}"
 Fix: Re-glob per references/task-content-fidelity.md §9.A.4 | Confidence: HIGH
 ```
 
-### 9.A.5 Budget 1.5-2× the naive sum for consolidation tasks
+### 9.A.5 Budget consolidation reads above the naive sum
 
-> [!constraint] A consolidation task reading N upstream outputs MUST budget 1.5-2× the naive token sum
-> When a task's job is to read N upstream artifacts and produce a consolidated,
-> cross-referenced, or deduplicated output, the token estimate MUST be 1.5-2× the
-> naive sum of the N inputs' sizes. The naive sum captures only the raw reads; it
-> omits the cross-referencing overhead — re-reading earlier inputs to resolve a
-> reference, holding partial state while merging, and an output larger than any
-> single input.
+> [!constraint] A consolidation task reading N upstream outputs MUST price its reads above the naive token sum, with a stated factor
+> When a task merges N upstream artifacts into one output, its reads term MUST carry
+> an explicit factor above 1.0. The naive sum omits re-reads, held partial state and
+> an output larger than any single input.
+>
+> A factor of 1.5-2× is advisory. No measurement produced it, and no check gates on it.
 >
 > WRONG — consolidation task budgeted at the bare read sum:
 > ```markdown
@@ -211,40 +210,41 @@ Fix: Re-glob per references/task-content-fidelity.md §9.A.4 | Confidence: HIGH
 > <!-- {sum}K = naive sum of the {N} input files -->
 > ```
 > Mid-task the subagent re-reads inputs 1-3 to reconcile a contradiction flagged
-> in input 7; actual context lands ~1.7× the estimate and the budget margin is gone.
+> in input 7. The context passes the estimate and the budget margin is gone.
 >
-> CORRECT — apply the consolidation multiplier and state it:
+> CORRECT — apply a consolidation factor and state it:
 > ```markdown
 > Context subtotal: ~{sum}K reads × 1.7 (consolidation overhead) + ~{out}K output = ~{total}K total
-> <!-- {N} inputs cross-referenced; 1.5-2× per §9.A.5 — 1.7× chosen for moderate cross-reference density -->
+> <!-- {N} inputs cross-referenced; 1.7× chosen for moderate cross-reference density -->
 > ```
 
 Applies to Meta-Plan Discovery consolidation tasks, Execution-Input extraction tasks, and any task that merges multiple upstream outputs into one cross-referenced artifact.
 
-#### Reviewer Check 026 — Task Consolidation 1.5-2× Budgeting
+#### Reviewer Check 026 — Task Consolidation Read-Overhead Factor
 
 - **Severity / Role / Type:** WARNING | Task Reviewer | NEW
-- **What:** Consolidation/synthesis tasks MUST budget 1.5-2× source-input tokens for output (consolidation expands).
-- **Detection:** For tasks with "consolidate" / "synthesize" Objective, compute output/input ratio. <1.5 → WARNING.
+- **What:** A consolidation/synthesis task MUST state a factor above 1.0 on its reads term. The factor's size is not gated.
+- **Detection:** For a task with a "consolidate" / "synthesize" Objective that merges two or more inputs, read the Context subtotal. No factor above 1.0 on the reads term → WARNING.
 - **Finding template:**
 ```
 [WARNING] Task consolidation under-budgeted
-File: {task file path} | Location: Required Context subtotal vs Output estimate
-Issue: Ratio {ratio}x below 1.5-2× consolidation band
-Fix: Increase per references/task-content-fidelity.md §9.A.5 | Confidence: MEDIUM
+File: {task file path} | Location: Required Context subtotal
+Issue: Reads term carries no consolidation factor above 1.0
+Fix: State one per references/task-content-fidelity.md §9.A.5 | Confidence: MEDIUM
 ```
 
 ### 9.A.6 Cite the generator, not the walked file-set, for large generated inputs
 
-> [!constraint] When a task's Required Context is produced by a generator walking ≥100 files (or a tree totaling ≥10K lines), cite the generator and its input root — not the individual files
-> If a task consumes input produced by a script or tool that walks a large file
-> tree — **≥100 files, OR a tree totaling ≥10K lines** — the Required Context
-> table MUST cite (a) the generator command or script and (b) its input root
-> directory — NOT 100+ individual file rows. Enumerating every walked file bloats
-> the task file past the read-gate ceiling, makes the size arithmetic
-> unauditable, and goes stale the instant one file is added.
+> [!constraint] When a generator walks a file tree for a task, Required Context cites the generator and its input root, not the walked files
+> Cite (a) the generator command or script and (b) its input root. A file only the
+> generator reads gets no row. A file the task itself reads keeps its measured row.
 >
-> WRONG — 100+ rows, one per walked file:
+> No count gates this rule. "100 files" and "10K lines" are advisory marks of a
+> large tree, with no measurement behind them. 100 rows do not fill a 25,000-token
+> Read page: in 14,714 rows from 1,998 task files (2026-11-27), the median row was
+> 166 bytes, about 6,400 tokens per 100 rows at 2.6 bytes per token.
+>
+> WRONG — one row per walked file:
 > ```markdown
 > | 1 | {input-root}/file-001.ext | {K} | ~{T}K | walked |
 > | 1 | {input-root}/file-002.ext | {K} | ~{T}K | walked |
@@ -259,19 +259,19 @@ Fix: Increase per references/task-content-fidelity.md §9.A.5 | Confidence: MEDI
 > The `KiB` / `~Tokens` cells reflect the generator's *output* (what
 > the subagent actually reads), not the sum of the walked tree.
 
-Applies to tasks fed by codebase-scan scripts, doc-index generators, manifest builders, or any tool whose input is a directory walk of ≥100 files or ≥10K total lines.
+Applies to tasks fed by codebase-scan scripts, doc-index generators, manifest builders, or any tool whose input is a directory walk.
 
-#### Reviewer Check 027 — Task Generator-Script Pattern (≥100-file Walks)
+#### Reviewer Check 027 — Task Generator-Script Pattern (Walked File Sets)
 
-- **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
-- **What:** Tasks walking ≥100 files MUST use generator-script pattern.
-- **Detection:** Count file references in Required Context. ≥100 AND no generator-script reference in Execution Steps → BLOCKER.
+- **Severity / Role / Type:** WARNING | Task Reviewer | NEW
+- **What:** A file the task only walks takes no Required Context row.
+- **Detection:** Find each step that works on a root as a whole: it runs a generator over the root, or it scans, counts or indexes the root and names no generator. A Required Context row for a file under that root that no step opens → WARNING. A row count alone is not a finding; §9.A.8 covers an oversized task file.
 - **Finding template:**
 ```
-[BLOCKER] Task generator-script pattern missing
-File: {task file path} | Location: Execution Steps
-Issue: Task walks {N} files (≥100) without generator-script architecture
-Fix: Add per references/verify-before-cite.md §9.B.15 / references/task-content-fidelity.md §9.A.6 | Confidence: HIGH
+[WARNING] Task lists files it only walks
+File: {task file path} | Location: Required Context
+Issue: {N} rows under {input root} are walked by {generator or step}, and no step opens them
+Fix: Cite the generator and its output per references/verify-before-cite.md §9.B.15 / references/task-content-fidelity.md §9.A.6 | Confidence: HIGH
 ```
 
 ### 9.A.7 Declare multi-artifact output splits at plan-author time

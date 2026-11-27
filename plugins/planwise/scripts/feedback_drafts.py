@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Shared helper for model-drafted feedback files (stdlib only).
 
-Producers and the review surface call this one script to list, admit,
+Producers and the review surface call this one script to list, admit, create,
 discard, promote and expire model-drafted feedback, to switch on posting, to report whether posting is on, to switch drafting off, and to print the resolved feedback directory.
 
 ## The draft file
@@ -20,10 +20,11 @@ hand-written feedback draft, a posted-marker sidecar, and anything under
 | `list [--json] [--all]` | Read-only. Reports a queued draft past `EXPIRY_DAYS` as expired without writing it. Reports a promoted draft whose promoted file has an active `.blocked` sidecar as blocked without writing it. Then lists queued, blocked and expired drafts. `--all` adds discarded and promoted. A blocked draft keeps `status: promoted` on disk | 0 |
 | `list --table [--all] [--session-id <id>]` | Same groups as `list`, also read-only, printed as one `Queued (n)` / `Blocked by the privacy check (n)` / `Expired (n)` table per group, newest `created_at` first. The Session column uses `--session-id`, else the `CLAUDE_CODE_SESSION_ID` environment variable, else prints `unknown`. Not with `--json` (exit 2) | 0 |
 | `sweep-list` | Read-only. Prints each `*.md` file that has a `.md.posted` sidecar and is not a model draft, with its `posted:`, `url:` and `route:` values, then a `blocked sidecar:` line for a candidate that also has a `.blocked` sidecar, then each orphan `.posted` or `.blocked` sidecar and a summary line | 0 |
-| `admit <path>` | Needs `--feedback-dir` or `--config`, and the file directly in that directory. A draft already `expired`, `discarded` or `promoted` is left untouched. Otherwise needs `status` to be `pending` or `queued`, no duplicated frontmatter key, and a parseable `created_at`. Fills `pending` ids, replaces a colliding id, replaces a future `created_at` with now, refuses and deletes an oversize or duplicate-title model draft or one whose parsed frontmatter is invalid, refuses and keeps a file whose frontmatter does not parse, then runs expiry and eviction and names each draft it evicts on stderr | 0 admitted, 1 file missing or config unreadable, 2 name does not match, no usable directory option, `Archive/` directory, file not directly in the directory, or a draft already expired, discarded or promoted, 3 refused, expired on admission, or evicted on admission |
+| `admit <path>` | Needs `--feedback-dir` or `--config`, and the file directly in that directory. A draft already `expired`, `discarded` or `promoted` is left untouched. Otherwise needs `status` to be `pending` or `queued`, no duplicated frontmatter key, and a parseable `created_at`. Fills `pending` ids, replaces a colliding id, replaces a future `created_at` with now, refuses and deletes an oversize or duplicate-title model draft or one whose parsed frontmatter is invalid, refuses and keeps a file whose frontmatter does not parse, then runs expiry and eviction and names each draft it evicts on stderr | 0 admitted, 1 file missing, config unreadable or the directory lock not obtained, 2 name does not match, no usable directory option, `Archive/` directory, file not directly in the directory, or a draft already expired, discarded or promoted, 3 refused, expired on admission, or evicted on admission |
+| `create` | Reads the draft text as UTF-8 from stdin. Needs `--feedback-dir` or `--config`, and creates a missing feedback directory. Runs the frontmatter checks of `admit` and refuses a duplicate title before any file is written. Names the file `{date}-draft-{kind}-{slug}.md`, or `-2` to `-9`, and creates it exclusively, so two callers never share one name. Then runs expiry and eviction as `admit` does. Prints `admitted {draft_id} {file name}` | 0 written, 1 config unreadable, the directory lock not obtained or the file not writable (nothing is left behind), 2 no usable directory option or `Archive/` directory, 3 refused, no free file name, expired on admission, or evicted on admission |
 | `discard <id>` | Sets `status: discarded` | 0, 1 not found |
 | `promote <id>` | Writes the standard draft, sets `status: promoted`, adds `promoted_to:` | 0, 1 not found or discarded, 3 already promoted |
-| `expire` | Sets `status: expired` on queued drafts older than `EXPIRY_DAYS`. One of the two commands that write `status: expired`, with `admit` | 0 |
+| `expire` | Sets `status: expired` on queued drafts older than `EXPIRY_DAYS`. One of the three commands that write `status: expired`, with `admit` and `create` | 0 |
 | `enable-posting --config <path>` | Sets `feedback.enabled: true` by text splice, idempotent, in the block's own indent. The result is parsed before it is written, and a result that would not parse is never written | 0, 1 config problem |
 | `posting-state --config <path>` | Reads `feedback.enabled` and prints one word, writing nothing: `enabled` when it is `true`, `disabled` when the key is set to anything else (an explicit decision), `absent` when the `feedback` block or its `enabled` key is missing or empty. A caller uses the word to tell a user who never saw the key from one who turned posting off | 0, 1 config missing or the feedback key is not a block mapping |
 | `feedback-dir --config <path>` | Prints the absolute feedback directory the config resolves to, writing nothing. In a linked git worktree that is the main checkout's folder. The folder need not exist, and the command never creates it. A caller that writes a draft by hand uses this path | 0, 1 config missing or unreadable |
@@ -33,9 +34,14 @@ hand-written feedback draft, a posted-marker sidecar, and anything under
 | `blocked-list [--json] [--all]` | Read-only. Lists each draft with a `.blocked` sidecar that has no `dismissed:` line and no `.posted` sidecar, on the draft or on a comment draft made from it. `--all` adds dismissed and posted drafts. A sidecar whose draft is gone is not listed | 0 |
 | `dismiss-blocked --draft D` or `dismiss-blocked --all` | Appends `dismissed: {date}` to the sidecar. It never moves, rewrites or deletes a draft. `--draft` is idempotent. `--all` dismisses every blocked draft the list shows without `--all` | 0, 1 no sidecar for `--draft`, or the directory option is missing |
 
+`admit` and `create` hold an operating system lock on one lock file in the feedback
+directory while they work, so two sessions run their duplicate-title checks one after
+the other. The system frees the lock when its process ends, so a file a dead process
+left behind blocks nobody. The command that releases the lock removes the file.
+
 The directory comes from `--feedback-dir <abs>` when given, otherwise from
 `--config <path>` through `config_loader.load_config()`. `--feedback-dir` must be an
-absolute path to an existing directory. A directory resolved from `--config` may
+absolute path to an existing directory, except for `create`, which makes it. A directory resolved from `--config` may
 not exist yet, and `list` and `expire` then say so. A feedback directory's own
 `Archive/` child is refused by every command except `enable-posting` and `disable-drafts`. An exit of
 1 also reports a missing directory option, a missing file or an unreadable config.
@@ -59,6 +65,7 @@ without running a subprocess. `list`, `count_queued`, `is_expired`, `was_posted`
 """
 
 import argparse
+import contextlib
 import io
 import json
 import os
@@ -66,8 +73,9 @@ import re
 import shutil
 import sys
 import tempfile
+import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -96,6 +104,11 @@ SLUG_MAX = 40
 PENDING = "pending"
 REQUIRED_KEYS = ("draft_id", "created_at", "kind", "title", "status")
 KINDS = ("bug", "lesson", "idea")
+# The plain name first, then the collision suffixes.
+NAME_SUFFIXES = ("", *(f"-{n}" for n in range(2, 10)))
+LOCK_NAME = ".feedback-drafts.lock"
+LOCK_WAIT_SECONDS = 5.0
+LOCK_RETRY_SECONDS = 0.05
 
 # Frontmatter block located in the raw text: opening line, body, closing line.
 _RAW_FM_RE = re.compile(r"\A﻿?---(\r?\n)(.*?)(\r?\n)---(?:\r?\n|\Z)", re.DOTALL)
@@ -276,7 +289,7 @@ def _now() -> datetime:
 def is_expired(draft: Draft, now: datetime) -> bool:
     """True when `draft` was created more than `EXPIRY_DAYS` before `now`.
 
-    This is the one expiry predicate. `expire` and `admit` apply it and write,
+    This is the one expiry predicate. `expire`, `admit` and `create` apply it and write,
     `list` applies it in memory, and a read-only caller uses it to get the same
     answer without writing. A
     missing or unparseable `created_at` never expires.
@@ -289,7 +302,7 @@ def count_queued(directory: Path) -> int:
     """How many model drafts `list` would show as `queued` in `directory`.
 
     Read-only: a queued draft past expiry counts as not queued and is left
-    as it is on disk. Only `expire` and `admit` write its new status.
+    as it is on disk. Only `expire`, `admit` and `create` write its new status.
     """
     now = _now()
     return sum(1 for draft in _iter_drafts(directory) if draft.status == "queued" and not is_expired(draft, now))
@@ -527,64 +540,142 @@ def cmd_sweep_list(args: argparse.Namespace) -> int:
     return 0
 
 
-def _refusal(draft_path: Path, reason: str) -> int:
-    _delete_model_draft(draft_path)
+class _LockTimeout(Exception):
+    """The directory lock stayed held for the whole wait."""
+
+
+def _try_lock(handle: int) -> bool:
+    """Take the system's lock on an open file without waiting. False when another handle holds it."""
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(handle, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False
+    return True
+
+
+def _is_file_at(handle: int, path: Path) -> bool:
+    """True while `path` still names the open file. A holder may have removed it before releasing."""
+    try:
+        return os.path.samestat(os.fstat(handle), os.stat(path))
+    except OSError:
+        return False
+
+
+@contextlib.contextmanager
+def _dir_lock(directory: Path) -> "Iterator[None]":
+    """Hold the lock of `directory`, so `admit` and `create` never run at once there.
+
+    The system frees the lock when its process ends, so no lock is ever stale.
+    """
+    lock = directory / LOCK_NAME
+    deadline = time.monotonic() + LOCK_WAIT_SECONDS
+    while True:
+        try:
+            handle = os.open(lock, os.O_CREAT | os.O_RDWR)
+        except PermissionError:
+            # Windows can refuse for the moment in which another process removes the file.
+            if os.name != "nt" or time.monotonic() >= deadline:
+                raise
+        else:
+            if _try_lock(handle) and _is_file_at(handle, lock):
+                break
+            os.close(handle)
+            if time.monotonic() >= deadline:
+                raise _LockTimeout(str(lock))
+        time.sleep(LOCK_RETRY_SECONDS)
+    try:
+        yield
+    finally:
+        # Windows refuses to remove an open file, so close first there. Elsewhere remove first,
+        # while the lock still keeps every other process out of this file.
+        if os.name == "nt":
+            os.close(handle)
+        with contextlib.suppress(OSError):
+            lock.unlink()
+        if os.name != "nt":
+            os.close(handle)
+
+
+def _claim(directory: Path, stem: str, data: bytes) -> "Path | None":
+    """Create `{stem}.md`, or `-2` to `-9`, exclusively and write `data`. None when every name is taken.
+
+    A failed write removes the file, so a caller that gets an error left nothing behind.
+    """
+    for suffix in NAME_SUFFIXES:
+        candidate = directory / f"{stem}{suffix}.md"
+        created = False
+        try:
+            with open(candidate, "xb") as handle:
+                created = True
+                handle.write(data)
+        except FileExistsError:
+            continue
+        except BaseException:
+            # Remove only a file this call made.
+            if created:
+                candidate.unlink(missing_ok=True)
+            raise
+        return candidate
+    return None
+
+
+def _refused(reason: str) -> int:
     print(f"feedback draft refused: {reason}", file=sys.stderr)
     return 3
 
 
-def cmd_admit(args: argparse.Namespace) -> int:
-    path = Path(args.path)
-    if not DRAFT_NAME_RE.match(path.name):
-        print(f"feedback draft refused: name does not match the draft pattern: {path.name}", file=sys.stderr)
-        return 2
-    if not path.is_file():
-        print(f"feedback_drafts: no such file: {path}", file=sys.stderr)
-        return 1
-    directory, code = _need_dir(args, refuse_code=2)
-    if directory is None:
-        return code
-    here = path.resolve()
-    if here.parent != directory.resolve():
-        print(f"feedback draft refused: file is not directly in the feedback directory: {path}", file=sys.stderr)
-        return 2
+def _refusal(draft_path: Path, reason: str) -> int:
+    _delete_model_draft(draft_path)
+    return _refused(reason)
 
-    raw = _read(path)
-    fm = _parse_fm(raw)
-    # A draft already in a later lifecycle state is a tracked record, not a
-    # malformed submission: it is never refused, so it is never deleted here.
-    lifecycle = fm.get("status", "").strip() if fm is not None else ""
-    if lifecycle in ("expired", "discarded", "promoted"):
-        print(f"feedback draft refused: not admissible in status {lifecycle}: {path.name}", file=sys.stderr)
-        return 2
-    size = path.stat().st_size
+
+def _lock_failed(exc: _LockTimeout) -> int:
+    print(f"feedback_drafts: another command holds the lock, nothing written: {exc}", file=sys.stderr)
+    return 1
+
+
+def _frontmatter_problem(raw: str, fm: "dict | None", size: int, name_kind: "str | None") -> "str | None":
+    """Why a new draft is refused, or None. `name_kind` is the kind in an existing file name."""
     if size > MAX_BYTES:
-        return _refusal(path, f"oversize ({size} bytes, limit {MAX_BYTES})")
+        return f"oversize ({size} bytes, limit {MAX_BYTES})"
     if fm is None:
-        return _refusal(path, "malformed frontmatter")
+        return "malformed frontmatter"
     duplicated = _duplicate_key(raw)
     if duplicated:
-        return _refusal(path, f"malformed frontmatter (duplicate key {duplicated})")
+        return f"malformed frontmatter (duplicate key {duplicated})"
     missing = [key for key in REQUIRED_KEYS if not fm.get(key)]
     if missing:
-        return _refusal(path, f"malformed frontmatter (missing {missing[0]})")
-    if fm["kind"] != _name_kind(path.name):
-        return _refusal(path, "malformed frontmatter (kind does not match the file name)")
+        return f"malformed frontmatter (missing {missing[0]})"
+    if name_kind is None:
+        if fm["kind"] not in KINDS:
+            return "malformed frontmatter (kind must be bug, lesson or idea)"
+    elif fm["kind"] != name_kind:
+        return "malformed frontmatter (kind does not match the file name)"
     if fm.get("drafted_by") != "model":
-        return _refusal(path, "malformed frontmatter (drafted_by is not model)")
+        return "malformed frontmatter (drafted_by is not model)"
     if fm["status"].strip() not in (PENDING, "queued"):
-        return _refusal(path, f"malformed frontmatter (status must be pending or queued, not {fm['status']})")
+        return f"malformed frontmatter (status must be pending or queued, not {fm['status']})"
     if fm["created_at"] != PENDING and _parse_created(fm["created_at"]) is None:
-        return _refusal(path, "malformed frontmatter (created_at is not a timestamp)")
+        return "malformed frontmatter (created_at is not a timestamp)"
+    return None
 
-    title = _normalise_title(fm["title"])
-    others = [d for d in _iter_drafts(directory) if d.path.resolve() != here]
+
+def _title_is_queued(drafts: "list[Draft]", title: str) -> bool:
+    wanted = _normalise_title(title)
     now = _now()
-    for other in others:
-        if other.status == "queued" and not is_expired(other, now) and _normalise_title(other.fm.get("title", "")) == title:
-            return _refusal(path, "duplicate title among queued drafts")
+    return any(d.status == "queued" and not is_expired(d, now) and _normalise_title(d.fm.get("title", "")) == wanted for d in drafts)
 
-    if fm["draft_id"] == PENDING:
+
+def _settle(raw: str, fm: dict, others: "list[Draft]") -> str:
+    """Fill the pending values of a new draft and replace a colliding id or a future time. Updates `fm` too."""
+    if fm.get("draft_id") == PENDING:
         fm["draft_id"] = str(uuid.uuid4())
         raw = _set_fm(raw, "draft_id", fm["draft_id"])
     elif any(other.draft_id == fm["draft_id"] for other in others):
@@ -605,20 +696,135 @@ def cmd_admit(args: argparse.Namespace) -> int:
             print(f"feedback_drafts: created_at {old_value} is in the future, replaced with {fm['created_at']}", file=sys.stderr)
     if fm["status"].strip() == PENDING:
         raw = _set_fm(raw, "status", "queued")
-    _write(path, raw)
+    return raw
 
+
+def _upkeep(directory: Path, path: Path) -> "str | None":
+    """Run expiry and eviction after `path` joined the queue. Returns why `path` did not stay queued, or None."""
+    here = path.resolve()
     drafts = _iter_drafts(directory)
     _apply_expiry(drafts)
     for evicted in _evict(drafts):
         if evicted.path.resolve() != here:
             print(f"feedback_drafts: evicted {evicted.draft_id} ({evicted.path.name}): more than {QUEUE_CAP} queued drafts", file=sys.stderr)
     if not path.exists():
-        print("feedback draft refused: evicted on admission: older than the queued drafts", file=sys.stderr)
-        return 3
+        return "evicted on admission: older than the queued drafts"
     if any(d.path.resolve() == here and d.status == "expired" for d in drafts):
-        print("feedback draft refused: expired on admission: created more than the expiry limit ago", file=sys.stderr)
-        return 3
+        return "expired on admission: created more than the expiry limit ago"
+    return None
+
+
+def cmd_admit(args: argparse.Namespace) -> int:
+    path = Path(args.path)
+    if not DRAFT_NAME_RE.match(path.name):
+        print(f"feedback draft refused: name does not match the draft pattern: {path.name}", file=sys.stderr)
+        return 2
+    if not path.is_file():
+        print(f"feedback_drafts: no such file: {path}", file=sys.stderr)
+        return 1
+    directory, code = _need_dir(args, refuse_code=2)
+    if directory is None:
+        return code
+    if path.resolve().parent != directory.resolve():
+        print(f"feedback draft refused: file is not directly in the feedback directory: {path}", file=sys.stderr)
+        return 2
+    try:
+        with _dir_lock(directory):
+            return _admit_locked(path, directory)
+    except _LockTimeout as exc:
+        return _lock_failed(exc)
+    except OSError as exc:
+        print(f"feedback_drafts: could not admit the draft: {exc}", file=sys.stderr)
+        return 1
+
+
+def _admit_locked(path: Path, directory: Path) -> int:
+    # Another command may have evicted the file while this one waited for the lock.
+    if not path.is_file():
+        print(f"feedback_drafts: no such file: {path}", file=sys.stderr)
+        return 1
+    here = path.resolve()
+    raw = _read(path)
+    fm = _parse_fm(raw)
+    # A draft already in a later lifecycle state is a tracked record, not a
+    # malformed submission: it is never refused, so it is never deleted here.
+    lifecycle = fm.get("status", "").strip() if fm is not None else ""
+    if lifecycle in ("expired", "discarded", "promoted"):
+        print(f"feedback draft refused: not admissible in status {lifecycle}: {path.name}", file=sys.stderr)
+        return 2
+    problem = _frontmatter_problem(raw, fm, path.stat().st_size, _name_kind(path.name))
+    if problem is not None:
+        return _refusal(path, problem)
+
+    others = [d for d in _iter_drafts(directory) if d.path.resolve() != here]
+    if _title_is_queued(others, fm["title"]):
+        return _refusal(path, "duplicate title among queued drafts")
+    _write(path, _settle(raw, fm, others))
+
+    reason = _upkeep(directory, path)
+    if reason is not None:
+        return _refused(reason)
     print(f"admitted {fm['draft_id']}")
+    return 0
+
+
+def _make_create_dir(args: argparse.Namespace) -> None:
+    """Make the missing feedback directory a project's first draft needs. A failure is left for the caller to report."""
+    try:
+        directory = _resolve_dir(args)
+    except _CONFIG_ERRORS:
+        return
+    if directory is not None and directory.is_absolute() and not _in_archive(directory):
+        with contextlib.suppress(OSError):
+            directory.mkdir(parents=True, exist_ok=True)
+
+
+def cmd_create(args: argparse.Namespace) -> int:
+    # Read bytes: text-mode stdin is cp1252 on Windows.
+    data = sys.stdin.buffer.read()
+    _make_create_dir(args)
+    directory, code = _need_dir(args, refuse_code=2)
+    if directory is None:
+        return code
+    try:
+        raw = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return _refused("the input is not UTF-8")
+    fm = _parse_fm(raw)
+    problem = _frontmatter_problem(raw, fm, len(data), None)
+    if problem is not None:
+        return _refused(problem)
+    try:
+        with _dir_lock(directory):
+            return _create_locked(directory, raw, fm)
+    except _LockTimeout as exc:
+        return _lock_failed(exc)
+    except OSError as exc:
+        print(f"feedback_drafts: could not write the draft: {exc}", file=sys.stderr)
+        return 1
+
+
+def _create_locked(directory: Path, raw: str, fm: dict) -> int:
+    others = _iter_drafts(directory)
+    if _title_is_queued(others, fm["title"]):
+        return _refused("duplicate title among queued drafts")
+    raw = _settle(raw, fm, others)
+    # isoformat pads the year to four digits on every platform; strftime does not.
+    day = _parse_created(fm["created_at"]).date().isoformat()
+    stem = f"{day}-draft-{fm['kind']}-{slugify(fm['title'])}"
+    path = _claim(directory, stem, raw.encode("utf-8"))
+    if path is None:
+        return _refused(f"no free file name for {stem}")
+    # The draft is on disk now, so a failed upkeep step must not report that nothing was written.
+    try:
+        reason = _upkeep(directory, path)
+    except OSError as exc:
+        print(f"feedback_drafts: the draft was written, but queue upkeep failed: {exc}", file=sys.stderr)
+        reason = None
+    if reason is not None:
+        return _refused(reason)
+    # The name only: a piped stdout on Windows is not UTF-8, and a path may hold any character.
+    print(f"admitted {fm['draft_id']} {path.name}")
     return 0
 
 
@@ -662,16 +868,7 @@ def cmd_promote(args: argparse.Namespace) -> int:
     body = parts[1].strip("\n") + "\n\n" + PROVENANCE_LINE + "\n"
     kind = _name_kind(draft.path.name)
     stem = f"{_now().strftime('%Y-%m-%d')}-{kind}-{slugify(draft.fm.get('title', ''))}"
-    target = None
-    for suffix in [""] + [f"-{n}" for n in range(2, 10)]:
-        candidate = directory / f"{stem}{suffix}.md"
-        try:
-            with open(candidate, "xb") as handle:
-                handle.write(body.encode("utf-8", errors="surrogateescape"))
-        except FileExistsError:
-            continue
-        target = candidate
-        break
+    target = _claim(directory, stem, body.encode("utf-8", errors="surrogateescape"))
     if target is None:
         print(f"feedback_drafts: no free file name for {stem}", file=sys.stderr)
         return 3
@@ -1262,6 +1459,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_admit.add_argument("path")
     add_dir_options(p_admit)
     p_admit.set_defaults(func=cmd_admit)
+
+    p_create = sub.add_parser("create", help="validate, name and write a draft read from stdin")
+    add_dir_options(p_create)
+    p_create.set_defaults(func=cmd_create)
 
     p_discard = sub.add_parser("discard", help="mark a draft discarded")
     p_discard.add_argument("id")

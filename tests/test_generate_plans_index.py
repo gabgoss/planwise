@@ -575,6 +575,8 @@ class TestLegacyGuard:
         code, _, err = cli(two_plans, "--check")
         assert code == 2
         assert err.startswith("Error: ") and "is a hand-authored plans index" in err and "/planwise upgrade" in err
+        # The wording `references/index-drift-audit.md` documents, shared with reconcile_plans.
+        assert "before auditing it" in err
 
     def test_check_json_on_a_legacy_index_still_prints_the_shape_and_exits_two(self, two_plans, cli):
         index_of(two_plans).write_bytes(LEGACY_INDEX.encode("utf-8"))

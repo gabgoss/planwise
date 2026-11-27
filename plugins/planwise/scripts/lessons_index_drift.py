@@ -100,6 +100,10 @@ def _counter_floor(index_path: Path, derived_next: int) -> int:
 #                            has two rows                                --write)
 #   id-mismatch (anomaly)    a lesson file's filename number disagrees   1 (2 on
 #                            with its own frontmatter `id:`               --write)
+#   superseded-dangling      `superseded-by:` names no scanned lesson,     1
+#     (anomaly)              or a `superseded` lesson has no pointer
+#   superseded-cycle         the pointers lead back to a lesson already    1
+#     (anomaly)              on the path; one finding per cycle
 #   location-anomaly         a directory/status disagreement              1
 #                            (reported, never healed)
 #   legacy-shape             the hub path holds a `## Master Table` or   2 (report
@@ -165,6 +169,49 @@ def _rows_below_table(disk_content: str, fresh_content: str, rel_path: str) -> l
     return findings
 
 
+def _superseded_findings(items: list) -> list:
+    """The two pointer anomalies, read from the scanned lessons alone, so
+    they hold whatever the index on disk looks like. Neither refuses a
+    `--write`: the row still renders, and a person fixes the pointer."""
+    findings = []
+    known_ids = {item["id"] for item in items}
+    pointers = {}
+    for item in items:
+        target = item.get("superseded_by")
+        if target is None:
+            if item["status"] == "superseded":
+                findings.append({
+                    "class": "superseded-dangling", "id": format_id(item["id"]),
+                    "detail": "status is superseded and no superseded-by: key names a replacement",
+                })
+            continue
+        pointers[item["id"]] = target
+        if target not in known_ids:
+            findings.append({
+                "class": "superseded-dangling", "id": format_id(item["id"]),
+                "detail": f"superseded-by names {format_id(target)}, which has no lesson file",
+            })
+
+    walked = set()
+    for start in sorted(pointers):
+        path = []
+        node = start
+        while node in pointers and node not in walked and node not in path:
+            path.append(node)
+            node = pointers[node]
+        walked.update(path)
+        if node not in path:
+            continue
+        cycle = path[path.index(node):]
+        first = cycle.index(min(cycle))
+        cycle = cycle[first:] + cycle[:first]
+        findings.append({
+            "class": "superseded-cycle", "id": format_id(cycle[0]),
+            "detail": " -> ".join(format_id(i) for i in [*cycle, cycle[0]]),
+        })
+    return findings
+
+
 def _check_lessons_drift(
     items: list, report: dict, lessons_dir: Path, archive_dir: Path,
     index_path: Path, naming, next_id: int, config: dict, location_anomalies: list,
@@ -222,6 +269,8 @@ def _check_lessons_drift(
             "class": "duplicate-id", "id": format_id(lesson_id),
             "detail": f"claimed by {', '.join(str(p) for p in paths)}{fix}",
         })
+
+    findings.extend(_superseded_findings(items))
 
     raw_content = read_text_preserving_newlines(index_path) if index_path.exists() else ""
     counter_match = _COUNTER_LINE_RE.search(raw_content)
@@ -379,13 +428,16 @@ def _check_lessons_drift(
     return findings, parsed.shape
 
 
-_ANOMALY_CLASSES = frozenset({"row-shape", "duplicate-id", "counter_ahead", "id-mismatch"})
+_ANOMALY_CLASSES = frozenset({
+    "row-shape", "duplicate-id", "counter_ahead", "id-mismatch",
+    "superseded-dangling", "superseded-cycle",
+})
 
 
 def _split_findings(findings: list) -> tuple:
     """Split the unified findings list into (drift, anomalies) for report
     presentation, mirroring generate_backlog_index's own drift/anomaly
-    split: `row-shape` and `duplicate-id` are anomalies, every other class
+    split: a class in `_ANOMALY_CLASSES` is an anomaly, every other class
     is ordinary drift. Both count toward the same exit code."""
     drift = [f for f in findings if f["class"] not in _ANOMALY_CLASSES]
     anomaly = [f for f in findings if f["class"] in _ANOMALY_CLASSES]

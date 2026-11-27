@@ -306,6 +306,9 @@ def create_directories(cfg: InitConfig) -> list[str]:
     resolved the way the seed copy and the upgrade feedback backfill resolve
     them. On a fresh init config.yaml does not exist yet, so the `cfg` values
     apply.
+
+    In a linked git worktree the drafts folder is created in the main
+    checkout, and it is returned as an absolute path.
     """
     created = []
     root = cfg.project_root
@@ -314,14 +317,17 @@ def create_directories(cfg: InitConfig) -> list[str]:
         *(root / config_loader.resolve_index_target(cfg, family)[0]
           for family in ("plans", "backlog", "lessons")),
         root / config_loader.resolve_index_target(cfg, "plans")[0] / config_loader.PLAN_BUILD_DIRNAME,
-        root / cfg.planwise_root / feedback_rel,
+        config_loader.resolve_feedback_dir(root / cfg.planwise_root, feedback_rel),
         root / ".claude" / "rules" / "planwise",
     ]
     for d in dirs:
         existed = d.is_dir()
         d.mkdir(parents=True, exist_ok=True)
         if not existed:
-            created.append(str(d.relative_to(root)))
+            try:
+                created.append(str(d.relative_to(root)))
+            except ValueError:  # the drafts folder of a linked worktree
+                created.append(d.as_posix())
     return created
 
 
@@ -900,7 +906,8 @@ def main():
     parser.add_argument("--review-transfers", action="store_true",
                         help="Read-only diagnostic: print a JSON array with one row per "
                              "file under upgrade-transfers/*-to-*/, comparing each preserved "
-                             "body with the current plugin-shipped file (status now-upstream, "
+                             "body with the current plugin-shipped file, and a rule body also with "
+                             "its earlier shipped bodies (status now-upstream, "
                              "still-unique, no-counterpart, not-a-transfer or unreadable). "
                              "Pass --upgrade-pair FROM-to-TO to skip this run's own pair. "
                              "Prints [] when no transfer is on disk. Does not modify "

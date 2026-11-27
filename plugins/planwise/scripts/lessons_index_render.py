@@ -47,6 +47,16 @@ def _render_file_cell(item_id: int, path: Path, emit_dir: Path) -> str:
     return f"[{padded}]({_relative_link(emit_dir, path)})"
 
 
+def _status_text(item: dict) -> str:
+    """The Status cell: the lesson's status, plus the replacement lesson when
+    `superseded-by:` names one. A `superseded` status is not repeated."""
+    pointer = item.get("superseded_by")
+    if pointer is None:
+        return item["status"]
+    note = f"superseded by {format_id(pointer)}"
+    return note if item["status"] == "superseded" else f"{item['status']}, {note}"
+
+
 def render_row(item: dict, emit_dir: Path):
     """Render one lesson's fields into a 10-cell table row.
 
@@ -64,7 +74,7 @@ def render_row(item: dict, emit_dir: Path):
     cells[COL_TECHNOLOGY] = _escape_cell(", ".join(item["technology"]))
     cells[COL_DOMAIN] = _escape_cell(", ".join(item["domain"]))
     cells[COL_SOURCE] = _escape_cell(item["source"])
-    cells[COL_STATUS] = _escape_cell(item["status"])
+    cells[COL_STATUS] = _escape_cell(_status_text(item))
     cells[COL_FILE] = _render_file_cell(item["id"], item["_path"], emit_dir)
     assert len(cells) == COLUMN_COUNT
     row = "|" + "|".join(f" {cell} " for cell in cells) + "|"

@@ -80,6 +80,7 @@ ALL gates below MUST pass, in this order, before a post is attempted:
    The three unattended contexts are Auto Mode, a /planwise backlog loop session, and /planwise harvest in any session.
    - **Interactive session.** Gates 3-5 run as written below. The typed `--post` and `--drafts`
      routes ask the per-draft question in place of gate 5 (see Reviewing Model Drafts, in [Part 2](feedback-submission-Part-2-LocalDraftPipelines.md#reviewing-model-drafts)).
+     A blocked draft is the one exception: it asks gate 5 on its fixed text.
    - **Card press.** A press on the draft card's **Post** button is the consent for that draft,
      and no question follows it. The card runs `scripts/feedback_post.py post` on the draft.
      When posting is off, the press clears the card, prints
@@ -116,6 +117,7 @@ ALL gates below MUST pass, in this order, before a post is attempted:
    at the top of this file. The comment outcome rides this same call and MUST NOT be
    implemented as a second prompt. The typed `--post` and `--drafts` routes take their consent
    from the per-draft question, and a card press is its own consent, so neither asks gate 5.
+   The exception is a blocked draft on a typed route, which asks gate 5 on the user-fixed text.
    (The sweep pipeline in Part 2 has its own, separate,
    single consent site; the two are never shared or duplicated.) The gate 1 enable offer is a
    setting selection and not a second consent site: it sends nothing and never replaces a
@@ -157,8 +159,8 @@ Two rules bound the offer:
 
 - **It is a selection, not consent to post.** It changes one config key and sends nothing.
   Each route still asks for its own consent before anything is published: gate 5 on the
-  manual route, and the per-draft question on the typed `--post` and `--drafts` routes.
-  Enabling posting never skips that consent.
+  manual route, and the per-draft question on the typed `--post` and `--drafts` routes, where a
+  blocked draft takes gate 5. Enabling posting never skips that consent.
 - **It runs once per invocation.** The pipeline does not ask again after a keep answer or a
   failed enable.
 

@@ -242,7 +242,7 @@ def master_plan_path_for(plans_dir: Path, path: str, abbrev: str) -> Path:
 
 _HEADER_RE = re.compile(r"^\|\s*Abbrev\s*\|")
 _HEADER_LINE_RE = re.compile(r"^[ \t]*\|[ \t]*Abbrev[ \t]*\|", re.MULTILINE)
-_GENERATED_LINE_RE = re.compile(r"^Generated:", re.MULTILINE)
+_GENERATED_LINE_RE = re.compile(r"^Generated:.*$", re.MULTILINE)
 _SEPARATOR_RE = re.compile(r"^\|[\s:|-]*-[\s:|-]*$")
 _SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 OUTSIDE_REGION_REASON = "outside-table-region"

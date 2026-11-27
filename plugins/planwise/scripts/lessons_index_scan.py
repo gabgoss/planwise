@@ -217,8 +217,27 @@ def _read_frontmatter_map(path: Path) -> dict:
     return fm_map
 
 
+def _extract_superseded_by(path: Path, raw: str):
+    """The id the optional `superseded-by:` key names, or None. An empty,
+    `null` or `~` value names no lesson, the way `applied-as: null` does.
+
+    A comment-only line is dropped first. The lesson template ends its
+    frontmatter on commented-out keys, and `parse_frontmatter_map` appends
+    each such line to the key above it."""
+    kept = "\n".join(line for line in raw.split("\n") if not line.lstrip().startswith("#"))
+    value = _strip_inline_comment(kept).strip()
+    if _strip_quotes(value).lower() in ("", "null", "~"):
+        return None
+    try:
+        return _normalize_id_text(value)
+    except LessonsGeneratorError as exc:
+        raise LessonsGeneratorError(
+            f"{path}: unreadable superseded-by value {raw!r} ({exc})"
+        ) from exc
+
+
 def _extract_fields(path: Path, raw_map: dict, valid_statuses: frozenset) -> dict:
-    """Turn a raw {key: value-text} map into the nine typed fields.
+    """Turn a raw {key: value-text} map into the typed fields.
 
     Raises when a required key is absent or empty, or when `status:` is
     not one of the project's declared lesson statuses -- the generator
@@ -262,6 +281,10 @@ def _extract_fields(path: Path, raw_map: dict, valid_statuses: frozenset) -> dic
     # module at all. Read it only when present, for the companion's
     # code_bucket Module column (index rendering never reads this key).
     fields["module"] = _strip_quotes(stripped["module"].strip()) if "module" in stripped else ""
+
+    # `superseded-by:` is optional too: the id of the lesson that replaced
+    # this one.
+    fields["superseded_by"] = _extract_superseded_by(path, raw_map.get("superseded-by", ""))
 
     fields["_path"] = path
     return fields

@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 
 import estimate_reconcile as er
 import test_derived_surface as ds
+import token_saver_derived as tsd
 import token_saver_scan as tss
 import token_saver_writeback as tsw
 
@@ -424,7 +425,7 @@ def test_self_row_in_a_crlf_file_is_measured_in_bytes(tmp_path, capsys):
 # Each fixture is the real renderer's output, priced by the real write-back.
 NEW_LEVELS = ("surface-tokens", "surface-kib", "surface-rows", "surface-total", "surface-files",
               "writeset-tokens", "writeset-kib",
-              "master-count", "master-sizes", "master-total", "master-files")
+              "master-count", "master-sizes", "master-total", "master-files", "task-role")
 SURFACE, WRITE_SET, WRITE_SETS = "## Session Surface", "## Write-Set", "### Write-Sets"
 EXTRA = "src/orchard/extra.py"  # a sprint row that no task cites
 
@@ -611,7 +612,7 @@ def test_surface_rows_stay_clean_when_a_named_output_lands(priced):
     path.parent.mkdir(exist_ok=True)
     path.write_bytes(b"# Result\n")
     tasks = [(priced.plan / r, priced.text(r)) for r in (ds.TASK_1, ds.TASK_2)]
-    keys = [e["path"] for e in tsw.surface_entries(tasks, [], priced.plan, priced.root)]
+    keys = [e["path"] for e in tsd.surface_entries(tasks, [], priced.plan, priced.root)]
     assert output not in keys  # the control: the producer's key moved
     assert er.reconcile(priced.plan, priced.root).mismatches == []
 
@@ -1066,6 +1067,149 @@ def test_a_row_of_a_landed_output_that_is_removed_is_still_its_entry(tmp_path, s
     # The landed row still answers for its figure.
     _set_row_cell(tree, ds.OTHER_ORCH, SURFACE, f"`{row}`", "~tokens", lambda _c: "~900.0K")
     assert "surface-tokens" in _levels(er.reconcile(tree.plan, tree.root))
+
+
+# -- a plan tree nested in another plan's folder --------------------------------------------------------
+def _plan(folder, drifted=False):
+    """A `_tree` plan in `folder` with its Master Plan. `drifted` leaves task 2's header stale."""
+    task2 = _task("DM-S01-01-02", "~10K", "~20K", reads="~14K") if drifted else None
+    folder.mkdir(parents=True, exist_ok=True)
+    exec_dir = _tree(folder, task2=task2)
+    (exec_dir / "DM-Master-Plan.md").write_text("# Master Plan\n", encoding="utf-8")
+    return exec_dir
+
+
+def test_a_nested_plan_tree_prints_no_line_under_the_outer_plan(tmp_path, capsys):
+    outer = _plan(tmp_path)
+    _plan(outer / "Harness" / "corpus", drifted=True)
+    assert _check(outer, capsys) == (0, ["estimates: sessions=1 mismatches=0 unread=0"])
+
+
+def test_a_nested_plan_tree_is_checked_when_it_is_the_path(tmp_path, capsys):
+    outer = _plan(tmp_path)
+    nested = _plan(outer / "Harness" / "corpus", drifted=True)
+    code, lines = _check(nested, capsys)
+    assert code == 1
+    assert any(ln.startswith("MISMATCH task Sprint-01-Alpha/") for ln in lines), lines
+
+
+def test_a_folder_that_holds_two_plan_halves_checks_both(tmp_path, capsys):
+    _plan(tmp_path / "Plan" / "first")
+    _plan(tmp_path / "Plan" / "second")
+    assert _check(tmp_path / "Plan", capsys) == (0, ["estimates: sessions=2 mismatches=0 unread=0"])
+
+
+@pytest.mark.parametrize("stray", [
+    "Review-Of-Master-Plan.md", "Draft-Master-Plan.md", "DM-S01-01-03-Opus-Draft-Master-Plan.md"])
+def test_a_file_that_only_ends_like_a_master_plan_drops_no_session(tmp_path, stray):
+    outer = _plan(tmp_path, drifted=True)
+    session = outer / "Sprint-01-Alpha" / "Session-01-Beta"
+    (session / stray).write_text("# Notes\n", encoding="utf-8")
+    walked = er.sp.collect_plan_files([outer])
+    assert session / "DM-S01-01-Orchestration.md" in walked
+    assert session / "DM-S01-01-02-Sonnet-Other.md" in walked
+
+
+@pytest.mark.parametrize("half", ["Exec-DM", "Meta-DM"])
+def test_a_plans_own_half_is_checked_with_the_plan(tmp_path, capsys, half):
+    plan = tmp_path / "Plan"
+    _plan(plan).rename(plan / half)
+    (plan / "DM-Master-Plan.md").write_text("# Master Plan\n", encoding="utf-8")
+    assert _check(plan, capsys) == (0, ["estimates: sessions=1 mismatches=0 unread=0"])
+
+
+def test_the_shared_walk_drops_a_plan_nested_under_a_half(tmp_path):
+    half = _plan(tmp_path / "Plan" / "first")
+    nested = _plan(half / "Harness")
+    walked = er.sp.collect_plan_files([tmp_path / "Plan"])
+    assert half / "DM-Master-Plan.md" in walked
+    assert [f for f in walked if nested in f.parents] == []
+    assert nested / "DM-Master-Plan.md" in er.sp.collect_plan_files([nested])
+
+
+# -- a Role cell that holds no role ---------------------------------------------------------------------
+def _context_table(tree, rel):
+    """(lines, header line index) of the Required Context table of a task file."""
+    lines = tree.text(rel).split("\n")
+    return lines, next(i for i, ln in enumerate(lines) if ln.startswith("| Priority |"))
+
+
+def _set_role(tree, rel, needle, role):
+    """Set the Role cell of the Required Context row that holds `needle`. Returns its line number."""
+    lines, head = _context_table(tree, rel)
+    names = tsw._table_header_at(lines, head)
+    i = next(i for i in tsw._table_rows(lines, head) if needle in lines[i])
+    lines[i] = tsw._rewrite_cell(lines[i], names.index("role"), role, len(names))
+    tree.set(rel, "\n".join(lines))
+    return i + 1
+
+
+def _role_lines(tree):
+    return [ln for ln in er.reconcile(tree.plan, tree.root).unread if " task-role " in ln]
+
+
+def _role_entries(report):
+    return report["roles"]
+
+
+@pytest.mark.parametrize("role", ["{Role}", "", "`EDIT`", "edit", "READ/EDIT"])
+def test_a_role_cell_that_holds_no_role_is_unread(priced, role):
+    line = _set_role(priced, ds.TASK_1, "ledger.py", role)
+    report = er.reconcile(priced.plan, priced.root)
+    assert [ln for ln in report.unread if " task-role " in ln] == [
+        f"UNREAD task-role {ds.TASK_1}:{line} Role cell {role!r} is not READ, EDIT or CREATE"]
+    assert report.mismatches == []
+    assert report.exit_code == 0
+
+
+def test_the_write_back_reports_a_role_cell_that_holds_no_role(priced):
+    _set_role(priced, ds.TASK_1, "ledger.py", "{Role}")
+    report = priced.write_back(ds.TASK_2)  # a sibling is named, and the block still reads task 1
+    (item,) = _role_entries(report)
+    assert (Path(item["file"]).name, item["row"]) == (Path(ds.TASK_1).name, 1)
+    assert item["reason"] == "Role cell '{Role}' is not READ, EDIT or CREATE; a session surface counts it as READ"
+    printed = tsw.format_write_report(report)
+    assert f"Role cells that hold no role (1):\n  {item['file']} row 1: {item['reason']}" in printed
+    # The cell has its own section, so no priced row reads as one to measure by hand.
+    assert [left for left in report["left"] if "Role" in left.get("reason", "")] == []
+
+
+def test_the_write_back_reports_the_cell_when_there_is_no_session_surface(priced):
+    _set_role(priced, ds.TASK_1, "ledger.py", "{Role}")
+    priced.set(ds.ORCH, priced.text(ds.ORCH).replace("## Session Surface", "## Other Notes"))
+    assert [item["row"] for item in _role_entries(priced.write_back(ds.TASK_1))] == [1]
+
+
+def test_the_write_back_reports_the_cell_when_no_named_task_is_re_rolled(priced):
+    lines, head = _context_table(priced, ds.TASK_1)
+    i = next(i for i in tsw._table_rows(lines, head) if "ledger.py" in lines[i])
+    cells = [c.strip() for c in er.sp.split_row_cells(lines[i])]
+    cells[1], cells[3], cells[4] = "`src/orchard/nothing.py`", "~{X}K", "{Role}"
+    lines[i] = f"| {' | '.join(cells)} |"
+    priced.set(ds.TASK_1, "\n".join(lines))
+    report = priced.write_back(ds.TASK_1)
+    assert report["unreadable"]  # the task is left as authored, so the surface pass never runs
+    assert [item["row"] for item in _role_entries(report)] == [1]
+
+
+@pytest.mark.parametrize("role", ["READ", "EDIT", "CREATE (plan-time estimate)", "READ (plan-time estimate)",
+                                  "EDIT  (plan-time estimate)"])
+def test_a_role_cell_that_holds_a_role_is_silent(priced, role):
+    _set_role(priced, ds.TASK_1, "ledger.py", role)
+    assert _role_lines(priced) == []
+    assert _role_entries(priced.write_back(ds.TASK_1)) == []
+
+
+def test_a_task_table_without_a_role_column_is_silent(priced):
+    lines, head = _context_table(priced, ds.TASK_1)
+    at = tsw._table_header_at(lines, head).index("role")
+    for i in [head, head + 1, *tsw._table_rows(lines, head)]:
+        cells = [c.strip() for c in er.sp.split_row_cells(lines[i])]
+        del cells[at]
+        lines[i] = f"| {' | '.join(cells)} |"
+    priced.set(ds.TASK_1, "\n".join(lines))
+    assert _role_lines(priced) == []
+    assert _role_entries(priced.write_back(ds.TASK_1)) == []
 
 
 # -- a crash is one line and exit 2 ---------------------------------------------------------------------

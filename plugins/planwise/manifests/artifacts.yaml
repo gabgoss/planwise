@@ -580,8 +580,8 @@ artifacts:
       not_installed; see DESCOPED_RULES and the de-scoped rows below). On
       upgrade across RESCOPE_MIGRATION_VERSION, migrate_installed_rules()
       removes the untouched installed copies of those de-scoped rules AND
-      high-confidence stale-subset copies (backed up under upgrade-backups/
-      first); copies carrying user content (HAS_UNIQUE, or any flagged
+      high-confidence stale-subset copies and copies of an earlier shipped
+      body (backed up under upgrade-backups/ first); copies carrying user content (HAS_UNIQUE, or any flagged
       installed-only content) are preserved byte-for-byte, and paths-only
       edits are preserved while upgrade.descope_preserve_paths_edits is true
       (the default). This glob row's refresh_or_sidecar duty covers the four
@@ -790,8 +790,8 @@ artifacts:
       {planwise_root}/{plans_dir}/**; the plan-reviewer agent loads it in-place
       from references/ at review time (see DESCOPED_RULES in rule_registry.py).
       On upgrade across RESCOPE_MIGRATION_VERSION, migrate_installed_rules()
-      removes the untouched or high-confidence stale-subset previously-
-      installed copy (backed up under upgrade-backups/ first) and preserves
+      removes the untouched, high-confidence stale-subset or earlier-shipped
+      previously-installed copy (backed up under upgrade-backups/ first) and preserves
       any copy carrying user content. Listed individually because it has a
       named consumer worth documenting.
 

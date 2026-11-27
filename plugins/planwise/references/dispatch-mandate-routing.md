@@ -118,7 +118,7 @@ The three obligations:
 
 **Two reasons, not one, is the point.** One reason reads as a near-miss that better naming would have solved. Two show the selector could not have matched any repair. When the repair spans two consumer schemas, add an explicit row to *both* consuming task files.
 
-`scripts/outputs_coverage.py named --side producer --outputs <Outputs dir> --tasks <consuming task files>` checks obligation 1: every file in the `Outputs/` listing must be named by a Required Context row. An Output that no later session consumes is passed after `--terminal NAME...`. The listing then prints it as `terminal:`, and the producer run no longer exits 1 for it. A `--terminal` name that is not in the listing exits 2.
+`scripts/outputs_coverage.py named --side producer --outputs <Outputs dir> --tasks <consuming task files>` checks obligation 1: every file in the `Outputs/` listing must be named by a Required Context row. Separate the task files with spaces, never commas. An Output that no later session consumes is passed after `--terminal NAME...`. The listing then prints it as `terminal:`, and the producer run no longer exits 1 for it. A `--terminal` name that is not in the listing exits 2.
 
 The third obligation meets [`dispatch-edit-surface-sweep.md`](dispatch-edit-surface-sweep.md) on stale counts, and the two do not substitute for each other. Here the count is stale because a *new artifact* exists. There it is stale because the *locator* was too narrow.
 

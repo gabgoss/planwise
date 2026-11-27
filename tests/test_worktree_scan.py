@@ -10,6 +10,7 @@ read the other worktrees' lessons folders, and so does the renumber floor.
 Each union fixture is a real git repository with a real linked worktree. Each
 tree's hub file comes from `generate_backlog_index.main()` or
 `generate_lessons_index.main()`, so the reader sees the producer's own output.
+An item file with no index row comes from `update_backlog.main() --create`.
 The last class mocks git and needs no installed copy.
 
 Run with:  python -m pytest tests/test_worktree_scan.py -q
@@ -37,6 +38,7 @@ import lessons_index_run
 import parse_backlog
 import parse_lessons
 import reconcile_lessons
+import update_backlog
 import worktree_scan
 
 CONFIG_YAML_FIXTURE = """project:
@@ -191,6 +193,114 @@ class TestWorktreeScan(unittest.TestCase):
         _rmtree(sibling)  # git still lists the worktree: no `git worktree prune`
         self.assertEqual(worktree_scan.sibling_dirs(repo / "planwise" / "Backlog"), [])
         self.assertEqual(self.next_id(config_path), f"{CURRENT_ID + 1:03d}")
+
+    def create_item(self, config_path: Path, item_id: str, topic: str) -> tuple[object, str]:
+        """Run the real `--create` writer. It writes the item file and no index row."""
+        sys.argv = [
+            "update_backlog", "--config", str(config_path), "--create", "--id", item_id,
+            "--files", f"BB-{'NNN' if item_id == 'next' else item_id}-01-BUG-{topic}.md",
+            "--feature", f"{topic} item", "--priority", "Medium",
+            "--status", "NOT_STARTED", "--abbrev", "BUG",
+        ]
+        out, err = io.StringIO(), io.StringIO()
+        code = 0
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                update_backlog.main()
+            except SystemExit as stop:
+                code = stop.code
+        return code, err.getvalue()
+
+    def unindexed_pair(self) -> tuple[Path, Path, Path]:
+        """Both trees index id 005. The linked worktree also holds id 120 with no row."""
+        repo = self.make_repo()
+        sibling = self.add_worktree(repo)
+        config_path = self.build_tree(repo, CURRENT_ID)
+        sibling_config = self.build_tree(sibling, CURRENT_ID)
+        code, err = self.create_item(sibling_config, str(SIBLING_ID), "Sibling")
+        self.assertEqual(code, 0, err)
+        return repo, sibling, config_path
+
+    def sibling_item(self, sibling: Path) -> Path:
+        return sibling / "planwise" / "Backlog" / f"BB-{SIBLING_ID}-01-BUG-Sibling.md"
+
+    def test_unindexed_sibling_item_file_raises_the_next_id(self):
+        _repo, sibling, config_path = self.unindexed_pair()
+        self.assertTrue(self.sibling_item(sibling).is_file())
+        self.assertEqual(self.next_id(config_path), f"{SIBLING_ID + 1:03d}")
+
+    def test_unindexed_sibling_archive_file_raises_the_next_id(self):
+        _repo, sibling, config_path = self.unindexed_pair()
+        item = self.sibling_item(sibling)
+        item.rename(item.parent / "Archive" / item.name)
+        self.assertEqual(self.next_id(config_path), f"{SIBLING_ID + 1:03d}")
+
+    def test_sibling_item_file_with_no_readable_frontmatter_counts_by_its_name(self):
+        _repo, sibling, config_path = self.unindexed_pair()
+        self.sibling_item(sibling).write_bytes(b"\xe9 not UTF-8\n")
+        sys.argv = ["parse_backlog", "--config", str(config_path), "--next-id"]
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            parse_backlog.main()
+        self.assertEqual(out.getvalue().strip(), f"{SIBLING_ID + 1:03d}")
+        self.assertIn(self.sibling_item(sibling).name, err.getvalue())
+
+    def test_sibling_archive_counts_when_this_tree_has_no_archive_folder(self):
+        # git tracks no empty folder, so a fresh worktree can lack Archive/.
+        repo, sibling, config_path = self.unindexed_pair()
+        item = self.sibling_item(sibling)
+        item.rename(item.parent / "Archive" / item.name)
+        (repo / "planwise" / "Backlog" / "Archive").rmdir()
+        self.assertEqual(self.next_id(config_path), f"{SIBLING_ID + 1:03d}")
+
+    def test_unlistable_sibling_folder_is_named_on_stderr(self):
+        repo, sibling, _config_path = self.unindexed_pair()
+        backlog = repo / "planwise" / "Backlog"
+        real = Path.iterdir
+
+        def deny(path):
+            if path.resolve().is_relative_to(sibling.resolve()):
+                raise PermissionError(13, "Access is denied", str(path))
+            return real(path)
+
+        err = io.StringIO()
+        with mock.patch.object(Path, "iterdir", deny), contextlib.redirect_stderr(err):
+            found = parse_backlog.sibling_item_ids(
+                backlog, backlog / "Archive", backlog / "00-Index-Backlog.md"
+            )
+        self.assertEqual(found, {})
+        self.assertIn("could not read", err.getvalue())
+
+    def test_only_a_file_name_this_tree_lacks_is_opened_in_a_sibling(self):
+        # Both trees hold the id-005 file name. Opening every sibling item file
+        # would hold the creation lock past its timeout on a large backlog.
+        _repo, sibling, config_path = self.unindexed_pair()
+        opened: list[Path] = []
+        real = parse_backlog._read_frontmatter_map
+
+        def spy(path, *args):
+            opened.append(Path(path).resolve())
+            return real(path, *args)
+
+        with mock.patch.object(parse_backlog, "_read_frontmatter_map", spy):
+            self.next_id(config_path)
+        self.assertEqual(
+            [path.name for path in opened if path.is_relative_to(sibling.resolve())],
+            [self.sibling_item(sibling).name],
+        )
+
+    def test_create_refuses_an_id_that_only_a_sibling_item_file_holds(self):
+        repo, sibling, config_path = self.unindexed_pair()
+        backlog = repo / "planwise" / "Backlog"
+        code, err = self.create_item(config_path, str(SIBLING_ID), "Here")
+        self.assertEqual(code, 1, err)
+        self.assertIn("already exists", err)
+        self.assertIn(self.sibling_item(sibling).name, err)
+        self.assertFalse((backlog / f"BB-{SIBLING_ID}-01-BUG-Here.md").exists())
+        # Control: `--id next` still creates here, above the sibling's id.
+        code, err = self.create_item(config_path, "next", "Free")
+        self.assertEqual(code, 0, err)
+        self.assertTrue((backlog / f"BB-{SIBLING_ID + 1}-01-BUG-Free.md").is_file())
 
 
 @unittest.skipUnless(shutil.which("git"), "git is not installed")

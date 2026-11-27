@@ -9,7 +9,7 @@ consult-when: Scaffolding a multi-sprint plan — eleven binding hygiene rules p
 This file is the §14 expansion referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols). Read it before generating any `Sprint-{XX}-{Name}/` folders.
 
 > [!hazard] This reference is split across two files — §13–§19 live in Part 2
-> This part carries §1–§12: the rules governing what the scaffold **emits**. The rules governing what a scaffold must **compute before it closes** live in [scaffolding-hygiene-Part-2-DerivationAndParallelism.md](scaffolding-hygiene-Part-2-DerivationAndParallelism.md): retirement deletion-set derivation (§13), config-editing permission round-trips (§14), the first-task diff baseline (§15), the sprint-level write-set intersection (§16), the dispatch-layer write-target intersection (§17), the rule for a sheet a human pastes (§18) and the orchestrator replay command (§19).
+> This part carries §1–§12: the rules governing what the scaffold **emits**. The rules governing what a scaffold must **compute before it closes** are held in [scaffolding-hygiene-Part-2-DerivationAndParallelism.md](scaffolding-hygiene-Part-2-DerivationAndParallelism.md): retirement deletion-set derivation (§13), config-editing permission round-trips (§14), the first-task diff baseline (§15), the sprint-level write-set intersection (§16), the dispatch-layer write-target intersection (§17), the rule for a sheet a human pastes (§18) and the orchestrator replay command (§19).
 >
 > Section numbers are continuous across the two files, so there is no `§1` in Part 2. Read Part 2 as well before closing a scaffold.
 
@@ -247,11 +247,11 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 > 1. **Class A — Section-header text drift.** Semantically equivalent but
 >    textually different headers (e.g., `## Execution Plan` vs `## Task List`).
 > 2. **Class B — Template lines omitted.** Bold totals, divider
->    rules, and other lines present in the templates but not structurally
->    required (e.g., `**Total Estimated:** ~50K`). Class B also covers the
+>    rules and other non-structural template lines (e.g.,
+>    `**Total Estimated:** ~50K`). Class B also covers the
 >    `- [ ] **{Label}**` items of the Orchestration template's
->    `## Post-Session Checklist`. An item whose label is reworded counts as
->    missing, and a checked box still counts as present.
+>    `## Post-Session Checklist`. A reworded label counts as missing, a
+>    checked box as present. In DELEGATED mode it covers the four `##` lines inside the template's skeleton fence.
 > 3. **Class C — Scaffold folder absent when scaffolding is done inline.**
 >    `Scaffold-{Abbrev}/` folder missing because scaffolding ran inline rather
 >    than in a dedicated session. **Phase-gated — grade this class only past

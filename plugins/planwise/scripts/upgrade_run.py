@@ -104,9 +104,11 @@ def prunable_leftovers(cfg, pair: str, classes) -> list[dict]:
 
 
 def transfer_check(cfg, path) -> tuple[str, bytes, str]:
-    """(reason, raw bytes, source): reason is '' when the transfer body equals its shipped rule after normalize_pair.
+    """(reason, raw bytes, source): reason is '' when the transfer body holds no user text.
 
-    The offer and the delete both use this one check, so an offered delete is one the apply step will perform.
+    That is a body equal to its shipped rule after normalize_pair, or a body some earlier release shipped
+    (the rule-history manifest). The offer and the delete both use this one check, so an offered delete is
+    one the apply step will perform.
     """
     import rule_divergence
     import transfer_review
@@ -121,10 +123,14 @@ def transfer_check(cfg, path) -> tuple[str, bytes, str]:
         return "unparseable transfer file", raw, ""
     header, body = parsed
     source = str(header.get("source_filename") or Path(path).name)
+    shipped_dir = "agents" if header.get("source_kind") == "agent" else "references"  # as the review picks it
     try:
-        shipped = (cfg.plugin_root / "references" / source).read_text(encoding="utf-8-sig")
+        shipped = (cfg.plugin_root / shipped_dir / source).read_text(encoding="utf-8-sig")
     except (OSError, UnicodeDecodeError) as exc:
         return f"the shipped {source} is unreadable ({exc})", raw, source
+    # The same history check the review reaches through _classify_diverged.
+    if rule_divergence._matches_shipped_history(rule_divergence.normalize_rule_for_diff(body)):
+        return "", raw, source
     left, right = rule_divergence.normalize_pair(body, shipped)
     return ("" if left == right else f"body differs from the shipped {source}"), raw, source
 
@@ -312,7 +318,7 @@ def print_summary(out: str, pair: str, added: list) -> None:
     print()
     print(f"Config keys added:        {len(added) or '(none)'}" + (f" ({', '.join(k for k, _o, _n in added)})" if added else ""))
     print(count_line("Rules refreshed:          ", out, r"^Refreshed: (\d+)"))
-    print(count_line("Stale subsets adopted:    ", out, r"\((\d+) were stale subsets"))
+    print(count_line("Stale or earlier adopted: ", out, r"\((\d+) were stale subsets"))
     print(count_line("Customizations moved:     ", out, r"^Customizations transferred before adoption: (\d+)"))
     print(count_line("Conflicts preserved:      ", out, r"^(?:Preserved|Conflicts?)[^:\n]*: (\d+)"))
     recovery = re.search(r"^Recovery artifacts:\n((?:[ ]+.*\n?)*)", out, re.MULTILINE)
@@ -359,8 +365,10 @@ def build_offers(project_root: Path, config_path: Path, pair: str, user_settings
                                "to-do list (Ctrl+T) and /planwise run cannot show its progress there"})
     for row in transfer_review.review_transfers(cfg, exclude_pair=pair):
         if row["status"] == "now-upstream" and not transfer_check(cfg, row["path"])[0]:
+            note = " (an earlier shipped body with no edits)" if row["source"] == "shipped-history" else ""
             offers.append({"id": f"transfer-delete:{row['path']}", "default": "skip",
-                           "apply": ["--transfer-delete", Path(row["path"]).as_posix()], "text": f"{row['pair']}/{row['filename']}"})
+                           "apply": ["--transfer-delete", Path(row["path"]).as_posix()],
+                           "text": f"{row['pair']}/{row['filename']}{note}"})
     if "REMOVABLE" in out:
         offers.append({"id": "prune-stale", "default": "skip", "apply": ["--prune-stale"],
                        "text": "the mirror sweep printed a REMOVABLE row"})

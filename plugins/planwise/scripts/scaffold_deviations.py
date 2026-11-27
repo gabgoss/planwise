@@ -17,16 +17,18 @@ Command (run with `python -B`):
 Output lines, one per deviation, then one total line that is always last:
 
     CLASS_A <file> missing "<template heading>"
-    CLASS_B <file> missing "<template line prefix or checklist item>"
+    CLASS_B <file> missing "<template line prefix, checklist item or skeleton line>"
     CLASS_C <PATH parent> missing Scaffold-{Abbrev}/
     deviations: A=<n> B=<n> C=<n>
 
 <file> is the path relative to PATH with forward slashes.
 
 Classes:
-    A  A `##` heading marked REQUIRED in the file kind's template is absent. Only
-       orchestration, sprint and task files are graded. A Master Plan is never
-       graded here, because a scaffolded one is written from a different template.
+    A  A graded `##` heading of the file kind's template is absent. Orchestration,
+       sprint, task and Recovery files are graded. A Master Plan is never graded here,
+       because a scaffolded one is written from a different template. Orchestration,
+       sprint and task files are graded on the headings marked REQUIRED. A Recovery
+       file is graded on every template `##` heading with no OPTIONAL marker.
        An Orchestration whose `**Mode:**` line reads DELEGATED is also graded on each `##`
        heading marked `REQUIRED for DELEGATED mode`. Any other conditional marker is not graded.
     B  A required template line is absent: `**Total Estimated:**` and `**Mode:**`
@@ -35,11 +37,15 @@ Classes:
        `## Post-Session Checklist` section. A checklist item counts as present
        with its box empty or checked (`- [x]`), and only its bold label is
        compared, so a reworded label is reported as missing.
+       In a DELEGATED Orchestration, each `##` line inside the fence of the template's
+       `## Spawn-Prompt Skeleton` section is required inside that fence of the file. A
+       trailing `(...)` note is ignored. With the section absent, Class A reports it.
     C  PATH is an `Exec-{Abbrev}` folder and its parent holds no `Scaffold-{Abbrev}/`.
        For any other folder name Class C is not graded and the total prints C=0.
 
-Headings and required lines count only outside a fence. Fence tracking resyncs as
-`scaffold_plan.py check-headings` does, so one unbalanced fence cannot hide later headings.
+Headings and required lines count only outside a fence, except the skeleton lines. Fence
+tracking resyncs as `scaffold_plan.py check-headings` does, so one unbalanced fence cannot
+hide later headings.
 
 Exit codes: 0 clean, 1 one or more deviations, 2 PATH missing or not a folder, a
 template unreadable (`ERROR: template unreadable`), or a plan file unreadable or not
@@ -60,13 +66,23 @@ DEFAULT_TEMPLATES = sp.DEFAULT_TEMPLATES
 # Kinds graded for Class A. The master kind is absent on purpose: file_kind maps every
 # -Master-Plan.md to templates/master-plan.md, but a scaffolded Master Plan is written
 # from templates/scaffolding-master-plan.md, whose headings differ.
-CLASS_A_KINDS = ("orchestration", "sprint", "task")
+CLASS_A_KINDS = ("orchestration", "sprint", "task", "recovery")
 REQUIRED_MARKER = re.compile(r"<!--\s*REQUIRED\s*-->\s*$")
+# templates/recovery.md marks no H2 REQUIRED. Every Recovery H2 that carries no
+# OPTIONAL marker is required, so a Recovery file cut before its last required
+# heading loses a graded one. A cut after that heading is not detected.
+UNMARKED_KINDS = ("recovery",)
+OPTIONAL_MARKER = re.compile(r"<!--\s*OPTIONAL\b")
 # The Orchestration H2s marked `REQUIRED for DELEGATED mode` are graded only in an
 # Orchestration whose `**Mode:**` line reads DELEGATED. They sit in the same dict
-# as the bare-marker lists, under this key, so `load_templates` keeps its shape.
+# as the bare-marker lists, under this key.
 DELEGATED_MARKER = re.compile(r"<!--\s*REQUIRED for DELEGATED mode\s*-->\s*$")
 DELEGATED_KEY = "orchestration-delegated"
+# The `##` lines inside this section's ```markdown fence are body text of the spawn
+# prompt, so no heading check sees them. Class B grades them in a DELEGATED Orchestration.
+SKELETON_SECTION = "## Spawn-Prompt Skeleton"
+FENCE_RUN_RE = re.compile(r"^(`{3,})(.*)$")
+TRAILING_NOTE_RE = re.compile(r"\s*\(.*\)$")
 # Class B lines: (file kind, field label). The prefix is read from the template line
 # that carries the label at run time:
 #   orchestration -> templates/orchestration.md `**Total Estimated:** ~{XX}K tokens`
@@ -100,12 +116,19 @@ def _marked_headings(templates_dir, kind, marker):
 
 
 def required_headings(templates_dir):
-    """Per graded kind: list of (heading text, pattern) for each H2 marked REQUIRED.
+    """Per graded kind: list of (heading text, pattern) for each required H2.
 
-    The extra key DELEGATED_KEY holds the Orchestration H2s marked `REQUIRED for
-    DELEGATED mode`, which `scan` grades only in a DELEGATED Orchestration.
+    A required H2 is one marked REQUIRED, or, for a kind in UNMARKED_KINDS, one
+    with no OPTIONAL marker. The extra key DELEGATED_KEY holds the Orchestration
+    H2s marked `REQUIRED for DELEGATED mode`, which `scan` grades only in a
+    DELEGATED Orchestration.
     """
-    out = {kind: _marked_headings(templates_dir, kind, REQUIRED_MARKER) for kind in CLASS_A_KINDS}
+    out = {kind: _marked_headings(templates_dir, kind, REQUIRED_MARKER)
+           for kind in CLASS_A_KINDS if kind not in UNMARKED_KINDS}
+    for kind in UNMARKED_KINDS:
+        _pre, secs = sp.split_sections(template_body(templates_dir, kind))
+        out[kind] = [(sp.norm_heading(s[0]), sp.heading_pattern(sp.norm_heading(s[0])))
+                     for s in secs if not OPTIONAL_MARKER.search(s[0])]
     out[DELEGATED_KEY] = _marked_headings(templates_dir, "orchestration", DELEGATED_MARKER)
     return out
 
@@ -144,6 +167,51 @@ def line_prefixes(templates_dir):
     return out
 
 
+def skeleton_h2_lines(section):
+    """The `## ` lines inside the first ```markdown fence of one section.
+
+    `section` is the list of lines that starts at the SKELETON_SECTION heading. In the
+    fence, a run at least as long as the opening one nests with an info string and
+    closes without one. A shorter run is plain text, so a four-backtick skeleton may
+    hold any ``` block.
+    """
+    found, run, depth, wanted = [], 0, 0, False
+    for ln in section[1:]:
+        m = FENCE_RUN_RE.match(ln)
+        if depth:
+            if m and len(m.group(1)) >= run:
+                depth += 1 if m.group(2).strip() else -1
+                if wanted and not depth:
+                    break
+            elif wanted and ln.startswith("## "):
+                found.append(sp.norm_heading(ln))
+        elif m:
+            run, depth, wanted = len(m.group(1)), 1, m.group(2).strip() == "markdown"
+        elif ln.startswith("## "):
+            break
+    return found
+
+
+def holds_skeleton_line(held, line):
+    """Whether `held` carries the template's skeleton line, with or without a task note.
+
+    The trailing parenthetical is a note on both sides: `## Operational Ceiling Notice
+    (tasks 01 and 02)` matches `## Operational Ceiling Notice`.
+    """
+    stem = TRAILING_NOTE_RE.sub("", line)
+    return any(x == stem or (x.startswith(f"{stem} (") and x.endswith(")")) for x in held)
+
+
+def skeleton_lines(templates_dir):
+    """The skeleton `## ` lines of the Orchestration template."""
+    body = template_body(templates_dir, "orchestration").split("\n")
+    start = next((k for k, ln in enumerate(body) if sp.norm_heading(ln) == SKELETON_SECTION), len(body))
+    lines = skeleton_h2_lines(body[start:])
+    if not lines:
+        raise ValueError(f"template for kind orchestration has no ## line in its {SKELETON_SECTION} fence")
+    return lines
+
+
 class PlanReadError(Exception):
     """A plan file could not be read or decoded."""
 
@@ -151,11 +219,11 @@ class PlanReadError(Exception):
 def outside_fence(text, patterns):
     """Return (H2 headings, other lines), both outside any fence.
 
-    Fence tracking resyncs the way `scaffold_plan.check_text` does. An H2 met inside
+    The headings are a dict from each heading to the index of its first line. Fence tracking resyncs the way `scaffold_plan.check_text` does. An H2 met inside
     a fence counts, and resets the depth, when it matches a template heading and the
     fence never closes later. One unbalanced fence then cannot hide every later heading.
     """
-    heads, plain, depth = [], [], 0
+    heads, plain, depth = {}, [], 0
     lines = text.split("\n")
     for k, ln in enumerate(lines):
         if ln.startswith("## "):
@@ -163,7 +231,7 @@ def outside_fence(text, patterns):
             if depth and (not sp._matches(h, patterns) or sp._fence_closes_later(lines, k, depth)):
                 continue
             depth = 0
-            heads.append(h)
+            heads.setdefault(h, k)
             continue
         after = sp.fence_step(ln, depth)
         if depth == 0 and after == 0:
@@ -186,15 +254,15 @@ def load_templates(templates_dir):
     required = required_headings(templates_dir)
     prefixes = line_prefixes(templates_dir)
     patterns = {kind: pats for kind, (pats, _catch) in sp.template_heading_sets(templates_dir).items()}
-    return required, prefixes, patterns
+    return required, prefixes, patterns, skeleton_lines(templates_dir)
 
 
 def scan(root, tpl):
-    required, prefixes, patterns = tpl
+    required, prefixes, patterns, skeleton = tpl
     findings = []
     for f in sp.collect_plan_files([root]):
         kind = sp.file_kind(str(f))
-        if kind is None or kind == "recovery":
+        if kind is None:
             continue
         rel = f.relative_to(root).as_posix()
         try:
@@ -206,6 +274,10 @@ def scan(root, tpl):
             findings += [("A", f'CLASS_A {rel} missing "{h}"') for h in class_a(heads, required[kind])]
         if kind == "orchestration" and sp.DELEGATED_MODE_RE.search("\n".join(plain)):
             findings += [("A", f'CLASS_A {rel} missing "{h}"') for h in class_a(heads, required[DELEGATED_KEY])]
+            if SKELETON_SECTION in heads:
+                held = skeleton_h2_lines(text.split("\n")[heads[SKELETON_SECTION]:])
+                findings += [("B", f'CLASS_B {rel} missing "{ln}"')
+                             for ln in skeleton if not holds_skeleton_line(held, ln)]
         findings += [("B", f'CLASS_B {rel} missing "{p}"') for p in class_b(plain, prefixes.get(kind, []))]
     return findings
 

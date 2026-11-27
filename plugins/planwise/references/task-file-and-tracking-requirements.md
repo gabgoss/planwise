@@ -229,8 +229,8 @@ Task file Required Context sections and Execution Steps are subject to the rules
 - `task-content-fidelity.md` §9.A.2: No `~?` placeholders — token estimates MUST be concrete integers
 - `task-content-fidelity.md` §9.A.3: Derive tokens from measured bytes ÷ the content-class bytes-per-token ratio (Claude 5 family: dense markdown ~2.6, prose ~2.9, code ~2.7, cleared notebook ~2.3, raw JSON ~2.0; conservative text default 2.6 when unsure, notebook/json auto-detected by extension) — never from a line count
 - `task-content-fidelity.md` §9.A.4: Re-glob live file counts before authoring (counts >1 hour old are stale)
-- `task-content-fidelity.md` §9.A.5: Budget 1.5-2× for multi-source consolidation tasks (dedup overhead)
-- `task-content-fidelity.md` §9.A.6: Use generator-script pattern for tasks walking ≥100 files
+- `task-content-fidelity.md` §9.A.5: State a read-overhead factor above 1.0 for multi-source consolidation tasks (1.5-2× is advisory)
+- `task-content-fidelity.md` §9.A.6: Cite the generator, not the walked files, when a generator walks a file tree
 - `task-content-fidelity.md` §9.A.7: Declare per-artifact shape (token budget, topic) for multi-artifact outputs
 
 **§9.B Verify-Before-Cite (summary — see full rules in verify-before-cite.md):**

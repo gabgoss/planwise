@@ -5,7 +5,9 @@ import type { CommandInfo, EngineInterface, On, PluginOptions, Timer } from 'cla
 
 import { register as registerAgentGuard } from './agent-guard.ts'
 import { hostOf as buildPlanHostOf, onSessionStart as buildPlanStart, register as registerBuildPlan } from './build-plan.ts'
-import { hostOf as draftFeedbackHostOf, onSessionStart as draftFeedbackStart, register as registerDraftFeedback } from './draft-feedback.ts'
+import { currentDraftsDir, draftsDirOf, hostOf as draftFeedbackHostOf, onSessionStart as draftFeedbackStart, register as registerDraftFeedback } from './draft-feedback.ts'
+import { blockedHostOf, register as registerBlockedCard } from './blocked-card.tsx'
+import { recountBlocked } from './feedback/blocked.ts'
 import { register as registerFeedbackCard } from './feedback-card.tsx'
 import { register as registerUpdateBanner } from './update-banner.tsx'
 import { hostOf as updateCheckHostOf, onSessionStart as updateCheckStart } from './update-check.ts'
@@ -68,7 +70,8 @@ export function register(on: On, options: PluginOptions) {
   registerDraftFeedback(on, options)
   registerBuildPlan(on, options)
   registerFeedbackCard(on, options)
-  // After the feedback card, so the feedback card is the outer AbovePrompt hook.
+  registerBlockedCard(on, options)
+  // AbovePrompt hooks nest first-outermost: the feedback card, then the blocked banner, then the update card.
   registerUpdateBanner(on, options)
   registerAgentGuard(on, options)
   // `interactive` starts true: a module reload re-runs register() without a new session.start.
@@ -196,6 +199,8 @@ export function register(on: On, options: PluginOptions) {
     // Arms a timer and returns: the network and the upgrade run after session.start.
     updateCheckStart(updateCheckHostOf($), e.isInteractive !== false, options)
     await draftFeedbackStart(draftFeedbackHostOf($))
+    // Not awaited: a slow count script must not hold the steps below.
+    void recountBlocked(blockedHostOf($), draftsDirOf())
     await buildPlanStart(buildPlanHostOf($))
     session.interactive = e.isInteractive !== false
     await resolveSkill(hostOf($))
@@ -233,6 +238,9 @@ export function register(on: On, options: PluginOptions) {
 
   on('turn.complete', ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
+    // Not awaited: a block written during this turn shows once the count returns.
+    const blockedHost = blockedHostOf($)
+    void currentDraftsDir(draftFeedbackHostOf($)).then((dir) => recountBlocked(blockedHost, dir))
     session.turnRunning = false
     // An arming covers one main-loop turn: every main-loop turn end clears it before any new set.
     disarm()

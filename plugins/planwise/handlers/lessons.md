@@ -68,7 +68,7 @@ python {plugin_root}/scripts/generate_lessons_index.py --config {planwise_root}/
 
 The changelog file (`{lessons_dir}/00-Changelog-LessonsLearned.md`) receives a dated entry naming what changed, in the same edit as the lesson-file write. Its current-value line follows **"Replace the previous value — do not preserve it. History belongs in a changelog file, not in this line."** History belongs in the changelog file, never in the index. The Rule Promotion Log lives in its own files (see [Stage 7: Log](#stage-7-log)), not in the index.
 
-Pointer-field semantics (`applied-as:`, `promoted-to:`, and the deprecated `rule-as:`) are defined once, in [`references/lessons-schema.md`](../references/lessons-schema.md) § Pointer Fields — Authoritative Definition, and are not restated here.
+Pointer-field semantics (`applied-as:`, `promoted-to:`, `superseded-by:`, and the deprecated `rule-as:`) are defined once, in [`references/lessons-schema.md`](../references/lessons-schema.md) § Pointer Fields — Authoritative Definition, and are not restated here.
 
 This binds every mode below that writes a lesson file — Curate, Batch-Promote, Promote, and Capture — and is stated here once rather than restated per mode.
 
@@ -186,7 +186,7 @@ Categorisation file not found at {path}. Run /planwise init to create it, or cop
 python {plugin_root}/scripts/generate_lessons_index.py --config {planwise_root}/config.yaml --check --json
 ```
 
-Read the JSON result's `drift` and `anomalies` lists. The gate passes on exit 0, or on exit 1 where every listed finding is a class `--write` never heals — `counter_ahead` (the on-disk counter sits above the true next id) or `location-anomaly` (a lesson's directory disagrees with its status; the generator never moves a file) — per [`references/index-drift-audit.md`](../references/index-drift-audit.md) § Lessons — `generate_lessons_index.py --check`; any other finding is healable drift: tell the user to run `--write` (see [Lessons-Index Write Convention](#lessons-index-write-convention)), then re-run Gate 2.
+Read the JSON result's `drift` and `anomalies` lists. The gate passes on exit 0, or on exit 1 where every listed finding is a class `--write` never heals — `counter_ahead` (the on-disk counter sits above the true next id), `location-anomaly` (a lesson's directory disagrees with its status; the generator never moves a file), `superseded-dangling` or `superseded-cycle` (a `superseded-by:` pointer a person fixes) — per [`references/index-drift-audit.md`](../references/index-drift-audit.md) § Lessons — `generate_lessons_index.py --check`; any other finding is healable drift: tell the user to run `--write` (see [Lessons-Index Write Convention](#lessons-index-write-convention)), then re-run Gate 2.
 
 A listed finding of class `legacy-shape` is never healable drift — plain `--write` refuses on it too (exit 2). Follow the [Lessons-Index Write Convention](#lessons-index-write-convention)'s refusal branch instead: print the line verbatim, say the index has not been migrated, and STOP.
 
@@ -462,7 +462,7 @@ If skipped, discard the draft. No file is written.
 
 ## Lesson Status Lifecycle
 
-Lessons graduate through a branching set of five statuses. The value list is declared once, as `lesson_statuses:` in `config.yaml` beside the backlog `statuses:` (declarative — the workflows below match the literals as written; the template's comment records the decision):
+Lessons graduate through a branching set of six statuses. The value list is declared once, as `lesson_statuses:` in `config.yaml` beside the backlog `statuses:` (declarative — the workflows below match the literals as written; the template's comment records the decision):
 
 ```
                   ┌─ single-lesson promote / already-landed ──────────────────────┐
@@ -475,6 +475,8 @@ Lessons graduate through a branching set of five statuses. The value list is dec
 
    promoted ─→ orphaned    (owner closed without landing this content)
    orphaned ─→ promoted    (re-bundled into a new owning item)
+
+   documented | orphaned ─→ superseded    (a newer lesson replaces it; user-directed)
 ```
 
 - `documented → applied | rule` directly: single-lesson promote, or a lesson already landed at capture time (capture and landing simultaneous; never enters `promoted`).
@@ -482,6 +484,7 @@ Lessons graduate through a branching set of five statuses. The value list is dec
 - `promoted → applied | rule`: curate `--phase=promote`, when its content is verified present in the destination artifact (landing).
 - `promoted → orphaned`: the owning backlog item closed without this content ever landing, and no other live item owns it.
 - `orphaned → promoted`: re-bundled into a new owning backlog item.
+- `documented | orphaned → superseded`: a newer lesson replaces it, and the user directs the change. Follow [the supersede procedure](../references/lessons-curate-workflow.md#46-supersede-a-lesson-user-directed).
 
 | Status | Meaning |
 |--------|---------|
@@ -490,6 +493,7 @@ Lessons graduate through a branching set of five statuses. The value list is dec
 | `orphaned` | Owner closed without landing this content; no live owner. Work-surfacing: resurfaces ahead of `documented` in the next promotion pass. |
 | `applied` | Lesson has been manually applied in practice (proven useful) |
 | `rule` | Lesson promoted to a Claude Code artifact |
+| `superseded` | Replaced by a newer lesson that its `superseded-by:` key names. |
 
 The fifth status, `orphaned`, covers content that was fully captured into an owning backlog item, but where that item closed without the content ever landing and no other live item owns it. `orphaned` is a work-surfacing state, not a resting one — it sorts ahead of `documented` in the next batch-promotion scope resolution rather than hiding inside `documented`. Pair it with an `owner-anomaly:` frontmatter key carrying the evidence: which owner closed, what grep proved the content absent, and the date.
 

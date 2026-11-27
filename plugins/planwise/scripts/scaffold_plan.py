@@ -4,8 +4,10 @@
 The templates stay the single source of every heading and every line of body
 text. This script reads them at run time, substitutes metadata, derives the
 tables a spec can compute, and turns every remaining prose placeholder into a
-FILL marker (`<!-- FILL: {name} -->`) for the model to write. It never carries
-template text of its own, and the spec never names a heading.
+FILL marker (`<!-- FILL: {name} -->`) for the model to write. A run-time
+placeholder (`{plugin_root}`, `{census:<name>}`) stays literal, because the run
+fills it. It never carries template text of its own, and the spec never names a
+heading.
 
 Commands (run with `python -B`):
 
@@ -45,7 +47,7 @@ generated here and stay uncapped.
 
     check-headings PATH... [--templates DIR]
         Heading conformance. PATH is a plan file or a folder (walked for *.md,
-        skipping Outputs/). The file kind comes from the name, except that a
+        skipping Outputs/ and nested plans). The file kind comes from the name, except that a
         Master Plan whose `**Type:**` line reads `Execution Plan (scaffolded
         from Discovery)` is graded as `scaffolding-master` against
         templates/scaffolding-master-plan.md. Every H2 outside
@@ -59,7 +61,7 @@ generated here and stay uncapped.
 
     check-scope-line PATH...
         Single-task scope line. PATH is a plan file or a folder (walked for *.md,
-        skipping Outputs/). For each Orchestration file whose Mode line is
+        skipping Outputs/ and nested plans). For each Orchestration file whose Mode line is
         DELEGATED, count the `Execute ONLY` clause of the spawn prompt. The
         clause must appear exactly once. A DIRECT Orchestration and any other
         file are skipped. Prints one line per file and a `scope_line_misses=<n>`
@@ -183,20 +185,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from lint_plan_strategy import plan_file_cell
 from markdown_parser import split_row_cells
+from parse_plans import EXEC_DIR_PREFIX, META_DIR_PREFIX
 from read_limits import estimate_tokens
-from token_saver_scan import (
-    _clean_file_cell,
-    config_project_root,
-    content_class_for,
-    substitute_roots,
-    unresolved_reason,
-)
-from token_saver_writeback import (
+from token_saver_derived import (
     _QUALIFIER_RE,
-    _TOKEN_HEADERS,
     PLAN_TIME_FLAG,
-    _fmt_k,
-    _fmt_kib,
     _names_no_path,
     _write_set_keys,
     joined_outputs,
@@ -212,6 +205,14 @@ from token_saver_writeback import (
     write_set_total,
     writeset_figures,
 )
+from token_saver_scan import (
+    _clean_file_cell,
+    config_project_root,
+    content_class_for,
+    substitute_roots,
+    unresolved_reason,
+)
+from token_saver_writeback import _TOKEN_HEADERS, _fmt_k, _fmt_kib
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_TEMPLATES = PLUGIN_ROOT / "templates"
@@ -230,10 +231,14 @@ AGENTS = ("Opus", "Sonnet", "Haiku")
 MODES = ("DIRECT", "DELEGATED")
 KEEP_COMMENT = re.compile(r"<!--\s*(REQUIRED|OPTIONAL|CONDITIONAL)\b")
 FILL = "<!-- FILL: {%s} -->"
+# The run fills these names at dispatch, so a render keeps them literal.
+RUNTIME_NAME_RE = re.compile(r"plugin_root|census:\S+")
 FENCE_RE = re.compile(r"^```(.*)$")
 TASK_FILE_RE = re.compile(r"-S\d{2}-\d{2}-\d{2}-[A-Za-z]+-[^/\\]+\.md$")
 NAME_RE = re.compile(r"^[A-Z][A-Za-z0-9]*$")
 ABBREV_RE = re.compile(r"^[A-Z][A-Z0-9]{1,5}$")
+# The names that make a folder a plan folder. `file_kind` matches any `-Master-Plan.md` ending.
+PLAN_MASTER_RE = re.compile(r"^(?:Meta-)?[A-Z][A-Z0-9]{1,5}(?:-META)?-Master-Plan\.md$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 SCHEMA = {
@@ -459,8 +464,11 @@ def sub_line(line, env, extra=None):
     if extra:
         vals.update(extra)
 
-    def repl(inner, _whole):
+    def repl(inner, whole):
         name = norm(inner)
+        if RUNTIME_NAME_RE.fullmatch(name):
+            env.rec.add(env.tmpl, name, "inert")
+            return whole
         hit = lookup(vals, name)
         if hit:
             env.rec.add(env.tmpl, name, hit[0])
@@ -1397,7 +1405,8 @@ def unmasked_braces(text):
             continue
         cleaned = re.sub(r"<!-- FILL: \{.+?\} -->", "", ln)
         # Layer-member sets such as {1, 2} are the rendered notation of the dispatch layers, not placeholders.
-        hits.extend(inner for _a, _b, inner in brace_spans(cleaned) if not re.fullmatch(r"\d+(, \d+)*", inner))
+        hits.extend(inner for _a, _b, inner in brace_spans(cleaned)
+                    if not re.fullmatch(r"\d+(, \d+)*", inner) and not RUNTIME_NAME_RE.fullmatch(norm(inner)))
     return hits
 
 
@@ -1807,13 +1816,34 @@ def check_text(text, patterns, catch_all):
 
 
 def collect_plan_files(paths):
+    """Each file path as given, and the `*.md` files of each folder.
+
+    A folder's walk skips `Outputs/` and every plan nested in another plan's folder.
+    """
     files = []
     for p in map(Path, paths):
         if p.is_dir():
-            files.extend(f for f in sorted(p.rglob("*.md")) if "Outputs" not in f.relative_to(p).parts)
+            files.extend(_outside_nested_plans(
+                [f for f in sorted(p.rglob("*.md")) if "Outputs" not in f.relative_to(p).parts]))
         else:
             files.append(p)
     return files
+
+
+def _outside_nested_plans(files):
+    """`files` without the trees of nested plans.
+
+    A folder that holds an `{Abbrev}-Master-Plan.md` or an `{Abbrev}-META-Master-Plan.md`
+    is a plan folder. A plan folder below another one is nested, as a fixture tree is.
+    A plan's own `Exec-` or `Meta-` child is a half of it, not a nested plan. A folder
+    with no Master Plan nests nothing. A file that only ends like a Master Plan does not
+    count, so it cannot hide the session that holds it.
+    """
+    plans = {f.parent for f in files if PLAN_MASTER_RE.match(f.name)}
+    nested = {folder for folder in plans
+              if not plans.isdisjoint(folder.parents)
+              and not (folder.parent in plans and folder.name.startswith((EXEC_DIR_PREFIX, META_DIR_PREFIX)))}
+    return [f for f in files if nested.isdisjoint(f.parents)]
 
 
 def check_headings(paths, templates_dir=DEFAULT_TEMPLATES):

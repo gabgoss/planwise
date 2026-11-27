@@ -1,5 +1,5 @@
 ---
-description: Four-phase batch promotion workflow (Part 1 — Resolve scope and group lessons). Loaded by /planwise lessons promote-batch.
+description: Four-phase batch promotion workflow (Part 1 — Resolve scope and group lessons). Part 1 of 2, holding §1–§4. Loaded by /planwise lessons promote-batch.
 consult-when: Running `/planwise lessons promote-batch` Phases 1-2 — resolving scope, grouping lessons
 ---
 

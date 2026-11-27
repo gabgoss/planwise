@@ -19,6 +19,9 @@ Two subcommands share one directory listing as their denominator.
       equal the file count. Exit 0 when every claim equals it, 1 when a claim
       differs (claims listed with both numbers).
 
+Separate the --tasks files with spaces. A --tasks token that holds a comma and
+is not an existing file exits 2.
+
 The listing uses os.scandir and ignores dot-files such as .gitkeep. The listing
 count prints first, so an empty directory reads differently from a clean one.
 
@@ -147,16 +150,24 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("named", help="every listed file is named by a Required Context row")
     p.add_argument("--outputs", required=True)
-    p.add_argument("--tasks", nargs="+", required=True)
+    p.add_argument("--tasks", nargs="+", required=True, metavar="FILE",
+                   help="task files separated by spaces, not commas")
     p.add_argument("--side", choices=("producer", "receiver"), required=True)
     p.add_argument("--terminal", nargs="+", default=[], metavar="NAME",
                    help="Outputs no later session consumes: listed, never counted as unnamed")
     p.set_defaults(func=cmd_named)
     c = sub.add_parser("count", help="count claims equal the file count")
     c.add_argument("--outputs", required=True)
-    c.add_argument("--tasks", nargs="+", required=True)
+    c.add_argument("--tasks", nargs="+", required=True, metavar="FILE",
+                   help="task files separated by spaces, not commas")
     c.set_defaults(func=cmd_count)
     args = ap.parse_args(argv)
+    # a comma-joined list reaches argparse glued to one path; a real name may hold a comma
+    glued = [t for t in args.tasks if "," in t and not os.path.isfile(t)]
+    if glued:
+        for t in glued:
+            print(f"error: --tasks path holds a comma: {t}. Separate task files with spaces, not commas.")
+        return 2
     try:
         return args.func(args)
     except OSError as exc:

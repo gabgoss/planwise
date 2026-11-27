@@ -42,9 +42,11 @@ any other form. It names the resolved `post` and `discard` commands, and the
 `enable-posting` command when posting is not enabled, each with its exit-code
 replies, so the card branches read no handler or reference. When the card
 lists no queued draft, nothing prints, so the
-handler's own route runs. A non-zero card exit, a missing config or any other
-failure prints one `PLANWISE_FEEDBACK_FALLBACK: <cause>` line and the end
-marker.
+handler's own route runs. While a blocked draft waits in the same folder, the
+block holds only a `PLANWISE_FEEDBACK_FALLBACK:` line, because the card lists no
+blocked draft and the handler's route does. A non-zero card exit, a missing
+config or any other failure prints one `PLANWISE_FEEDBACK_FALLBACK: <cause>`
+line and the end marker.
 
 For every input, a `planwise: ...` version notice line prints first when the
 config pin differs from this plugin. It prints before the BEGIN marker, never
@@ -295,6 +297,13 @@ def feedback_block(root: Path) -> list[str] | None:
         count = int(header.group(1))
         if count == 0:
             return None
+        # The card lists queued drafts only, and a blocked draft is reviewed on the handler route.
+        # The header names the folder the card read, so the count reads the same folder.
+        import feedback_drafts
+
+        blocked = feedback_drafts.count_blocked(Path(lines[0][header.end():].rstrip(":")))
+        if blocked:
+            return [FEEDBACK_BEGIN, f"{FEEDBACK_FALLBACK} {blocked} blocked draft(s) need the handler route", FEEDBACK_END]
         ids: list[str] = []
         state = None
         repo = ""

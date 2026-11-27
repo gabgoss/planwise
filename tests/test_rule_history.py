@@ -20,6 +20,8 @@ every rule (no git needed, so a shallow CI checkout is fine).
 Run with:  python -m unittest tests/test_rule_history.py
 """
 
+import contextlib
+import io
 import json
 import sys
 import unittest
@@ -32,7 +34,9 @@ import doctor_cli
 import init_project as ip  # noqa: F401 -- the scripts package's import root; resolves the import cycle
 import rule_divergence
 import structural_compare
+import transfer_review
 import upgrade_preflight
+import upgrade_run
 from rule_registry import DESCOPED_RULES, INSTALLED_RULES
 from style_rules import STYLE_RULES
 
@@ -301,6 +305,59 @@ class TestPreflightRow(_HistoryFixture):
         self.write_manifest(self.digest_of(OLD_BODY))
         (row,) = self.rows_for(EDITED_BODY)
         self.assertEqual((row["inline"], row["agent"]), ("HAS_UNIQUE/unique", "yes"))
+
+
+class TestHistoryTransfer(_HistoryFixture):
+    """A transfer left by an upgrade that did not read the manifest holds an
+    unedited older body. The upgrade writer itself produces each transfer here:
+    it runs with no manifest entry, so it reads the older body as customized."""
+
+    def transfer_of(self, body: str) -> Path:
+        self.enable_relocate()
+        self.write_shipped_rule(CURRENT_BODY)
+        self.write_installed_rule(body, CUSTOM_PATHS)
+        *_ignored, transferred = self.run_upgrade()
+        self.assertEqual(len(transferred), 1, "the fixture needs one real transfer file")
+        self.write_manifest(self.digest_of(OLD_BODY))  # a later release ships the history
+        return Path(transferred[0][1])
+
+    def row(self) -> dict:
+        (row,) = transfer_review.review_transfers(self.cfg)
+        return row
+
+    def test_history_body_passes_the_delete_check(self):
+        path = self.transfer_of(OLD_BODY)
+        reason, _raw, source = upgrade_run.transfer_check(self.cfg, path)
+        self.assertEqual((reason, source), ("", self.RULE_FILENAME))
+
+    def test_history_body_without_a_manifest_entry_is_kept(self):
+        """Direction control: the same file, with no history to read."""
+        path = self.transfer_of(OLD_BODY)
+        self.write_manifest()
+        self.assertIn("body differs", upgrade_run.transfer_check(self.cfg, path)[0])
+        self.assertEqual(self.row()["status"], transfer_review.STATUS_STILL_UNIQUE)
+
+    def test_customized_body_is_kept(self):
+        path = self.transfer_of(EDITED_BODY)
+        self.assertIn("body differs", upgrade_run.transfer_check(self.cfg, path)[0])
+        self.assertEqual(self.row()["status"], transfer_review.STATUS_STILL_UNIQUE)
+        self.assertNotEqual(self.row()["source"], "shipped-history")
+
+    def test_review_row_names_the_history_source(self):
+        self.transfer_of(OLD_BODY)
+        row = self.row()
+        self.assertEqual((row["status"], row["source"]),
+                         (transfer_review.STATUS_NOW_UPSTREAM, "shipped-history"))
+
+    def test_doctor_counts_it_as_now_upstream(self):
+        self.transfer_of(OLD_BODY)
+        # Pin the plugin version so the doctor's version-state gate resolves "ok".
+        config = self.project_root / self.cfg.planwise_root / "config.yaml"
+        config.write_text(f'plugin_version: "{self.cfg.plugin_version}"\n', encoding="utf-8")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            doctor_cli._run_doctor(self.cfg)
+        self.assertIn("review:  1 now upstream, 0 still unique, 0 other", buf.getvalue())
 
 
 class TestShippedManifest(unittest.TestCase):

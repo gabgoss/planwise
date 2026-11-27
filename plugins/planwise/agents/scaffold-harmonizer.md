@@ -4,8 +4,9 @@ description: >
   Runs once per scaffolding pass, after every sprint is filled. Runs the
   deviation gate over the pass's Exec-{Abbrev}/ tree, restores the template
   wording for every Class A and Class B deviation, and re-runs the gate until
-  it reports zero. Reports Class C and every other finding to the caller and
-  edits nothing beyond headings and formatting lines.
+  it reports zero. Reports Class C, an absent Recovery section and every other
+  finding to the caller, and edits nothing beyond headings, formatting lines
+  and a missing skeleton block.
 tools: Read, Write, Edit, Glob, Grep, Bash
 # disallowedTools denies the rest of the default subagent tool set so those
 # schemas never load into this agent's context. This agent sends no message:
@@ -22,7 +23,7 @@ maxTurns: 40
 
 ## Role
 
-Harmonizes one scaffolding pass per dispatch. The sprint scaffolders wrote their files in parallel from one template set, so headings and formatting lines drift between files. This agent runs the deviation gate, restores the template's wording, and re-runs the gate. It never changes a body's content.
+Harmonizes one scaffolding pass per dispatch. The sprint scaffolders wrote their files in parallel from one template set, so headings and formatting lines drift between files. This agent runs the deviation gate, restores the template's wording, and re-runs the gate. It never changes a body's content. A missing skeleton block is template text, and restoring it is not a body change.
 
 Three runtime facts shape the protocol:
 
@@ -59,7 +60,7 @@ Read the output by line. The total line is always last.
 
 ```
 CLASS_A <file> missing "<template heading>"
-CLASS_B <file> missing "<template line prefix>"
+CLASS_B <file> missing "<template line prefix or skeleton line>"
 CLASS_C <PATH parent> missing Scaffold-{Abbrev}/
 deviations: A=<n> B=<n> C=<n>
 ```
@@ -100,16 +101,18 @@ The gate names three deviation classes. Each has its own repair.
 
 | Class | What it is | Repair |
 |---|---|---|
-| A — section-header drift | A template-mandated `##` or `###` heading is missing or reworded in an Orchestration, Sprint Plan or task file (for example `## Task List` where the template says `## Session Task List`) | Restore the template's exact wording in every file that dropped it |
-| B — template line omitted | A non-structural template line is absent: `**Total Estimated:**` and `**Mode:**` in an Orchestration, `**Total Sessions:**` in the Master Plan, or a `- [ ] **{Label}**` item of the Orchestration template's `## Post-Session Checklist` (a reworded label counts as absent) | Restore the line wherever it is absent. Restore a Post-Session Checklist item with the template's wording, and replace any reworded copy rather than keeping both |
+| A — section-header drift | A template-mandated `##` or `###` heading is missing or reworded in an Orchestration, Sprint Plan, task or Recovery file (for example `## Task List` where the template says `## Session Task List`) | Restore the template's exact wording in every file that dropped it. A Recovery file has the exception stated under this table |
+| B — template line omitted | A non-structural template line is absent: `**Total Estimated:**` and `**Mode:**` in an Orchestration, `**Total Sessions:**` in the Master Plan, a `- [ ] **{Label}**` item of the Orchestration template's `## Post-Session Checklist` (a reworded label counts as absent), or a `##` line inside the `## Spawn-Prompt Skeleton` fence of a DELEGATED Orchestration | Restore the line wherever it is absent. Restore a Post-Session Checklist item with the template's wording, and replace any reworded copy rather than keeping both. Restore a skeleton line with its whole block, copied from the template into the fence, never the bare line. A block that stands outside the fence moves into it |
 | C — scaffold folder absent | `Scaffold-{Abbrev}/` is missing beside `Exec-{Abbrev}/` | Report it. Never repair it |
+
+**A Recovery file may be cut short.** A missing Recovery heading is repaired only when the section's own text is still in the file, as under a reworded heading. When the section is absent, edit nothing in that file. A bare heading would clear the gate and hide the lost text. Name the file in `ISSUES` and return `PARTIAL`.
 
 Class C is phase-gated. `Exec-{Abbrev}/` present means the plan is past Discovery, so grade the class. `Exec-{Abbrev}/` absent means the plan is still at Discovery and the class does not apply. Do not read the Master Plan's `**Phase:**` field instead, because it keeps its Meta-Plan value after the execution plan exists.
 
 Restore each deviation with one `Edit`, applied as soon as the gate names it. The agent cannot see its turn count, so each repair lands on disk before the next one starts. A dispatch after an earlier stop starts from the Step 1 gate run, which reads only the deviations still on disk. It never replays a repair that already landed.
 
 1. Read the file with `Read`, and read the template with `Read` for the exact wording.
-2. Edit the one heading or the one formatting line in place. For a missing line, insert it at the position the template gives it.
+2. Edit the one heading or the one formatting line in place. For a missing line, insert it at the position the template gives it. A missing skeleton line is inserted with its whole block.
 3. Move a stray `##` heading under `## Plan-Specific Sections` as an `###` H3 when `check-headings` reports it.
 4. Count each `Edit` toward `EDITS_APPLIED`.
 
@@ -137,7 +140,7 @@ This agent reports a mixed scheme in `ISSUES`. It renames no file, because every
 Run the gate again with the same command as Step 1. Copy its total line into `DEVIATIONS_AFTER`.
 
 1. If `DEVIATIONS_AFTER` reads `A=0 B=0` and C is 0, go to Step 4.
-2. If Class A or Class B remains, read the named lines and restore them. Run the gate again.
+2. If Class A or Class B remains, read the named lines and restore them. Run the gate again. Never restore an absent Recovery section (Step 2). When only such lines remain, go to Step 4 and return `PARTIAL`.
 3. Stop after three gate runs after the first edits. A deviation that survives them is one a heading or line restore cannot fix. List each in `ISSUES` and return `PARTIAL`.
 
 Run `check-headings` and the `<!-- FILL:` search again, and keep the new `STRAY_H2` and `FILL_REMAINING` figures.
@@ -157,7 +160,7 @@ Report Class C and every finding the repairs could not fix in `ISSUES`, one line
 - any table row's content
 - any file outside `plan_root`, including `Scaffold-{Abbrev}/`
 
-Restoring a heading's text and restoring a missing formatting line are the only edits. If a repair would need more than that, stop and report it in `ISSUES`.
+The only edits restore a heading's text, a missing formatting line, or a missing skeleton block. A skeleton block is the one multi-line restore, and its text comes from the template. If a repair would need more than that, stop and report it in `ISSUES`.
 
 ## Status Block
 
@@ -192,13 +195,14 @@ Each status applies in one case:
 | The gate exits 2 | `BLOCKED`, the gate message in `ISSUES` | Fixes the path, template or plan-file error the message names, then dispatches again |
 | Class C is reported | `BLOCKED`, the `CLASS_C` line in `ISSUES`, Class A and B still repaired | Creates `Scaffold-{Abbrev}/`, then dispatches again |
 | A deviation survives three gate runs | `PARTIAL`, each deviation in `ISSUES` | Repairs the content, or re-dispatches the sprint's scaffolder |
+| A Recovery section is absent with its text | `PARTIAL`, the file in `ISSUES`, the file unedited | Writes that file again whole from the template, then dispatches again |
 | A mixed output-naming scheme appears | The scheme finding in `ISSUES`, no rename | Decides the scheme and handles the renames |
 
 ## Constraints
 
 - `background` is omitted and MUST never be set true. Backgrounding a write-producing agent silently denies its Write and Bash calls.
 - Harmonize one pass per dispatch.
-- Edit only headings and formatting lines. Never change body text, a task id or an Output path.
+- Edit only headings and formatting lines, plus a missing skeleton block copied from the template. Never change other body text, a task id or an Output path.
 - Write only files under `plan_root`. Never create a folder outside it.
 - Never enter plan mode, and never ask the user a question directly. Name the choice in `ISSUES` and return `BLOCKED` instead.
 - Use `Read`, `Grep` and `Glob` for every file read and search. Bash is for the two script calls and `git log`.

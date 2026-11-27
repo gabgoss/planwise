@@ -34,6 +34,8 @@ export type BlockedHost = {
   run: (argv: readonly string[], init?: { timeoutMs?: number }) => Promise<BlockedRunResult>
   uiLog: (text: string, to: 'debug' | 'transcript') => void
   pluginRoot: () => string
+  /** True when the drafts folder is on disk. */
+  exists: (path: string) => Promise<boolean>
   /** Stores the state the banner draws from. */
   setBlocked: (state: BlockedState) => void
 }
@@ -111,13 +113,25 @@ const runScript = async (host: BlockedHost, argvOf: (python: string) => string[]
 }
 
 /**
+ * Recounts run without being awaited, so they can finish out of order. Each recount takes the next
+ * number, and so does a dismiss that succeeded. Only the newest recount may store its count.
+ */
+let latest = 0
+
+/**
  * Counts the blocked drafts through the real script and stores the count. An empty directory runs
- * nothing. A run that fails, exits non-zero or prints text that is not a JSON array leaves the
- * stored state as it was. It never throws.
+ * nothing. A directory that is not on disk holds no draft, so it stores 0 and runs nothing. A run
+ * that fails, exits non-zero or prints text that is not a JSON array leaves the stored state as it
+ * was. It never throws.
  */
 export const recountBlocked = async (host: BlockedHost, feedbackDir: string): Promise<void> => {
   if (feedbackDir === '') return
+  const mine = ++latest
   try {
+    if (!(await host.exists(feedbackDir))) {
+      if (mine === latest) host.setBlocked({ count: 0, feedbackDir })
+      return
+    }
     const result = await runScript(host, (python) => blockedListArgv(python, host.pluginRoot(), feedbackDir))
     if (result === null) return
     if (result.exitCode !== 0) {
@@ -129,6 +143,7 @@ export const recountBlocked = async (host: BlockedHost, feedbackDir: string): Pr
       host.uiLog('draft feedback: blocked-list printed no JSON array', 'debug')
       return
     }
+    if (mine !== latest) return
     host.setBlocked({ count, feedbackDir })
   } catch (err) {
     host.uiLog('draft feedback: the blocked-draft recount failed: ' + errText(err), 'debug')
@@ -149,6 +164,7 @@ export const pressDismiss = async (host: BlockedHost, feedbackDir: string): Prom
       host.uiLog('draft feedback: dismiss failed (exit ' + String(result.exitCode) + '); the banner stays: ' + lastLine(result.stderr, 'no error text'), 'transcript')
       return
     }
+    latest++
     host.setBlocked({ count: 0, feedbackDir })
     host.uiLog(lastLine(result.stdout, 'draft feedback: blocked drafts dismissed'), 'transcript')
   } catch (err) {

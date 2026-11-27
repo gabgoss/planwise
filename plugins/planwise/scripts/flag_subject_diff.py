@@ -30,21 +30,22 @@ Method:
   it counts as routed, prints in its own block for a human to confirm, and
   never changes the exit code. In the first hop the carried row and a
   destination row must carry the same id and the same source (a header cell
-  containing "source"). In the second hop the task file's Pre-Known section
-  must carry the back-reference ``Flag {id} from {source}`` that the task-file
-  template writes as each bullet's lead. The pair is sender-qualified, so this
-  is not the id-alone match that sender-scoped ids rule out. A table with no
-  source column gets subject-only matching.
-* Every optional flag section is an empty source when its heading is absent:
-  the script prints a ``note:`` line and the rows of that source count as
-  zero. The templates mark all three sections optional.
+  containing "source"). In the second hop the task file must carry the
+  back-reference ``Flag {id} from {source}`` that the task-file template writes
+  as each bullet's lead. The pair is sender-qualified, so this is not the
+  id-alone match that sender-scoped ids rule out. A table with no source column
+  gets subject-only matching.
+* The plan's Carried-Forward section and the orchestration's Pre-Known section
+  are optional. Each is an empty source when its heading is absent: the script
+  prints a ``note:`` line and the rows of that source count as zero. A task
+  file is searched whole, so it needs no particular heading.
 * Second hop: every sibling task file of the orchestration (a file named
   ``{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{Task}.md``) is checked against the
   orchestration's own Pre-Known rows. A row names a task when its consuming
   cell holds the full task id as a whole token, or reads ``Task 3`` or
-  ``Task 03``. The row is routed when its subject appears in the task file's
-  own Pre-Known section, a substring test because the task-file template
-  writes flags as bullets. Rows that name no task are listed for hand routing
+  ``Task 03``. The row is routed when its subject appears anywhere in the task
+  file, a substring test, so a flag counts whether the file writes it as a
+  bullet, a note or a gate. Rows that name no task are listed for hand routing
   and never change the exit code.
 
 Exit codes: 0 every carried row matched and every named task carries its
@@ -52,7 +53,9 @@ flags, 1 a miss in either hop, 2 a file cannot be read.
 
 What this check cannot see: a destination row whose subject was reworded and
 which also drops the ``Flag {id} from {source}`` reference reads as unmatched
-(the safe direction, a human confirms it). A table whose
+(the safe direction, a human confirms it). In a task file the loose direction
+also holds: a subject or reference mentioned for another reason, such as in an
+example or a comment, counts as routed. A table whose
 consuming-session column is absent contributes no carried rows, and the
 script prints how many such tables it skipped. When no row names the session
 but a table with a consuming-session column holds rows, the script prints a
@@ -307,10 +310,10 @@ def unrouted(
 ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     """Split the rows naming the task into ``(reworded, missing)``.
 
-    A row whose subject the task's own Pre-Known section carries is routed and
-    appears in neither list. A row that misses the subject but whose source
-    cell gives a ``Flag {id} from {source}`` reference in that section is
-    reworded. Any other row is missing.
+    A row whose subject the task file carries is routed and appears in neither
+    list. A row that misses the subject but whose source cell gives a
+    ``Flag {id} from {source}`` reference in the task file is reworded. Any
+    other row is missing.
     """
     reworded: list[tuple[str, str]] = []
     missing: list[tuple[str, str]] = []
@@ -390,8 +393,7 @@ def main(argv: list[str] | None = None) -> int:
         except OSError as exc:
             print(f"error: {exc}")
             return 2
-        lines = _optional_section(text, DESTINATION_HEADING, "Pre-Known Cross-Task Coordination Flags", path)
-        task_text = normalise(" ".join(lines))
+        task_text = normalise(text)
         task_reworded, task_missing = unrouted(rows, task_text, tid, n)
         rewordings.extend((tid, fid, subj) for fid, subj in task_reworded)
         misses.extend((tid, fid, subj) for fid, subj in task_missing)

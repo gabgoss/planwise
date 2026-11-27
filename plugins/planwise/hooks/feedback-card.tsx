@@ -10,6 +10,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions } from 'claude-code'
 
+import { blockedHostOf } from './blocked-card.tsx'
+import { recountBlocked } from './feedback/blocked.ts'
 import { clearIfSame, fitTitle, isStalePress, kindLabel, previewLines, previewRows, shouldAskTurnOff } from './feedback/card-preview.ts'
 import { findConfig } from './feedback/config-read.ts'
 import { draftStillOffered } from './feedback/live.ts'
@@ -74,6 +76,7 @@ export function hostOf($: EngineInterface) {
     clearLast: (draftId: string | null) => update($, lastDraft, (current) => clearIfSame(current, draftId)),
     bumpDismissals: () => update($, dismissals, (n) => n + 1),
     hide: () => update($, hidden, () => true),
+    recountBlocked: (feedbackDir: string) => recountBlocked(blockedHostOf($), feedbackDir),
   }
 }
 
@@ -149,6 +152,8 @@ const onReview = async (host: CardHost): Promise<void> => {
 const onPost = async (host: CardHost): Promise<void> => {
   const draft = await host.readLast()
   await pressPost({ ...host, currentConfig: () => currentConfigOf(host), fallback: (draftId: string) => runAndSpend(host, 'feedback --post ' + draftId, draftId) }, draft)
+  // The privacy check may have blocked this post, and no turn ends after a card press.
+  if (draft !== null) await host.recountBlocked(draft.feedbackDir)
 }
 
 /**

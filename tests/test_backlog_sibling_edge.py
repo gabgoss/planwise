@@ -9,6 +9,7 @@ Two groups of tests pin that:
   SiblingEdgeLoopRun    the backlog loop on a two-sibling result, in two shapes
   BlockerInTheSameRun   a blocked item queues behind a blocker in the same run
   BlockerGateAtNext     `--next` skips an item while one of its blockers is open
+  WaitingSection        `--init` lists the blocked items it leaves out of the run
 
 Fixture items (the parent is 020, the siblings are A = 021 and B = 022, B waits for A):
 
@@ -46,9 +47,11 @@ PINS = {
             "| {criteria} | {after}",
             "earlier `SUB_ITEMS` line only",
             "for every sub-item that waits on a sibling",
+            "unlanded_blockers",
         ),
         ("The parts are independent",),
     ),
+    "agents/backlog-preflight.md": (("unlanded_blockers",), ()),
     "agents/backlog-author.md": (
         (
             "File every sub-item first",
@@ -58,9 +61,12 @@ PINS = {
         (),
     ),
     "templates/backlog-item.md": (("B waits for A", "in A's file"), ()),
-    "references/backlog-schema.md": (("B waits for A", "in A's file"), ()),
-    "references/backlog-creation-process.md": (("prerequisite sibling",), ()),
-    "handlers/backlog-Part-2-LoopMode.md": (("prerequisite sibling",), ()),
+    "references/backlog-schema.md": (("B waits for A", "in A's file", "unlanded_blockers"), ()),
+    "references/backlog-creation-process.md": (("prerequisite sibling", "unlanded_blockers"), ()),
+    "handlers/backlog-Part-2-LoopMode.md": (
+        ("prerequisite sibling", "unlanded_blockers", "dispatch no author", "first run the Refine step again"),
+        (),
+    ),
 }
 
 
@@ -463,6 +469,250 @@ class BlockerGateSkipsTheWholeChain(_SiblingFixture):
         items = self.read_run(payload)["items"]
         self.assertEqual(items["082"]["blocked_by"], ["081"])
         self.assertEqual(items["083"]["blocked_by"], ["082"])
+
+
+# The refined sections, in the layout of templates/backlog-item.md.
+DESIGN_SECTIONS = (
+    "\n## Resolution\n\nChange the one helper.\n\n"
+    "1. `a.py` -- change the reader.\n2. `b.py` -- add the test.\n\n"
+    "## Verification\n\n```\npython -m pytest -q\n# expect: 0 failed\n```\n"
+)
+
+
+class RefineAheadAtNext(_SiblingFixture):
+    """`--next` designs an undesigned dependant while every open blocker is refined."""
+
+    def design(self, item_id: str, *, refined: bool = True) -> None:
+        """Write a design on the item; `refined=False` is the decomposed-parent shape."""
+        path = self.backlog_dir / item_filename(item_id)
+        text = path.read_text(encoding="utf-8")
+        if refined:
+            text = text.replace("status: NOT_STARTED", "status: NOT_STARTED\nrefined: true", 1)
+        path.write_text(text + DESIGN_SECTIONS, encoding="utf-8", newline="\n")
+
+    def skip_each_blocker_then_pop(self, items: str, blockers: tuple[str, ...]) -> dict:
+        self.run_payload = self.init("--mode", "specific", "--items", items)
+        run_id = self.run_payload["run"]
+        for blocker in blockers:
+            _code, _text, popped = self.loop("--next", "--run", run_id)
+            self.assertEqual(popped["next"], blocker, popped)
+            code, _text, payload = self.loop(
+                "--mark", "--run", run_id, "--id", blocker, "--outcome", "SKIPPED", "--note", "fixture skip"
+            )
+            self.assertEqual(code, 0, payload)
+        code, _text, payload = self.loop("--next", "--run", run_id)
+        self.assertEqual(code, 0, payload)
+        return payload
+
+    def assert_blocker_open(self, popped: dict, item_id: str) -> None:
+        self.assertIsNone(popped["next"])
+        self.assertEqual(popped["skipped"], [item_id])
+        self.assertNotIn("unlanded_blockers", popped)
+        record = self.read_run(self.run_payload)["items"][item_id]
+        self.assertEqual(record["note"], "blocker-open")
+
+    def test_a_dependant_behind_a_refined_blocker_is_popped_to_refine(self):
+        self.add_item("071", ["072"])
+        self.add_item("072", [])
+        self.design("071")
+
+        popped = self.skip_each_blocker_then_pop("071,072", ("071",))
+
+        self.assertEqual((popped["next"], popped["disposition"]), ("072", "refine"))
+        self.assertEqual(popped["unlanded_blockers"], ["071"])
+        record = self.read_run(self.run_payload)["items"]["072"]
+        self.assertEqual((record["unlanded_blockers"], record["outcome"]), (["071"], None))
+
+    def test_the_halt_line_repeats_the_unlanded_blockers_for_a_retry(self):
+        self.add_item("071", ["072"])
+        self.add_item("072", [])
+        self.design("071")
+        self.skip_each_blocker_then_pop("071,072", ("071",))
+
+        code, _text, halted = self.loop("--next", "--run", self.run_payload["run"])
+
+        self.assertEqual((code, halted["item"]), (3, "072"))
+        self.assertEqual(halted["unlanded_blockers"], ["071"])
+
+    def test_an_unrefined_blocker_still_skips_its_dependant(self):
+        self.add_item("071", ["072"])
+        self.add_item("072", [])
+
+        popped = self.skip_each_blocker_then_pop("071,072", ("071",))
+
+        self.assert_blocker_open(popped, "072")
+
+    def test_one_unrefined_blocker_among_refined_ones_skips_the_dependant(self):
+        self.add_item("071", ["073"])
+        self.add_item("072", ["073"])
+        self.add_item("073", [])
+        self.design("071")
+
+        popped = self.skip_each_blocker_then_pop("071,072,073", ("071", "072"))
+
+        self.assert_blocker_open(popped, "073")
+
+    def chain(self) -> None:
+        """071 blocks 072 and 072 blocks 073."""
+        self.add_item("071", ["072"])
+        self.add_item("072", ["073"])
+        self.add_item("073", [])
+
+    def test_every_open_blocker_up_the_chain_is_listed(self):
+        self.chain()
+        self.design("071")
+        self.design("072")
+
+        popped = self.skip_each_blocker_then_pop("071,072,073", ("071",))
+
+        self.assertEqual((popped["next"], popped["skipped"]), ("073", ["072"]))
+        self.assertEqual(popped["unlanded_blockers"], ["072", "071"])
+
+    def test_an_unrefined_blocker_further_up_the_chain_skips_the_dependant(self):
+        self.chain()
+        self.design("072")
+
+        popped = self.skip_each_blocker_then_pop("071,072,073", ("071",))
+
+        self.assertIsNone(popped["next"])
+        self.assertEqual(popped["skipped"], ["072", "073"])
+
+    def test_a_blocker_this_run_worked_and_left_open_skips_its_dependant(self):
+        # Its changes may be half in the tree, so nothing is designed on top of them.
+        self.add_item("071", ["072"])
+        self.add_item("072", [])
+        self.design("071")
+        self.run_payload = self.init("--mode", "specific", "--items", "071,072")
+        run_id = self.run_payload["run"]
+        self.loop("--next", "--run", run_id)
+        self.loop("--mark", "--run", run_id, "--id", "071", "--phase", "acting")
+        code, _text, payload = self.loop(
+            "--mark", "--run", run_id, "--id", "071", "--outcome", "SKIPPED", "--note", "halted-mid-item"
+        )
+        self.assertEqual(code, 0, payload)
+
+        code, _text, popped = self.loop("--next", "--run", run_id)
+
+        self.assertEqual(code, 0, popped)
+        self.assert_blocker_open(popped, "072")
+
+    def test_a_decomposed_parent_stays_behind_its_refined_sub_items(self):
+        # The parent carries a numbered Resolution and no `refined`: a design is on file.
+        self.add_item("090", [])
+        self.add_item("091", ["090"])
+        self.design("090", refined=False)
+        self.design("091")
+
+        popped = self.skip_each_blocker_then_pop("091,090", ("091",))
+
+        self.assert_blocker_open(popped, "090")
+
+    def test_an_unrefined_dependant_queued_as_run_keeps_the_skip(self):
+        # With no refine cap an unrefined item is queued to run as it is.
+        self.add_item("071", ["072"])
+        self.add_item("072", [])
+        self.design("071")
+        self.run_payload = self.init("--mode", "all")
+        run_id = self.run_payload["run"]
+        self.assertEqual(self.read_run(self.run_payload)["queue_meta"]["072"]["disposition_at_init"], "run")
+
+        popped: dict = {"skipped": []}
+        while "072" not in popped["skipped"]:
+            code, _text, popped = self.loop("--next", "--run", run_id)
+            self.assertEqual(code, 0, popped)
+            self.assertNotEqual(popped["next"], "072")
+            if popped["next"] is not None:
+                self.loop(
+                    "--mark", "--run", run_id, "--id", popped["next"], "--outcome", "SKIPPED", "--note", "fixture skip"
+                )
+
+        self.assertEqual(self.read_run(self.run_payload)["items"]["072"]["note"], "blocker-open")
+
+    def test_a_dependant_queued_as_run_never_runs_while_its_blocker_is_open(self):
+        self.add_item("071", ["072"])
+        self.add_item("072", [])
+        self.design("071")
+        self.design("072")
+
+        popped = self.skip_each_blocker_then_pop("071,072", ("071",))
+
+        self.assert_blocker_open(popped, "072")
+
+
+WAITING_HEADING = "Waiting (a blocker is not in this run):"
+# In the base fixture 005 waits for 004, and 004 is on hold, so never in a run.
+WAITING_005 = [{"id": "005", "blocked_by": ["004"]}]
+
+
+class WaitingSection(_SiblingFixture):
+    """`--init` names the blocked items it leaves out of a mode `all` or `n` run."""
+
+    def dry(self, *argv: str) -> tuple[str, dict]:
+        code, text, payload = self.loop("--init", *argv, "--dry-run")
+        self.assertEqual(code, 0, payload)
+        return text, payload
+
+    def test_mode_all_lists_the_blocked_item_with_what_it_waits_for(self):
+        text, payload = self.dry("--mode", "all")
+
+        self.assertEqual(payload["waiting"], WAITING_005)
+        self.assertIn(WAITING_HEADING, text)
+        self.assertIn("  005  (waits for 004)", text)
+
+    def test_mode_n_lists_the_same_items(self):
+        # 072 waits for 071. Only the limit passes it over, so it gets no record.
+        self.add_item("071", ["072"])
+        self.add_item("072", [])
+
+        _text, payload = self.dry("--mode", "n", "--n", "1")
+
+        self.assertEqual(payload["waiting"], WAITING_005)
+        self.assertNotIn("072", [entry["id"] for entry in payload["queue"]])
+
+    def test_an_item_on_hold_is_not_listed_as_waiting(self):
+        _text, payload = self.dry("--mode", "all")
+
+        self.assertNotIn("004", [entry["id"] for entry in payload["waiting"]])
+        self.assertNotIn("004", [entry["id"] for entry in payload["queue"]])
+
+    def test_mode_specific_has_no_waiting_key(self):
+        text, payload = self.dry("--mode", "specific", "--items", "001,005")
+
+        self.assertEqual(payload["warnings"], ["warning: item 005 dropped: blocked by 004 (open)"])
+        self.assertNotIn("waiting", payload)
+        self.assertNotIn(WAITING_HEADING, text)
+
+    def test_the_run_file_stores_the_list_and_the_end_summary_repeats_it(self):
+        payload = self.init("--mode", "all")
+
+        self.assertEqual(self.read_run(payload)["waiting"], WAITING_005)
+        code, text, _payload = self.loop("--end", "--run", payload["run"])
+        self.assertEqual(code, 0)
+        self.assertIn(WAITING_HEADING, text)
+        self.assertIn("  005  (waits for 004)", text)
+
+    def test_a_run_file_from_before_the_key_still_ends(self):
+        payload = self.init("--mode", "all")
+        path = self.run_path(payload)
+        run = json.loads(path.read_text(encoding="utf-8"))
+        del run["waiting"]
+        path.write_text(json.dumps(run, indent=2) + "\n", encoding="utf-8", newline="\n")
+
+        code, text, _payload = self.loop("--end", "--run", payload["run"])
+
+        self.assertEqual(code, 0)
+        self.assertNotIn(WAITING_HEADING, text)
+
+    def test_a_dependant_that_fails_its_own_gate_is_excluded_not_waiting(self):
+        self.add_item("051", ["052"])
+        self.add_item("052", [])
+        path = self.backlog_dir / item_filename("052")
+        path.write_text(path.read_text(encoding="utf-8") + OPEN_QUESTION, encoding="utf-8", newline="\n")
+
+        _text, payload = self.dry("--mode", "all")
+
+        self.assertIn("052", [entry["id"] for entry in payload["excluded"]])
+        self.assertNotIn("052", [entry["id"] for entry in payload["waiting"]])
 
 
 class GeneratedIndexFeedsTheLoop(unittest.TestCase):

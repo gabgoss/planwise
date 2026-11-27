@@ -141,6 +141,24 @@ class TestFeedbackBlock(FeedbackFixture):
         self.assertIsNotNone(config_value, nxt)
         self.assertTrue(Path(config_value.group(1)).samefile(self.root / "planwise" / "config.yaml"))
 
+    def test_a_blocked_draft_sends_every_branch_to_the_handler(self):
+        # The card lists queued drafts only, so it must not answer while a blocked draft waits.
+        self.queue_three()
+        kept = self.folder / "2026-01-01-bug-kept.md"
+        kept.write_text("A kept body.\n", encoding="utf-8", newline="\n")
+        drafts = [sys.executable, "-B", str(SCRIPTS_DIR / "feedback_drafts.py")]
+        subprocess.run([*drafts, "mark-blocked", "--draft", str(kept), "--class", "email", "--line", "1", "--route", "issue"], check=True, capture_output=True, timeout=60)
+        out = run_router(["feedback", "--post", "d-0001"], self.root).stdout
+        self.assertIn(f"{FALLBACK} 1 blocked draft(s) need the handler route", out.splitlines())
+        self.assertIn(BEGIN, out)
+        self.assertIn(END, out)
+        self.assertNotIn("NEXT:", out)
+        # A dismissed record is no longer blocked, so the card answers again.
+        subprocess.run([*drafts, "dismiss-blocked", "--draft", str(kept)], check=True, capture_output=True, timeout=60)
+        after = run_router(["feedback"], self.root).stdout
+        self.assertNotIn(FALLBACK, after)
+        self.assertIn("NEXT:", after)
+
     def test_enabled_state_names_no_enable_step(self):
         nxt = "\n".join(skill_preflight.feedback_next_lines(1, ["d-0001"], "enabled", "gabgoss/planwise", SCRIPTS_DIR, Path("cfg/config.yaml")))
         self.assertNotIn("enable-posting", nxt)

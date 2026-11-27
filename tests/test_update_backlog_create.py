@@ -11,15 +11,19 @@ Each test builds an isolated temp planwise tree; none mutate the live backlog.
 Run with:  python -m pytest tests/test_update_backlog_create.py -q
 """
 
+import contextlib
+import io
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # tests/ itself, for update_backlog_fixture
 
 import generate_backlog_index
+import parse_backlog
 from update_backlog_fixture import CONFIG_YAML_FIXTURE, _UpdateBacklogFixtureBase
 
 
@@ -727,6 +731,148 @@ class TestCreateFilesPathResolution(_UpdateBacklogFixtureBase):
         flat = " ".join(out.split())
         self.assertIn("bare file name", flat)
         self.assertIn("directly inside the backlog folder", flat)
+
+
+class TestUnreadableItemFileCountsByFileName(_UpdateBacklogFixtureBase):
+    """An item file with no readable frontmatter id still holds the id in its
+    file name: `--id next`, `--next-id` and the duplicate guard count it."""
+
+    BAD = "BB-110-01-TEST-Broken.md"
+    NEW = "BB-NNN-01-TEST-Topic.md"
+
+    def setUp(self):
+        super().setUp()
+        self.write_index("| 109 | Existing | Low | NOT_STARTED | TEST | - | [01](x.md) |\n")
+
+    def _write_bad(self, name: str, text: str = "---\nid: 110\nno closing fence\n", archived: bool = False):
+        folder = self.archive_dir if archived else self.backlog_dir
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / name
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def _create(self, item_id: str, files: str):
+        return self._run_main(
+            [
+                "--config", str(self.config_path),
+                "--create",
+                "--id", item_id,
+                "--feature", "Allocate past an unreadable file",
+                "--priority", "Low",
+                "--abbrev", "TEST",
+                "--files", files,
+            ]
+        )
+
+    def _next_id(self) -> tuple[str, str]:
+        out, err = io.StringIO(), io.StringIO()
+        argv = ["parse_backlog", "--config", str(self.config_path), "--next-id"]
+        with mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            parse_backlog.main()
+        return out.getvalue(), err.getvalue()
+
+    def test_next_does_not_reuse_the_id_in_a_malformed_file_name(self):
+        self._write_bad(self.BAD)
+
+        out, err, code = self._create("next", self.NEW)
+
+        self.assertIsNone(code, err)
+        self.assertIn("Created backlog item 111", out)
+        self.assertTrue((self.backlog_dir / "BB-111-01-TEST-Topic.md").exists())
+        # One run, one warning for the file: the guard does not repeat it.
+        self.assertEqual(err.count(self.BAD), 1, err)
+        self.assertIn("counted id 110 from its file name", err)
+
+    def test_archived_file_with_no_id_key_counts_by_its_name(self):
+        self._write_bad(
+            "BLI-120-01-TEST-NoId.md", "---\nstatus: COMPLETE\n---\n\n# x\n", archived=True
+        )
+
+        out, err = self._next_id()
+
+        self.assertEqual(out, "121\n")
+        self.assertIn("BLI-120-01-TEST-NoId.md", err)
+        self.assertIn("counted id 120 from its file name", err)
+
+    def test_next_id_stdout_is_exactly_the_id(self):
+        self._write_bad(self.BAD)
+
+        out, err = self._next_id()
+
+        self.assertEqual(out, "111\n")
+        self.assertEqual(err.count(self.BAD), 1, err)
+
+    def test_frontmatter_id_with_no_number_counts_by_the_file_name(self):
+        self._write_bad(self.BAD, "---\nid: NNN\nstatus: NOT_STARTED\n---\n\n# x\n")
+
+        out, err = self._next_id()
+
+        self.assertEqual(out, "111\n")
+        self.assertIn("counted id 110 from its file name", err)
+
+    def test_file_name_with_no_id_is_warned_about(self):
+        self._write_bad("loose-notes.md")
+
+        out, err = self._next_id()
+
+        self.assertEqual(out, "110\n")
+        self.assertIn("loose-notes.md", err)
+        self.assertIn("no id could be taken from its file name", err)
+
+    def test_explicit_create_of_the_named_id_is_refused_and_names_the_file(self):
+        self._write_bad(self.BAD)
+
+        _out, err, code = self._create("110", "dup-TEST-item.md")
+
+        self.assertEqual(code, 1)
+        self.assertIn("Item ID '110' already exists", err)
+        self.assertIn(self.BAD, err)
+        # The user opens that file and finds no readable id, so say where it came from.
+        self.assertIn("id taken from its file name", err)
+        self.assertFalse((self.backlog_dir / "dup-TEST-item.md").exists())
+
+    def test_rerun_on_its_own_unreadable_file_says_it_could_not_be_read(self):
+        path = self._write_bad(self.BAD)
+        before = path.read_bytes()
+
+        _out, err, code = self._create("110", self.BAD)
+
+        self.assertEqual(code, 1)
+        self.assertIn("could not be read", err)
+        self.assertIn("refusing to claim it", err)
+        self.assertNotIn("Item ID '110' already exists", err)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_readable_frontmatter_id_wins_over_the_file_name(self):
+        self.write_item_file("BB-500-01-TEST-Renamed.md", status="NOT_STARTED", item_id="012")
+
+        out, err = self._next_id()
+
+        self.assertEqual(out, "110\n")
+        self.assertEqual(err, "")
+
+    def test_refusal_names_the_readable_holder_before_a_name_only_one(self):
+        self._write_bad("BB-050-00-TEST-Broken.md")
+        self.write_item_file("real-holder.md", status="NOT_STARTED", item_id="050")
+
+        _out, err, code = self._create("050", "dup-TEST-item.md")
+
+        self.assertEqual(code, 1)
+        self.assertIn("real-holder.md", err)
+        self.assertNotIn("BB-050-00-TEST-Broken.md", err)
+        self.assertNotIn("id taken from its file name", err)
+
+    def test_status_update_never_guesses_a_file_from_its_name(self):
+        path = self._write_bad(self.BAD)
+        before = path.read_bytes()
+
+        _out, _err, code = self._run_main(
+            ["--config", str(self.config_path), "--id", "110", "--status", "COMPLETE"]
+        )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertFalse((self.archive_dir / self.BAD).exists())
 
 
 if __name__ == "__main__":

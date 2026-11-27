@@ -1,7 +1,7 @@
-"""Tests for the derived session surface: rendered by scaffold_plan, priced by token_saver_writeback.
+"""Tests for the derived session surface: rendered by scaffold_plan, derived by token_saver_derived.
 
 Every fixture is the real renderer's output, written to a project under tmp_path and priced by the
-real write-back. No surface row is typed by hand.
+real write-back (token_saver_writeback). No surface row is typed by hand.
 """
 
 import json
@@ -21,6 +21,7 @@ import lint_gate_checks_layers as layers
 import lint_verification_gates
 import plan_build as pb
 import scaffold_plan as sp
+import token_saver_derived as tsd
 import token_saver_scan as tss
 import token_saver_writeback as tsw
 from test_plan_build import Build, bodies_set
@@ -314,7 +315,7 @@ def test_an_orchestration_with_no_block_is_untouched_by_the_block_pass(tmp_path,
         tree = Tree(tmp_path / name)
         tree.set(ORCH, _without_block(tree.text(ORCH)))
         if name == "no_pass":
-            monkeypatch.setattr(tsw, "_write_session_surface", lambda *_args: None)
+            monkeypatch.setattr(tsd, "_write_session_surface", lambda *_args: None)
         report = tree.write_back(TASK_1, TASK_2)
         assert report["unreadable"] == []
         assert not [r for r in report["left"] if "Orchestration" in r["file"]]
@@ -328,7 +329,7 @@ def test_a_failed_block_pass_keeps_every_other_write(tree, monkeypatch):
         raise RuntimeError("planted")
 
     block = _block(tree.text(ORCH))
-    monkeypatch.setattr(tsw, "surface_entries", boom)
+    monkeypatch.setattr(tsd, "surface_entries", boom)
     report = tree.write_back(TASK_1, TASK_2)
     assert [(u["what"], u["reason"]) for u in report["unreadable"]] == [
         ("Session Surface", "RuntimeError: planted"), ("Write-Set", "RuntimeError: planted")]  # both read it
@@ -358,13 +359,13 @@ def test_a_plan_file_that_cannot_be_priced_keeps_its_figure(tree):
 def test_a_path_with_no_figure_prints_zero_and_the_flag(tree):
     text = tree.text(TASK_1)
     row = next(ln for ln in text.split("\n") if ln.startswith("|") and f"`{PARSE}`" in ln)
-    entries = tsw.surface_entries(
+    entries = tsd.surface_entries(
         [(tree.plan / TASK_1, text.replace(row, row.replace("~0.7K", "n/a")))], [], tree.plan, tree.root)
-    got = next(tsw.surface_row(e) for e in entries if e["path"] == PARSE)
+    got = next(tsd.surface_row(e) for e in entries if e["path"] == PARSE)
     assert got == f"| `{PARSE}` | {CREATE} | 0.0 | ~0.0K | 01 |"
     # A task file that no row cites has no figure either, and no cell stays blank.
-    bare = tsw.surface_entries([(Path("s/p/T-01-Opus-X.md"), "no table")], [], tree.plan, tree.root)
-    assert tsw.surface_row(bare[0]) == "| `T-01-Opus-X.md` | READ (plan-time estimate) | 0.0 | ~0.0K | none |"
+    bare = tsd.surface_entries([(Path("s/p/T-01-Opus-X.md"), "no table")], [], tree.plan, tree.root)
+    assert tsd.surface_row(bare[0]) == "| `T-01-Opus-X.md` | READ (plan-time estimate) | 0.0 | ~0.0K | none |"
 
 
 def _add_rows(tree, *cells):
@@ -1217,14 +1218,14 @@ def test_a_cell_that_ends_where_it_began_moves_no_footer_date(tmp_path):
 
 def _growing_master(tree, monkeypatch):
     """Make each pass append a longer line to the Master Plan than the pass before."""
-    calls, real = [], tsw._write_master
+    calls, real = [], tsd._write_master
 
     def grow(buf, *args):
         real(buf, *args)
         calls.append("x" * 200)
         buf.get(tree.plan / MASTER).append("".join(calls))
 
-    monkeypatch.setattr(tsw, "_write_master", grow)
+    monkeypatch.setattr(tsd, "_write_master", grow)
     return calls
 
 
@@ -1274,14 +1275,19 @@ def test_a_citation_chain_longer_than_the_pass_limit_is_written(tmp_path, monkey
         passes.append(1)
         real_pass(*args)
 
+    asked = set()
+
     class Short:
         """The outer limit only: the settle loops inside one pass keep theirs."""
         def __index__(self):
+            asked.add(sys._getframe(1).f_code.co_name)
             return 1 if sys._getframe(1).f_code.co_name == "write_estimates" else 6
 
     monkeypatch.setattr(tsw, "_write_pass", count)
     monkeypatch.setattr(tsw, "_SELF_ROW_PASSES", Short())
     report = tree.write_back(*ALL_TASKS)
+    # One limit for every settle loop, in the write-back and in the derived module.
+    assert asked == {"write_estimates", "_write_task", "_write_session_surface", "_write_writeset"}
     assert len(passes) == 1 and len(report["written"]) > len(ALL_TASKS)
     assert {Path(u["file"]).name for u in report["unreadable"]} == {MASTER, Path(PLAN).name}
     monkeypatch.undo()

@@ -29,6 +29,7 @@ try:
         find_top_level_block,
         get_feedback_config,
         get_upgrade_config,
+        resolve_feedback_dir,
         splice_context_block,
         write_config_checked,
     )
@@ -51,6 +52,10 @@ except ImportError:
             "include_environment": True,
             "drafts": "notify",
         }
+
+    def resolve_feedback_dir(planwise_root, feedback_rel) -> Path:
+        # Degraded fallback: no linked-worktree lookup, so a banner names the folder as written.
+        return Path(planwise_root) / feedback_rel
 
     def write_config_checked(config_path, text: str) -> None:
         # Degraded fallback: the post-write parse check lives in config_loader,
@@ -724,23 +729,30 @@ _POSTING_LINE = ("  posting follows feedback.enabled: an interactive run asks fi
 
 
 def _drafts_banner(value: str, answered: bool, enabled_set: str | None, *,
-                   planwise_root: str, feedback_dir: str, plugin_root: Path) -> str:
-    """`enabled_set` is the `feedback.enabled` value this run wrote (`true` or `false`), or None."""
+                   planwise_root: str, feedback_dir: str, plugin_root: Path,
+                   main_folder: Path | None = None) -> str:
+    """`enabled_set` is the `feedback.enabled` value this run wrote (`true` or `false`), or None.
+
+    `main_folder` is the main checkout's drafts folder, passed only from a linked worktree.
+    """
     source = "answered" if answered else "default, no answer given"
     flipped = f"{enabled_set} (set this run)" if enabled_set else "unchanged"
     config = f"{planwise_root}/config.yaml"
+    where = f"{planwise_root}/{feedback_dir}/"
+    if main_folder is not None:
+        where += f" in the main checkout ({main_folder.as_posix()})"
     keys = f"  feedback.drafts: {value} ({source}); feedback.enabled: {flipped}\n"
     if value == "off":
         return (
             f"Feedback drafting: OFF — Claude will not save local feedback drafts under "
-            f"{planwise_root}/{feedback_dir}/\n"
+            f"{where}\n"
             f"{_POSTING_LINE}\n"
             + keys
             + f"  turn it on: set feedback.drafts: notify (or quiet) in {config}"
         )
     return (
         f"Feedback drafting: ON — Claude may now save local feedback drafts under "
-        f"{planwise_root}/{feedback_dir}/\n"
+        f"{where}\n"
         f"{_POSTING_LINE}\n"
         + keys
         + f"  turn it off: set feedback.drafts: off in {config}, or run\n"
@@ -811,6 +823,9 @@ def _apply_feedback_keys(config_path: Path, state_before: str, drafts: str | Non
     # Read the value back through the loader's normalization, so the banner agrees with what runs.
     value = get_feedback_config(parsed)["drafts"] if isinstance(parsed, dict) else (drafts or "notify")
     enabled_set = next((new for key, _, new in changes if key == "enabled"), None)
+    # A linked worktree keeps its drafts in the main checkout, so name that folder there.
+    folder = resolve_feedback_dir(config_path.parent, feedback_dir)
     return [_drafts_banner(value, drafts is not None, enabled_set,
-                           planwise_root=planwise_root, feedback_dir=feedback_dir, plugin_root=plugin_root)]
+                           planwise_root=planwise_root, feedback_dir=feedback_dir, plugin_root=plugin_root,
+                           main_folder=folder if folder != config_path.parent / feedback_dir else None)]
 

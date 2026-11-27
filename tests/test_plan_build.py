@@ -527,6 +527,27 @@ def test_lint_unknown_fill_names_key_and_doc(tmp_path, capsys, index):
     assert f"LINT: doc={TASK_DOC} key=fill: Ledger goal: the marker occurs nowhere in this doc" in out.splitlines()
 
 
+def test_lint_ignores_a_fill_for_a_run_time_placeholder(tmp_path, capsys, index):
+    """A bodies file written while these names still rendered as markers must keep linting clean."""
+    bodies = add_keys(bodies_set(index), ORCH_DOC, "<!-- fill: plugin_root -->\n\nx\n<!-- fill: census:<name> -->\n\ny\n")
+    bodies = add_keys(bodies, "S01", "<!-- fill: census:<Name> [1] -->\n\nz\n")
+    code, out = run_lint(tmp_path, capsys, bodies)
+    assert code == 0, out
+    noted = [line.split(": the run", 1)[0] for line in out.splitlines() if line.startswith("NOTE: doc=")]
+    assert sorted(noted) == ["NOTE: doc=S01 key=fill: census:<Name> [1]",
+                             f"NOTE: doc={ORCH_DOC} key=fill: census:<name>",
+                             f"NOTE: doc={ORCH_DOC} key=fill: plugin_root"]
+
+
+def test_build_notes_each_ignored_run_time_fill_and_keeps_the_literal(tmp_path, capsys, index):
+    bodies = add_keys(bodies_set(index), ORCH_DOC, "<!-- fill: plugin_root -->\n\nC:/old/value\n")
+    build = Build(tmp_path, capsys, bodies)
+    _code, out = build.run()
+    assert f"NOTE: doc={ORCH_DOC} key=fill: plugin_root: the run" in out
+    text = build.orchestration().read_text(encoding="utf-8")
+    assert "{plugin_root}" in text and "C:/old/value" not in text
+
+
 def test_lint_a_marker_of_another_doc_is_unknown_here(tmp_path, capsys, index):
     other = "session-base value"
     assert any(m[0] == other for m in index[ORCH_DOC]["markers"])

@@ -10,6 +10,9 @@ export type PlanwiseLastDraft = {
   configPath: string
 }
 
+/** What the blocked-post banner shows: the count of blocked drafts and the directory they sit in. */
+export type PlanwiseBlocked = { count: number; feedbackDir: string }
+
 /**
  * What the update card offers. `NEEDS_CONFIRM` follows an Update Now press whose update needs a person
  * to accept a command that the marketplace declares. `declaredCommand` is that command, for the person to
@@ -36,6 +39,7 @@ declare module 'claude-code' {
       updateOffer: PlanwiseUpdateOffer | null
       updateHidden: boolean
       updateBusy: boolean
+      blocked: PlanwiseBlocked | null
     }
   }
 }

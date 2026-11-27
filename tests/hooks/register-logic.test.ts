@@ -3,23 +3,42 @@ import assert from 'node:assert/strict'
 import { register as registerLoader } from 'node:module'
 import { failureText, isCurrent, keyOf, releaseLatch, stepOf } from '../../plugins/planwise/hooks/loop/boundary.ts'
 
-// Node cannot load the .tsx review card, and the engine's `claude-code` module has no node runtime.
-// This loader hook resolves both to stubs, so register.ts can load here. The card has its own tests.
+// Node cannot load the .tsx cards, and the engine's `claude-code` module has no node runtime.
+// This loader hook resolves them to stubs, so register.ts can load here. Each card's logic has its
+// own tests. The blocked banner's stub counts the hosts register.ts builds and records each argv.
 const stubUrl = (source: string): string => 'data:text/javascript,' + encodeURIComponent(source)
+const blockedCardStub = `
+export const register = () => {}
+export const blockedHostOf = () => {
+  const seen = (globalThis.blockedSeen ??= { hosts: 0, argvs: [] })
+  seen.hosts++
+  const done = { exitCode: 0, stdout: '[]', stderr: '' }
+  const run = async (argv) => (seen.argvs.push(argv), seen.hang ? new Promise(() => {}) : done)
+  return { run, uiLog: () => {}, pluginRoot: () => '/plugin', exists: async () => true, setBlocked: () => {} }
+}
+`
 const loaderSource = `
 const stubs = {
   'claude-code': ${JSON.stringify(stubUrl('export const atom = (ref, initial) => ({ ref, initial }); export const read = async () => undefined; export const update = async () => undefined'))},
   feedbackCard: ${JSON.stringify(stubUrl('export const register = () => {}'))},
   updateBanner: ${JSON.stringify(stubUrl('export const register = () => {}'))},
+  blockedCard: ${JSON.stringify(stubUrl(blockedCardStub))},
 }
 export async function resolve(specifier, context, next) {
   if (specifier === 'claude-code') return { url: stubs['claude-code'], shortCircuit: true }
   if (specifier.endsWith('feedback-card.tsx')) return { url: stubs.feedbackCard, shortCircuit: true }
   if (specifier.endsWith('update-banner.tsx')) return { url: stubs.updateBanner, shortCircuit: true }
+  if (specifier.endsWith('blocked-card.tsx')) return { url: stubs.blockedCard, shortCircuit: true }
   return next(specifier, context)
 }
 `
 registerLoader(stubUrl(loaderSource), import.meta.url)
+
+type BlockedSeen = { hosts: number; argvs: string[][]; hang?: boolean }
+const blockedSeen = (): BlockedSeen => {
+  const global = globalThis as unknown as { blockedSeen?: BlockedSeen }
+  return (global.blockedSeen ??= { hosts: 0, argvs: [] })
+}
 
 // The module under test. REGISTER_URL points the same tests at another copy of register.ts.
 const target = process.env.REGISTER_URL ?? new URL('../../plugins/planwise/hooks/register.ts', import.meta.url).href
@@ -63,6 +82,8 @@ const harness = (
     commands?: typeof COMMANDS
     list?: () => Promise<typeof COMMANDS>
     read?: (path: string) => Promise<unknown>
+    /** A session root that holds planwise/config.yaml, so draft feedback resolves a drafts dir. */
+    configRoot?: string
   } = {},
 ) => {
   const hooks = new Map<string, { run: (...a: unknown[]) => unknown; catcher?: (...a: unknown[]) => unknown }>()
@@ -89,9 +110,13 @@ const harness = (
         return t
       },
     },
-    session: { compact: () => (calls.compact++, (opts.compact ?? (async () => ({})))()) },
+    session: { compact: () => (calls.compact++, (opts.compact ?? (async () => ({})))()), root: async () => opts.configRoot ?? Promise.reject(new Error('no root')) },
     command: { run: () => (calls.runCommand++, (opts.runCommand ?? (async () => ({})))()), list: opts.list ?? (async () => opts.commands ?? COMMANDS) },
-    fs: { read: (path: string) => (reads.push(path), (opts.read ?? (async () => runFile('plan')))(path)) },
+    fs: {
+      read: (path: string) => (reads.push(path), (opts.read ?? (async () => runFile('plan')))(path)),
+      exists: async (path: string) => path === opts.configRoot + '/planwise/config.yaml',
+      list: async () => [],
+    },
     ui: { log: (text: string, o?: { to?: string }) => void (logs.push(text), channels.push(o?.to ?? 'transcript')) },
     env: { get: async () => '1' },
   }
@@ -600,4 +625,63 @@ test('plan exit 30: a session start disarms before its first await, and a later 
   await assert.rejects(starting, /no list/)
   assert.equal((await during).answer, 'NEXT')
   await assertLeftToUser(h)
+})
+
+// The blocked-post banner. register.ts recounts at each session start and each main-loop turn end.
+
+test('blocked banner: a session start builds the host once and still returns next(e)', async () => {
+  const h = harness()
+  const before = blockedSeen().hosts
+  assert.equal(await h.run('session.start', { isInteractive: true }, () => 'NEXT'), 'NEXT')
+  assert.equal(blockedSeen().hosts - before, 1)
+})
+
+test('blocked banner: a main-loop turn end builds the host once for any reason, and returns next(e)', () => {
+  for (const reason of ['answer', 'interrupted']) {
+    const h = harness()
+    const before = blockedSeen().hosts
+    assert.equal(h.run('turn.complete', { reason, answer: 'Plain.' }, () => 'NEXT'), 'NEXT', reason)
+    assert.equal(blockedSeen().hosts - before, 1, reason)
+  }
+})
+
+test('blocked banner: a subagent turn end builds no host and returns next(e)', () => {
+  const h = harness()
+  const before = blockedSeen().hosts
+  assert.equal(h.run('turn.complete', { agentId: 'a1', reason: 'answer', answer: 'sub' }, () => 'NEXT'), 'NEXT')
+  assert.equal(blockedSeen().hosts - before, 0)
+})
+
+// Last on purpose: a resolved config stays in the draft-feedback module for the rest of the process.
+test('blocked banner: a turn end with no session start before it still counts, as after a module reload', async () => {
+  const h = harness({ configRoot: '/reload', read: async () => 'project:\n  name: x\n' })
+  const before = blockedSeen().argvs.length
+  h.run('turn.complete', { reason: 'answer', answer: 'Plain.' })
+  await flush()
+  assert.deepEqual(blockedSeen().argvs.slice(before).map((argv) => argv.at(-1)), ['/reload/planwise/Feedback/Feedback-Drafts'])
+})
+
+test('blocked banner: a count that never returns does not hold the session start', async () => {
+  const h = harness({ configRoot: '/hang', read: async () => 'project:\n  name: x\n' })
+  blockedSeen().hang = true
+  try {
+    let started = false
+    void (h.run('session.start', { isInteractive: true }) as Promise<unknown>).then(() => (started = true))
+    await flush()
+    assert.equal(started, true)
+    assert.ok(h.logs.some((l) => l.startsWith('backlog loop: re-entry skill')), 'the steps after the count ran')
+  } finally {
+    blockedSeen().hang = false
+  }
+})
+
+test('blocked banner: both hooks count in the drafts dir that draft feedback resolved', async () => {
+  const h = harness({ configRoot: '/proj', read: async () => 'project:\n  name: x\n' })
+  const before = blockedSeen().argvs.length
+  await h.run('session.start', { isInteractive: true })
+  h.run('turn.complete', { reason: 'answer', answer: 'Plain.' })
+  await flush()
+  const argvs = blockedSeen().argvs.slice(before)
+  assert.equal(argvs.length, 2)
+  for (const argv of argvs) assert.deepEqual(argv.slice(2), ['/plugin/scripts/feedback_drafts.py', 'blocked-list', '--json', '--feedback-dir', '/proj/planwise/Feedback/Feedback-Drafts'])
 })

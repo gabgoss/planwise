@@ -262,8 +262,9 @@ line beside `feedback.enabled:`, with the value `notify`, `quiet` or `off`. The 
 The script prints this stage (banner: planwise doctor — feedback directory
 presence check). Pass it through verbatim. To create a missing directory, the
 user opts in with the separate writer `/planwise doctor --create-feedback-dir`
-(Stage 17b below). Resolve `{feedback_dir_path}` as
-`{planwise_root}/{project.feedback_dir}` for that offer. The script also prints a
+(Stage 17b below). For that offer, `{feedback_dir_path}` is the folder on the
+script's `feedback directory:` line. In a linked git worktree that folder is in
+the main checkout. The script also prints a
 read-only `model drafts queued: {n}` line, or `model drafts queued: not checked`
 when the directory is absent, the config cannot be read, or the count fails (it then names the reason). When `n` is above 0 it
 adds the hint `review them with /planwise feedback --drafts, or post one with
@@ -279,7 +280,7 @@ above). Ask one `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->`,
 the inferred default is the "Feedback directory creation question" row of
 `references/auto-mode-policy.md` § Inference Defaults): "Create the missing feedback
 directory at `{feedback_dir_path}`?" On confirm, use **Bash** to create ONLY
-that single directory (`mkdir -p {feedback_dir_path}`) — the same
+that single directory (`mkdir -p "{feedback_dir_path}"`) — the same
 Bash-for-directory-creation scope [init.md](init.md)'s Tool Usage Rules
 already establish. This never touches an existing directory's contents,
 never renames, never deletes, and never runs when Stage 17 already reported

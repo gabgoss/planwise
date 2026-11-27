@@ -222,6 +222,99 @@ def test_delegated_heading_inside_a_fence_is_missing(bad_copy):
     assert any(ln.startswith("CLASS_A ") and ln.endswith('missing "## Spawn-Prompt Skeleton"') for ln in lines)
 
 
+SKELETON_LINES = ["## HARD CONSTRAINTS (non-negotiable)", "## SCOPE BOUNDARY",
+                  "## Operational Ceiling Notice", "## Status Block delivery (REQUIRED)"]
+
+
+@pytest.mark.parametrize("line", SKELETON_LINES)
+def test_delegated_skeleton_missing_body_line_is_class_b(bad_copy, line):
+    # The line sits inside the skeleton fence of a DELEGATED Orchestration. The gate ignores task estimates.
+    path = one(bad_copy, "*-Orchestration.md")
+    assert "**Mode:** DELEGATED" in path.read_bytes().decode("utf-8")
+    drop_lines(path, line)
+    code, lines = check(bad_copy)
+    assert code == 1
+    assert totals(lines) == (0, 1, 0)
+    assert lines[0].startswith("CLASS_B ") and lines[0].endswith(f'missing "{line}"')
+
+
+def test_direct_skeleton_body_lines_are_not_graded(bad_copy):
+    path = one(bad_copy, "*-Orchestration.md")
+    edit(path, "**Mode:** DELEGATED", "**Mode:** DIRECT")
+    drop_lines(path, "## Operational Ceiling Notice")
+    code, lines = check(bad_copy)
+    assert (code, lines) == (0, ["deviations: A=0 B=0 C=0"])
+
+
+def test_skeleton_line_outside_the_fence_is_class_b(bad_copy):
+    # A block moved out of the skeleton fence is no longer part of the prompt.
+    path = one(bad_copy, "*-Orchestration.md")
+    drop_lines(path, "## Operational Ceiling Notice")
+    path.write_bytes(path.read_bytes() + b"\n## Operational Ceiling Notice\n")
+    code, lines = check(bad_copy)
+    assert code == 1
+    assert any(ln.startswith("CLASS_B ") and ln.endswith('missing "## Operational Ceiling Notice"') for ln in lines)
+
+
+def test_skeleton_heading_with_a_task_note_is_present(bad_copy):
+    # A scaffolder may name the tasks a block applies to after the template's heading.
+    path = one(bad_copy, "*-Orchestration.md")
+    edit(path, "## Operational Ceiling Notice", "## Operational Ceiling Notice (tasks 01 and 02)")
+    code, lines = check(bad_copy)
+    assert (code, lines) == (0, ["deviations: A=0 B=0 C=0"])
+
+
+def test_four_backtick_skeleton_with_an_inner_block_is_read(bad_copy):
+    # A skeleton that holds a ``` block is fenced with four backticks.
+    path = one(bad_copy, "*-Orchestration.md")
+    lines_in = path.read_bytes().decode("utf-8").split("\n")
+    heading = next(i for i, ln in enumerate(lines_in) if ln.startswith("## Spawn-Prompt Skeleton"))
+    opener = next(i for i in range(heading, len(lines_in)) if lines_in[i].startswith("```markdown"))
+    closer = next(i for i in range(opener + 1, len(lines_in)) if lines_in[i].strip() == "```")
+    lines_in[opener] = "````markdown"
+    lines_in[closer] = "````"
+    lines_in[opener + 1:opener + 1] = ["```bash", "git status", "```"]
+    path.write_bytes("\n".join(lines_in).encode("utf-8"))
+    code, lines = check(bad_copy)
+    assert (code, lines) == (0, ["deviations: A=0 B=0 C=0"])
+
+
+def test_quoted_copy_of_the_section_does_not_hide_a_missing_line(bad_copy):
+    path = one(bad_copy, "*-Orchestration.md")
+    drop_lines(path, "## Operational Ceiling Notice")
+    quoted = b"\n````text\n## Spawn-Prompt Skeleton\n```markdown\n## Operational Ceiling Notice\n```\n````\n"
+    path.write_bytes(path.read_bytes() + quoted)
+    code, lines = check(bad_copy)
+    assert code == 1
+    assert any(ln.startswith("CLASS_B ") and ln.endswith('missing "## Operational Ceiling Notice"') for ln in lines)
+
+
+@pytest.mark.parametrize("old,new", [
+    # a ``` block inside a three-backtick skeleton
+    ("## SCOPE BOUNDARY", "```bash\ngit status\n```\n## SCOPE BOUNDARY"),
+    # an example block in the section, ahead of the skeleton fence
+    ("```markdown\nYou are dispatched", "```bash\n## not the skeleton\n```\n\n```markdown\nYou are dispatched"),
+    # a trailing HTML comment on a skeleton line
+    ("## SCOPE BOUNDARY", "## SCOPE BOUNDARY <!-- checked -->"),
+])
+def test_present_skeleton_lines_are_not_reported(bad_copy, old, new):
+    path = one(bad_copy, "*-Orchestration.md")
+    path.write_bytes(path.read_bytes().replace(b"\r\n", b"\n"))
+    edit(path, old, new)
+    code, lines = check(bad_copy)
+    assert (code, lines) == (0, ["deviations: A=0 B=0 C=0"])
+
+
+def test_quoted_skeleton_heading_adds_no_class_b(bad_copy):
+    # With the real section gone, a copy quoted inside a fence is not graded: Class A alone reports it.
+    path = one(bad_copy, "*-Orchestration.md")
+    drop_lines(path, "## Spawn-Prompt Skeleton")
+    path.write_bytes(path.read_bytes() + b"\n```text\n## Spawn-Prompt Skeleton\n```\n")
+    code, lines = check(bad_copy)
+    assert code == 1
+    assert totals(lines)[1] == 0, lines
+
+
 def test_mode_line_only_inside_a_fence_does_not_grade_delegated_headings(bad_copy):
     # A DIRECT Orchestration that quotes a DELEGATED Mode line inside a fence stays ungraded for the DELEGATED H2s.
     path = one(bad_copy, "*-Orchestration.md")
@@ -275,3 +368,33 @@ def test_undecodable_plan_file_names_the_file_not_the_template(bad_copy):
     assert code == 2
     assert lines and lines[0].startswith("ERROR: cannot read plan file ")
     assert path.name in lines[0] and "template" not in lines[0]
+
+
+# The last words of a Recovery file that was reported cut inside the Change Log note.
+RECOVERY_CUT = "records its answer in the `"
+
+
+def test_recovery_missing_last_heading_is_class_a(bad_copy):
+    edit(one(bad_copy, "*-Recovery.md"), "## Task List Map", "Task List Map")
+    code, lines = check(bad_copy)
+    assert code == 1
+    assert totals(lines) == (1, 0, 0)
+    assert lines[0].startswith("CLASS_A ") and lines[0].endswith('missing "## Task List Map"')
+
+
+def test_truncated_recovery_is_class_a(bad_copy):
+    path = one(bad_copy, "*-Recovery.md")
+    text = path.read_bytes().decode("utf-8")
+    assert RECOVERY_CUT in text
+    path.write_bytes(text[:text.index(RECOVERY_CUT) + len(RECOVERY_CUT)].encode("utf-8"))
+    code, lines = check(bad_copy)
+    assert code == 1
+    assert totals(lines) == (1, 0, 0)
+    assert lines[0].endswith('missing "## Task List Map"')
+
+
+def test_optional_recovery_section_is_not_required(bad_copy):
+    path = one(bad_copy, "*-Recovery.md")
+    path.write_bytes(path.read_bytes() + b"\n## User-Action Gate\n\n| Gate | Status | Date Asked | Answer |\n")
+    code, lines = check(bad_copy)
+    assert (code, lines) == (0, ["deviations: A=0 B=0 C=0"])

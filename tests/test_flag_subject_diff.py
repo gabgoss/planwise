@@ -204,7 +204,7 @@ def test_task_file_without_the_flag_is_listed_under_its_task_id(tmp_path, capsys
     assert fsd.main(args) == 1
     out = capsys.readouterr().out
     assert "note: no '## Carried-Forward Coordination Flags' heading" in out
-    assert "note: no '## Pre-Known Cross-Task Coordination Flags' heading" in out
+    assert "note: no '## Pre-Known Cross-Task Coordination Flags' heading" not in out
     assert "task files: 1" in out
     assert "unrouted task flags: 1" in out
     assert "  ABC-S01-02-01: 1: The split part is OVER the page cap" in out
@@ -338,3 +338,25 @@ def test_subject_hit_stays_a_plain_match_beside_a_source_column(tmp_path, capsys
     out = capsys.readouterr().out
     assert "all carried rows matched by subject" in out
     assert "subject reworded (confirm by hand): 0" in out
+
+
+# -- flags inlined in the task file, with no Pre-Known section ------------------
+
+TASK_INLINED_NOTES = "# Task\n\n## Notes for Agent\n\nThe   split part is over the page cap, so read the parts.\n"
+
+
+def test_flag_inlined_in_notes_without_the_heading_counts_as_routed(tmp_path, capsys):
+    args = _task_run(tmp_path, ORCH_TASK_ROWS, {TASK_NAME_01: TASK_INLINED_NOTES})
+    assert fsd.main(args) == 0
+    out = capsys.readouterr().out
+    assert "unrouted task flags: 0" in out
+    assert "note: no '## Pre-Known" not in out
+
+
+def test_reference_lead_inlined_in_a_gate_counts_as_reworded(tmp_path, capsys):
+    task = TASK_WITHOUT_FLAGS + "\n> **After:** Flag 1 from up-01: " + REWORDED_TEXT + "\n"
+    args = _task_run(tmp_path, ORCH_TASK_ROWS, {TASK_NAME_01: task})
+    assert fsd.main(args) == 0
+    out = capsys.readouterr().out
+    assert "unrouted task flags: 0" in out
+    assert "task flags routed by reference, subject reworded (confirm by hand): 1" in out

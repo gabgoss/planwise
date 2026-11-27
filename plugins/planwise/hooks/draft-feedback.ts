@@ -1,13 +1,14 @@
 // Feedback drafting, composed into the one hooks module (register.ts). Its session.start work
 // registers the draft_feedback tool and offers the newest queued draft on the review card, and a
-// tool.call hook serves the tool: validate, render, write a
-// draft file, then admit it through scripts/feedback_drafts.py. An admit exit other than
-// 0, 2 or 3 is debug-logged and the file is kept. The model never sees a permission dialog: the
+// tool.call hook serves the tool: validate and render here, then pipe the text to the create
+// command of scripts/feedback_drafts.py, which checks it, names the file and writes it. A
+// non-zero exit is a deny, because no draft was queued. Only when no Python starts does the
+// hook write the file itself. The model never sees a permission dialog: the
 // hook asks the engine for its verdict first, refuses on a deny, and runs on an allow or an ask.
 import { update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions, SessionVersion, ToolSpec } from 'claude-code'
 
-import { CAP_TEXT, DESCRIPTION, FULL_TOOL_NAME, INPUT_SCHEMA, MAX_CALLS_PER_SESSION, MAX_NOTICES, NOTICE_TEXT, PYTHON_CANDIDATES, RESULT_TEXT, TOOL_NAME, relativeDraftPath } from './feedback/names.ts'
+import { CAP_TEXT, DESCRIPTION, FULL_TOOL_NAME, INPUT_SCHEMA, MAX_CALLS_PER_SESSION, MAX_NOTICES, NOTICE_TEXT, PYTHON_CANDIDATES, RESULT_TEXT, START_FAILURE_WINDOW_MS, TOOL_NAME, WINDOWS_NOT_FOUND, relativeDraftPath } from './feedback/names.ts'
 import { draftsMode, findConfig, mainCheckoutDir, readRawScalar, readScalar, resolveDraftsDir } from './feedback/config-read.ts'
 import type { DraftsMode } from './feedback/config-read.ts'
 import { previewSourceOf } from './feedback/card-preview.ts'
@@ -15,6 +16,7 @@ import { isDraftFileName, newestQueued } from './feedback/queued.ts'
 import { renderDraft, scrub } from './feedback/render.ts'
 import { draftFileName, slugOf } from './feedback/slug.ts'
 import { validateInput } from './feedback/validate.ts'
+import type { Kind } from './feedback/names.ts'
 import { failureText } from './loop/boundary.ts'
 import { refusedByRule } from './permission.ts'
 import type { PlanwiseLastDraft } from '../types'
@@ -32,7 +34,7 @@ export type Host = {
   exists: (path: string) => Promise<boolean>
   registerTool: (tool: ToolSpec) => Promise<unknown>
   uiLog: (text: string, to: 'debug' | 'transcript') => void
-  runProcess: (argv: readonly string[]) => Promise<{ exitCode: number; stderr: string }>
+  runProcess: (argv: readonly string[], stdin?: string) => Promise<{ exitCode: number; stdout: string; stderr: string }>
   check: (tool: string, input: unknown) => Promise<{ decision: 'allow' | 'ask' | 'deny'; reason?: string }>
   lastDraft: () => Promise<PlanwiseLastDraft | null>
   setLastDraft: (draft: PlanwiseLastDraft) => Promise<unknown>
@@ -74,7 +76,7 @@ export function hostOf($: EngineInterface): Host {
     exists: (path: string) => $.fs.exists(path),
     registerTool: (tool: ToolSpec) => $.tool.register(tool),
     uiLog: (text: string, to: 'debug' | 'transcript') => $.ui.log(text, { to }),
-    runProcess: (argv: readonly string[]) => $.process.run(argv),
+    runProcess: (argv: readonly string[], stdin?: string) => $.process.run(argv, { stdin }),
     check: (tool: string, input: unknown) => $.tool.check({ tool, input }),
     // The review card reads these two values. Literal refs, as `$.state` requires.
     lastDraft: async () => (await $.state.get({ plugin: 'planwise', key: 'lastDraft' } as const)).value ?? null,
@@ -103,7 +105,7 @@ const pluginVersionOf = async (host: Host): Promise<string> => {
 /** One record of module memory. Every field resets with the process. */
 const session: Session = { mode: 'off', draftsDir: '', configPath: '', projectRoot: '', draftsRoot: '', calls: 0, notices: 0, resolved: false, found: false }
 
-/** Draft paths reserved by calls still in flight, so two calls in one turn never pick one file. */
+/** Draft paths reserved by calls still in flight, for the write made when no Python starts. */
 const reserved = new Set<string>()
 
 /** The roots a draft's text must not show: the session's, and the main checkout's in a worktree. */
@@ -154,6 +156,29 @@ const offerQueued = async (host: Host): Promise<void> => {
   } catch (err) {
     failed(host, 'queued draft load', errText(err))
   }
+}
+
+/** The drafts dir of the resolved session, or an empty string while no planwise config is found. */
+export const draftsDirOf = (): string => (session.found ? session.draftsDir : '')
+
+/**
+ * The session root moves when the session enters a git worktree, and a module reload re-runs
+ * register() without a new session.start. This reads the root and resolves the config again when
+ * it is unresolved or the root changed. It logs a failure and never throws.
+ */
+const resolveIfStale = async (host: Host): Promise<void> => {
+  try {
+    const root = await host.root()
+    if (!session.resolved || slashed(root) !== slashed(session.projectRoot)) await resolveSession(host)
+  } catch (err) {
+    failed(host, 'config resolution', errText(err))
+  }
+}
+
+/** draftsDirOf for the root the session is in now. */
+export async function currentDraftsDir(host: Host): Promise<string> {
+  await resolveIfStale(host)
+  return draftsDirOf()
 }
 
 /**
@@ -210,19 +235,58 @@ async function resolveSession(host: Host): Promise<void> {
 }
 
 /**
- * Runs the helper's admit command. It tries each interpreter name in turn and moves on only when
- * the run rejects (the process could not start). A non-zero exit is a result, not a rejection.
+ * Runs the helper's create command with the draft text on stdin. It tries each interpreter name in
+ * turn and moves on only when the process could not start: the run rejects at once, or it exits
+ * with the Windows not-found code. Any other non-zero exit is a result. A late rejection is a run
+ * that was stopped, which may have written the draft, so it is thrown and never retried. Null
+ * means no interpreter started.
  */
-const admit = async (host: Host, path: string): Promise<{ exitCode: number; stderr: string }> => {
-  let last: unknown
+const create = async (host: Host, text: string): Promise<{ exitCode: number; stdout: string; stderr: string } | null> => {
+  let why = ''
   for (const python of PYTHON_CANDIDATES) {
+    const started = Date.now()
     try {
-      return await host.runProcess([python, host.pluginRoot() + '/scripts/feedback_drafts.py', 'admit', path, '--feedback-dir', session.draftsDir])
+      const run = await host.runProcess([python, host.pluginRoot() + '/scripts/feedback_drafts.py', 'create', '--feedback-dir', session.draftsDir], text)
+      if (run.exitCode !== WINDOWS_NOT_FOUND) return run
+      why = firstLine(run.stderr) || `${python} exit ${run.exitCode}`
     } catch (err) {
-      last = err
+      if (Date.now() - started >= START_FAILURE_WINDOW_MS) throw err
+      why = errText(err)
     }
   }
-  throw last
+  host.uiLog('draft feedback: no python could start; writing the draft unchecked: ' + why, 'debug')
+  return null
+}
+
+/** The id and file name on the last line create printed, or null when the line is not there. */
+const createdOf = (stdout: string): { draftId: string; name: string } | null => {
+  const match = /^admitted (\S+) (\S+)$/.exec(stdout.trimEnd().split(/\r?\n/).pop() ?? '')
+  return match === null ? null : { draftId: match[1]!, name: match[2]! }
+}
+
+/**
+ * Writes the draft without the helper, which is what is left when no Python starts. A name is free
+ * when no call in flight reserved it and no file exists. The second reserved check and the add run
+ * with no await between them, so two calls in one process cannot both win. Two processes still can:
+ * the engine's write has no exclusive create. Returns the path, or null when every name is taken.
+ */
+const writeUnchecked = async (host: Host, date: string, kind: Kind, slug: string, text: string): Promise<string | null> => {
+  for (let n = 1; n <= 9; n++) {
+    const candidate = session.draftsDir + '/' + draftFileName(date, kind, slug, n)
+    if (reserved.has(candidate)) continue
+    const taken = await host.exists(candidate)
+    if (taken || reserved.has(candidate)) continue
+    reserved.add(candidate)
+    try {
+      // fs.write creates missing parent directories. It is not atomic and takes no mode;
+      // a partial file fails the helper's head parse and is skipped.
+      await host.write(candidate, text)
+    } finally {
+      reserved.delete(candidate)
+    }
+    return candidate
+  }
+  return null
 }
 
 /** Registers the matched tool.call hook only. The session.start work runs through onSessionStart. */
@@ -231,16 +295,9 @@ export function register(on: On, options: PluginOptions) {
 
   on('tool.call', { tool: FULL_TOOL_NAME }, async ($, e, next) => {
     const host = hostOf($)
-    // The session root moves when the session enters a git worktree, and a module reload re-runs
-    // register() without a new session.start. Read the root on every call and re-resolve the
-    // config when it is unresolved or the root changed. Never register the tool again, and deny
-    // only when it is off or no config exists.
-    try {
-      const root = await host.root()
-      if (!session.resolved || slashed(root) !== slashed(session.projectRoot)) await resolveSession(host)
-    } catch (err) {
-      failed(host, 'config resolution', errText(err))
-    }
+    // Resolve again when the config is stale (see resolveIfStale). Never register the tool again,
+    // and deny only when it is off or no config exists.
+    await resolveIfStale(host)
     if (!session.resolved || !session.found || session.mode === 'off') return { deny: 'draft_feedback: the tool is not active in this session' }
     if (session.calls >= MAX_CALLS_PER_SESSION) return { deny: CAP_TEXT }
     const checked = validateInput(e as unknown as Record<string, unknown>)
@@ -253,54 +310,46 @@ export function register(on: On, options: PluginOptions) {
 
     const [sessionId, model, cli, osName, pluginVersion] = await Promise.all([host.sessionId(), host.model(), host.version(), host.osEnv(), pluginVersionOf(host)])
     const createdAt = new Date().toISOString()
-    const slug = slugOf(checked.title)
-    // A candidate is free when no in-flight call reserved it and no file exists. The second
-    // reserved check and the add run with no await between them, so two calls cannot both win.
-    let path = ''
-    for (let n = 1; n <= 9; n++) {
-      const candidate = session.draftsDir + '/' + draftFileName(createdAt.slice(0, 10), checked.kind, slug, n)
-      if (reserved.has(candidate)) continue
-      const taken = await host.exists(candidate)
-      if (taken || reserved.has(candidate)) continue
-      reserved.add(candidate)
-      path = candidate
-      break
-    }
-    if (path === '') return { deny: 'draft_feedback: too many drafts share this title today' }
-
     const draftId = globalThis.crypto.randomUUID()
-    try {
-      const text = renderDraft(
+    const text = scrub(
+      renderDraft(
         { draftId, createdAt, producer: 'hooks-tool', sourceSessionId: sessionId, pluginVersion, cliVersion: cli.version, model, os: osName === 'Windows_NT' ? 'windows' : 'posix', status: 'queued' },
         { kind: checked.kind, title: checked.title, fields: checked.fields, subcommand: checked.subcommand },
-      )
-      // fs.write creates missing parent directories. It is not atomic and takes no mode;
-      // a partial file fails the helper's head parse and is skipped.
-      await host.write(path, scrub(text, hiddenRoots()))
+      ),
+      hiddenRoots(),
+    )
 
-      try {
-        const run = await admit(host, path)
-        if (run.exitCode === 2) {
-          host.uiLog('draft feedback: admit exit 2: ' + run.stderr, 'debug')
-          return { deny: firstLine(run.stderr) || 'draft_feedback: name mismatch; the file was left in place' }
-        }
-        if (run.exitCode === 3) {
-          host.uiLog('draft feedback: admit exit 3: ' + run.stderr, 'debug')
-          return { deny: firstLine(run.stderr) || 'draft_feedback: the draft was refused' }
-        }
-        if (run.exitCode !== 0) host.uiLog(`draft feedback: admit exit ${run.exitCode}: ${run.stderr}`, 'debug')
-        if (run.exitCode === 0) await noteCard(host, { draftId, kind: checked.kind, title: checked.title, preview: previewSourceOf(checked.kind, checked.fields, hiddenRoots()), feedbackDir: session.draftsDir, sessionId, configPath: session.configPath })
-      } catch (err) {
-        host.uiLog('draft feedback: no python could start; the draft was kept: ' + errText(err), 'debug')
-      }
-
-      const loud = session.mode === 'notify' && session.notices < MAX_NOTICES
-      if (loud) session.notices += 1
-      host.uiLog(NOTICE_TEXT(relativeDraftPath(session.draftsRoot, path)), loud ? 'transcript' : 'debug')
-      return { result: RESULT_TEXT }
-    } finally {
-      reserved.delete(path)
+    let path = ''
+    let run: Awaited<ReturnType<typeof create>>
+    try {
+      run = await create(host, text)
+    } catch (err) {
+      host.uiLog('draft feedback: create did not finish: ' + errText(err), 'debug')
+      return { deny: 'draft_feedback: the helper did not finish; the draft may not be saved' }
     }
+    if (run === null) {
+      const written = await writeUnchecked(host, createdAt.slice(0, 10), checked.kind, slugOf(checked.title), text)
+      if (written === null) return { deny: 'draft_feedback: too many drafts share this title today' }
+      path = written
+    } else if (run.exitCode !== 0) {
+      host.uiLog(`draft feedback: create exit ${run.exitCode}: ${run.stderr}`, 'debug')
+      const fallback = run.exitCode === 3 ? 'draft_feedback: the draft was refused' : 'draft_feedback: the draft was not written'
+      return { deny: firstLine(run.stderr) || fallback }
+    } else {
+      const made = createdOf(run.stdout)
+      if (made === null) {
+        host.uiLog('draft feedback: create exit 0 with no admitted line: ' + run.stdout, 'debug')
+        return { deny: 'draft_feedback: the helper did not confirm a saved draft' }
+      }
+      path = session.draftsDir + '/' + made.name
+      // The helper may have replaced a colliding id, so the card takes the id it printed.
+      await noteCard(host, { draftId: made.draftId, kind: checked.kind, title: checked.title, preview: previewSourceOf(checked.kind, checked.fields, hiddenRoots()), feedbackDir: session.draftsDir, sessionId, configPath: session.configPath })
+    }
+
+    const loud = session.mode === 'notify' && session.notices < MAX_NOTICES
+    if (loud) session.notices += 1
+    host.uiLog(NOTICE_TEXT(relativeDraftPath(session.draftsRoot, path)), loud ? 'transcript' : 'debug')
+    return { result: RESULT_TEXT }
   }).catch(($, e, next) => {
     failed(hostOf($), 'tool.call hook', failureText(next.error))
     return next.called ? next(e) : { deny: 'draft_feedback: internal error; draft not written' }

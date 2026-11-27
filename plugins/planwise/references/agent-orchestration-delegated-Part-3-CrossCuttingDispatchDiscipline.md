@@ -34,7 +34,7 @@ A DELEGATED runner receives the Recovery file, whose Step Completion Status tabl
 |---|---|
 | **Opener** (first sentence — the frame that competes) | `You are dispatched to execute ONE task: {task-id}. The session has other tasks; you DO NOT execute them.` |
 | **Hard-constraint block** | `Execute ONLY {task-id}. Do not start any other task in the session even if the Recovery file lists it as PENDING. Files you may write: {explicit list}.` |
-| **Return instructions** | `Return after writing the single expected output file. Do NOT proceed to task {n+1}.` |
+| **Return instructions** | `Return after writing every file on this task's Output line. Do NOT proceed to task {n+1}.` |
 
 Never open with a session-scoped identity (*"You are a task-runner in session {session-id}"*) without the task-scoped clause in the same sentence. That framing is the specific signal measured to override a correctly-stated single-task constraint stated only once.
 
@@ -58,7 +58,7 @@ Never open with a session-scoped identity (*"You are a task-runner in session {s
 >  you DO NOT execute them.
 >  … HARD CONSTRAINTS: Execute ONLY {task-id}. Do not start any other task even if
 >    Recovery lists it as PENDING. Files you may write: {explicit list}.
->  … RETURN: after writing {output-file}, return. Do NOT proceed to task {n+1}."
+>  … RETURN: after writing every Output-line file, return. Do NOT proceed to task {n+1}."
 > ```
 
 This is the over-run counterpart to §1.7's idle-mid-step wake-up. Both break the one-task-per-dispatch contract — one by doing too little, one by doing too much — and §1.17's diagnosis table covers only the first.
@@ -74,6 +74,7 @@ The harness caps a delegated runner by turns, and every Read, Grep, Edit, script
 - Above about 10 runs, split the proofs into their own task. Or name a write-by turn in the spawn prompt, per §1.17.5.
 - §1.17.5 counts per-unit mutation proofs: mutate, run, restore, verify. This count covers single runs. Both apply to one brief.
 - §1.12 gives the tool-call formula. Do not restate it in the brief.
+- Enforced by: `scripts/lint_gate_checks_layers.py` Check 72. It cannot see whether every run is priced.
 
 One session had two tasks that both used far more than their estimates. A handler-wiring task estimated at ~112K self-reported 294,384 tokens (2.6x). It stopped at the 50-turn limit after 87 tool uses. A sprint-close battery estimated at ~65K self-reported 175,819 tokens (2.7x) over 70 tool uses. The first brief required 4 cited commands run once on a scratch copy, a per-file size projection, a six-file pytest set before and after the edits, an affected-suite run and the identifier battery. The estimate priced none of them. The runner used its 50 turns after writing every deliverable, so the orchestrator accepted the task from disk with no status block.
 
@@ -92,6 +93,7 @@ CORRECT -- the estimate counts the proof runs, in the template-compatible addend
 - A brief with more than about four write deliverables plus a suite gate does not fit a 50-turn cap, however the work is ordered.
 - Split it at scaffold along the deliverable seams. Make a census or sweep table its own task, which also gives a later delete a reviewed input. Make a module and its tests a second task. Make the switch, the deletions and the suite gate a third.
 - On a cap hit, measure the landed state per §1.17.6. Record the deliverable count beside the measured tool-use count, so the next scaffold can calibrate.
+- Enforced by: `scripts/lint_gate_checks_layers.py` Check 73. It counts code spans on the Output line, not kinds of deliverable.
 
 One Opus brief estimated at ~85K asked for six deliverables. They were a 102-row blast-radius table from two sweeps, a new 500-line module with four subcommands, a writer switch and deletions in a 1,300-line script, a new test file with five test groups, dispositions applied to three existing test files, and a full-suite gate. The spawn prompt carried a turn budget: evidence by turn 12, the table by turn 15, then each file in one Write call. The runner stopped at the 50-turn limit after 105 tool uses and 258K tokens, with no status block. Every deliverable was on disk. Only ruff, the suite and the report were missing. An earlier task in the same sprint had stopped the same way the day before, at 83 tool uses.
 
@@ -113,6 +115,7 @@ Task 1c: switch + deletions + dispositions + full suite (Opus), reads 1a's table
 - Read the upstream list size before dispatch. It costs one count.
 - Keep an independent sample in the native tool, so the batch reader is not the only instrument.
 - An author-pinned batch form is the pinned gate. A runner that swaps a per-item gate for its own reader on its own initiative reports the swap. Three runners making the same swap is a signal about the brief, not three separate shortcuts.
+- Enforced by: `scripts/lint_gate_checks_layers.py` Check 74. It cannot see a gate worded without the word `native`.
 
 A sweep step told the runner to count every conservation term with the native `Grep`, one call per term. The term lists did not exist at scaffold, because each compress task derived its own list from its file. They came back at 130, 52 and 76 terms, which is 258 calls against a turn cap of about 50. All three compress runners had already dropped the per-term `Grep` for one Python reader to fit their own budgets, and said so in their Outputs. The orchestrator caught the gap before dispatch and routed a spec delta. One reader does the bulk count, and the sweep's own three derived terms per file keep the native `Grep`.
 
