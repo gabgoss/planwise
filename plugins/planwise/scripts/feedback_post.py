@@ -60,6 +60,8 @@ THRESHOLD = 3
 SELF_DUPLICATE_MINUTES = 10
 # A comment goes only to a candidate matched on an identifier key, never on title words alone.
 COMMENT_MIN_KEY_SCORE = 3
+# A comment also needs one word stem, this many characters long, shared by the draft and candidate titles.
+SUBJECT_STEM = 4
 # At most this many candidates get a live `gh issue view` before the route falls back to a new issue.
 CONFIRM_MAX = 3
 VIEW_FIELDS = "number,state,labels"
@@ -746,13 +748,33 @@ def comment_allowed(view: "dict | None") -> bool:
     return view is not None and view["state"] == "OPEN" and not LIFECYCLE_LABELS.intersection(view["labels"])
 
 
+def _subject_stems(text: str) -> "set[str]":
+    """The first SUBJECT_STEM characters of each word of 4 or more characters that is not a stopword."""
+    words = re.split(r"[^a-z0-9]+", text.lower())
+    return {word[:SUBJECT_STEM] for word in words if len(word) >= 4 and word not in STOPWORDS}
+
+
+def shares_subject(draft_title: str, candidate_title: str, keys: "list[str]") -> bool:
+    """True when the two titles share a word stem once the words of the matched identifier keys are removed.
+
+    A shared identifier says the two reports touch the same file or command. It does not say they
+    report the same problem, so the key's own words cannot count as the shared subject.
+    """
+    key_stems: set[str] = set()
+    for key in keys:
+        key_stems |= _subject_stems(key)
+    return bool((_subject_stems(draft_title) - key_stems) & (_subject_stems(candidate_title) - key_stems))
+
+
 def choose_target(gh: "list[str] | None", repo: str, report: dict) -> "tuple[int | None, dict | None]":
     """Return (comment target, related issue) for a scan result.
 
-    The ranked candidates are read in order. One matched only on title words is passed over. A
-    candidate the scan lists as open gets a live read, for at most CONFIRM_MAX candidates, and the
-    first one `comment_allowed` accepts is the target. With no target, the related issue is the first
-    identifier-matched candidate, as `{"number", "state"}`: the new issue names it.
+    The ranked candidates are read in order. One matched only on title words is passed over. One
+    whose title shares no subject with the draft title (`shares_subject`) gets no live read and can be
+    the related issue only. A candidate the scan lists as open gets a live read, for at most
+    CONFIRM_MAX candidates, and the first one `comment_allowed` accepts is the target. With no
+    target, the related issue is the first identifier-matched candidate, as `{"number", "state"}`:
+    the new issue names it.
     """
     if gh is None or report.get("outcome") not in ("FOUND", "INCOMPLETE"):
         return None, None
@@ -765,6 +787,12 @@ def choose_target(gh: "list[str] | None", repo: str, report: dict) -> "tuple[int
         if (entry.get("best_key_score") or 0) < COMMENT_MIN_KEY_SCORE:
             continue
         state = str(entry.get("state") or "").upper()
+        matched = entry.get("matched_keys") or []
+        keys = [item["key"] for item in report.get("keys") or [] if item.get("key") in matched]
+        if not shares_subject(report.get("title") or "", entry.get("title") or "", keys):
+            if related is None:
+                related = {"number": number, "state": state}
+            continue
         if state == "OPEN" and confirmed < CONFIRM_MAX:
             confirmed += 1
             view = confirm_issue(gh, repo, number)
@@ -909,7 +937,12 @@ def cmd_post(args: argparse.Namespace) -> int:
 
     # The post succeeded. Nothing from here on may turn it into a failure exit.
     url = _post_url(result.stdout)
-    where = f"as a comment on #{number}" if route == "comment" else "as a new issue"
+    where = "as a new issue"
+    if route == "comment":
+        # The comment target was confirmed open by its live read, so its state is always open.
+        target_title = next((str(entry.get("title") or "") for entry in report.get("ranked") or []
+                             if entry.get("number") == number), "")
+        where = f'as a comment on #{number} "{target_title}" (open)' if target_title else f"as a comment on #{number} (open)"
     note = ""
     if related is not None:
         state = str(related.get("state") or "").lower()

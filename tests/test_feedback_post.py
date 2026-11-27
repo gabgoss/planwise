@@ -436,7 +436,7 @@ def test_a_ranked_candidate_is_answered_with_a_comment(tmp_path):
     env, log = url_env(tmp_path, scenario=str(scenario))
     result = post(config, env)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert result.stdout == f"Feedback posted to {REPO} as a comment on #42: {COMMENT_URL}\n"
+    assert result.stdout == f"Feedback posted to {REPO} as a comment on #42 \"Queue listing\" (open): {COMMENT_URL}\n"
     assert posts(log) == (0, 1)
     # The live read ran once, before the post, with the three fields the route reads.
     assert view_calls(log) == [["issue", "view", "42", "-R", REPO, "--json", "number,state,labels"]]
@@ -488,7 +488,7 @@ def test_a_label_outside_the_lifecycle_set_does_not_stop_a_comment(tmp_path):
     env, log = url_env(tmp_path, scenario=match_scenario(tmp_path, [{**OPEN_42, "labels": ["bug", "enhancement"]}]))
     result = post(config, env)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert result.stdout == f"Feedback posted to {REPO} as a comment on #42: {COMMENT_URL}\n"
+    assert result.stdout == f"Feedback posted to {REPO} as a comment on #42 \"Queue listing\" (open): {COMMENT_URL}\n"
     assert posts(log) == (0, 1)
 
 
@@ -499,11 +499,38 @@ def test_the_first_candidate_that_can_take_a_comment_is_the_target(tmp_path):
     env, log = url_env(tmp_path, scenario=match_scenario(tmp_path, rows))
     result = post(config, env)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert result.stdout == f"Feedback posted to {REPO} as a comment on #42: {COMMENT_URL}\n"
+    assert result.stdout == f"Feedback posted to {REPO} as a comment on #42 \"Queue listing\" (open): {COMMENT_URL}\n"
     assert posts(log) == (0, 1)
     assert [argv[2] for argv in view_calls(log)] == ["42"]
     [promoted] = promoted_files(tmp_path)
     assert not promoted.read_text(encoding="utf-8").startswith("Possibly related")
+
+
+def test_a_key_match_on_a_different_subject_gets_a_new_issue_that_names_it(tmp_path):
+    # #42 matches the draft's file name, so its key score is 3, but its title shares no subject with the
+    # draft title. It gets no live read and no comment, and the new issue names it.
+    rows = [{"number": 42, "title": "dispatch_preflight overlap --running none form", "state": "OPEN", "url": "u42", "age_days": 200}]
+    config, _draft = post_setup(tmp_path)
+    env, log = url_env(tmp_path, scenario=match_scenario(tmp_path, rows))
+    result = post(config, env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == f"Feedback posted to {REPO} as a new issue: {ISSUE_URL} (related to #42, which is open)\n"
+    assert posts(log) == (1, 0)
+    assert view_calls(log) == []
+    [promoted] = promoted_files(tmp_path)
+    assert promoted.read_text(encoding="utf-8").startswith("Possibly related to #42 (open).\n\n")
+    assert not list((tmp_path / "Feedback" / "Feedback-Drafts").glob("*-comment-*"))
+
+
+@pytest.mark.parametrize("draft_title,candidate_title,keys,expected", [
+    ("List skips a queued draft", "Queue listing", ["feedback_drafts.py"], True),
+    ("Draft listing skips queued drafts", "Queue listing", ["feedback_drafts.py"], True),
+    ("dispatch_preflight siblings misses a second path on one Files Modified line",
+     "dispatch_preflight overlap --running none form", ["dispatch_preflight.py"], False),
+    ("Add one session to a built plan", "build_plan tool needs the whole spec object", ["build_plan"], False),
+], ids=["same-subject", "same-subject-plural", "shared-file-only", "shared-tool-only"])
+def test_shares_subject_ignores_the_words_of_the_matched_keys(draft_title, candidate_title, keys, expected):
+    assert fp.shares_subject(draft_title, candidate_title, keys) is expected
 
 
 def test_a_match_on_title_words_alone_never_takes_a_comment(tmp_path):
